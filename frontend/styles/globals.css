@@ -1,0 +1,228 @@
+/* Premium Design System - Pure Glassmorphism & Liquidglass style for MetisClip */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap');
+
+:root {
+  /* Color Palette tokens - Liquidglass high-contrast primary values */
+  --bg-deep: #030307;
+  --bg-dark: #07070F;
+  --bg-glass: rgba(255, 255, 255, 0.03);
+  --bg-glass-hover: rgba(255, 255, 255, 0.06);
+  --bg-glass-active: rgba(255, 255, 255, 0.09);
+  
+  --border-glass: rgba(255, 255, 255, 0.08);
+  --border-glass-glow: rgba(24, 86, 255, 0.3);
+  
+  --primary: #1856FF;        /* Liquid Luminous Blue */
+  --primary-glow: rgba(24, 86, 255, 0.4);
+  --primary-hover: #4075FF;
+  
+  --accent: #07CA6B;         /* Saturated Success Green */
+  --accent-glow: rgba(7, 202, 107, 0.35);
+  
+  --warning: #E89558;        /* Warm Amber */
+  --danger: #EA2143;         /* Saturated Crimson Red */
+  
+  --text-primary: #F8FAFC;   /* Soft Ice White */
+  --text-muted: #64748B;     /* Slate */
+  --text-dim: #94A3B8;       /* Light Slate */
+  
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: 'Plus Jakarta Sans', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  
+  --transition-smooth: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-fast: all 0.2s ease;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-deep);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+  background-image: 
+    radial-gradient(circle at 10% 20%, rgba(24, 86, 255, 0.07) 0%, transparent 40%),
+    radial-gradient(circle at 90% 80%, rgba(7, 202, 107, 0.04) 0%, transparent 40%);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+/* Glassmorphism Frosted Panels with Translucent Layers & Subtly Luminous Borders */
+.glass-panel {
+  background: var(--bg-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-glass);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.25);
+  transition: var(--transition-smooth);
+}
+
+.glass-panel:hover {
+  background: var(--bg-glass-hover);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.35);
+}
+
+/* Glowing, state-of-the-art Glassmorphism cards */
+.glass-card-glowing {
+  background: rgba(7, 7, 15, 0.65);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-glass);
+  border-radius: 20px;
+  box-shadow: 0 15px 45px rgba(0, 0, 0, 0.4);
+  position: relative;
+  overflow: hidden;
+  transition: var(--transition-smooth);
+}
+
+.glass-card-glowing::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--primary), var(--accent), transparent);
+  opacity: 0.8;
+}
+
+.glass-card-glowing:hover {
+  transform: translateY(-4px);
+  border-color: rgba(24, 86, 255, 0.35);
+  box-shadow: 0 20px 40px rgba(24, 86, 255, 0.12);
+}
+
+/* Interactive elements buttons with smooth sliding glass reflection */
+.btn-primary {
+  background: linear-gradient(135deg, var(--primary), #003cc2);
+  color: #FFFFFF;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 12px 24px;
+  font-weight: 600;
+  border-radius: 12px;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  transition: var(--transition-smooth);
+  box-shadow: 0 4px 15px var(--primary-glow);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(24, 86, 255, 0.5);
+  background: linear-gradient(135deg, var(--primary-hover), var(--primary));
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+.btn-secondary {
+  background: var(--bg-glass);
+  border: 1px solid var(--border-glass);
+  color: var(--text-primary);
+  padding: 12px 24px;
+  font-weight: 600;
+  border-radius: 12px;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  transition: var(--transition-smooth);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-secondary:hover {
+  background: var(--bg-glass-hover);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+}
+
+.btn-secondary:active {
+  transform: translateY(0);
+}
+
+/* Input Fields styling - Translucent and luminous on focus */
+.glass-input {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+  padding: 14px 18px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  width: 100%;
+  transition: var(--transition-smooth);
+}
+
+.glass-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 15px rgba(24, 86, 255, 0.25);
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.glass-input::placeholder {
+  color: var(--text-muted);
+}
+
+/* Skeleton loader for pipeline activities */
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-glass) 25%, var(--bg-glass-hover) 50%, var(--bg-glass) 75%);
+  background-size: 200% 100%;
+  animation: loading-skeleton 1.5s infinite;
+  border-radius: 8px;
+}
+
+@keyframes loading-skeleton {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Glow Badge for high virality scoring */
+.viral-badge {
+  background: rgba(7, 202, 107, 0.1);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: var(--font-display);
+  box-shadow: 0 0 15px rgba(7, 202, 107, 0.15);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-deep);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-glass);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary);
+}
