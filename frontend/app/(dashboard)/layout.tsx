@@ -6,6 +6,7 @@ import { LogOut, LayoutDashboard, Sparkles, Film, Calendar, Settings, Video, Bot
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { Providers } from '@/components/Providers'
 import { AgentSwitcher } from '@/components/ui/AgentSwitcher'
+import { NavLink } from '@/components/ui/NavLink'
 
 export default function DashboardLayout({
   children,
@@ -71,29 +72,16 @@ export default function DashboardLayout({
           {/* Nav List */}
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {navItems.map((item) => {
-              const Icon = item.icon
               const isActive = pathname === item.href
               return (
-                <a
+                <NavLink
                   key={item.name}
                   href={item.href}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    padding: '12px 16px',
-                    borderRadius: '12px',
-                    textDecoration: 'none',
-                    color: isActive ? '#fff' : 'var(--text-dim)',
-                    background: isActive ? 'var(--bg-glass-active)' : 'transparent',
-                    border: isActive ? '1px solid var(--border-glass)' : '1px solid transparent',
-                    fontWeight: isActive ? '600' : '400',
-                    transition: 'var(--transition-fast)'
-                  }}
+                  icon={item.icon}
+                  isActive={isActive}
                 >
-                  <Icon size={18} color={isActive ? 'var(--accent)' : 'var(--text-muted)'} />
-                  <span>{item.name}</span>
-                </a>
+                  {item.name}
+                </NavLink>
               )
             })}
           </nav>

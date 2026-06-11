@@ -343,57 +343,91 @@ export default function ClipEditor({ params }: { params: { id: string } }) {
               }}>
                 {activeWordIndex !== -1 ? (
                   <>
-                    {subtitleStyleMode === 'classic' && (
-                      <span>
-                        {words[activeWordIndex - 1]?.word}{' '}
-                        <span style={{ color: highlightColor }}>
-                          {words[activeWordIndex].word}
-                        </span>{' '}
-                        {words[activeWordIndex + 1]?.word}
+                    {subtitleStyleMode === 'popart' && (
+                      <span style={{ display: 'inline-flex', gap: '8px', alignItems: 'center' }}>
+                        <span style={{ color: fontColor, transform: 'rotate(-2deg)' }}>{words[activeWordIndex - 1]?.word}</span>
+                        <span style={{ color: highlightColor, transform: 'scale(1.2) rotate(-4deg)', display: 'inline-block' }}>{words[activeWordIndex].word}</span>
+                        <span style={{ color: fontColor, transform: 'rotate(-2deg)' }}>{words[activeWordIndex + 1]?.word}</span>
                       </span>
                     )}
 
-                    {subtitleStyleMode === 'neon' && (
-                      <span>
-                        {words[activeWordIndex - 1]?.word}{' '}
-                        <span style={{ 
-                          color: '#fff',
-                          textShadow: `0 0 10px ${highlightColor}, 0 0 20px ${highlightColor}, 0 0 30px ${highlightColor}, 0 0 40px ${highlightColor}` 
-                        }}>
-                          {words[activeWordIndex].word}
-                        </span>{' '}
-                        {words[activeWordIndex + 1]?.word}
+                    {subtitleStyleMode === 'glitch' && (
+                      <span style={{ display: 'inline-flex', gap: '8px', alignItems: 'center' }}>
+                        <span style={{ color: fontColor }}>{words[activeWordIndex - 1]?.word}</span>
+                        <span style={{ color: highlightColor, textShadow: `2px 0 0 #0ff, -2px 0 0 #f00`, transform: 'skewX(-10deg)', display: 'inline-block' }}>{words[activeWordIndex].word}</span>
+                        <span style={{ color: fontColor }}>{words[activeWordIndex + 1]?.word}</span>
                       </span>
                     )}
 
-                    
-                    {subtitleStyleMode === 'hormozi' && (
-                      <span style={{ 
-                        display: 'inline-block',
-                        background: highlightColor,
-                        color: '#000',
-                        padding: '4px 12px',
-                        borderRadius: '8px',
-                        textTransform: 'uppercase',
-                        textShadow: 'none',
-                        transform: 'rotate(-2deg)'
-                      }}>
+                    {subtitleStyleMode === 'cinematic' && (
+                      <span style={{ display: 'inline-flex', gap: '8px', alignItems: 'center', letterSpacing: '6px' }}>
+                        <span style={{ color: fontColor }}>{words[activeWordIndex - 1]?.word}</span>
+                        <span style={{ color: highlightColor }}>{words[activeWordIndex].word}</span>
+                        <span style={{ color: fontColor }}>{words[activeWordIndex + 1]?.word}</span>
+                      </span>
+                    )}
+
+                    {subtitleStyleMode === 'retro' && (
+                      <span style={{ display: 'inline-flex', gap: '8px', alignItems: 'center' }}>
+                        <span style={{ color: fontColor }}>{words[activeWordIndex - 1]?.word}</span>
+                        <span style={{ color: highlightColor, textShadow: `0 0 10px ${highlightColor}, 0 0 20px ${highlightColor}` }}>{words[activeWordIndex].word}</span>
+                        <span style={{ color: fontColor }}>{words[activeWordIndex + 1]?.word}</span>
+                      </span>
+                    )}
+
+                    {subtitleStyleMode === 'typewriter' && (
+                      <span style={{ display: 'inline-flex', gap: '8px', alignItems: 'center' }}>
+                        <span style={{ color: fontColor }}>{words[activeWordIndex - 1]?.word}</span>
+                        <span style={{ color: highlightColor }}>{words[activeWordIndex].word}_</span>
+                        <span style={{ color: fontColor }}>{words[activeWordIndex + 1]?.word}</span>
+                      </span>
+                    )}
+
+                    {subtitleStyleMode === 'boldbox' && (
+                      <span style={{ color: '#000', background: highlightColor, padding: '4px 12px', borderRadius: '4px', textTransform: 'uppercase' }}>
                         {words[activeWordIndex].word}
                       </span>
                     )}
 
-                    {subtitleStyleMode === 'bouncy' && (
+                    {subtitleStyleMode === 'outlineonly' && (
                       <span style={{ display: 'inline-flex', gap: '8px', alignItems: 'center' }}>
-                        <span style={{ opacity: 0.6 }}>{words[activeWordIndex - 1]?.word}</span>
-                        <span style={{ 
-                          color: highlightColor, 
-                          display: 'inline-block',
-                          transform: 'scale(1.2)',
-                          transition: 'transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
-                        }}>
-                          {words[activeWordIndex].word}
-                        </span>
-                        <span style={{ opacity: 0.6 }}>{words[activeWordIndex + 1]?.word}</span>
+                        <span style={{ color: 'transparent', WebkitTextStroke: `2px ${fontColor}` }}>{words[activeWordIndex - 1]?.word}</span>
+                        <span style={{ color: highlightColor, WebkitTextStroke: '2px transparent', display: 'inline-block' }}>{words[activeWordIndex].word}</span>
+                        <span style={{ color: 'transparent', WebkitTextStroke: `2px ${fontColor}` }}>{words[activeWordIndex + 1]?.word}</span>
+                      </span>
+                    )}
+
+                    {subtitleStyleMode === '3dblock' && (
+                      <span style={{ display: 'inline-flex', gap: '8px', alignItems: 'center' }}>
+                        <span style={{ color: fontColor }}>{words[activeWordIndex - 1]?.word}</span>
+                        <span style={{ color: highlightColor, transform: 'translateY(-4px)', display: 'inline-block' }}>{words[activeWordIndex].word}</span>
+                        <span style={{ color: fontColor }}>{words[activeWordIndex + 1]?.word}</span>
+                      </span>
+                    )}
+
+                    {subtitleStyleMode === 'minimalpill' && (
+                      <span style={{ color: highlightColor, background: 'rgba(0,0,0,0.8)', padding: '6px 20px', borderRadius: '30px' }}>
+                        {words[activeWordIndex].word}
+                      </span>
+                    )}
+
+                    {subtitleStyleMode === 'marker' && (
+                      <span style={{ color: '#000', background: highlightColor, padding: '4px 14px', transform: 'rotate(-3deg)', display: 'inline-block' }}>
+                        {words[activeWordIndex].word}
+                      </span>
+                    )}
+
+                    {subtitleStyleMode === 'vaporwave' && (
+                      <span style={{ display: 'inline-flex', gap: '8px', alignItems: 'center' }}>
+                        <span style={{ color: fontColor }}>{words[activeWordIndex - 1]?.word}</span>
+                        <span style={{ color: highlightColor }}>{words[activeWordIndex].word}</span>
+                        <span style={{ color: fontColor }}>{words[activeWordIndex + 1]?.word}</span>
+                      </span>
+                    )}
+
+                    {subtitleStyleMode === 'impactful' && (
+                      <span style={{ color: '#fff', background: highlightColor, padding: '4px 12px', textTransform: 'uppercase' }}>
+                        {words[activeWordIndex].word}
                       </span>
                     )}
                   </>
@@ -479,11 +513,10 @@ export default function ClipEditor({ params }: { params: { id: string } }) {
               
               <SelectField
                 options={[
-                  'Komika-axis', 'Bangers', 'Montserrat', 'Anton', 'Bebas Neue', 'Oswald',
-                  'Roboto Black', 'Impact', 'Comic Sans MS', 'The Bold Font', 'Luckiest Guy',
-                  'Permanent Marker', 'Carter One', 'Fredoka One', 'Righteous', 'Russo One',
-                  'Bungee', 'Alfa Slab One', 'Black Ops One', 'Paytone One', 'Sigmar One',
-                  'Titan One', 'Acme', 'Lilita One'
+                  'Acme', 'Alfa Slab One', 'Anton', 'Bangers', 'Bebas Neue', 'Black Ops One',
+                  'Bungee', 'Carter One', 'Fredoka', 'Knewave', 'Lilita One', 'Luckiest Guy',
+                  'Montserrat', 'Oswald', 'Passion One', 'Paytone One', 'Permanent Marker',
+                  'Righteous', 'Roboto', 'Russo One', 'Sigmar One', 'Titan One'
                 ].map(f => ({ value: f, label: f }))}
                 value={fontFamily}
                 onChange={(e) => setFontFamily(e.target.value)}

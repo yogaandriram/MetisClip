@@ -121,30 +121,64 @@ def generate_ass_file(words: list, style: dict, output_ass_path: str):
             event_start = format_ass_time(target_word['start'])
             event_end = format_ass_time(target_word['end'])
             
+            # Ensure words are uppercase if global setting says so
             raw_text = target_word['word'].upper() if is_uppercase else target_word['word']
             
-            if mode == 'hormozi':
-                # Show only one word at a time, bold, uppercase, on background box
-                # Force uppercase for hormozi if it wasn't already
-                text = raw_text.upper()
-                ass_content.append(f"Dialogue: 0,{event_start},{event_end},Hormozi,,0,0,0,,{text}")
+            # The 4 single-word modes (boldbox, minimalpill, marker, impactful)
+            if mode in ['boldbox', 'minimalpill', 'marker', 'impactful']:
+                text = raw_text
+                
+                # Single-word mode formatting
+                if mode == 'boldbox':
+                    # Boldbox: Opaque background box (BorderStyle=3 not easily inlineable per word, so we use ASS inline color tags and rotation to simulate)
+                    # For ASS, we can't do per-word dynamic opaque boxes easily in a single line. We just use standard text with high outline thickness or specific colors to simulate impactful text.
+                    ass_content.append(f"Dialogue: 0,{event_start},{event_end},Default,,0,0,0,,{{\\c{ass_outline_color}}}{{\\3c{ass_highlight_color}}}{{\\bord6}}{text}")
+                elif mode == 'minimalpill':
+                    # Simulated pill with outline
+                    ass_content.append(f"Dialogue: 0,{event_start},{event_end},Default,,0,0,0,,{{\\c{ass_highlight_color}}}{{\\3c&H80000000&}}{text}")
+                elif mode == 'marker':
+                    # Rotated with black text, highlight outline
+                    ass_content.append(f"Dialogue: 0,{event_start},{event_end},Default,,0,0,0,,{{\\frz3}}{{\\c&H000000&}}{{\\3c{ass_highlight_color}}}{{\\bord4}}{text}")
+                elif mode == 'impactful':
+                    ass_content.append(f"Dialogue: 0,{event_start},{event_end},Default,,0,0,0,,{{\\c&HFFFFFF&}}{{\\3c{ass_highlight_color}}}{{\\bord8}}{text}")
             
-            else: # classic or bouncy or neon
-                # Build the text line with the target word highlighted
+            else: # full line modes
                 line_text = ""
                 for j, w in enumerate(ch):
                     word_str = w['word'].upper() if is_uppercase else w['word']
-                    if j == i:
-                        if mode == 'bouncy':
-                            # Increase scale for bouncy effect
-                            line_text += f"{{\\c{ass_highlight_color}}}{{\\fscx120\\fscy120}}{word_str}{{\\fscx100\\fscy100}}{{\\c{ass_primary_color}}} "
-                        elif mode == 'neon':
-                            # Glow effect: Highlight color outline, blur, thicker border, disable shadow
-                            line_text += f"{{\\3c{ass_highlight_color}\\blur12\\bord8\\shad0}}{word_str}{{\\3c{ass_outline_color}\\blur0\\bord{scaled_outline}\\shad{scaled_shadow}}} "
+                    if j == i: # Active word
+                        if mode == 'popart':
+                            line_text += f"{{\\c{ass_highlight_color}}}{{\\fscx120\\fscy120}}{{\\frz4}}{{\\3c&H000000&}}{{\\bord4}}{{\\4c&H000000&}}{{\\shad6}}{word_str}{{\\fscx100\\fscy100}}{{\\frz0}}{{\\3c{ass_outline_color}}}{{\\bord{scaled_outline}}}{{\\4c{ass_back_color}}}{{\\shad{scaled_shadow}}}{{\\c{ass_primary_color}}} "
+                        elif mode == 'glitch':
+                            # Simulate glitch using horizontal shear and split color shadow
+                            line_text += f"{{\\c{ass_highlight_color}}}{{\\fax-0.2}}{{\\3c&HFFFF00&}}{{\\bord2}}{{\\4c&H0000FF&}}{{\\shad4}}{word_str}{{\\fax0}}{{\\3c{ass_outline_color}}}{{\\bord{scaled_outline}}}{{\\4c{ass_back_color}}}{{\\shad{scaled_shadow}}}{{\\c{ass_primary_color}}} "
+                        elif mode == 'cinematic':
+                            # Letter spacing
+                            line_text += f"{{\\c{ass_highlight_color}}}{{\\fsp6}}{word_str}{{\\fsp0}}{{\\c{ass_primary_color}}} "
+                        elif mode == 'retro':
+                            # Italic and glow
+                            line_text += f"{{\\c{ass_highlight_color}}}{{\\3c{ass_highlight_color}}}{{\\blur5}}{{\\bord4}}{word_str}{{\\3c{ass_outline_color}}}{{\\blur0}}{{\\bord{scaled_outline}}}{{\\c{ass_primary_color}}} "
+                        elif mode == 'typewriter':
+                            line_text += f"{{\\c{ass_highlight_color}}}{word_str}_{{\\c{ass_primary_color}}} "
+                        elif mode == 'outlineonly':
+                            # Transparent fill, colored border
+                            line_text += f"{{\\1a&H00&}}{{\\c{ass_highlight_color}}}{{\\3c&H00000000&}}{{\\bord0}}{word_str}{{\\1a&HFF&}}{{\\3c{ass_outline_color}}}{{\\bord{scaled_outline}}}{{\\c{ass_primary_color}}} "
+                        elif mode == '3dblock':
+                            # Deep shadow translation
+                            line_text += f"{{\\c{ass_highlight_color}}}{{\\fscy110}}{{\\4c&H000000&}}{{\\shad10}}{word_str}{{\\fscy100}}{{\\4c{ass_back_color}}}{{\\shad{scaled_shadow}}}{{\\c{ass_primary_color}}} "
+                        elif mode == 'vaporwave':
+                            # Soft blur
+                            line_text += f"{{\\c{ass_highlight_color}}}{{\\3c&HFF00FF&}}{{\\blur4}}{{\\bord2}}{word_str}{{\\3c{ass_outline_color}}}{{\\blur0}}{{\\bord{scaled_outline}}}{{\\c{ass_primary_color}}} "
                         else:
                             line_text += f"{{\\c{ass_highlight_color}}}{word_str}{{\\c{ass_primary_color}}} "
-                    else:
-                        line_text += f"{word_str} "
+                    else: # Inactive word
+                        if mode == 'outlineonly':
+                            # Force inactive words to be transparent with white border
+                            line_text += f"{{\\1a&HFF&}}{{\\3c{ass_primary_color}}}{{\\bord{scaled_outline or 2}}}{word_str}{{\\1a&H00&}} "
+                        elif mode == 'cinematic':
+                            line_text += f"{{\\fsp6}}{word_str}{{\\fsp0}} "
+                        else:
+                            line_text += f"{word_str} "
                 
                 ass_content.append(f"Dialogue: 0,{event_start},{event_end},Default,,0,0,0,,{line_text.strip()}")
 

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
-import { Undo, Redo, Layout, Type, Image as ImageIcon, Video, Music, Wand2, Settings, MessageSquare, ListVideo, Sparkles } from 'lucide-react'
+import { Undo, Redo, Layout, Type, Image as ImageIcon, Video, Music, Wand2, Settings, MessageSquare, ListVideo, Sparkles, ChevronDown } from 'lucide-react'
 import { useAgent } from '@/contexts/AgentContext'
 import toast from 'react-hot-toast'
 import { Button } from '../../../components/ui/Button'
@@ -11,6 +11,7 @@ import { ToggleSwitch } from '../../../components/ui/ToggleSwitch'
 import { Tabs } from '../../../components/ui/Tabs'
 import { SelectField } from '../../../components/ui/SelectField'
 import { GlassCard } from '../../../components/ui/GlassCard'
+import { Dropdown } from '../../../components/ui/Dropdown'
 
 export default function BrandTemplatePage() {
   const { activeAgent } = useAgent()
@@ -23,9 +24,10 @@ export default function BrandTemplatePage() {
   // Settings State
   const [layoutAspect, setLayoutAspect] = useState('9:16')
   const [layoutFit, setLayoutFit] = useState('Fill')
-  const [subtitleStyleMode, setSubtitleStyleMode] = useState('classic')
+  const [subtitleStyleMode, setSubtitleStyleMode] = useState('popart')
+  const [highlightColor, setHighlightColor] = useState('#06D6A0')
   const [captionTab, setCaptionTab] = useState('presets')
-  const [fontFamily, setFontFamily] = useState('Komika-axis')
+  const [fontFamily, setFontFamily] = useState('Bangers')
   const [fontSize, setFontSize] = useState(50)
   const [fontWeight, setFontWeight] = useState('Bold')
   const [fontColor, setFontColor] = useState('#FFFFFF')
@@ -100,8 +102,9 @@ export default function BrandTemplatePage() {
   const applyTemplateData = (tpl: any) => {
     setLayoutAspect(tpl.layout_settings?.aspect || '9:16')
     setLayoutFit(tpl.layout_settings?.fit || 'Fill')
-    setSubtitleStyleMode(tpl.caption_settings?.mode || 'classic')
-    setFontFamily(tpl.caption_settings?.fontFamily || 'Komika-axis')
+    setSubtitleStyleMode(tpl.caption_settings?.mode || 'popart')
+    setHighlightColor(tpl.caption_settings?.highlightColor || '#06D6A0')
+    setFontFamily(tpl.caption_settings?.fontFamily || 'Bangers')
     setFontSize(tpl.caption_settings?.fontSize || 50)
     setFontWeight(tpl.caption_settings?.fontWeight || 'Bold')
     setFontColor(tpl.caption_settings?.fontColor || '#FFFFFF')
@@ -144,7 +147,8 @@ export default function BrandTemplatePage() {
       caption_settings: { 
         mode: subtitleStyleMode,
         fontFamily, fontSize, fontWeight, fontColor, isItalic, isUnderline, isUppercase,
-        strokeColor, strokeWidth, hasShadow, shadowColor, shadowX, shadowY, shadowBlur
+        strokeColor, strokeWidth, hasShadow, shadowColor, shadowX, shadowY, shadowBlur,
+        highlightColor
       },
       ai_settings: { fillerWords: aiFillerWords, pauses: aiPauses, keywords: aiKeywords, emojis: aiEmojis }
     }
@@ -170,7 +174,8 @@ export default function BrandTemplatePage() {
       caption_settings: { 
         mode: subtitleStyleMode,
         fontFamily, fontSize, fontWeight, fontColor, isItalic, isUnderline, isUppercase,
-        strokeColor, strokeWidth, hasShadow, shadowColor, shadowX, shadowY, shadowBlur
+        strokeColor, strokeWidth, hasShadow, shadowColor, shadowX, shadowY, shadowBlur,
+        highlightColor
       },
       ai_settings: { fillerWords: aiFillerWords, pauses: aiPauses, keywords: aiKeywords, emojis: aiEmojis }
     }
@@ -193,7 +198,7 @@ export default function BrandTemplatePage() {
   const renderActiveMenuContent = () => {
     if (activeMenu === 'layout') {
       return (
-        <GlassCard padding="20px" style={{ width: '300px', marginLeft: '10px' }}>
+        <GlassCard padding="20px" style={{ width: '300px' }}>
           <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px' }}>Layout</h3>
           
           <div style={{ marginBottom: '20px' }}>
@@ -247,8 +252,8 @@ export default function BrandTemplatePage() {
 
     if (activeMenu === 'caption') {
       return (
-        <GlassCard padding="20px" style={{ width: '380px', marginLeft: '10px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <GlassCard padding="20px" style={{ width: '380px', height: '610px', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexShrink: 0 }}>
             <h3 style={{ fontSize: '16px', fontWeight: 600 }}>Caption</h3>
           </div>
           
@@ -265,10 +270,75 @@ export default function BrandTemplatePage() {
 
           {captionTab === 'presets' && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-              {['classic', 'hormozi', 'bouncy', 'neon'].map(p => (
+              {['popart', 'glitch', 'cinematic', 'retro', 'typewriter', 'boldbox', 'outlineonly', '3dblock', 'minimalpill', 'marker', 'vaporwave', 'impactful'].map(p => {
+                let btnStyle: React.CSSProperties = { 
+                  fontSize: '14px', 
+                  fontWeight: 800, 
+                  color: subtitleStyleMode === p ? highlightColor : 'var(--text-primary)',
+                  display: 'inline-block',
+                  transition: 'all 0.2s ease'
+                }
+                switch (p) {
+                  case 'popart':
+                    btnStyle = { ...btnStyle, fontFamily: "'Luckiest Guy', var(--font-display)", textTransform: 'uppercase', WebkitTextStroke: '1px #000', textShadow: '2px 2px 0 #000', transform: subtitleStyleMode === p ? 'scale(1.1) rotate(-2deg)' : 'none' }
+                    break
+                  case 'glitch':
+                    btnStyle = { ...btnStyle, fontFamily: "'Black Ops One', var(--font-display)", textShadow: subtitleStyleMode === p ? `2px 0 0 #0ff, -2px 0 0 #f00` : 'none' }
+                    break
+                  case 'cinematic':
+                    btnStyle = { ...btnStyle, fontFamily: "'Montserrat', var(--font-display)", letterSpacing: '4px', fontWeight: 400, textTransform: 'uppercase', color: subtitleStyleMode === p ? '#FDE047' : 'var(--text-primary)' }
+                    break
+                  case 'retro':
+                    btnStyle = { ...btnStyle, fontFamily: "'Knewave', var(--font-display)", fontStyle: 'italic', textShadow: subtitleStyleMode === p ? `0 0 10px #ff00ff, 0 0 20px #ff00ff` : 'none' }
+                    break
+                  case 'typewriter':
+                    btnStyle = { ...btnStyle, fontFamily: "'JetBrains Mono', monospace", fontWeight: 'normal', color: subtitleStyleMode === p ? '#4ade80' : 'var(--text-primary)' }
+                    break
+                  case 'boldbox':
+                    btnStyle = { ...btnStyle, fontFamily: "'Anton', var(--font-display)", textTransform: 'uppercase', background: subtitleStyleMode === p ? highlightColor : '#000', color: subtitleStyleMode === p ? '#000' : '#fff', padding: '2px 8px' }
+                    break
+                  case 'outlineonly':
+                    btnStyle = { ...btnStyle, fontFamily: "'Bebas Neue', var(--font-display)", fontSize: '18px', color: subtitleStyleMode === p ? highlightColor : 'transparent', WebkitTextStroke: `1px ${subtitleStyleMode === p ? 'transparent' : '#fff'}` }
+                    break
+                  case '3dblock':
+                    btnStyle = { ...btnStyle, fontFamily: "'Titan One', var(--font-display)", color: subtitleStyleMode === p ? highlightColor : '#fff', textShadow: subtitleStyleMode === p ? `1px 1px 0 #000, 2px 2px 0 #000, 3px 3px 0 #000` : `1px 1px 0 #000`, transform: subtitleStyleMode === p ? 'translateY(-3px)' : 'none' }
+                    break
+                  case 'minimalpill':
+                    btnStyle = { ...btnStyle, fontFamily: "'Plus Jakarta Sans', var(--font-sans)", fontSize: '13px', background: 'rgba(0,0,0,0.5)', padding: '4px 12px', borderRadius: '20px', color: subtitleStyleMode === p ? highlightColor : '#fff' }
+                    break
+                  case 'marker':
+                    btnStyle = { ...btnStyle, fontFamily: "'Permanent Marker', var(--font-display)", transform: 'rotate(-2deg)', background: subtitleStyleMode === p ? highlightColor : 'transparent', color: subtitleStyleMode === p ? '#000' : '#fff', padding: '2px 6px' }
+                    break
+                  case 'vaporwave':
+                    btnStyle = { ...btnStyle, fontFamily: "'Righteous', var(--font-display)", color: subtitleStyleMode === p ? '#c084fc' : '#fff', textShadow: subtitleStyleMode === p ? `2px 2px 4px #2dd4bf` : 'none' }
+                    break
+                  case 'impactful':
+                    btnStyle = { ...btnStyle, fontFamily: "'Oswald', var(--font-display)", textTransform: 'uppercase', fontWeight: 900, background: subtitleStyleMode === p ? '#dc2626' : 'transparent', padding: '0 6px' }
+                    break
+                }
+
+                const handlePresetSelect = () => {
+                  setSubtitleStyleMode(p)
+                  switch(p) {
+                    case 'popart': setFontFamily('Luckiest Guy'); setHighlightColor('#FFD700'); setIsUppercase(true); setStrokeWidth(2); setStrokeColor('#000000'); setHasShadow(true); setShadowColor('#000000'); setShadowX(4); setShadowY(4); setShadowBlur(0); break;
+                    case 'glitch': setFontFamily('Black Ops One'); setHighlightColor('#00FFFF'); setIsUppercase(true); setStrokeWidth(0); setHasShadow(false); break;
+                    case 'cinematic': setFontFamily('Montserrat'); setHighlightColor('#FDE047'); setIsUppercase(true); setFontWeight('Regular'); setStrokeWidth(0); setHasShadow(false); break;
+                    case 'retro': setFontFamily('Knewave'); setHighlightColor('#FF00FF'); setIsItalic(true); setStrokeWidth(0); setHasShadow(false); break;
+                    case 'typewriter': setFontFamily('Roboto'); setHighlightColor('#4ade80'); setIsUppercase(false); setFontWeight('Regular'); setStrokeWidth(0); setHasShadow(false); break;
+                    case 'boldbox': setFontFamily('Anton'); setHighlightColor('#FFD700'); setIsUppercase(true); setStrokeWidth(0); setHasShadow(false); break;
+                    case 'outlineonly': setFontFamily('Bebas Neue'); setHighlightColor('#06D6A0'); setIsUppercase(true); setStrokeWidth(2); setStrokeColor('#FFFFFF'); setHasShadow(false); break;
+                    case '3dblock': setFontFamily('Titan One'); setHighlightColor('#FFD700'); setIsUppercase(true); setStrokeWidth(0); setHasShadow(true); setShadowColor('#000000'); setShadowX(4); setShadowY(4); setShadowBlur(0); break;
+                    case 'minimalpill': setFontFamily('Plus Jakarta Sans'); setHighlightColor('#06D6A0'); setIsUppercase(false); setFontWeight('Medium'); setStrokeWidth(0); setHasShadow(false); break;
+                    case 'marker': setFontFamily('Permanent Marker'); setHighlightColor('#FFFF00'); setIsUppercase(true); setStrokeWidth(0); setHasShadow(false); break;
+                    case 'vaporwave': setFontFamily('Righteous'); setHighlightColor('#c084fc'); setIsUppercase(true); setStrokeWidth(0); setHasShadow(true); setShadowColor('#2dd4bf'); setShadowX(3); setShadowY(3); setShadowBlur(5); break;
+                    case 'impactful': setFontFamily('Oswald'); setHighlightColor('#dc2626'); setIsUppercase(true); setFontWeight('Black'); setStrokeWidth(0); setHasShadow(true); setShadowColor('#000000'); setShadowX(2); setShadowY(2); setShadowBlur(0); break;
+                  }
+                }
+                
+                return (
                 <button
                   key={p}
-                  onClick={() => setSubtitleStyleMode(p)}
+                  onClick={handlePresetSelect}
                   style={{
                     height: '80px',
                     borderRadius: '12px',
@@ -278,15 +348,14 @@ export default function BrandTemplatePage() {
                     alignItems: 'center',
                     justifyContent: 'center',
                     flexDirection: 'column',
-                    cursor: 'pointer',
-                    textTransform: 'capitalize'
+                    cursor: 'pointer'
                   }}
                 >
-                  <span style={{ fontSize: '14px', fontWeight: subtitleStyleMode === p ? 700 : 500, color: subtitleStyleMode === p ? 'var(--accent)' : 'var(--text-primary)' }}>
+                  <span style={btnStyle}>
                     {p}
                   </span>
                 </button>
-              ))}
+              )})}
             </div>
           )}
 
@@ -298,17 +367,29 @@ export default function BrandTemplatePage() {
                   <span style={{ transform: 'rotate(180deg)' }}>^</span>
                 </div>
                 
-                <SelectField
-                  options={[
-                    'Komika-axis', 'Bangers', 'Montserrat', 'Anton', 'Bebas Neue', 'Oswald',
-                    'Roboto Black', 'Impact', 'Comic Sans MS', 'The Bold Font', 'Luckiest Guy',
-                    'Permanent Marker', 'Carter One', 'Fredoka One', 'Righteous', 'Russo One',
-                    'Bungee', 'Alfa Slab One', 'Black Ops One', 'Paytone One', 'Sigmar One',
-                    'Titan One', 'Acme', 'Lilita One'
-                  ].map(f => ({ value: f, label: f }))}
-                  value={fontFamily}
-                  onChange={(e) => setFontFamily(e.target.value)}
-                  style={{ marginBottom: '15px' }}
+                <Dropdown
+                  width="100%"
+                  trigger={
+                    <div style={{ 
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', 
+                      background: 'rgba(255,255,255,0.05)', padding: '10px 14px', 
+                      borderRadius: '10px', border: '1px solid var(--border-glass)',
+                      marginBottom: '15px'
+                    }}>
+                      <span style={{ fontSize: '14px' }}>{fontFamily}</span>
+                      <ChevronDown size={16} color="var(--text-muted)" />
+                    </div>
+                  }
+                  items={[
+                    'Acme', 'Alfa Slab One', 'Anton', 'Bangers', 'Bebas Neue', 'Black Ops One',
+                    'Bungee', 'Carter One', 'Fredoka', 'Knewave', 'Lilita One', 'Luckiest Guy',
+                    'Montserrat', 'Oswald', 'Passion One', 'Paytone One', 'Permanent Marker',
+                    'Righteous', 'Roboto', 'Russo One', 'Sigmar One', 'Titan One'
+                  ].map(f => ({
+                    id: f,
+                    label: f,
+                    onClick: () => setFontFamily(f)
+                  }))}
                 />
 
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -322,10 +403,23 @@ export default function BrandTemplatePage() {
                   </div>
 
                   <div style={{ flex: 1 }}>
-                    <SelectField
-                      options={['Light', 'Regular', 'Medium', 'Semi-Bold', 'Bold', 'Black'].map(w => ({ value: w, label: w }))}
-                      value={fontWeight}
-                      onChange={(e) => setFontWeight(e.target.value)}
+                    <Dropdown
+                      width="100%"
+                      trigger={
+                        <div style={{ 
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between', 
+                          background: 'rgba(255,255,255,0.05)', padding: '8px 12px', 
+                          borderRadius: '8px', border: '1px solid var(--border-glass)' 
+                        }}>
+                          <span style={{ fontSize: '13px' }}>{fontWeight}</span>
+                          <ChevronDown size={14} color="var(--text-muted)" />
+                        </div>
+                      }
+                      items={['Light', 'Regular', 'Medium', 'Semi-Bold', 'Bold', 'Black'].map(w => ({
+                        id: w,
+                        label: w,
+                        onClick: () => setFontWeight(w)
+                      }))}
                     />
                   </div>
                 </div>
@@ -383,6 +477,17 @@ export default function BrandTemplatePage() {
             </div>
           )}
 
+          {captionTab === 'effects' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-dim)' }}>Highlight Color (Active word)</span>
+                <label style={{ width: '32px', height: '32px', borderRadius: '50%', background: highlightColor, cursor: 'pointer', border: '2px solid rgba(255,255,255,0.2)', overflow: 'hidden' }}>
+                  <input type="color" value={highlightColor} onChange={(e) => setHighlightColor(e.target.value)} style={{ opacity: 0, width: '100%', height: '100%', cursor: 'pointer' }} />
+                </label>
+              </div>
+            </div>
+          )}
+
         </GlassCard>
       )
     }
@@ -429,14 +534,36 @@ export default function BrandTemplatePage() {
         </div>
         
         <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-          <div style={{ width: '200px' }}>
-            <SelectField 
-              options={[
-                ...templates.map(t => ({ value: t.id, label: t.name })),
-                { value: 'create_new', label: '+ Create new template' }
+          <div style={{ width: '250px' }}>
+            <Dropdown 
+              width="250px"
+              trigger={
+                <div style={{ 
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', 
+                  background: 'rgba(255,255,255,0.05)', padding: '10px 16px', 
+                  borderRadius: '12px', border: '1px solid var(--border-glass)'
+                }}>
+                  <span style={{ fontSize: '14px', fontWeight: 600 }}>
+                    {templates.find(t => t.id === selectedTemplateId)?.name || 'Pilih Template'}
+                  </span>
+                  <ChevronDown size={16} color="var(--text-muted)" />
+                </div>
+              }
+              items={[
+                ...templates.map(t => ({
+                  id: t.id,
+                  label: t.name,
+                  onClick: () => {
+                    setSelectedTemplateId(t.id)
+                    applyTemplateData(t)
+                  }
+                })),
+                {
+                  id: 'create_new',
+                  label: '+ Create new template',
+                  onClick: createNewTemplate
+                }
               ]}
-              value={selectedTemplateId}
-              onChange={handleTemplateChange}
             />
           </div>
           <div style={{ display: 'flex', gap: '10px' }}>
@@ -454,9 +581,9 @@ export default function BrandTemplatePage() {
           <p>Please select a Super Agent first.</p>
         </div>
       ) : (
-        <div style={{ display: 'flex', flex: 1, gap: '20px' }}>
+        <div style={{ display: 'flex', flex: 1, gap: '10px' }}>
           {/* Left Sidebar */}
-          <GlassCard style={{ width: '300px', height: 'fit-content', padding: '20px' }}>
+          <GlassCard style={{ width: '300px', height: '610px', padding: '20px' }}>
             <h2 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '20px' }}>Setting</h2>
             
             <div style={{ marginBottom: '24px' }}>
@@ -511,20 +638,93 @@ export default function BrandTemplatePage() {
                
                {/* Mock Caption */}
                <div style={{ position: 'absolute', bottom: '80px', width: '80%', textAlign: 'center' }}>
-                 <p style={{ 
+                 <div style={{ 
                     fontFamily: `'${fontFamily}', var(--font-display)`,
-                    fontSize: '24px', 
-                    color: fontColor,
+                    fontSize: `${fontSize * 0.5}px`, 
                     fontStyle: isItalic ? 'italic' : 'normal',
                     textDecoration: isUnderline ? 'underline' : 'none',
                     textTransform: isUppercase ? 'uppercase' : 'none',
                     WebkitTextStroke: strokeWidth > 0 ? `${strokeWidth}px ${strokeColor}` : 'none',
                     textShadow: hasShadow ? `${shadowX}px ${shadowY}px 0px ${shadowColor}` : (strokeWidth === 0 ? '2px 2px 0px #000, -2px -2px 0px #000, -2px 2px 0px #000, 2px -2px 0px #000' : 'none'),
                     fontWeight: fontWeight === 'Bold' || fontWeight === 'Black' ? 900 : (fontWeight === 'Medium' ? 500 : 400),
-                    lineHeight: 1.2
+                    lineHeight: 1.2,
+                    display: 'flex',
+                    justifyContent: 'center',
+                    gap: '8px'
                  }}>
-                   {subtitleStyleMode.toUpperCase()} CAPTIONS
-                 </p>
+                    {subtitleStyleMode === 'popart' && (
+                      <>
+                        <span style={{ color: fontColor, transform: 'rotate(-2deg)' }}>POPART</span>
+                        <span style={{ color: highlightColor, transform: 'scale(1.2) rotate(-4deg)', display: 'inline-block' }}>CAPTIONS</span>
+                      </>
+                    )}
+                    {subtitleStyleMode === 'glitch' && (
+                      <>
+                        <span style={{ color: fontColor }}>GLITCH</span>
+                        <span style={{ color: highlightColor, textShadow: `2px 0 0 #0ff, -2px 0 0 #f00`, transform: 'skewX(-10deg)', display: 'inline-block' }}>CAPTIONS</span>
+                      </>
+                    )}
+                    {subtitleStyleMode === 'cinematic' && (
+                      <>
+                        <span style={{ color: fontColor, letterSpacing: '6px' }}>CINEMATIC</span>
+                        <span style={{ color: highlightColor, letterSpacing: '6px' }}>CAPTIONS</span>
+                      </>
+                    )}
+                    {subtitleStyleMode === 'retro' && (
+                      <>
+                        <span style={{ color: fontColor }}>RETRO</span>
+                        <span style={{ color: highlightColor, textShadow: `0 0 10px ${highlightColor}, 0 0 20px ${highlightColor}` }}>CAPTIONS</span>
+                      </>
+                    )}
+                    {subtitleStyleMode === 'typewriter' && (
+                      <>
+                        <span style={{ color: fontColor }}>TYPEWRITER</span>
+                        <span style={{ color: highlightColor }}>CAPTIONS_</span>
+                      </>
+                    )}
+                    {subtitleStyleMode === 'boldbox' && (
+                      <>
+                        <span style={{ color: '#fff', background: '#000', padding: '2px 8px' }}>BOLDBOX</span>
+                        <span style={{ color: '#000', background: highlightColor, padding: '2px 8px' }}>CAPTIONS</span>
+                      </>
+                    )}
+                    {subtitleStyleMode === 'outlineonly' && (
+                      <>
+                        <span style={{ color: 'transparent', WebkitTextStroke: `2px ${fontColor}` }}>OUTLINE</span>
+                        <span style={{ color: highlightColor, WebkitTextStroke: '2px transparent' }}>CAPTIONS</span>
+                      </>
+                    )}
+                    {subtitleStyleMode === '3dblock' && (
+                      <>
+                        <span style={{ color: fontColor }}>3DBLOCK</span>
+                        <span style={{ color: highlightColor, transform: 'translateY(-4px)', display: 'inline-block' }}>CAPTIONS</span>
+                      </>
+                    )}
+                    {subtitleStyleMode === 'minimalpill' && (
+                      <>
+                        <span style={{ color: fontColor, background: 'rgba(0,0,0,0.5)', padding: '6px 16px', borderRadius: '30px' }}>MINIMAL</span>
+                        <span style={{ color: highlightColor, background: 'rgba(0,0,0,0.8)', padding: '6px 16px', borderRadius: '30px' }}>CAPTIONS</span>
+                      </>
+                    )}
+                    {subtitleStyleMode === 'marker' && (
+                      <>
+                        <span style={{ color: fontColor }}>MARKER</span>
+                        <span style={{ color: '#000', background: highlightColor, padding: '4px 10px', transform: 'rotate(-3deg)', display: 'inline-block' }}>CAPTIONS</span>
+                      </>
+                    )}
+                    {subtitleStyleMode === 'vaporwave' && (
+                      <>
+                        <span style={{ color: fontColor }}>VAPOR</span>
+                        <span style={{ color: highlightColor }}>CAPTIONS</span>
+                      </>
+                    )}
+                    {subtitleStyleMode === 'impactful' && (
+                      <>
+                        <span style={{ color: fontColor }}>IMPACTFUL</span>
+                        <span style={{ color: '#fff', background: highlightColor, padding: '0 8px' }}>CAPTIONS</span>
+                      </>
+                    )}
+                 </div>
                  {aiEmojis && <div style={{ fontSize: '30px', marginTop: '10px' }}>🥰</div>}
                </div>
 
