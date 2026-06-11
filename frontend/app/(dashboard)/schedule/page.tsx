@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from 'react'
 import { Calendar, Clock, Flame, Check, AlertTriangle, ShieldCheck, ArrowRight } from 'lucide-react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { useRouter } from 'next/navigation'
+import { useAgent } from '@/contexts/AgentContext'
 import { GlassCard } from '../../../components/ui/GlassCard'
 import { Button } from '../../../components/ui/Button'
 import { Badge } from '../../../components/ui/Badge'
@@ -11,6 +13,8 @@ import { Tabs } from '../../../components/ui/Tabs'
 export default function Schedule() {
   const [activeTab, setActiveTab] = useState('queue')
   const [successScheduled, setSuccessScheduled] = useState(false)
+  const router = useRouter()
+  const { activeAgent } = useAgent()
 
   const tabsOptions = [
     { id: 'queue', label: 'Daftar Antrean Posting' },
@@ -29,6 +33,7 @@ export default function Schedule() {
   const supabase = createClientComponentClient()
   const [scheduledPosts, setScheduledPosts] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isYoutubeConnected, setIsYoutubeConnected] = useState(false)
 
   useEffect(() => {
     async function fetchScheduledPosts() {
@@ -82,11 +87,31 @@ export default function Schedule() {
     fetchScheduledPosts()
   }, [supabase])
 
-  const handleManualTrigger = () => {
-    setSuccessScheduled(true)
-    setTimeout(() => {
-      setSuccessScheduled(false)
-    }, 3000)
+  // Fetch connection status for active agent
+  useEffect(() => {
+    async function checkConnection() {
+      if (!activeAgent) return
+      const { data } = await supabase
+        .from('agent_social_connections')
+        .select('*')
+        .eq('agent_id', activeAgent.id)
+        .eq('platform', 'youtube')
+        .single()
+      
+      setIsYoutubeConnected(!!data)
+    }
+    checkConnection()
+  }, [activeAgent, supabase])
+
+  const handleActionClick = () => {
+    if (isYoutubeConnected) {
+      setSuccessScheduled(true)
+      setTimeout(() => {
+        setSuccessScheduled(false)
+      }, 3000)
+    } else {
+      router.push('/settings')
+    }
   }
 
   return (
@@ -97,9 +122,11 @@ export default function Schedule() {
           <h1 style={{ fontSize: '32px', fontWeight: '800', marginBottom: '8px' }}>Jadwal Postingan AI</h1>
           <p style={{ color: 'var(--text-muted)' }}>Sistem menjadwalkan otomatis berdasarkan jam ramai audiens dari topik video Anda.</p>
         </div>
-        <Button variant="primary" onClick={handleManualTrigger}>
+        <Button variant="primary" onClick={handleActionClick}>
           {successScheduled ? (
             <>Berhasil Menyelaraskan <Check size={16} style={{ marginLeft: '8px' }} /></>
+          ) : isYoutubeConnected ? (
+            'Sinkronkan Postingan'
           ) : (
             'Hubungkan Ke YouTube Channel'
           )}

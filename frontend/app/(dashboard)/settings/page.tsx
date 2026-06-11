@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { Settings, Shield, Key, Sliders, Check, HelpCircle, Video, Bot, Instagram, Smartphone } from 'lucide-react'
 import { useAgent } from '@/contexts/AgentContext'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
@@ -15,6 +16,8 @@ import { Divider } from '../../../components/ui/Divider'
 export default function SettingsPage() {
   const { activeAgent, refreshAgents } = useAgent()
   const supabase = createClientComponentClient()
+  const searchParams = useSearchParams()
+  const router = useRouter()
 
   const [channelId, setChannelId] = useState('')
   const [isYoutubeConnected, setIsYoutubeConnected] = useState(false)
@@ -32,6 +35,33 @@ export default function SettingsPage() {
   const [defaultKeywords, setDefaultKeywords] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [isSaved, setIsSaved] = useState(false)
+
+  // Handle Composio connection callback
+  useEffect(() => {
+    const connectedApp = searchParams.get('composio_connected')
+    if (connectedApp && activeAgent) {
+      toast.loading(`Menyinkronkan status ${connectedApp}...`, { id: 'sync' })
+      fetch('/api/composio/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId: activeAgent.id, appName: connectedApp })
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            toast.success(`Berhasil menyambungkan ${connectedApp}!`, { id: 'sync' })
+            checkSocialConnections(activeAgent.id)
+          } else {
+            toast.error(data.error || 'Gagal menyinkronkan koneksi', { id: 'sync' })
+          }
+          router.replace('/settings', { scroll: false })
+        })
+        .catch(err => {
+          toast.error('Gagal menyinkronkan dengan server', { id: 'sync' })
+          router.replace('/settings', { scroll: false })
+        })
+    }
+  }, [searchParams, activeAgent, router])
 
   // Load active agent data
   useEffect(() => {
@@ -51,25 +81,47 @@ export default function SettingsPage() {
 
   const checkSocialConnections = async (agentId: string) => {
     try {
-      const platforms = ['YOUTUBE', 'TIKTOK', 'INSTAGRAM']
-      
-      for (const platform of platforms) {
-        const res = await fetch(`/api/composio/status?agentId=${agentId}&appName=${platform}`)
-        const data = await res.json()
+      const { data: connections, error } = await supabase
+        .from('agent_social_connections')
+        .select('*')
+        .eq('agent_id', agentId)
 
-        if (platform === 'YOUTUBE') {
-          setIsYoutubeConnected(data.isConnected)
-          setChannelId(data.isConnected ? (data.connectedAccountId || 'Terhubung via Composio') : '')
-        } else if (platform === 'TIKTOK') {
-          setIsTiktokConnected(data.isConnected)
-          setTiktokAccountId(data.isConnected ? (data.connectedAccountId || 'Terhubung via Composio') : '')
-        } else if (platform === 'INSTAGRAM') {
-          setIsInstagramConnected(data.isConnected)
-          setInstagramAccountId(data.isConnected ? (data.connectedAccountId || 'Terhubung via Composio') : '')
-        }
+      if (error) {
+        console.error("Gagal mengecek status dari Supabase", error)
+        setIsYoutubeConnected(false)
+        setIsTiktokConnected(false)
+        setIsInstagramConnected(false)
+        return
+      }
+
+      const yt = connections?.find(c => c.platform.toLowerCase() === 'youtube')
+      if (yt) {
+        setIsYoutubeConnected(true)
+        setChannelId(yt.platform_account_name || yt.platform_account_id || 'Terhubung via Supabase')
+      } else {
+        setIsYoutubeConnected(false)
+        setChannelId('')
+      }
+
+      const tt = connections?.find(c => c.platform.toLowerCase() === 'tiktok')
+      if (tt) {
+        setIsTiktokConnected(true)
+        setTiktokAccountId(tt.platform_account_name || tt.platform_account_id || 'Terhubung via Supabase')
+      } else {
+        setIsTiktokConnected(false)
+        setTiktokAccountId('')
+      }
+
+      const ig = connections?.find(c => c.platform.toLowerCase() === 'instagram')
+      if (ig) {
+        setIsInstagramConnected(true)
+        setInstagramAccountId(ig.platform_account_name || ig.platform_account_id || 'Terhubung via Supabase')
+      } else {
+        setIsInstagramConnected(false)
+        setInstagramAccountId('')
       }
     } catch (err) {
-      console.error("Gagal mengecek status Composio", err)
+      console.error("Gagal mengecek status", err)
       setIsYoutubeConnected(false)
       setIsTiktokConnected(false)
       setIsInstagramConnected(false)

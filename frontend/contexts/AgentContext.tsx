@@ -5,6 +5,7 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 
 type Agent = {
   id: string
+  user_id: string
   name: string
   niche: string | null
   default_duration: string

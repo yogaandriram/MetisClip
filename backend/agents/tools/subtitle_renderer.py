@@ -47,8 +47,34 @@ def generate_ass_file(words: list, style: dict, output_ass_path: str):
     ass_highlight_color = hex_to_ass_color(highlight_hex)
     mode = style.get('mode', 'classic')
 
+    # Parse new properties
+    font_color_hex = style.get('font_color', '#FFFFFF')
+    is_italic = style.get('is_italic', False)
+    is_underline = style.get('is_underline', False)
+    font_weight = style.get('font_weight', 'Bold')
+    stroke_color_hex = style.get('stroke_color', '#000000')
+    stroke_width = style.get('stroke_width', 0)
+    has_shadow = style.get('has_shadow', False)
+    shadow_color_hex = style.get('shadow_color', '#000000')
+    shadow_y = style.get('shadow_y', 0)
+    is_uppercase = style.get('is_uppercase', False)
+    
+    ass_primary_color = hex_to_ass_color(font_color_hex)
+    ass_outline_color = hex_to_ass_color(stroke_color_hex)
+    ass_back_color = hex_to_ass_color(shadow_color_hex) if has_shadow else "&HFF000000&" # Transparent if no shadow
+    
+    ass_bold = "-1" if font_weight in ["Bold", "Black", "Semi-Bold"] else "0"
+    ass_italic = "-1" if is_italic else "0"
+    ass_underline = "-1" if is_underline else "0"
+    
+    scaled_outline = int(stroke_width * (1920 / 560)) if stroke_width else 0
+    scaled_shadow = int(shadow_y * (1920 / 560)) if has_shadow and shadow_y else 0
+    
     # Clean trailing '&' for Style definitions
     ass_highlight_style = ass_highlight_color.rstrip('&')
+    ass_primary_style = ass_primary_color.rstrip('&')
+    ass_outline_style = ass_outline_color.rstrip('&')
+    ass_back_style = ass_back_color.rstrip('&')
     
     # ASS Header
     ass_content = [
@@ -60,8 +86,8 @@ def generate_ass_file(words: list, style: dict, output_ass_path: str):
         "",
         "[V4+ Styles]",
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-        f"Style: Default,{font_family},{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H99000000,-1,0,0,0,100,100,0,0,1,4,2,2,40,40,288,1",
-        f"Style: Hormozi,{font_family},{font_size},&H00000000,&H000000FF,{ass_highlight_style},{ass_highlight_style},-1,0,0,0,100,100,0,-2,3,6,0,2,40,40,288,1",
+        f"Style: Default,{font_family},{font_size},{ass_primary_style}&,&H000000FF&,{ass_outline_style}&,{ass_back_style}&,{ass_bold},{ass_italic},{ass_underline},0,100,100,0,0,1,{scaled_outline},{scaled_shadow},2,40,40,288,1",
+        f"Style: Hormozi,{font_family},{font_size},&H00000000,&H000000FF,{ass_highlight_style}&,{ass_highlight_style}&,{ass_bold},{ass_italic},{ass_underline},0,100,100,0,-2,3,6,0,2,40,40,288,1",
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
@@ -95,22 +121,28 @@ def generate_ass_file(words: list, style: dict, output_ass_path: str):
             event_start = format_ass_time(target_word['start'])
             event_end = format_ass_time(target_word['end'])
             
+            raw_text = target_word['word'].upper() if is_uppercase else target_word['word']
+            
             if mode == 'hormozi':
                 # Show only one word at a time, bold, uppercase, on background box
-                text = target_word['word'].upper()
+                # Force uppercase for hormozi if it wasn't already
+                text = raw_text.upper()
                 ass_content.append(f"Dialogue: 0,{event_start},{event_end},Hormozi,,0,0,0,,{text}")
             
-            else: # classic or bouncy
+            else: # classic or bouncy or neon
                 # Build the text line with the target word highlighted
                 line_text = ""
                 for j, w in enumerate(ch):
-                    word_str = w['word']
+                    word_str = w['word'].upper() if is_uppercase else w['word']
                     if j == i:
                         if mode == 'bouncy':
                             # Increase scale for bouncy effect
-                            line_text += f"{{\\c{ass_highlight_color}}}{{\\fscx120\\fscy120}}{word_str}{{\\fscx100\\fscy100}}{{\\c&H00FFFFFF&}} "
+                            line_text += f"{{\\c{ass_highlight_color}}}{{\\fscx120\\fscy120}}{word_str}{{\\fscx100\\fscy100}}{{\\c{ass_primary_color}}} "
+                        elif mode == 'neon':
+                            # Glow effect: Highlight color outline, blur, thicker border, disable shadow
+                            line_text += f"{{\\3c{ass_highlight_color}\\blur12\\bord8\\shad0}}{word_str}{{\\3c{ass_outline_color}\\blur0\\bord{scaled_outline}\\shad{scaled_shadow}}} "
                         else:
-                            line_text += f"{{\\c{ass_highlight_color}}}{word_str}{{\\c&H00FFFFFF&}} "
+                            line_text += f"{{\\c{ass_highlight_color}}}{word_str}{{\\c{ass_primary_color}}} "
                     else:
                         line_text += f"{word_str} "
                 

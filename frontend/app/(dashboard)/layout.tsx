@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { usePathname } from 'next/navigation'
-import { LogOut, LayoutDashboard, Sparkles, Film, Calendar, Settings, Video, Bot } from 'lucide-react'
+import { LogOut, LayoutDashboard, Sparkles, Film, Calendar, Settings, Video, Bot, Layout } from 'lucide-react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { Providers } from '@/components/Providers'
 import { AgentSwitcher } from '@/components/ui/AgentSwitcher'
@@ -16,10 +16,11 @@ export default function DashboardLayout({
   const supabase = createClientComponentClient()
 
   const navItems = [
-    { name: 'Ringkasan', href: '/discover', icon: LayoutDashboard },
+    { name: 'Beranda', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Cari Video', href: '/discover', icon: Sparkles },
     { name: 'Hasil Clip', href: '/clips', icon: Film },
     { name: 'Jadwal Post', href: '/schedule', icon: Calendar },
+    { name: 'Brand Template', href: '/brand-template', icon: Layout },
     { name: 'Pengaturan', href: '/settings', icon: Settings },
   ]
 

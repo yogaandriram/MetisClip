@@ -3,10 +3,14 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { ArrowLeft, Play, Pause, Save, Type, RotateCcw, Palette, Sparkles, Check, Loader2, Download } from 'lucide-react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { useAgent } from '@/contexts/AgentContext'
+import { ToggleSwitch } from '@/components/ui/ToggleSwitch'
+import { SelectField } from '@/components/ui/SelectField'
 
 export default function ClipEditor({ params }: { params: { id: string } }) {
   const supabase = createClientComponentClient()
   const videoRef = useRef<HTMLVideoElement>(null)
+  const { activeAgent } = useAgent()
   
   const [isPlaying, setIsPlaying] = useState(false)
   const [activeWordIndex, setActiveWordIndex] = useState(-1)
@@ -14,6 +18,19 @@ export default function ClipEditor({ params }: { params: { id: string } }) {
   const [fontSize, setFontSize] = useState(46)
   const [fontFamily, setFontFamily] = useState('Montserrat Bold')
   const [subtitleStyleMode, setSubtitleStyleMode] = useState('classic')
+  
+  // Advanced Styles
+  const [fontColor, setFontColor] = useState('#FFFFFF')
+  const [isItalic, setIsItalic] = useState(false)
+  const [isUnderline, setIsUnderline] = useState(false)
+  const [fontWeight, setFontWeight] = useState('Bold')
+  const [strokeColor, setStrokeColor] = useState('#000000')
+  const [strokeWidth, setStrokeWidth] = useState(0)
+  const [hasShadow, setHasShadow] = useState(false)
+  const [shadowColor, setShadowColor] = useState('#000000')
+  const [shadowX, setShadowX] = useState(0)
+  const [shadowY, setShadowY] = useState(0)
+  const [isUppercase, setIsUppercase] = useState(false)
   const [isSaved, setIsSaved] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [thumbnailUrl, setThumbnailUrl] = useState('')
@@ -49,17 +66,42 @@ export default function ClipEditor({ params }: { params: { id: string } }) {
             }
           }
 
+          // Fetch default brand template
+          let defaultTemplate: any = {}
+          if (activeAgent) {
+             const { data: bData } = await supabase.from('brand_templates').select('*').eq('agent_id', activeAgent.id).limit(1).single()
+             if (bData) {
+               defaultTemplate = bData.caption_settings || {}
+             }
+          }
+
           // Parse subtitle_style
+          let mergedStyle = { ...defaultTemplate }
           if (data.subtitle_style) {
             try {
               const parsedStyle = typeof data.subtitle_style === 'string' ? JSON.parse(data.subtitle_style) : data.subtitle_style
-              if (parsedStyle.highlight_color) setHighlightColor(parsedStyle.highlight_color)
-              if (parsedStyle.font_size) setFontSize(parsedStyle.font_size)
-              if (parsedStyle.font_family) setFontFamily(parsedStyle.font_family)
+              mergedStyle = { ...mergedStyle, ...parsedStyle }
             } catch (e) {
               console.error("Failed to parse subtitle_style:", e)
             }
           }
+          
+          if (mergedStyle.highlight_color) setHighlightColor(mergedStyle.highlight_color)
+          if (mergedStyle.font_size) setFontSize(mergedStyle.font_size)
+          if (mergedStyle.font_family) setFontFamily(mergedStyle.font_family)
+          if (mergedStyle.mode) setSubtitleStyleMode(mergedStyle.mode)
+          
+          if (mergedStyle.fontColor !== undefined) setFontColor(mergedStyle.fontColor)
+          if (mergedStyle.isItalic !== undefined) setIsItalic(mergedStyle.isItalic)
+          if (mergedStyle.isUnderline !== undefined) setIsUnderline(mergedStyle.isUnderline)
+          if (mergedStyle.fontWeight !== undefined) setFontWeight(mergedStyle.fontWeight)
+          if (mergedStyle.strokeColor !== undefined) setStrokeColor(mergedStyle.strokeColor)
+          if (mergedStyle.strokeWidth !== undefined) setStrokeWidth(mergedStyle.strokeWidth)
+          if (mergedStyle.hasShadow !== undefined) setHasShadow(mergedStyle.hasShadow)
+          if (mergedStyle.shadowColor !== undefined) setShadowColor(mergedStyle.shadowColor)
+          if (mergedStyle.shadowX !== undefined) setShadowX(mergedStyle.shadowX)
+          if (mergedStyle.shadowY !== undefined) setShadowY(mergedStyle.shadowY)
+          if (mergedStyle.isUppercase !== undefined) setIsUppercase(mergedStyle.isUppercase)
 
           // Get Thumbnail URL
           if (data.thumbnail_path && !data.thumbnail_path.includes('tmp')) {
@@ -80,8 +122,10 @@ export default function ClipEditor({ params }: { params: { id: string } }) {
       }
     }
 
-    fetchClip()
-  }, [params.id, supabase])
+    if (activeAgent) {
+      fetchClip()
+    }
+  }, [params.id, supabase, activeAgent])
 
   // Handles text change of specific words
   const handleWordTextChange = (index: number, newText: string) => {
@@ -140,7 +184,18 @@ export default function ClipEditor({ params }: { params: { id: string } }) {
         font_family: fontFamily,
         font_size: fontSize,
         highlight_color: highlightColor,
-        mode: subtitleStyleMode
+        mode: subtitleStyleMode,
+        font_color: fontColor,
+        is_italic: isItalic,
+        is_underline: isUnderline,
+        font_weight: fontWeight,
+        stroke_color: strokeColor,
+        stroke_width: strokeWidth,
+        has_shadow: hasShadow,
+        shadow_color: shadowColor,
+        shadow_x: shadowX,
+        shadow_y: shadowY,
+        is_uppercase: isUppercase
       }
 
       const res = await fetch(`http://localhost:8000/api/clips/${params.id}/subtitles`, {
@@ -276,10 +331,14 @@ export default function ClipEditor({ params }: { params: { id: string } }) {
               {/* Dynamic subtitle render window */}
               <div style={{
                 fontSize: `${fontSize - 12}px`,
-                fontFamily: 'var(--font-display)',
-                fontWeight: 900,
-                color: '#fff',
-                textShadow: '2px 2px 0px #000, -2px -2px 0px #000, -2px 2px 0px #000, 2px -2px 0px #000',
+                fontFamily: `'${fontFamily}', var(--font-display)`,
+                fontWeight: fontWeight === 'Bold' || fontWeight === 'Black' ? 900 : (fontWeight === 'Medium' ? 500 : 400),
+                color: fontColor,
+                fontStyle: isItalic ? 'italic' : 'normal',
+                textDecoration: isUnderline ? 'underline' : 'none',
+                textTransform: isUppercase ? 'uppercase' : 'none',
+                WebkitTextStroke: strokeWidth > 0 ? `${strokeWidth}px ${strokeColor}` : 'none',
+                textShadow: hasShadow ? `${shadowX}px ${shadowY}px 0px ${shadowColor}` : (strokeWidth === 0 ? '2px 2px 0px #000, -2px -2px 0px #000, -2px 2px 0px #000, 2px -2px 0px #000' : 'none'),
                 lineHeight: 1.2
               }}>
                 {activeWordIndex !== -1 ? (
@@ -293,6 +352,20 @@ export default function ClipEditor({ params }: { params: { id: string } }) {
                         {words[activeWordIndex + 1]?.word}
                       </span>
                     )}
+
+                    {subtitleStyleMode === 'neon' && (
+                      <span>
+                        {words[activeWordIndex - 1]?.word}{' '}
+                        <span style={{ 
+                          color: '#fff',
+                          textShadow: `0 0 10px ${highlightColor}, 0 0 20px ${highlightColor}, 0 0 30px ${highlightColor}, 0 0 40px ${highlightColor}` 
+                        }}>
+                          {words[activeWordIndex].word}
+                        </span>{' '}
+                        {words[activeWordIndex + 1]?.word}
+                      </span>
+                    )}
+
                     
                     {subtitleStyleMode === 'hormozi' && (
                       <span style={{ 
@@ -364,7 +437,7 @@ export default function ClipEditor({ params }: { params: { id: string } }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '15px' }}>
               <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Gaya Animasi</span>
               <div style={{ display: 'flex', gap: '10px' }}>
-                {['classic', 'hormozi', 'bouncy'].map((mode) => (
+                {['classic', 'hormozi', 'bouncy', 'neon'].map((mode) => (
                   <button
                     key={mode}
                     onClick={() => setSubtitleStyleMode(mode)}
@@ -388,7 +461,7 @@ export default function ClipEditor({ params }: { params: { id: string } }) {
             </div>
 
             {/* Font slider */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '15px' }}>
               <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Ukuran Font ({fontSize}px)</span>
               <input
                 type="range"
@@ -398,6 +471,83 @@ export default function ClipEditor({ params }: { params: { id: string } }) {
                 onChange={(e) => setFontSize(parseInt(e.target.value))}
                 style={{ cursor: 'pointer', accentColor: 'var(--primary)' }}
               />
+            </div>
+            
+            {/* Advanced Settings UI */}
+            <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid var(--border-glass)' }}>
+              <h4 style={{ fontSize: '14px', marginBottom: '15px', color: 'var(--text-primary)' }}>Advanced Font Settings</h4>
+              
+              <SelectField
+                options={[
+                  'Komika-axis', 'Bangers', 'Montserrat', 'Anton', 'Bebas Neue', 'Oswald',
+                  'Roboto Black', 'Impact', 'Comic Sans MS', 'The Bold Font', 'Luckiest Guy',
+                  'Permanent Marker', 'Carter One', 'Fredoka One', 'Righteous', 'Russo One',
+                  'Bungee', 'Alfa Slab One', 'Black Ops One', 'Paytone One', 'Sigmar One',
+                  'Titan One', 'Acme', 'Lilita One'
+                ].map(f => ({ value: f, label: f }))}
+                value={fontFamily}
+                onChange={(e) => setFontFamily(e.target.value)}
+                style={{ marginBottom: '15px' }}
+              />
+
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '15px' }}>
+                <label style={{ width: '32px', height: '32px', borderRadius: '50%', background: fontColor, cursor: 'pointer', border: '2px solid rgba(255,255,255,0.2)', overflow: 'hidden' }}>
+                  <input type="color" value={fontColor} onChange={(e) => setFontColor(e.target.value)} style={{ opacity: 0, width: '100%', height: '100%', cursor: 'pointer' }} />
+                </label>
+                <div style={{ flex: 1 }}>
+                  <SelectField
+                    options={['Light', 'Regular', 'Medium', 'Semi-Bold', 'Bold', 'Black'].map(w => ({ value: w, label: w }))}
+                    value={fontWeight}
+                    onChange={(e) => setFontWeight(e.target.value)}
+                  />
+                </div>
+              </div>
+              
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-dim)' }}>Decoration</span>
+                <div style={{ display: 'flex', gap: '15px' }}>
+                  <button onClick={() => setIsItalic(!isItalic)} style={{ background: 'transparent', border: 'none', color: isItalic ? '#fff' : 'var(--text-muted)', fontStyle: 'italic', fontSize: '16px', cursor: 'pointer' }}>I</button>
+                  <button onClick={() => setIsUnderline(!isUnderline)} style={{ background: 'transparent', border: 'none', color: isUnderline ? '#fff' : 'var(--text-muted)', textDecoration: 'underline', fontSize: '16px', cursor: 'pointer' }}>U</button>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-dim)' }}>Uppercase</span>
+                <ToggleSwitch checked={isUppercase} onChange={setIsUppercase} />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-dim)' }}>Font stroke</span>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <label style={{ width: '24px', height: '24px', borderRadius: '50%', background: strokeColor, cursor: 'pointer', border: '1px solid rgba(255,255,255,0.2)', overflow: 'hidden' }}>
+                    <input type="color" value={strokeColor} onChange={(e) => setStrokeColor(e.target.value)} style={{ opacity: 0, width: '100%', height: '100%', cursor: 'pointer' }} />
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', padding: '0 10px', border: '1px solid var(--border-glass)', width: '80px' }}>
+                    <input type="number" value={strokeWidth} onChange={(e) => setStrokeWidth(Number(e.target.value))} style={{ background: 'transparent', border: 'none', color: '#fff', width: '30px', padding: '6px 0', outline: 'none' }} />
+                    <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>px</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                  <span style={{ fontSize: '13px', color: 'var(--text-dim)' }}>Font shadows</span>
+                  <ToggleSwitch checked={hasShadow} onChange={setHasShadow} />
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', opacity: hasShadow ? 1 : 0.5, pointerEvents: hasShadow ? 'auto' : 'none' }}>
+                  <label style={{ width: '24px', height: '24px', borderRadius: '50%', background: shadowColor, cursor: 'pointer', border: '1px solid rgba(255,255,255,0.2)', overflow: 'hidden', flexShrink: 0 }}>
+                    <input type="color" value={shadowColor} onChange={(e) => setShadowColor(e.target.value)} style={{ opacity: 0, width: '100%', height: '100%', cursor: 'pointer' }} />
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', padding: '0 8px', border: '1px solid var(--border-glass)' }}>
+                    <input type="number" value={shadowX} onChange={(e) => setShadowX(Number(e.target.value))} style={{ background: 'transparent', border: 'none', color: '#fff', width: '25px', padding: '6px 0', outline: 'none' }} />
+                    <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>x</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', padding: '0 8px', border: '1px solid var(--border-glass)' }}>
+                    <input type="number" value={shadowY} onChange={(e) => setShadowY(Number(e.target.value))} style={{ background: 'transparent', border: 'none', color: '#fff', width: '25px', padding: '6px 0', outline: 'none' }} />
+                    <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>y</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
