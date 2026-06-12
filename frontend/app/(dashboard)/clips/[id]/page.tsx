@@ -4,10 +4,12 @@ import React, { useState, useEffect, useRef } from 'react'
 import { ArrowLeft, Play, Pause, Save, Type, RotateCcw, Palette, Sparkles, Check, Loader2, Download } from 'lucide-react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { useAgent } from '@/contexts/AgentContext'
+import { UploadCloud, CheckCircle, Video, Settings, FileAudio, ChevronLeft } from 'lucide-react'
+import { presets } from '@/lib/presets'
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch'
 import { SelectField } from '@/components/ui/SelectField'
 
-export default function ClipEditor({ params }: { params: { id: string } }) {
+export default function ClipEditorPage({ params }: { params: { id: string } }) {
   const supabase = createClientComponentClient()
   const videoRef = useRef<HTMLVideoElement>(null)
   const { activeAgent } = useAgent()
@@ -343,93 +345,19 @@ export default function ClipEditor({ params }: { params: { id: string } }) {
               }}>
                 {activeWordIndex !== -1 ? (
                   <>
-                    {subtitleStyleMode === 'popart' && (
-                      <span style={{ display: 'inline-flex', gap: '8px', alignItems: 'center' }}>
-                        <span style={{ color: fontColor, transform: 'rotate(-2deg)' }}>{words[activeWordIndex - 1]?.word}</span>
-                        <span style={{ color: highlightColor, transform: 'scale(1.2) rotate(-4deg)', display: 'inline-block' }}>{words[activeWordIndex].word}</span>
-                        <span style={{ color: fontColor, transform: 'rotate(-2deg)' }}>{words[activeWordIndex + 1]?.word}</span>
-                      </span>
-                    )}
-
-                    {subtitleStyleMode === 'glitch' && (
-                      <span style={{ display: 'inline-flex', gap: '8px', alignItems: 'center' }}>
-                        <span style={{ color: fontColor }}>{words[activeWordIndex - 1]?.word}</span>
-                        <span style={{ color: highlightColor, textShadow: `2px 0 0 #0ff, -2px 0 0 #f00`, transform: 'skewX(-10deg)', display: 'inline-block' }}>{words[activeWordIndex].word}</span>
-                        <span style={{ color: fontColor }}>{words[activeWordIndex + 1]?.word}</span>
-                      </span>
-                    )}
-
-                    {subtitleStyleMode === 'cinematic' && (
-                      <span style={{ display: 'inline-flex', gap: '8px', alignItems: 'center', letterSpacing: '6px' }}>
-                        <span style={{ color: fontColor }}>{words[activeWordIndex - 1]?.word}</span>
-                        <span style={{ color: highlightColor }}>{words[activeWordIndex].word}</span>
-                        <span style={{ color: fontColor }}>{words[activeWordIndex + 1]?.word}</span>
-                      </span>
-                    )}
-
-                    {subtitleStyleMode === 'retro' && (
-                      <span style={{ display: 'inline-flex', gap: '8px', alignItems: 'center' }}>
-                        <span style={{ color: fontColor }}>{words[activeWordIndex - 1]?.word}</span>
-                        <span style={{ color: highlightColor, textShadow: `0 0 10px ${highlightColor}, 0 0 20px ${highlightColor}` }}>{words[activeWordIndex].word}</span>
-                        <span style={{ color: fontColor }}>{words[activeWordIndex + 1]?.word}</span>
-                      </span>
-                    )}
-
-                    {subtitleStyleMode === 'typewriter' && (
-                      <span style={{ display: 'inline-flex', gap: '8px', alignItems: 'center' }}>
-                        <span style={{ color: fontColor }}>{words[activeWordIndex - 1]?.word}</span>
-                        <span style={{ color: highlightColor }}>{words[activeWordIndex].word}_</span>
-                        <span style={{ color: fontColor }}>{words[activeWordIndex + 1]?.word}</span>
-                      </span>
-                    )}
-
-                    {subtitleStyleMode === 'boldbox' && (
-                      <span style={{ color: '#000', background: highlightColor, padding: '4px 12px', borderRadius: '4px', textTransform: 'uppercase' }}>
-                        {words[activeWordIndex].word}
-                      </span>
-                    )}
-
-                    {subtitleStyleMode === 'outlineonly' && (
-                      <span style={{ display: 'inline-flex', gap: '8px', alignItems: 'center' }}>
-                        <span style={{ color: 'transparent', WebkitTextStroke: `2px ${fontColor}` }}>{words[activeWordIndex - 1]?.word}</span>
-                        <span style={{ color: highlightColor, WebkitTextStroke: '2px transparent', display: 'inline-block' }}>{words[activeWordIndex].word}</span>
-                        <span style={{ color: 'transparent', WebkitTextStroke: `2px ${fontColor}` }}>{words[activeWordIndex + 1]?.word}</span>
-                      </span>
-                    )}
-
-                    {subtitleStyleMode === '3dblock' && (
-                      <span style={{ display: 'inline-flex', gap: '8px', alignItems: 'center' }}>
-                        <span style={{ color: fontColor }}>{words[activeWordIndex - 1]?.word}</span>
-                        <span style={{ color: highlightColor, transform: 'translateY(-4px)', display: 'inline-block' }}>{words[activeWordIndex].word}</span>
-                        <span style={{ color: fontColor }}>{words[activeWordIndex + 1]?.word}</span>
-                      </span>
-                    )}
-
-                    {subtitleStyleMode === 'minimalpill' && (
-                      <span style={{ color: highlightColor, background: 'rgba(0,0,0,0.8)', padding: '6px 20px', borderRadius: '30px' }}>
-                        {words[activeWordIndex].word}
-                      </span>
-                    )}
-
-                    {subtitleStyleMode === 'marker' && (
-                      <span style={{ color: '#000', background: highlightColor, padding: '4px 14px', transform: 'rotate(-3deg)', display: 'inline-block' }}>
-                        {words[activeWordIndex].word}
-                      </span>
-                    )}
-
-                    {subtitleStyleMode === 'vaporwave' && (
-                      <span style={{ display: 'inline-flex', gap: '8px', alignItems: 'center' }}>
-                        <span style={{ color: fontColor }}>{words[activeWordIndex - 1]?.word}</span>
-                        <span style={{ color: highlightColor }}>{words[activeWordIndex].word}</span>
-                        <span style={{ color: fontColor }}>{words[activeWordIndex + 1]?.word}</span>
-                      </span>
-                    )}
-
-                    {subtitleStyleMode === 'impactful' && (
-                      <span style={{ color: '#fff', background: highlightColor, padding: '4px 12px', textTransform: 'uppercase' }}>
-                        {words[activeWordIndex].word}
-                      </span>
-                    )}
+                    {(() => {
+                      const activePreset = presets.find(p => p.id === subtitleStyleMode);
+                      if (!activePreset) return null;
+                      return activePreset.renderPreview({
+                        words,
+                        activeWordIndex,
+                        config: {
+                          fontFamily, fontSize, fontWeight, fontColor, isItalic, isUnderline, isUppercase,
+                          strokeColor, strokeWidth, hasShadow, shadowColor, shadowX, shadowY, shadowBlur,
+                          highlightColor
+                        }
+                      });
+                    })()}
                   </>
                 ) : (
                   <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '20px', fontWeight: 600 }}>Klik play untuk preview subtitle</span>

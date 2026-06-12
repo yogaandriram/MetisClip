@@ -24,7 +24,7 @@ def format_ass_time(seconds: float) -> str:
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
     secs = int(seconds % 60)
-    centiseconds = int(round((seconds % 1) * 100))
+    centiseconds = round((seconds % 1) * 100)
     if centiseconds == 100:
         secs += 1
         centiseconds = 0
@@ -124,56 +124,42 @@ def generate_ass_file(words: list, style: dict, output_ass_path: str):
             # Ensure words are uppercase if global setting says so
             raw_text = target_word['word'].upper() if is_uppercase else target_word['word']
             
-            # The 4 single-word modes (boldbox, minimalpill, marker, impactful)
-            if mode in ['boldbox', 'minimalpill', 'marker', 'impactful']:
-                text = raw_text
-                
-                # Single-word mode formatting
-                if mode == 'boldbox':
-                    # Boldbox: Opaque background box (BorderStyle=3 not easily inlineable per word, so we use ASS inline color tags and rotation to simulate)
-                    # For ASS, we can't do per-word dynamic opaque boxes easily in a single line. We just use standard text with high outline thickness or specific colors to simulate impactful text.
-                    ass_content.append(f"Dialogue: 0,{event_start},{event_end},Default,,0,0,0,,{{\\c{ass_outline_color}}}{{\\3c{ass_highlight_color}}}{{\\bord6}}{text}")
-                elif mode == 'minimalpill':
-                    # Simulated pill with outline
-                    ass_content.append(f"Dialogue: 0,{event_start},{event_end},Default,,0,0,0,,{{\\c{ass_highlight_color}}}{{\\3c&H80000000&}}{text}")
-                elif mode == 'marker':
-                    # Rotated with black text, highlight outline
-                    ass_content.append(f"Dialogue: 0,{event_start},{event_end},Default,,0,0,0,,{{\\frz3}}{{\\c&H000000&}}{{\\3c{ass_highlight_color}}}{{\\bord4}}{text}")
-                elif mode == 'impactful':
-                    ass_content.append(f"Dialogue: 0,{event_start},{event_end},Default,,0,0,0,,{{\\c&HFFFFFF&}}{{\\3c{ass_highlight_color}}}{{\\bord8}}{text}")
+            # Dictionary mapping for single-word modes
+            single_word_presets = {
+                'boldbox': f"{{\\c{ass_outline_color}}}{{\\3c{ass_highlight_color}}}{{\\bord6}}{raw_text}",
+                'minimalpill': f"{{\\c{ass_highlight_color}}}{{\\3c&H80000000&}}{raw_text}",
+                'marker': f"{{\\frz3}}{{\\c&H000000&}}{{\\3c{ass_highlight_color}}}{{\\bord4}}{raw_text}",
+                'impactful': f"{{\\c&HFFFFFF&}}{{\\3c{ass_highlight_color}}}{{\\bord8}}{raw_text}"
+            }
+            
+            if mode in single_word_presets:
+                text = single_word_presets[mode]
+                ass_content.append(f"Dialogue: 0,{event_start},{event_end},Default,,0,0,0,,{text}")
             
             else: # full line modes
+                # Dictionary mapping for full-line active word styling
+                active_word_styles = {
+                    'popart': f"{{\\c{ass_highlight_color}}}{{\\fscx120\\fscy120}}{{\\frz4}}{{word_str}}{{\\fscx100\\fscy100}}{{\\frz0}}{{\\c{ass_primary_color}}} ",
+                    'glitch': f"{{\\c{ass_highlight_color}}}{{\\fax-0.2}}{{\\3c&HFFFF00&}}{{\\bord2}}{{\\4c&H0000FF&}}{{\\shad4}}{{word_str}}{{\\fax0}}{{\\3c{ass_outline_color}}}{{\\bord{scaled_outline}}}{{\\4c{ass_back_color}}}{{\\shad{scaled_shadow}}}{{\\c{ass_primary_color}}} ",
+                    'cinematic': f"{{\\c{ass_highlight_color}}}{{\\fsp6}}{{word_str}}{{\\fsp0}}{{\\c{ass_primary_color}}} ",
+                    'retro': f"{{\\c{ass_highlight_color}}}{{\\3c{ass_highlight_color}}}{{\\blur5}}{{\\bord4}}{{word_str}}{{\\3c{ass_outline_color}}}{{\\blur0}}{{\\bord{scaled_outline}}}{{\\c{ass_primary_color}}} ",
+                    'typewriter': f"{{\\c{ass_highlight_color}}}{{word_str}}_{{\\c{ass_primary_color}}} ",
+                    'outlineonly': f"{{\\1a&H00&}}{{\\c{ass_highlight_color}}}{{\\3c&H00000000&}}{{\\bord0}}{{word_str}}{{\\1a&HFF&}}{{\\3c{ass_outline_color}}}{{\\bord{scaled_outline}}}{{\\c{ass_primary_color}}} ",
+                    '3dblock': f"{{\\c{ass_highlight_color}}}{{\\fscy110}}{{word_str}}{{\\fscy100}}{{\\c{ass_primary_color}}} ",
+                    'vaporwave': f"{{\\c{ass_highlight_color}}}{{\\3c&HFF00FF&}}{{\\blur4}}{{\\bord2}}{{word_str}}{{\\3c{ass_outline_color}}}{{\\blur0}}{{\\bord{scaled_outline}}}{{\\c{ass_primary_color}}} "
+                }
+                
+                # Default style fallback
+                default_active_style = f"{{\\c{ass_highlight_color}}}{{word_str}}{{\\c{ass_primary_color}}} "
+                
                 line_text = ""
                 for j, w in enumerate(ch):
                     word_str = w['word'].upper() if is_uppercase else w['word']
                     if j == i: # Active word
-                        if mode == 'popart':
-                            line_text += f"{{\\c{ass_highlight_color}}}{{\\fscx120\\fscy120}}{{\\frz4}}{{\\3c&H000000&}}{{\\bord4}}{{\\4c&H000000&}}{{\\shad6}}{word_str}{{\\fscx100\\fscy100}}{{\\frz0}}{{\\3c{ass_outline_color}}}{{\\bord{scaled_outline}}}{{\\4c{ass_back_color}}}{{\\shad{scaled_shadow}}}{{\\c{ass_primary_color}}} "
-                        elif mode == 'glitch':
-                            # Simulate glitch using horizontal shear and split color shadow
-                            line_text += f"{{\\c{ass_highlight_color}}}{{\\fax-0.2}}{{\\3c&HFFFF00&}}{{\\bord2}}{{\\4c&H0000FF&}}{{\\shad4}}{word_str}{{\\fax0}}{{\\3c{ass_outline_color}}}{{\\bord{scaled_outline}}}{{\\4c{ass_back_color}}}{{\\shad{scaled_shadow}}}{{\\c{ass_primary_color}}} "
-                        elif mode == 'cinematic':
-                            # Letter spacing
-                            line_text += f"{{\\c{ass_highlight_color}}}{{\\fsp6}}{word_str}{{\\fsp0}}{{\\c{ass_primary_color}}} "
-                        elif mode == 'retro':
-                            # Italic and glow
-                            line_text += f"{{\\c{ass_highlight_color}}}{{\\3c{ass_highlight_color}}}{{\\blur5}}{{\\bord4}}{word_str}{{\\3c{ass_outline_color}}}{{\\blur0}}{{\\bord{scaled_outline}}}{{\\c{ass_primary_color}}} "
-                        elif mode == 'typewriter':
-                            line_text += f"{{\\c{ass_highlight_color}}}{word_str}_{{\\c{ass_primary_color}}} "
-                        elif mode == 'outlineonly':
-                            # Transparent fill, colored border
-                            line_text += f"{{\\1a&H00&}}{{\\c{ass_highlight_color}}}{{\\3c&H00000000&}}{{\\bord0}}{word_str}{{\\1a&HFF&}}{{\\3c{ass_outline_color}}}{{\\bord{scaled_outline}}}{{\\c{ass_primary_color}}} "
-                        elif mode == '3dblock':
-                            # Deep shadow translation
-                            line_text += f"{{\\c{ass_highlight_color}}}{{\\fscy110}}{{\\4c&H000000&}}{{\\shad10}}{word_str}{{\\fscy100}}{{\\4c{ass_back_color}}}{{\\shad{scaled_shadow}}}{{\\c{ass_primary_color}}} "
-                        elif mode == 'vaporwave':
-                            # Soft blur
-                            line_text += f"{{\\c{ass_highlight_color}}}{{\\3c&HFF00FF&}}{{\\blur4}}{{\\bord2}}{word_str}{{\\3c{ass_outline_color}}}{{\\blur0}}{{\\bord{scaled_outline}}}{{\\c{ass_primary_color}}} "
-                        else:
-                            line_text += f"{{\\c{ass_highlight_color}}}{word_str}{{\\c{ass_primary_color}}} "
+                        style_template = active_word_styles.get(mode, default_active_style)
+                        line_text += style_template.format(word_str=word_str)
                     else: # Inactive word
                         if mode == 'outlineonly':
-                            # Force inactive words to be transparent with white border
                             line_text += f"{{\\1a&HFF&}}{{\\3c{ass_primary_color}}}{{\\bord{scaled_outline or 2}}}{word_str}{{\\1a&H00&}} "
                         elif mode == 'cinematic':
                             line_text += f"{{\\fsp6}}{word_str}{{\\fsp0}} "
