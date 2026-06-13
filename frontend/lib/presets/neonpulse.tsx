@@ -15,8 +15,10 @@ export const neonpulsePreset: SubtitlePreset = {
     shadowColor: '#FF00FF',
     shadowX: 0,
     shadowY: 0,
-    shadowBlur: 20,
-    highlightColor: baseHighlightColor || '#FF00FF'
+    shadowBlur: 10,
+    highlightColor: baseHighlightColor || '#FF00FF',
+    letterSpacing: 0,
+    lineHeight: 1.2
   }),
   renderButton: (isSelected: boolean, onClick: () => void) => {
     const activeColor = '#FF00FF';
@@ -101,11 +103,13 @@ export const neonpulsePreset: SubtitlePreset = {
               justify-content: center;
             }
             .neonpulse-word {
-              font-family: '${config.fontFamily}', sans-serif;
+              display: inline-block;
+              font-family: '${config.fontFamily}', var(--font-display);
               font-weight: ${numericWeight};
               text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
-              letter-spacing: 2px;
-              /* Removed transition: all to prevent Safari/Chrome bugs with animated text-shadows */
+              letter-spacing: ${config.letterSpacing !== undefined ? config.letterSpacing : 0}px;
+              line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
+              transition: all 0.3s ease;
             }
             .neonpulse-word.inactive {
               display: inline-block;

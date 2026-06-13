@@ -22,6 +22,8 @@ export interface CaptionSettings {
   shadowBlur: number;
   highlightColor: string;
   positionY: number;
+  letterSpacing: number;
+  lineHeight: number;
 }
 
 export interface AiSettings {

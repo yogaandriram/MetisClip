@@ -14,9 +14,11 @@ export const kineticboxPreset: SubtitlePreset = {
     hasShadow: true,
     shadowColor: '#000000',
     shadowX: 0,
-    shadowY: 4,
-    shadowBlur: 10,
-    highlightColor: baseHighlightColor || '#FFFF00'
+    shadowY: 0,
+    shadowBlur: 0,
+    highlightColor: baseHighlightColor || '#FFD700',
+    letterSpacing: 0,
+    lineHeight: 1.2
   }),
   renderButton: (isSelected: boolean, onClick: () => void) => {
     const activeColor = '#FFFF00';
@@ -83,12 +85,17 @@ export const kineticboxPreset: SubtitlePreset = {
               display: inline-flex;
               gap: 12px;
               align-items: center;
+              flex-wrap: wrap;
+              justify-content: center;
+              max-width: 100%;
             }
             .kinetic-word {
               display: inline-block;
               font-family: '${config.fontFamily}', var(--font-display);
               font-weight: ${numericWeight};
-              text-transform: uppercase;
+              text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
+              letter-spacing: ${config.letterSpacing !== undefined ? config.letterSpacing : 0}px;
+              line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
               transition: all 0.2s ease;
             }
             .kinetic-word.inactive {

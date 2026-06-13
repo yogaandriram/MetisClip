@@ -15,8 +15,10 @@ export const typewriterPreset: SubtitlePreset = {
     shadowColor: '#00FF88',
     shadowX: 0,
     shadowY: 0,
-    shadowBlur: 10,
-    highlightColor: baseHighlightColor || '#00FF88'
+    shadowBlur: 4,
+    highlightColor: baseHighlightColor || '#00FF00',
+    letterSpacing: 0,
+    lineHeight: 1.2
   }),
   renderButton: (isSelected: boolean, onClick: () => void) => {
     const activeColor = '#00FF88';
@@ -101,6 +103,8 @@ export const typewriterPreset: SubtitlePreset = {
               font-family: '${config.fontFamily}', monospace;
               font-weight: ${numericWeight};
               text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
+              letter-spacing: ${config.letterSpacing !== undefined ? config.letterSpacing : 0}px;
+              line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
             }
             .typewriter-word-wrapper {
               position: relative;

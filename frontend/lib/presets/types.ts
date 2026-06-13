@@ -16,6 +16,8 @@ export interface PresetConfig {
   shadowY: number;
   shadowBlur: number;
   highlightColor: string;
+  letterSpacing: number;
+  lineHeight: number;
 }
 
 export interface RenderPreviewProps {

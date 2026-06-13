@@ -16,7 +16,9 @@ export const popshadowPreset: SubtitlePreset = {
     shadowX: 0,
     shadowY: 0,
     shadowBlur: 0,
-    highlightColor: baseHighlightColor || '#A855F7' // Purple
+    highlightColor: baseHighlightColor || '#FFE800',
+    letterSpacing: 0,
+    lineHeight: 1.2
   }),
   renderButton: (isSelected: boolean, onClick: () => void) => {
     const activeColor = '#A855F7';
@@ -93,16 +95,21 @@ export const popshadowPreset: SubtitlePreset = {
               display: inline-flex;
               gap: 12px;
               align-items: center;
+              flex-wrap: wrap;
+              justify-content: center;
+              max-width: 100%;
               padding: 10px; /* To prevent drop-shadow clipping */
             }
             .popshadow-word {
               display: inline-block;
               font-family: '${config.fontFamily}', var(--font-display);
               font-weight: ${numericWeight};
-              text-transform: uppercase;
+              text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
+              letter-spacing: ${config.letterSpacing !== undefined ? config.letterSpacing : 0}px;
+              line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
               -webkit-text-stroke: ${strokeWidth}px ${strokeColor};
               color: ${fontColor};
-              transition: all 0.2s ease;
+              transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             }
             .popshadow-word.inactive {
               transform: scale(0.95);

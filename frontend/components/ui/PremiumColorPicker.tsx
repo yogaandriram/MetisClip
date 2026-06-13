@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { HexAlphaColorPicker } from 'react-colorful';
 import { useFloating, useClick, useInteractions, useDismiss, offset, flip, shift } from '@floating-ui/react';
 
@@ -8,8 +8,32 @@ interface PremiumColorPickerProps {
   label?: string;
 }
 
+const DEFAULT_SWATCHES = ['#FFFFFF', '#000000', '#FFD700', '#00FFCC', '#FF00FF', '#FF3366', '#33CCFF', '#00FF66'];
+const STORAGE_KEY = 'aiautoclip_recent_colors';
+
 export const PremiumColorPicker: React.FC<PremiumColorPickerProps> = ({ color, onChange, label }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [recentColors, setRecentColors] = useState<string[]>(DEFAULT_SWATCHES);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        setRecentColors(JSON.parse(saved));
+      } catch (e) {}
+    }
+  }, []);
+
+  // Save color to recents when closing the picker
+  useEffect(() => {
+    if (!isOpen && color) {
+      if (!recentColors.includes(color)) {
+        const newRecent = [color, ...recentColors].slice(0, 16); // Max 16 colors
+        setRecentColors(newRecent);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(newRecent));
+      }
+    }
+  }, [isOpen, color, recentColors]);
 
   const { refs, floatingStyles, context } = useFloating({
     open: isOpen,
@@ -74,6 +98,27 @@ export const PremiumColorPicker: React.FC<PremiumColorPickerProps> = ({ color, o
                 fontSize: '12px'
               }}
             />
+          </div>
+          
+          <div style={{ marginTop: '12px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '8px' }}>Recent & Swatches</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', width: '200px' }}>
+              {recentColors.map(c => (
+                <div 
+                  key={c}
+                  onClick={() => onChange(c)}
+                  style={{
+                    width: '20px', height: '20px', borderRadius: '4px', background: c,
+                    cursor: 'pointer', border: '1px solid rgba(255,255,255,0.2)',
+                    boxShadow: c === color ? '0 0 0 2px #fff' : 'none',
+                    transition: 'transform 0.1s'
+                  }}
+                  title={c}
+                  onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
+                  onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                />
+              ))}
+            </div>
           </div>
         </div>
       )}

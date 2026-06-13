@@ -63,8 +63,8 @@ def download_and_crop_segment(
         
         download_cmd = yt_dlp_cmd + [
             "--ffmpeg-location", settings.FFMPEG_PATH,
-            "--socket-timeout", "15",
-            "--retries", "3",
+            "--socket-timeout", "30",
+            "--retries", "5",
             "--force-overwrites",
             "-f", format_str,
             "--merge-output-format", "mp4",
@@ -75,11 +75,11 @@ def download_and_crop_segment(
         ]
         
         # We don't use check=True here because yt-dlp might fail with a non-zero exit code if the section format isn't supported
-        # We use a 5-minute timeout to ensure it NEVER hangs the backend indefinitely.
+        # We use a 15-minute timeout to ensure it NEVER hangs the backend indefinitely but allows enough time for throttling.
         try:
-            subprocess.run(download_cmd, timeout=300, capture_output=True)
+            subprocess.run(download_cmd, timeout=900, capture_output=True)
         except subprocess.TimeoutExpired:
-            logger.error("yt-dlp section download TIMED OUT after 5 minutes.")
+            logger.error("yt-dlp section download TIMED OUT after 15 minutes.")
         
         temp_raw = temp_download.replace(".mp4", "_raw.mp4")
         
@@ -88,8 +88,8 @@ def download_and_crop_segment(
             logger.info("yt-dlp section download failed or skipped. Trying fallback download full video.")
             fallback_cmd = yt_dlp_cmd + [
                 "--ffmpeg-location", settings.FFMPEG_PATH,
-                "--socket-timeout", "15",
-                "--retries", "3",
+                "--socket-timeout", "30",
+                "--retries", "5",
                 "--force-overwrites",
                 "-f", format_str,
                 "--merge-output-format", "mp4",
@@ -97,7 +97,7 @@ def download_and_crop_segment(
                 "-o", temp_raw
             ]
             try:
-                subprocess.run(fallback_cmd, check=True, timeout=600, capture_output=True)
+                subprocess.run(fallback_cmd, check=True, timeout=1800, capture_output=True)
                 
                 # PRE-CUT THE FULL VIDEO BEFORE TRACKING
                 logger.info(f"Cutting the full video to extract segment {start_time}-{end_time} without re-encoding...")
@@ -115,7 +115,7 @@ def download_and_crop_segment(
                     os.remove(temp_raw)
                     
             except subprocess.TimeoutExpired:
-                logger.error("yt-dlp full download TIMED OUT after 10 minutes.")
+                logger.error("yt-dlp full download TIMED OUT after 30 minutes.")
                 raise Exception("yt-dlp download timed out completely.")
 
         logger.info(f"Scanning {temp_download} for Smart Auto Tracking (Face Detection)...")

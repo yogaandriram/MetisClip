@@ -145,15 +145,45 @@ def trigger_clip_rendering(
             import json
             sub_style = json.loads(sub_style)
             
-        # 3. Generate ASS File
-        local_ass = os.path.join(settings.TEMP_DIR, f"{clip_id}.ass").replace("\\", "/")
-        generate_ass_file(words, sub_style, local_ass)
-        
-        # 4. Burn Subtitles via FFmpeg
+        # 3. Prepare Props for Remotion
+        props_data = {
+            "videoUrl": local_raw,
+            "words": words,
+            "style": sub_style
+        }
+        props_path = os.path.join(settings.TEMP_DIR, f"props_{clip_id}.json").replace("\\", "/")
+        with open(props_path, "w", encoding="utf-8") as f:
+            import json
+            json.dump(props_data, f)
+            
+        # 4. Render Video via Remotion CLI
         local_subbed = os.path.join(settings.TEMP_DIR, f"subbed_{clip_id}.mp4").replace("\\", "/")
-        success = burn_subtitles_to_video(local_raw, local_ass, local_subbed)
-        if not success:
-            raise HTTPException(status_code=500, detail="FFmpeg subtitle burn failed")
+        # Calculate root dir from current file path
+        root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        render_engine_path = os.path.join(root_dir, "render-engine")
+        
+        duration_sec = clip.get("duration_seconds", 15)
+        frames = int(duration_sec * 30)
+        
+        npx_cmd = "npx.cmd" if os.name == "nt" else "npx"
+        cmd = [
+            npx_cmd, "remotion", "render",
+            "src/index.ts",
+            "SubtitleOverlay",
+            local_subbed,
+            f"--props={props_path}",
+            f"--frames={frames}"
+        ]
+        
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Running Remotion Render: {' '.join(cmd)}")
+        
+        import subprocess
+        result = subprocess.run(cmd, cwd=render_engine_path, capture_output=True, text=True)
+        if result.returncode != 0:
+            logger.error(f"Remotion error: {result.stderr}")
+            raise HTTPException(status_code=500, detail=f"Remotion render failed: {result.stderr[-200:] if result.stderr else 'Unknown Error'}")
             
         # 5. Upload Subbed Video to Supabase Storage
         subbed_storage_path = f"{current_user['id']}/{clip_id}_subbed.mp4"
@@ -173,7 +203,7 @@ def trigger_clip_rendering(
         # Clean up temp files
         try:
             os.remove(local_raw)
-            os.remove(local_ass)
+            os.remove(props_path)
             os.remove(local_subbed)
         except:
             pass

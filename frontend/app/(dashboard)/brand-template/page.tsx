@@ -122,7 +122,7 @@ export default function BrandTemplatePage() {
   }
 
   const applyTemplateData = (tpl: any) => {
-    const validModes = ['auraglow', 'kineticbox', 'lumina', 'popshadow', 'typewriter', 'neonpulse'];
+    const validModes = ['auraglow', 'kineticbox', 'lumina', 'popshadow', 'typewriter', 'neonpulse', 'slideupfade', 'cinematicbar', 'hologram', 'glitch', 'staggerfade', 'elasticscale'];
     let safeMode = tpl.caption_settings?.mode || 'popshadow';
     if (!validModes.includes(safeMode)) {
       safeMode = 'popshadow';

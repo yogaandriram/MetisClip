@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
-import { ArrowLeft, Play, Pause, Save, Type, RotateCcw, Palette, Sparkles, Check, Loader2, Download } from 'lucide-react'
+import { ArrowLeft, Play, Pause, Save, Type, RotateCcw, Palette, Sparkles, Check, Loader2, Download, Maximize } from 'lucide-react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { useAgent } from '@/contexts/AgentContext'
 import { UploadCloud, CheckCircle, Video, Settings, FileAudio, ChevronLeft } from 'lucide-react'
@@ -12,6 +12,7 @@ import { SelectField } from '@/components/ui/SelectField'
 export default function ClipEditorPage({ params }: { params: { id: string } }) {
   const supabase = createClientComponentClient()
   const videoRef = useRef<HTMLVideoElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const { activeAgent } = useAgent()
   
   const [isPlaying, setIsPlaying] = useState(false)
@@ -32,7 +33,11 @@ export default function ClipEditorPage({ params }: { params: { id: string } }) {
   const [shadowColor, setShadowColor] = useState('#000000')
   const [shadowX, setShadowX] = useState(0)
   const [shadowY, setShadowY] = useState(0)
+  const [shadowBlur, setShadowBlur] = useState(0)
+  const [letterSpacing, setLetterSpacing] = useState(0)
+  const [lineHeight, setLineHeight] = useState(1.2)
   const [isUppercase, setIsUppercase] = useState(false)
+  const [positionY, setPositionY] = useState(80)
   const [isSaved, setIsSaved] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [thumbnailUrl, setThumbnailUrl] = useState('')
@@ -88,22 +93,56 @@ export default function ClipEditorPage({ params }: { params: { id: string } }) {
             }
           }
           
-          if (mergedStyle.highlight_color) setHighlightColor(mergedStyle.highlight_color)
-          if (mergedStyle.font_size) setFontSize(mergedStyle.font_size)
-          if (mergedStyle.font_family) setFontFamily(mergedStyle.font_family)
+          const hc = mergedStyle.highlightColor || mergedStyle.highlight_color;
+          if (hc) setHighlightColor(hc)
+          
+          const fs = mergedStyle.fontSize || mergedStyle.font_size;
+          if (fs) setFontSize(fs)
+          
+          const ff = mergedStyle.fontFamily || mergedStyle.font_family;
+          if (ff) setFontFamily(ff)
+          
           if (mergedStyle.mode) setSubtitleStyleMode(mergedStyle.mode)
           
-          if (mergedStyle.fontColor !== undefined) setFontColor(mergedStyle.fontColor)
-          if (mergedStyle.isItalic !== undefined) setIsItalic(mergedStyle.isItalic)
-          if (mergedStyle.isUnderline !== undefined) setIsUnderline(mergedStyle.isUnderline)
-          if (mergedStyle.fontWeight !== undefined) setFontWeight(mergedStyle.fontWeight)
-          if (mergedStyle.strokeColor !== undefined) setStrokeColor(mergedStyle.strokeColor)
-          if (mergedStyle.strokeWidth !== undefined) setStrokeWidth(mergedStyle.strokeWidth)
-          if (mergedStyle.hasShadow !== undefined) setHasShadow(mergedStyle.hasShadow)
-          if (mergedStyle.shadowColor !== undefined) setShadowColor(mergedStyle.shadowColor)
-          if (mergedStyle.shadowX !== undefined) setShadowX(mergedStyle.shadowX)
-          if (mergedStyle.shadowY !== undefined) setShadowY(mergedStyle.shadowY)
-          if (mergedStyle.isUppercase !== undefined) setIsUppercase(mergedStyle.isUppercase)
+          const fc = mergedStyle.fontColor || mergedStyle.font_color;
+          if (fc !== undefined) setFontColor(fc)
+
+          const ii = mergedStyle.isItalic !== undefined ? mergedStyle.isItalic : mergedStyle.is_italic;
+          if (ii !== undefined) setIsItalic(ii)
+
+          const iu = mergedStyle.isUnderline !== undefined ? mergedStyle.isUnderline : mergedStyle.is_underline;
+          if (iu !== undefined) setIsUnderline(iu)
+
+          const fw = mergedStyle.fontWeight || mergedStyle.font_weight;
+          if (fw !== undefined) setFontWeight(fw)
+
+          const sc = mergedStyle.strokeColor || mergedStyle.stroke_color;
+          if (sc !== undefined) setStrokeColor(sc)
+
+          const sw = mergedStyle.strokeWidth !== undefined ? mergedStyle.strokeWidth : mergedStyle.stroke_width;
+          if (sw !== undefined) setStrokeWidth(sw)
+
+          const hs = mergedStyle.hasShadow !== undefined ? mergedStyle.hasShadow : mergedStyle.has_shadow;
+          if (hs !== undefined) setHasShadow(hs)
+
+          const shc = mergedStyle.shadowColor || mergedStyle.shadow_color;
+          if (shc !== undefined) setShadowColor(shc)
+
+          const shx = mergedStyle.shadowX !== undefined ? mergedStyle.shadowX : mergedStyle.shadow_x;
+          if (shx !== undefined) setShadowX(shx)
+
+          const shy = mergedStyle.shadowY !== undefined ? mergedStyle.shadowY : mergedStyle.shadow_y;
+          if (shy !== undefined) setShadowY(shy)
+
+          if (mergedStyle.shadowBlur !== undefined) setShadowBlur(mergedStyle.shadowBlur)
+          if (mergedStyle.letterSpacing !== undefined) setLetterSpacing(mergedStyle.letterSpacing)
+          if (mergedStyle.lineHeight !== undefined) setLineHeight(mergedStyle.lineHeight)
+
+          const up = mergedStyle.isUppercase !== undefined ? mergedStyle.isUppercase : mergedStyle.is_uppercase;
+          if (up !== undefined) setIsUppercase(up)
+          
+          const py = mergedStyle.positionY !== undefined ? mergedStyle.positionY : mergedStyle.position_y;
+          if (py !== undefined) setPositionY(py)
 
           // Get Thumbnail URL
           if (data.thumbnail_path && !data.thumbnail_path.includes('tmp')) {
@@ -197,7 +236,11 @@ export default function ClipEditorPage({ params }: { params: { id: string } }) {
         shadow_color: shadowColor,
         shadow_x: shadowX,
         shadow_y: shadowY,
-        is_uppercase: isUppercase
+        shadowBlur: shadowBlur,
+        letterSpacing: letterSpacing,
+        lineHeight: lineHeight,
+        is_uppercase: isUppercase,
+        positionY: positionY
       }
 
       const res = await fetch(`http://localhost:8000/api/clips/${params.id}/subtitles`, {
@@ -290,7 +333,7 @@ export default function ClipEditorPage({ params }: { params: { id: string } }) {
         
         {/* Left Vertical 9:16 Video Player Preview */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <div className="glass-card-glowing" style={{
+          <div ref={containerRef} className="glass-card-glowing" style={{
             width: '100%',
             aspectRatio: '9 / 16',
             position: 'relative',
@@ -312,6 +355,7 @@ export default function ClipEditorPage({ params }: { params: { id: string } }) {
               onPlay={() => setIsPlaying(true)}
               onPause={() => setIsPlaying(false)}
               controls
+              controlsList="nofullscreen"
               playsInline
               style={{
                 position: 'absolute',
@@ -320,12 +364,45 @@ export default function ClipEditorPage({ params }: { params: { id: string } }) {
               }}
             />
 
+            {/* Custom Fullscreen Button */}
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (document.fullscreenElement) {
+                  document.exitFullscreen();
+                } else {
+                  containerRef.current?.requestFullscreen();
+                }
+              }}
+              style={{
+                position: 'absolute',
+                top: '15px',
+                right: '15px',
+                zIndex: 20,
+                background: 'rgba(0,0,0,0.5)',
+                border: '1px solid rgba(255,255,255,0.2)',
+                borderRadius: '8px',
+                padding: '8px',
+                cursor: 'pointer',
+                color: 'white',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.2s'
+              }}
+              title="Toggle Fullscreen"
+            >
+              <Maximize size={18} />
+            </button>
+
             {/* Active Highlight word rendered on video */}
             <div style={{
               position: 'absolute',
-              bottom: '15%',
-              left: '10%',
-              right: '10%',
+              bottom: `${positionY}px`,
+              left: '15%',
+              right: '15%',
+              width: '70%',
               textAlign: 'center',
               zIndex: 10,
               pointerEvents: 'none'
@@ -359,9 +436,7 @@ export default function ClipEditorPage({ params }: { params: { id: string } }) {
                       });
                     })()}
                   </>
-                ) : (
-                  <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '20px', fontWeight: 600 }}>Klik play untuk preview subtitle</span>
-                )}
+                ) : null}
               </div>
             </div>
 

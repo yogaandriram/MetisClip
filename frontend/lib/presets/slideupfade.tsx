@@ -1,11 +1,11 @@
 import React from 'react';
 import { SubtitlePreset } from './types';
 
-export const auraglowPreset: SubtitlePreset = {
-  id: 'auraglow',
-  name: 'AURA GLOW',
+export const slideupfadePreset: SubtitlePreset = {
+  id: 'slideupfade',
+  name: 'SLIDE UP FADE',
   getDefaultConfig: (baseHighlightColor?: string) => ({
-    fontFamily: 'Outfit',
+    fontFamily: 'Poppins',
     fontWeight: 'Regular',
     isUppercase: true,
     fontColor: '#ffffff',
@@ -14,14 +14,13 @@ export const auraglowPreset: SubtitlePreset = {
     hasShadow: true,
     shadowColor: '#000000',
     shadowX: 0,
-    shadowY: 4,
-    shadowBlur: 10,
-    highlightColor: baseHighlightColor || '#4F46E5',
+    shadowY: 2,
+    shadowBlur: 4,
+    highlightColor: baseHighlightColor || '#FF6584',
     letterSpacing: 0,
     lineHeight: 1.2
   }),
   renderButton: (isSelected: boolean, onClick: () => void) => {
-    const activeColor = '#1856FF';
     return (
       <button
         onClick={onClick}
@@ -35,32 +34,37 @@ export const auraglowPreset: SubtitlePreset = {
           justifyContent: 'center',
           alignItems: 'center',
           height: '80px',
-          fontFamily: "'Outfit', var(--font-display)",
-          fontSize: '24px',
-          fontWeight: '900',
-          textTransform: "uppercase",
-          boxShadow: isSelected ? '0 0 20px rgba(24, 86, 255, 0.3)' : 'none',
           overflow: 'hidden'
         }}
       >
+        <style>
+          {`
+            @keyframes slideUpFadeBtn {
+              0%{transform:translateY(20px);opacity:0}
+              30%,70%{transform:translateY(0);opacity:1}
+              100%{transform:translateY(-5px);opacity:0}
+            }
+          `}
+        </style>
         <span style={{ 
-          backgroundImage: `linear-gradient(90deg, ${activeColor}, #00FFFF, ${activeColor})`,
-          backgroundSize: '200% auto',
+          fontFamily: "'Poppins', sans-serif",
+          fontWeight: 800,
+          fontSize: '24px',
+          background: 'linear-gradient(135deg, #6C63FF, #FF6584)',
           WebkitBackgroundClip: 'text',
           WebkitTextFillColor: 'transparent',
-          color: 'transparent',
-          filter: `drop-shadow(0 0 12px ${activeColor}) drop-shadow(0 4px 8px rgba(0,0,0,0.8))`,
-          transform: 'scale(1.1)'
+          backgroundClip: 'text',
+          animation: 'slideUpFadeBtn 2s ease-in-out infinite'
         }}>
-          AURA
+          SLIDE UP FADE
         </span>
       </button>
     );
   },
   renderPreview: ({ words, activeWordIndex, config }) => {
-    const activeColor = (config.highlightColor && config.highlightColor !== '#000000') ? config.highlightColor : '#00F0FF';
+    const activeColor = (config.highlightColor && config.highlightColor !== '#000000') ? config.highlightColor : '#FF6584';
     const fontColor = config.fontColor || '#ffffff';
-
+    
     // Helper to map string weights to CSS numbers
     const getWeight = (weight: string | number | undefined) => {
       if (typeof weight === 'number') return weight;
@@ -82,52 +86,53 @@ export const auraglowPreset: SubtitlePreset = {
       <>
         <style>
           {`
-            .aura-container {
+            .slideup-container {
               display: inline-flex;
               gap: 12px;
               align-items: center;
               flex-wrap: wrap;
               justify-content: center;
               max-width: 100%;
-              perspective: 800px;
+              position: relative;
+              height: 60px;
+              overflow: visible;
             }
-            .aura-word {
+            .slideup-word {
               display: inline-block;
-              font-family: '${config.fontFamily}', var(--font-display);
+              font-family: '${config.fontFamily}', sans-serif;
               font-weight: ${numericWeight};
               text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
               letter-spacing: ${config.letterSpacing !== undefined ? config.letterSpacing : 0}px;
               line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
-              transform-style: preserve-3d;
-              transition: all 0.3s ease;
+              position: absolute;
+              opacity: 0;
+              transform: translateY(40px);
+              left: 50%;
+              transform-origin: center center;
+              white-space: nowrap;
+              /* Center align absolute items */
+              transform: translateX(-50%);
             }
-            .aura-word.inactive {
-              color: ${fontColor};
-              opacity: 0.8;
-              transform: rotateX(40deg) scale(0.9);
-              text-shadow: 0 4px 10px rgba(0,0,0,0.5);
-              -webkit-text-stroke: ${(config.strokeWidth || 0) > 0 ? `${(config.strokeWidth || 0) * 0.5}px ${config.strokeColor}` : 'none'};
-            }
-            .aura-word.active {
-              animation: springPop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
-              background-image: linear-gradient(90deg, ${activeColor}, #00FFFF, ${activeColor});
-              background-size: 200% auto;
-              color: transparent;
+            .slideup-word.active {
+              animation: slideUpFadeAnim 1s ease-in-out forwards;
+              background: linear-gradient(135deg, #6C63FF, ${activeColor});
               -webkit-background-clip: text;
               -webkit-text-fill-color: transparent;
-              -webkit-text-stroke: ${(config.strokeWidth || 0) > 0 ? `${(config.strokeWidth || 0) * 0.5}px ${config.strokeColor}` : 'none'};
-              filter: drop-shadow(0 0 15px ${activeColor}) drop-shadow(0 5px 10px rgba(0,0,0,0.8));
+              background-clip: text;
+              color: transparent; /* fallback */
             }
-            @keyframes springPop {
-              0% { transform: rotateX(-60deg) translateY(20px) scale(0.8); opacity: 0; background-position: 0% center; }
-              100% { transform: rotateX(0deg) translateY(0) scale(1.1); opacity: 1; background-position: 200% center; }
+            @keyframes slideUpFadeAnim {
+              0% { transform: translateY(40px) translateX(-50%); opacity: 0; }
+              30% { transform: translateY(0) translateX(-50%); opacity: 1; }
+              70% { transform: translateY(0) translateX(-50%); opacity: 1; }
+              100% { transform: translateY(-10px) translateX(-50%); opacity: 0; }
             }
           `}
         </style>
-        <span className="aura-container">
-          <span key={`prev-${activeWordIndex}`} className="aura-word inactive">{words[activeWordIndex - 1]?.word}</span>
-          <span key={`active-${activeWordIndex}`} className="aura-word active">{words[activeWordIndex].word}</span>
-          <span key={`next-${activeWordIndex}`} className="aura-word inactive">{words[activeWordIndex + 1]?.word}</span>
+        <span className="slideup-container">
+          <span key={`active-${activeWordIndex}`} className="slideup-word active">
+            {words[activeWordIndex]?.word || ''}
+          </span>
         </span>
       </>
     );

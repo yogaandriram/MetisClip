@@ -14,9 +14,11 @@ export const luminaPreset: SubtitlePreset = {
     hasShadow: true,
     shadowColor: '#000000',
     shadowX: 0,
-    shadowY: 2,
-    shadowBlur: 4,
-    highlightColor: baseHighlightColor || '#FFFFFF'
+    shadowY: 0,
+    shadowBlur: 0,
+    highlightColor: baseHighlightColor || '#00FFCC',
+    letterSpacing: 0,
+    lineHeight: 1.2
   }),
   renderButton: (isSelected: boolean, onClick: () => void) => {
     const activeColor = '#FFFFFF';
@@ -87,12 +89,18 @@ export const luminaPreset: SubtitlePreset = {
               display: inline-flex;
               gap: 12px;
               align-items: center;
+              flex-wrap: wrap;
+              justify-content: center;
+              max-width: 100%;
             }
             .lumina-word {
               display: inline-block;
               font-family: '${config.fontFamily}', var(--font-display);
               font-weight: ${numericWeight};
-              text-transform: uppercase;
+              text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
+              letter-spacing: ${config.letterSpacing !== undefined ? config.letterSpacing : 0}px;
+              line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
+              text-shadow: ${config.hasShadow ? `${config.shadowX}px ${config.shadowY}px ${config.shadowBlur}px ${config.shadowColor}` : 'none'};
               transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
             }
             .lumina-word.inactive {

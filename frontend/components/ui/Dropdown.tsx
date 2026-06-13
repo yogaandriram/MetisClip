@@ -3,7 +3,7 @@ import Link from 'next/link'
 
 export interface DropdownItem {
   id: string
-  label: string
+  label: string | React.ReactNode
   icon?: React.ElementType
   onClick?: () => void
   href?: string

@@ -245,11 +245,12 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
         )}
 
         {/* Mock Caption */}
-        <div style={{ position: 'absolute', bottom: `${caption.positionY || 80}px`, left: '50%', transform: 'translateX(-50%)', width: '80%', textAlign: 'center' }}>
+        <div style={{ position: 'absolute', bottom: `${caption.positionY || 80}px`, left: '50%', transform: 'translateX(-50%)', width: '70%', textAlign: 'center' }}>
           <div style={{ 
             fontSize: `${caption.fontSize * 0.5}px`, 
             lineHeight: 1.2,
             display: 'flex',
+            flexWrap: 'wrap',
             justifyContent: 'center',
             alignItems: 'center',
             gap: '8px'

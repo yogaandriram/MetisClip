@@ -68,17 +68,30 @@ def run_processor_agent(state: PipelineState) -> Dict[str, Any]:
         logger.warning(f"Could not connect to Supabase: {str(e)}")
         has_supabase = False
 
-    # Fetch user's custom Groq API Key
+    # Fetch user's custom Groq API Key and Agent ID
     groq_api_key = None
+    agent_id = None
     if supabase is not None and user_id:
         try:
-            agent_res = supabase.table("super_agents").select("groq_api_key").eq("user_id", user_id).execute()
-            if agent_res.data and agent_res.data[0].get("groq_api_key"):
+            agent_res = supabase.table("super_agents").select("id, groq_api_key").eq("user_id", user_id).execute()
+            if agent_res.data:
                 groq_api_key = agent_res.data[0].get("groq_api_key")
+                agent_id = agent_res.data[0].get("id")
         except Exception as e:
-            logger.warning(f"Failed to fetch user's custom Groq key: {e}")
+            logger.warning(f"Failed to fetch user's agent info: {e}")
 
     has_groq = bool(groq_api_key and groq_api_key != "your_groq_api_key")
+
+    # Fetch Brand Template settings for the agent
+    brand_template_settings = None
+    if supabase is not None and agent_id:
+        try:
+            bt_res = supabase.table("brand_templates").select("caption_settings").eq("agent_id", agent_id).execute()
+            if bt_res.data and bt_res.data[0].get("caption_settings"):
+                brand_template_settings = bt_res.data[0].get("caption_settings")
+        except Exception as e:
+            logger.warning(f"Failed to fetch brand templates: {e}")
+
 
     processed_clips = []
     video_types = state.get("video_types", ["talking_head"])
@@ -220,14 +233,16 @@ def run_processor_agent(state: PipelineState) -> Dict[str, Any]:
         default_style = {
             "font_family": "Montserrat Bold",
             "font_size": 46,
-            "primary_color": "#FFFFFF",
+            "fontColor": "#FFFFFF",
             "highlight_color": "#06D6A0",
             "stroke_color": "#000000",
             "stroke_width": 3,
             "position": "bottom-center",
             "words_per_group": 3,
-            "animation": "pop"
+            "mode": "popshadow"
         }
+        if isinstance(brand_template_settings, dict):
+            default_style.update(brand_template_settings)
 
         subtitle_payload = {
             "clip_id": clip_uuid,
