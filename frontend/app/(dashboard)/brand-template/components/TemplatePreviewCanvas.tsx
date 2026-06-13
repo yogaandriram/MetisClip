@@ -17,15 +17,34 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
   // Canvas bounds
   const CANVAS_WIDTH = 300;
   const CANVAS_HEIGHT = 533;
-  const LOGO_SIZE = 60; // Max width/height of the logo
+  const BASE_LOGO_SIZE = 60; // Max width/height of the logo base
+  const currentLogoSize = BASE_LOGO_SIZE * (brandSettings?.logoScale || 1);
   const SNAP_THRESHOLD = 15;
 
-  // Dragging State
-  const initialPos = brandSettings?.logoPosition || { x: CANVAS_WIDTH - LOGO_SIZE - 15, y: 15 };
+  // Dragging & Resizing State
+  const initialPos = brandSettings?.logoPosition || { x: CANVAS_WIDTH - currentLogoSize - 15, y: 15 };
   const [pos, setPos] = useState(initialPos);
   const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
   const [snapGuides, setSnapGuides] = useState({ x: false, y: false });
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Animation State
+  const [activeWordIndex, setActiveWordIndex] = useState(0);
+  const previewWords = [
+    { word: 'PREMIUM', start: 0, end: 1 },
+    { word: 'CAPTIONS', start: 1, end: 2 },
+    { word: 'FOR', start: 2, end: 3 },
+    { word: 'VIRAL', start: 3, end: 4 },
+    { word: 'VIDEOS', start: 4, end: 5 }
+  ];
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setActiveWordIndex((prev) => (prev + 1) % previewWords.length);
+    }, 800);
+    return () => clearInterval(interval);
+  }, [previewWords.length]);
 
   // Sync state with props if it changes externally
   useEffect(() => {
@@ -35,6 +54,7 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
   }, [brandSettings?.logoPosition, isDragging]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
     setIsDragging(true);
     e.currentTarget.setPointerCapture(e.pointerId);
   };
@@ -43,16 +63,17 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
     if (!isDragging || !containerRef.current) return;
     
     const rect = containerRef.current.getBoundingClientRect();
-    let newX = e.clientX - rect.left - LOGO_SIZE / 2;
-    let newY = e.clientY - rect.top - LOGO_SIZE / 2;
+    const scale = rect.width / CANVAS_WIDTH;
+    let newX = (e.clientX - rect.left) / scale - currentLogoSize / 2;
+    let newY = (e.clientY - rect.top) / scale - currentLogoSize / 2;
 
     // Boundaries
-    newX = Math.max(0, Math.min(newX, CANVAS_WIDTH - LOGO_SIZE));
-    newY = Math.max(0, Math.min(newY, CANVAS_HEIGHT - LOGO_SIZE));
+    newX = Math.max(0, Math.min(newX, CANVAS_WIDTH - currentLogoSize));
+    newY = Math.max(0, Math.min(newY, CANVAS_HEIGHT - currentLogoSize));
 
     // Snapping Logic
-    const centerX = CANVAS_WIDTH / 2 - LOGO_SIZE / 2;
-    const centerY = CANVAS_HEIGHT / 2 - LOGO_SIZE / 2;
+    const centerX = CANVAS_WIDTH / 2 - currentLogoSize / 2;
+    const centerY = CANVAS_HEIGHT / 2 - currentLogoSize / 2;
     
     let snapX = false;
     let snapY = false;
@@ -71,6 +92,7 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
+    e.stopPropagation();
     setIsDragging(false);
     setSnapGuides({ x: false, y: false });
     e.currentTarget.releasePointerCapture(e.pointerId);
@@ -78,6 +100,41 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
     if (onUpdateBrand) {
       onUpdateBrand({ logoPosition: pos });
     }
+  };
+
+  const handleResizePointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    setIsResizing(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const handleResizePointerMove = (e: React.PointerEvent) => {
+    if (!isResizing || !containerRef.current) return;
+    e.stopPropagation();
+    
+    const rect = containerRef.current.getBoundingClientRect();
+    const scale = rect.width / CANVAS_WIDTH;
+    
+    const logoXOnScreen = rect.left + pos.x * scale;
+    const logoYOnScreen = rect.top + pos.y * scale;
+    
+    const mouseDX = e.clientX - logoXOnScreen;
+    const mouseDY = e.clientY - logoYOnScreen;
+    
+    const newPixelSize = Math.max(mouseDX, mouseDY) / scale;
+    
+    let newScale = newPixelSize / BASE_LOGO_SIZE;
+    newScale = Math.max(0.5, Math.min(newScale, 4)); // constrain between 0.5x and 4x
+    
+    if (onUpdateBrand) {
+      onUpdateBrand({ logoScale: newScale });
+    }
+  };
+
+  const handleResizePointerUp = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    setIsResizing(false);
+    e.currentTarget.releasePointerCapture(e.pointerId);
   };
 
   return (
@@ -135,55 +192,77 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
 
         {/* Overlay Image (Logo/CTA) */}
         {brandSettings?.overlayUrl && (
-          <img 
-            src={brandSettings.overlayUrl} 
-            alt="Brand Overlay"
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            style={{ 
-              position: 'absolute', 
-              top: `${pos.y}px`, 
-              left: `${pos.x}px`, 
-              maxWidth: `${LOGO_SIZE}px`, 
-              maxHeight: `${LOGO_SIZE}px`, 
-              objectFit: 'contain',
-              cursor: isDragging ? 'grabbing' : 'grab',
-              touchAction: 'none',
+          <div
+            style={{
+              position: 'absolute',
+              top: `${pos.y}px`,
+              left: `${pos.x}px`,
+              width: `${currentLogoSize}px`,
+              height: `${currentLogoSize}px`,
               zIndex: 20
             }}
-          />
+          >
+            <img 
+              src={brandSettings.overlayUrl} 
+              alt="Brand Overlay"
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              draggable={false}
+              style={{ 
+                width: '100%', 
+                height: '100%', 
+                objectFit: 'contain',
+                cursor: isDragging ? 'grabbing' : 'grab',
+                touchAction: 'none',
+                pointerEvents: 'auto',
+                border: (isDragging || isResizing) ? '1px dashed rgba(255,255,255,0.5)' : 'none'
+              }}
+            />
+            <div
+              onPointerDown={handleResizePointerDown}
+              onPointerMove={handleResizePointerMove}
+              onPointerUp={handleResizePointerUp}
+              style={{
+                position: 'absolute',
+                right: '-6px',
+                bottom: '-6px',
+                width: '14px',
+                height: '14px',
+                background: 'var(--primary)',
+                borderRadius: '50%',
+                border: '2px solid white',
+                cursor: 'nwse-resize',
+                touchAction: 'none',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                display: 'block',
+                opacity: (isDragging || isResizing) ? 1 : 0.7,
+                transition: 'opacity 0.2s',
+                pointerEvents: 'auto'
+              }}
+            />
+          </div>
         )}
 
         {/* Mock Caption */}
         <div style={{ position: 'absolute', bottom: `${caption.positionY || 80}px`, left: '50%', transform: 'translateX(-50%)', width: '80%', textAlign: 'center' }}>
           <div style={{ 
-            fontFamily: `'${caption.fontFamily}', var(--font-display)`,
             fontSize: `${caption.fontSize * 0.5}px`, 
-            fontStyle: caption.isItalic ? 'italic' : 'normal',
-            textDecoration: caption.isUnderline ? 'underline' : 'none',
-            textTransform: caption.isUppercase ? 'uppercase' : 'none',
-            WebkitTextStroke: caption.strokeWidth > 0 ? `${caption.strokeWidth * 0.5}px ${caption.strokeColor}` : 'none',
-            textShadow: caption.hasShadow ? `${caption.shadowX * 0.5}px ${caption.shadowY * 0.5}px ${caption.shadowBlur * 0.5}px ${caption.shadowColor}` : (caption.strokeWidth === 0 ? '1px 1px 0px #000, -1px -1px 0px #000, -1px 1px 0px #000, 1px -1px 0px #000' : 'none'),
-            fontWeight: caption.fontWeight === 'Bold' || caption.fontWeight === 'Black' ? 900 : (caption.fontWeight === 'Medium' ? 500 : 400),
             lineHeight: 1.2,
             display: 'flex',
             justifyContent: 'center',
+            alignItems: 'center',
             gap: '8px'
           }}>
             {(() => {
               const activePreset = presets.find(p => p.id === caption.mode);
               if (!activePreset) return null;
               
-              const isHighlightStyle = activePreset.id === 'popart' || activePreset.id === 'glitch' || activePreset.id === 'cinematic' || activePreset.id === 'retro' || activePreset.id === 'typewriter' || activePreset.id === 'boldbox' || activePreset.id === 'outlineonly' || activePreset.id === '3dblock' || activePreset.id === 'vaporwave' || activePreset.id === 'impactful';
+              const isHighlightStyle = true; // Assuming future premium presets will be highlight-based
               
               return activePreset.renderPreview({
-                words: [
-                  { word: isHighlightStyle ? activePreset.name : 'PRESET', start: 0, end: 1 },
-                  { word: 'CAPTIONS', start: 1, end: 2 },
-                  { word: '', start: 2, end: 3 }
-                ],
-                activeWordIndex: 1,
+                words: previewWords,
+                activeWordIndex: activeWordIndex,
                 config: caption
               });
             })()}

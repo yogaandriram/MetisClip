@@ -1,9 +1,9 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
-import { Undo, Redo, Layout, Type, Image as ImageIcon, Video, Music, ChevronDown, Plus, Edit2, Trash2, Check, X } from 'lucide-react'
+import { Undo, Redo, RefreshCw, Layout, Type, Image as ImageIcon, Video, Music, ChevronDown, Plus, Edit2, Trash2, Check, X } from 'lucide-react'
 import { useAgent } from '@/contexts/AgentContext'
 import toast from 'react-hot-toast'
 import { Button } from '../../../components/ui/Button'
@@ -20,8 +20,19 @@ import { TemplatePreviewCanvas } from './components/TemplatePreviewCanvas'
 import { useDebounce } from '@/hooks/useDebounce'
 
 export default function BrandTemplatePage() {
-  const { activeAgent } = useAgent()
-  const supabase = createClientComponentClient()
+  const { activeAgent, isAgentLoading } = useAgent()
+  const supabase = createClientComponentClient({
+    options: {
+      global: {
+        fetch: (url, options) => fetch(url, { ...options, cache: 'no-store' }),
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
+      }
+    }
+  })
   
   const [templates, setTemplates] = useState<any[]>([])
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('')
@@ -29,9 +40,8 @@ export default function BrandTemplatePage() {
   
   // Unified Settings State
   const [config, setConfig] = useState<TemplateConfig>(DEFAULT_TEMPLATE_CONFIG)
-  const debouncedConfig = useDebounce(config, 1000)
   const [isSaving, setIsSaving] = useState(false)
-  const [isInitialLoad, setIsInitialLoad] = useState(true)
+  const lastLoadedConfigRef = useRef<string>('')
   
   // Template Management State
   const [isRenaming, setIsRenaming] = useState(false)
@@ -40,26 +50,34 @@ export default function BrandTemplatePage() {
   // Undo/Redo History State
   const [history, setHistory] = useState<TemplateConfig[]>([DEFAULT_TEMPLATE_CONFIG])
   const [historyIndex, setHistoryIndex] = useState(0)
+  
+  const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
     if (activeAgent) {
-      fetchTemplates()
+      setIsLoading(true)
+      fetchTemplates().finally(() => setIsLoading(false))
     } else {
       setTemplates([])
       setSelectedTemplateId('')
+      setIsLoading(false)
     }
   }, [activeAgent])
 
+  // Warn user if they try to leave before auto-save completes
   useEffect(() => {
-    if (isInitialLoad) {
-      setIsInitialLoad(false);
-      return;
-    }
-    
-    if (selectedTemplateId) {
-      autoSaveTemplate(debouncedConfig);
-    }
-  }, [debouncedConfig])
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      const currentStr = JSON.stringify(config);
+      if (currentStr !== lastLoadedConfigRef.current) {
+        e.preventDefault();
+        e.returnValue = ''; // Shows standard browser warning
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [config]);
+
+  const hasChanges = JSON.stringify(config) !== lastLoadedConfigRef.current;
 
   const fetchTemplates = async () => {
     if (!activeAgent) return
@@ -75,7 +93,8 @@ export default function BrandTemplatePage() {
     
     if (data && data.length > 0) {
       setTemplates(data)
-      handleSelectTemplate(data[0].id)
+      setSelectedTemplateId(data[0].id)
+      applyTemplateData(data[0])
     } else {
       // Create default
       const defaultData = {
@@ -96,19 +115,30 @@ export default function BrandTemplatePage() {
         
       if (!createErr && newDoc) {
         setTemplates([newDoc])
-        handleSelectTemplate(newDoc.id)
+        setSelectedTemplateId(newDoc.id)
+        applyTemplateData(newDoc)
       }
     }
   }
 
   const applyTemplateData = (tpl: any) => {
-    setIsInitialLoad(true); // Prevent auto-save immediately on load
-    const newConfig = {
-      layout_settings: tpl.layout_settings || DEFAULT_TEMPLATE_CONFIG.layout_settings,
-      caption_settings: tpl.caption_settings || DEFAULT_TEMPLATE_CONFIG.caption_settings,
-      ai_settings: tpl.ai_settings || DEFAULT_TEMPLATE_CONFIG.ai_settings,
-      brand_settings: tpl.brand_settings || DEFAULT_TEMPLATE_CONFIG.brand_settings
+    const validModes = ['auraglow', 'kineticbox', 'lumina', 'popshadow', 'typewriter', 'neonpulse'];
+    let safeMode = tpl.caption_settings?.mode || 'popshadow';
+    if (!validModes.includes(safeMode)) {
+      safeMode = 'popshadow';
     }
+
+    const newConfig = {
+      layout_settings: { ...DEFAULT_TEMPLATE_CONFIG.layout_settings, ...(tpl.layout_settings || {}) },
+      caption_settings: { 
+        ...DEFAULT_TEMPLATE_CONFIG.caption_settings, 
+        ...(tpl.caption_settings || {}),
+        mode: safeMode
+      },
+      ai_settings: { ...DEFAULT_TEMPLATE_CONFIG.ai_settings, ...(tpl.ai_settings || {}) },
+      brand_settings: { ...DEFAULT_TEMPLATE_CONFIG.brand_settings, ...(tpl.brand_settings || {}) }
+    }
+    lastLoadedConfigRef.current = JSON.stringify(newConfig)
     setConfig(newConfig)
     setHistory([newConfig])
     setHistoryIndex(0)
@@ -141,27 +171,35 @@ export default function BrandTemplatePage() {
       
     if (!error && newDoc) {
       setTemplates([...templates, newDoc])
-      handleSelectTemplate(newDoc.id)
+      setSelectedTemplateId(newDoc.id)
+      applyTemplateData(newDoc)
       toast.success('Template baru dibuat')
     }
   }
 
-  const autoSaveTemplate = async (currentConfig: TemplateConfig) => {
+  const manualSaveTemplate = async () => {
+    if (isSaving || !selectedTemplateId) return;
     setIsSaving(true)
     const updateData = {
-      layout_settings: currentConfig.layout_settings,
-      caption_settings: currentConfig.caption_settings,
-      ai_settings: currentConfig.ai_settings,
-      brand_settings: currentConfig.brand_settings
+      layout_settings: config.layout_settings,
+      caption_settings: config.caption_settings,
+      ai_settings: config.ai_settings,
+      brand_settings: config.brand_settings
     }
     
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('brand_templates')
       .update(updateData)
       .eq('id', selectedTemplateId)
+      .select()
       
-    if (!error) {
+    if (!error && data && data.length > 0) {
       setTemplates(prev => prev.map(t => t.id === selectedTemplateId ? { ...t, ...updateData } : t))
+      lastLoadedConfigRef.current = JSON.stringify(config)
+      toast.success('Pengaturan berhasil disimpan')
+    } else {
+      console.error("Save failed or 0 rows updated", error, data);
+      toast.error('Gagal menyimpan. Pastikan Anda memiliki akses ke template ini.')
     }
     setIsSaving(false)
   }
@@ -392,6 +430,7 @@ export default function BrandTemplatePage() {
             <button 
               onClick={handleUndo}
               disabled={historyIndex <= 0}
+              title="Undo Changes (Kembali ke sebelumnya)"
               style={{ background: 'transparent', border: 'none', color: historyIndex > 0 ? '#fff' : 'var(--text-muted)', cursor: historyIndex > 0 ? 'pointer' : 'not-allowed', opacity: historyIndex > 0 ? 1 : 0.5 }}
             >
               <Undo size={20} />
@@ -399,22 +438,45 @@ export default function BrandTemplatePage() {
             <button 
               onClick={handleRedo}
               disabled={historyIndex >= history.length - 1}
+              title="Redo Changes (Maju ke sesudahnya)"
               style={{ background: 'transparent', border: 'none', color: historyIndex < history.length - 1 ? '#fff' : 'var(--text-muted)', cursor: historyIndex < history.length - 1 ? 'pointer' : 'not-allowed', opacity: historyIndex < history.length - 1 ? 1 : 0.5 }}
             >
               <Redo size={20} />
             </button>
+            <button 
+              onClick={() => {
+                setIsLoading(true);
+                fetchTemplates().finally(() => setIsLoading(false));
+              }}
+              title="Refresh Data dari Database"
+              style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', marginLeft: '10px' }}
+            >
+              <RefreshCw size={20} className={isLoading ? "animate-spin" : ""} />
+            </button>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', minWidth: '80px', justifyContent: 'flex-end' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-              {isSaving ? 'Saving...' : 'Saved'}
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', minWidth: '120px', justifyContent: 'flex-end' }}>
+            <Button 
+              onClick={manualSaveTemplate} 
+              disabled={!hasChanges || isSaving || !selectedTemplateId}
+              variant="primary"
+            >
+              {isSaving ? 'Saving...' : 'Save Changes'}
+            </Button>
           </div>
         </div>
       </div>
 
-      {!activeAgent ? (
+      {isAgentLoading ? (
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
+      ) : !activeAgent ? (
         <div style={{ textAlign: 'center', padding: '60px 20px' }}>
           <p>Please select a Super Agent first.</p>
+        </div>
+      ) : isLoading ? (
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
         </div>
       ) : (
         <div style={{ display: 'flex', flex: 1, gap: '10px' }}>

@@ -18,25 +18,27 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
   const [captionTab, setCaptionTab] = useState('presets');
 
   const handlePresetSelect = (presetId: string) => {
-    updateCaption({ mode: presetId });
     const p = presets.find(pr => pr.id === presetId);
     if (p) {
-      const pConfig = p.getDefaultConfig(caption.highlightColor);
+      const pConfig = p.getDefaultConfig();
       updateCaption({
+        mode: presetId,
         fontFamily: pConfig.fontFamily || caption.fontFamily,
         fontWeight: pConfig.fontWeight || caption.fontWeight,
-        isUppercase: pConfig.isUppercase || false,
+        isUppercase: pConfig.isUppercase !== undefined ? pConfig.isUppercase : caption.isUppercase,
         fontColor: pConfig.fontColor || caption.fontColor,
         strokeColor: pConfig.strokeColor || caption.strokeColor,
-        strokeWidth: pConfig.strokeWidth || 0,
-        hasShadow: pConfig.hasShadow || false,
+        strokeWidth: pConfig.strokeWidth !== undefined ? pConfig.strokeWidth : caption.strokeWidth,
+        hasShadow: pConfig.hasShadow !== undefined ? pConfig.hasShadow : caption.hasShadow,
         shadowColor: pConfig.shadowColor || caption.shadowColor,
-        shadowX: pConfig.shadowX || 0,
-        shadowY: pConfig.shadowY || 0,
-        shadowBlur: pConfig.shadowBlur || 0,
+        shadowX: pConfig.shadowX !== undefined ? pConfig.shadowX : caption.shadowX,
+        shadowY: pConfig.shadowY !== undefined ? pConfig.shadowY : caption.shadowY,
+        shadowBlur: pConfig.shadowBlur !== undefined ? pConfig.shadowBlur : caption.shadowBlur,
         isItalic: pConfig.isItalic !== undefined ? pConfig.isItalic : caption.isItalic,
         highlightColor: pConfig.highlightColor || caption.highlightColor
       });
+    } else {
+      updateCaption({ mode: presetId });
     }
   };
 
@@ -49,8 +51,7 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
       <Tabs 
         tabs={[
           { id: 'presets', label: 'Presets' },
-          { id: 'font', label: 'Font' },
-          { id: 'effects', label: 'Effects' }
+          { id: 'font', label: 'Font' }
         ]}
         activeTab={captionTab}
         onChange={setCaptionTab}
@@ -184,12 +185,8 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
               </div>
             </div>
           </div>
-        </div>
-      )}
 
-      {captionTab === 'effects' && (
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '15px' }}>
             <span style={{ fontSize: '13px', color: 'var(--text-dim)' }}>Highlight Color (Active word)</span>
             <PremiumColorPicker color={caption.highlightColor} onChange={(c) => updateCaption({ highlightColor: c })} />
           </div>

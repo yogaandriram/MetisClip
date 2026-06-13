@@ -37,6 +37,7 @@ export interface BrandSettings {
   musicUrl?: string;
   sampleVideoUrl?: string;
   logoPosition?: { x: number, y: number };
+  logoScale?: number;
 }
 
 export interface TemplateConfig {
@@ -53,27 +54,27 @@ export interface TemplateConfig {
 export const DEFAULT_TEMPLATE_CONFIG: TemplateConfig = {
   layout_settings: {
     aspect: '9:16',
-    fit: 'Fit',
-    safeZone: 'none'
+    fit: 'Cover',
+    safeZone: 'tiktok'
   },
   caption_settings: {
-    mode: 'auto',
-    fontFamily: 'Inter',
-    fontSize: 24,
-    fontWeight: 'Bold',
+    mode: 'popshadow',
+    fontFamily: 'Montserrat',
+    fontSize: 36,
+    fontWeight: 'Regular',
     fontColor: '#FFFFFF',
     isItalic: false,
     isUnderline: false,
     isUppercase: false,
     strokeColor: '#000000',
-    strokeWidth: 2,
+    strokeWidth: 0,
     hasShadow: true,
     shadowColor: '#000000',
     shadowX: 2,
     shadowY: 2,
     shadowBlur: 4,
     highlightColor: '#FFFF00',
-    positionY: 80
+    positionY: 240
   },
   ai_settings: {
     fillerWords: true,

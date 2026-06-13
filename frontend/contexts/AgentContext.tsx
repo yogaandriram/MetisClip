@@ -18,6 +18,7 @@ type AgentContextType = {
   agents: Agent[]
   setAgents: (agents: Agent[]) => void
   refreshAgents: () => void
+  isAgentLoading: boolean
 }
 
 const AgentContext = createContext<AgentContextType | undefined>(undefined)
@@ -25,12 +26,17 @@ const AgentContext = createContext<AgentContextType | undefined>(undefined)
 export function AgentProvider({ children }: { children: React.ReactNode }) {
   const [activeAgent, setActiveAgentState] = useState<Agent | null>(null)
   const [agents, setAgents] = useState<Agent[]>([])
+  const [isAgentLoading, setIsAgentLoading] = useState<boolean>(true)
 
   const supabase = createClientComponentClient()
 
   const fetchAgents = async () => {
+    setIsAgentLoading(true)
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
+    if (!user) {
+      setIsAgentLoading(false)
+      return
+    }
 
     const { data, error } = await supabase
       .from('super_agents')
@@ -40,6 +46,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
 
     if (error) {
       console.error('Error fetching agents:', error)
+      setIsAgentLoading(false)
       return
     }
 
@@ -59,6 +66,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         setActiveAgentState(null)
       }
     }
+    setIsAgentLoading(false)
   }
 
   useEffect(() => {
@@ -79,7 +87,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AgentContext.Provider value={{ activeAgent, setActiveAgent, agents, setAgents, refreshAgents }}>
+    <AgentContext.Provider value={{ activeAgent, setActiveAgent, agents, setAgents, refreshAgents, isAgentLoading }}>
       {children}
     </AgentContext.Provider>
   )

@@ -125,48 +125,39 @@ def generate_ass_file(words: list, style: dict, output_ass_path: str):
             raw_text = target_word['word'].upper() if is_uppercase else target_word['word']
             
             # Dictionary mapping for single-word modes
-            single_word_presets = {
-                'boldbox': f"{{\\c{ass_outline_color}}}{{\\3c{ass_highlight_color}}}{{\\bord6}}{raw_text}",
-                'minimalpill': f"{{\\c{ass_highlight_color}}}{{\\3c&H80000000&}}{raw_text}",
-                'marker': f"{{\\frz3}}{{\\c&H000000&}}{{\\3c{ass_highlight_color}}}{{\\bord4}}{raw_text}",
-                'impactful': f"{{\\c&HFFFFFF&}}{{\\3c{ass_highlight_color}}}{{\\bord8}}{raw_text}"
+            # (Deleted)
+            
+            # Dictionary mapping for full-line active word styling
+            active_word_styles = {
+                'auraglow': f"{{\\alpha&H00&}}{{\\fscx125\\fscy125\\t(0,150,\\fscx115\\fscy115)}}{{\\c&HFFFFFF&}}{{\\3c{ass_highlight_color}}}{{\\blur12}}{{\\bord6}}{{word_str}}{{\\fscx90\\fscy90}}{{\\c{ass_primary_color}}}{{\\3c{ass_outline_color}}}{{\\blur5}}{{\\bord3}} ",
+                'kineticbox': f"{{\\alpha&H00&}}{{\\fax-0.15}}{{\\fscx115\\fscy115\\t(0,100,\\fscx105\\fscy105)}}{{\\c&H111111&}}{{\\3c{ass_highlight_color}}}{{\\blur0}}{{\\bord12}}{{\\4c&H000000&}}{{\\shad8}}{{word_str}}{{\\fax0}}{{\\fscx95\\fscy95}}{{\\c{ass_primary_color}}}{{\\3c{ass_outline_color}}}{{\\blur0}}{{\\bord3}} ",
+                'lumina': f"{{\\alpha&HFF&}}{{\\fsp0}}{{\\fscx95\\fscy95}}{{\\t(0,250,\\alpha&H00&\\fsp5\\fscx105\\fscy105)}}{{\\c{ass_highlight_color}}}{{\\3c&HFFFFFF&}}{{\\blur5}}{{\\bord3}}{{word_str}}{{\\fsp0}}{{\\fscx90\\fscy90}}{{\\c{ass_primary_color}}}{{\\3c{ass_outline_color}}}{{\\blur2}}{{\\bord1}} ",
+                'popshadow': f"{{\\fscx110\\fscy110\\t(0,100,\\fscx105\\fscy105)}}{{\\4c{ass_highlight_color}}}{{\\shad4}}{{word_str}}{{\\fscx95\\fscy95}}{{\\shad0}} "
             }
             
-            if mode in single_word_presets:
-                text = single_word_presets[mode]
-                ass_content.append(f"Dialogue: 0,{event_start},{event_end},Default,,0,0,0,,{text}")
+            # Default style fallback for active words
+            default_active_style = f"{{\\c{ass_highlight_color}}}{{word_str}}{{\\c{ass_primary_color}}} "
             
-            else: # full line modes
-                # Dictionary mapping for full-line active word styling
-                active_word_styles = {
-                    'popart': f"{{\\c{ass_highlight_color}}}{{\\fscx120\\fscy120}}{{\\frz4}}{{word_str}}{{\\fscx100\\fscy100}}{{\\frz0}}{{\\c{ass_primary_color}}} ",
-                    'glitch': f"{{\\c{ass_highlight_color}}}{{\\fax-0.2}}{{\\3c&HFFFF00&}}{{\\bord2}}{{\\4c&H0000FF&}}{{\\shad4}}{{word_str}}{{\\fax0}}{{\\3c{ass_outline_color}}}{{\\bord{scaled_outline}}}{{\\4c{ass_back_color}}}{{\\shad{scaled_shadow}}}{{\\c{ass_primary_color}}} ",
-                    'cinematic': f"{{\\c{ass_highlight_color}}}{{\\fsp6}}{{word_str}}{{\\fsp0}}{{\\c{ass_primary_color}}} ",
-                    'retro': f"{{\\c{ass_highlight_color}}}{{\\3c{ass_highlight_color}}}{{\\blur5}}{{\\bord4}}{{word_str}}{{\\3c{ass_outline_color}}}{{\\blur0}}{{\\bord{scaled_outline}}}{{\\c{ass_primary_color}}} ",
-                    'typewriter': f"{{\\c{ass_highlight_color}}}{{word_str}}_{{\\c{ass_primary_color}}} ",
-                    'outlineonly': f"{{\\1a&H00&}}{{\\c{ass_highlight_color}}}{{\\3c&H00000000&}}{{\\bord0}}{{word_str}}{{\\1a&HFF&}}{{\\3c{ass_outline_color}}}{{\\bord{scaled_outline}}}{{\\c{ass_primary_color}}} ",
-                    '3dblock': f"{{\\c{ass_highlight_color}}}{{\\fscy110}}{{word_str}}{{\\fscy100}}{{\\c{ass_primary_color}}} ",
-                    'vaporwave': f"{{\\c{ass_highlight_color}}}{{\\3c&HFF00FF&}}{{\\blur4}}{{\\bord2}}{{word_str}}{{\\3c{ass_outline_color}}}{{\\blur0}}{{\\bord{scaled_outline}}}{{\\c{ass_primary_color}}} "
-                }
-                
-                # Default style fallback
-                default_active_style = f"{{\\c{ass_highlight_color}}}{{word_str}}{{\\c{ass_primary_color}}} "
-                
-                line_text = ""
-                for j, w in enumerate(ch):
-                    word_str = w['word'].upper() if is_uppercase else w['word']
-                    if j == i: # Active word
-                        style_template = active_word_styles.get(mode, default_active_style)
-                        line_text += style_template.format(word_str=word_str)
-                    else: # Inactive word
-                        if mode == 'outlineonly':
-                            line_text += f"{{\\1a&HFF&}}{{\\3c{ass_primary_color}}}{{\\bord{scaled_outline or 2}}}{word_str}{{\\1a&H00&}} "
-                        elif mode == 'cinematic':
-                            line_text += f"{{\\fsp6}}{word_str}{{\\fsp0}} "
-                        else:
-                            line_text += f"{word_str} "
-                
-                ass_content.append(f"Dialogue: 0,{event_start},{event_end},Default,,0,0,0,,{line_text.strip()}")
+            line_text = ""
+            for j, w in enumerate(ch):
+                word_str = w['word'].upper() if is_uppercase else w['word']
+                duration_cs = int((w['end'] - w['start']) * 100)
+                if j == i: # Active word
+                    style_template = active_word_styles.get(mode, default_active_style)
+                    line_text += style_template.format(word_str=word_str, duration_cs=duration_cs)
+                else: # Inactive word
+                    if mode == 'auraglow':
+                        line_text += f"{{\\alpha&H40&}}{{\\fscx90\\fscy90}}{{\\c{ass_primary_color}}}{{\\3c{ass_outline_color}}}{{\\blur5}}{{\\bord3}}{word_str}{{\\alpha&H00&}} "
+                    elif mode == 'kineticbox':
+                        line_text += f"{{\\alpha&H20&}}{{\\fscx95\\fscy95}}{{\\c{ass_primary_color}}}{{\\3c{ass_outline_color}}}{{\\blur0}}{{\\bord3}}{word_str}{{\\alpha&H00&}} "
+                    elif mode == 'lumina':
+                        line_text += f"{{\\alpha&H80&}}{{\\fscx95\\fscy95}}{{\\c{ass_primary_color}}}{{\\3c{ass_outline_color}}}{{\\blur4}}{{\\bord2}}{word_str}{{\\alpha&H00&}} "
+                    elif mode == 'popshadow':
+                        line_text += f"{{\\fscx95\\fscy95}}{{\\shad0}}{word_str} "
+                    else:
+                        line_text += f"{word_str} "
+            
+            ass_content.append(f"Dialogue: 0,{event_start},{event_end},Default,,0,0,0,,{line_text.strip()}")
 
     with open(output_ass_path, 'w', encoding='utf-8') as f:
         f.write("\n".join(ass_content))
