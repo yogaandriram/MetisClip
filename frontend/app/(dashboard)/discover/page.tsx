@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Sparkles, Search, CheckCircle, Loader2, Link as LinkIcon, Video } from 'lucide-react'
+import { Sparkles, Search, CheckCircle, Loader2, Link as LinkIcon, Video, AlertCircle, RefreshCw } from 'lucide-react'
 import { GlassCard } from '../../../components/ui/GlassCard'
 import { Button } from '../../../components/ui/Button'
 import { InputField } from '../../../components/ui/InputField'
@@ -18,11 +18,13 @@ export default function Discover() {
   const [videoType, setVideoType] = useState('podcast')
   const [duration, setDuration] = useState('45-60')
   const [maxClips, setMaxClips] = useState<number>(3)
+  
   const [isRunning, setIsRunning] = useState(false)
   const [currentStep, setCurrentStep] = useState(0)
   const [progress, setProgress] = useState(0)
   const [totalScenes, setTotalScenes] = useState(0)
   const [processedScenes, setProcessedScenes] = useState(0)
+  const [errorState, setErrorState] = useState<string | null>(null)
 
   const steps = [
     { label: 'Discovery Agent: Mencari video terbaik di YouTube...', duration: 3000 },
@@ -31,25 +33,49 @@ export default function Discover() {
     { label: 'Scheduler Agent: Menjadwalkan post otomatis...', duration: 2000 }
   ]
 
+  const resetState = () => {
+    setIsRunning(false)
+    setErrorState(null)
+    setCurrentStep(0)
+    setProgress(0)
+    setTotalScenes(0)
+    setProcessedScenes(0)
+  }
+
   const handleStartPipeline = async (e: React.FormEvent) => {
     e.preventDefault()
+    setErrorState(null)
+
     if (inputType === 'keyword' && !keyword) return
-    if (inputType === 'url' && !youtubeUrl) return
+    if (inputType === 'url') {
+      if (!youtubeUrl) return
+      // Basic YouTube URL Validation
+      if (!youtubeUrl.includes('youtube.com') && !youtubeUrl.includes('youtu.be')) {
+        setErrorState("Format URL tidak valid. Harap masukkan link YouTube yang benar.")
+        setIsRunning(true) // To show the error UI state
+        return
+      }
+    }
     
     setIsRunning(true)
     setCurrentStep(0)
     setProgress(0)
 
     try {
-      // Get the current user's JWT from Supabase to authenticate with FastAPI
+      // Security: Enforce real session authentication
       const { data: { session } } = await supabase.auth.getSession()
       
-      // If session is missing, use a dummy token with a valid UUID for local testing
-      const dummyToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMTExMTExMS0yMjIyLTMzMzMtNDQ0NC01NTU1NTU1NTU1NTUiLCJlbWFpbCI6InRlc3RAdGVzdC5jb20ifQ."
-      const token = session?.access_token || dummyToken
+      if (!session?.access_token) {
+        setErrorState("Akses Ditolak: Sesi Anda telah berakhir. Harap login kembali untuk menggunakan AI Pipeline.")
+        return
+      }
 
-      // Send real request to backend API
-      const res = await fetch('http://localhost:8000/api/jobs', {
+      const token = session.access_token
+
+      // Use Environment Variable with fallback for API URL
+      const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
+      const res = await fetch(`${API_BASE_URL}/api/jobs`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -65,14 +91,19 @@ export default function Discover() {
       })
 
       if (!res.ok) {
-        throw new Error('Gagal memulai AI Pipeline')
+        throw new Error('Gagal terhubung dengan server AI. Pastikan backend aktif.')
       }
+      
       const data = await res.json()
       const jobId = data.job?.id || data.job_id
       
       // Simulate initial progress for Discovery and Analyzer steps (0 to 45%)
       let initialSimulatedProgress = 10
       const initialInterval = setInterval(() => {
+        if (errorState) {
+          clearInterval(initialInterval)
+          return
+        }
         initialSimulatedProgress += 5
         if (initialSimulatedProgress >= 45) clearInterval(initialInterval)
         setProgress(prev => Math.max(prev, initialSimulatedProgress))
@@ -80,6 +111,12 @@ export default function Discover() {
 
       // Poll real backend status via Supabase every 3 seconds
       const pollInterval = setInterval(async () => {
+        if (errorState) {
+          clearInterval(pollInterval)
+          clearInterval(initialInterval)
+          return
+        }
+
         const { data: job, error } = await supabase
           .from('discovery_jobs')
           .select('status, total_scenes, processed_scenes')
@@ -101,37 +138,27 @@ export default function Discover() {
           } else if (job.status === 'failed') {
             clearInterval(pollInterval)
             clearInterval(initialInterval)
-            setIsRunning(false)
-            alert("Pipeline backend gagal memproses video. Silakan cek log server backend.")
+            setErrorState("Pipeline backend gagal memproses video. Harap coba video lain atau cek log server.")
           } else if (total > 0) {
-            // We are in the processing phase
             clearInterval(initialInterval)
             setCurrentStep(2)
-            
-            // Calculate real progress for step 2 (50% to 90%)
             const processProgress = 50 + (processed / total) * 40
             setProgress(processProgress)
-            
-            // Update labels dynamically via state or directly in render
-            // We'll manage this by storing total and processed in state
             setTotalScenes(total)
             setProcessedScenes(processed)
           } else {
-            // Still analyzing (Step 1)
             setCurrentStep(1)
           }
         } else if (error) {
           clearInterval(pollInterval)
           clearInterval(initialInterval)
-          setIsRunning(false)
-          alert("Gagal membaca status pipeline dari database.")
+          setErrorState("Koneksi terputus: Gagal membaca status pipeline dari database.")
         }
       }, 3000)
       
-    } catch (error) {
+    } catch (error: any) {
       console.error(error)
-      setIsRunning(false)
-      alert("Terjadi kesalahan saat memulai pipeline.")
+      setErrorState(error.message || "Terjadi kesalahan internal sistem saat memulai pipeline.")
     }
   }
 
@@ -208,7 +235,8 @@ export default function Discover() {
                 />
               )}
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '30px' }}>
+              {/* Responsiveness Fixed: Auto-fit minmax instead of rigid 1fr 1fr 1fr */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '30px' }}>
                 <SelectField
                   label="Tipe Konten"
                   value={videoType}
@@ -252,57 +280,79 @@ export default function Discover() {
         </form>
       ) : (
         <GlassCard glow={true} padding="40px" style={{ textAlign: 'center' }}>
-          <div style={{ marginBottom: '30px', position: 'relative', display: 'inline-block' }}>
-            <Spinner size="lg" color="accent" />
-            <div style={{
-              position: 'absolute',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              color: 'var(--accent)'
+          {errorState ? (
+            <div style={{ 
+              background: 'rgba(234, 33, 67, 0.1)', 
+              border: '1px solid var(--danger)', 
+              borderRadius: '16px', 
+              padding: '40px',
+              maxWidth: '600px',
+              margin: '0 auto'
             }}>
-              <Sparkles size={24} />
+              <AlertCircle size={48} color="var(--danger)" style={{ margin: '0 auto 20px' }} />
+              <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '12px', color: '#fff' }}>Operasi Dibatalkan</h2>
+              <p style={{ color: 'var(--text-dim)', marginBottom: '30px', lineHeight: 1.6 }}>
+                {errorState}
+              </p>
+              <Button onClick={resetState} variant="secondary" icon={<RefreshCw size={18} style={{ marginRight: '8px' }} />}>
+                Kembali & Coba Lagi
+              </Button>
             </div>
-          </div>
-
-          <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '12px' }}>AI Pipeline Sedang Berjalan</h2>
-          <p style={{ color: 'var(--text-dim)', marginBottom: '35px', maxWidth: '550px', margin: '0 auto 35px' }}>
-            LangGraph Agent Orchestrator sedang memotong klip terbaik untuk Anda. Proses ini memakan waktu kurang dari 1 menit.
-          </p>
-
-          <div style={{ marginBottom: '40px' }}>
-            <ProgressBar progress={progress} />
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', textAlign: 'left', maxWidth: '500px', margin: '0 auto' }}>
-            {steps.map((step, idx) => {
-              const isPast = currentStep > idx
-              const isCurrent = currentStep === idx
-              const isFuture = currentStep < idx
-              return (
-                <div key={idx} style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '15px',
-                  opacity: isFuture ? 0.3 : 1,
-                  transition: 'opacity 0.3s'
+          ) : (
+            <>
+              <div style={{ marginBottom: '30px', position: 'relative', display: 'inline-block' }}>
+                <Spinner size="lg" color="accent" />
+                <div style={{
+                  position: 'absolute',
+                  top: '50%',
+                  left: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  color: 'var(--accent)'
                 }}>
-                  {isPast ? (
-                    <CheckCircle size={20} color="var(--accent)" />
-                  ) : isCurrent ? (
-                    <Loader2 size={20} color="var(--primary)" style={{ animation: 'spin 1s linear infinite' }} />
-                  ) : (
-                    <div style={{ width: '20px', height: '20px', borderRadius: '50%', border: '2px solid var(--text-muted)' }}></div>
-                  )}
-                  <span style={{
-                    fontSize: '15px',
-                    fontWeight: isCurrent ? 600 : 400,
-                    color: isCurrent ? 'var(--text-primary)' : 'var(--text-dim)'
-                  }}>{step.label}</span>
+                  <Sparkles size={24} />
                 </div>
-              )
-            })}
-          </div>
+              </div>
+
+              <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '12px' }}>AI Pipeline Sedang Berjalan</h2>
+              <p style={{ color: 'var(--text-dim)', marginBottom: '35px', maxWidth: '550px', margin: '0 auto 35px' }}>
+                LangGraph Agent Orchestrator sedang memotong klip terbaik untuk Anda. Proses ini memakan waktu kurang dari 1 menit.
+              </p>
+
+              <div style={{ marginBottom: '40px' }}>
+                <ProgressBar progress={progress} />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', textAlign: 'left', maxWidth: '500px', margin: '0 auto' }}>
+                {steps.map((step, idx) => {
+                  const isPast = currentStep > idx
+                  const isCurrent = currentStep === idx
+                  const isFuture = currentStep < idx
+                  return (
+                    <div key={idx} style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '15px',
+                      opacity: isFuture ? 0.3 : 1,
+                      transition: 'opacity 0.3s'
+                    }}>
+                      {isPast ? (
+                        <CheckCircle size={20} color="var(--accent)" />
+                      ) : isCurrent ? (
+                        <Loader2 size={20} color="var(--primary)" style={{ animation: 'spin 1s linear infinite' }} />
+                      ) : (
+                        <div style={{ width: '20px', height: '20px', borderRadius: '50%', border: '2px solid var(--text-muted)' }}></div>
+                      )}
+                      <span style={{
+                        fontSize: '15px',
+                        fontWeight: isCurrent ? 600 : 400,
+                        color: isCurrent ? 'var(--text-primary)' : 'var(--text-dim)'
+                      }}>{step.label}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
 
           <style>{`
             @keyframes spin {

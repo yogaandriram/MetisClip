@@ -1,11 +1,12 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { Play, Download, Calendar, Flame, Check, Loader2 } from 'lucide-react'
+import { Play, Download, Calendar, Flame, Check, Loader2, MoreVertical, Trash2, Edit2 } from 'lucide-react'
 import { GlassCard } from '../../../components/ui/GlassCard'
 import { Button } from '../../../components/ui/Button'
 import { Badge } from '../../../components/ui/Badge'
 import { Divider } from '../../../components/ui/Divider'
+import { Dropdown } from '../../../components/ui/Dropdown'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 
 export default function Clips() {
@@ -20,11 +21,12 @@ export default function Clips() {
         const { data: { session } } = await supabase.auth.getSession()
         const userId = session?.user?.id
         
-        // Fetch clips from database (assuming 'created_at' exists, otherwise just fetch)
+        // Fetch clips from database with limit and sorting for performance
         const { data, error } = await supabase
           .from('clips')
           .select('*')
-          // .order('created_at', { ascending: false }) // Might not exist if not created yet, so just fetch
+          .order('created_at', { ascending: false })
+          .limit(50)
           
         if (error) {
           console.error("Error fetching clips:", error)
@@ -54,13 +56,13 @@ export default function Clips() {
 
             return {
               ...clip,
-              title: clip.hook_text ? clip.hook_text.substring(0, 50) + "..." : "MetisClip",
+              title: clip.hook_text ? clip.hook_text : "MetisClip",
               thumbnail_url: thumbnailUrl,
               tags: Array.isArray(parsedTags) ? parsedTags : ['ai', 'shorts']
             }
           })
           
-          setClips(formattedClips.reverse()) // Simple reverse if order not applied in query
+          setClips(formattedClips)
         }
       } catch (err) {
         console.error(err)
@@ -72,9 +74,7 @@ export default function Clips() {
     fetchClips()
   }, [supabase])
 
-  const handleDownload = async (clip: any, e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
+  const handleDownload = async (clip: any) => {
     setDownloadedClipId(clip.id)
     
     let videoUrl = ''
@@ -93,12 +93,25 @@ export default function Clips() {
       link.click()
       document.body.removeChild(link)
     } else {
-      alert("Video belum tersedia di storage.")
+      alert("Video belum tersedia di storage. Mohon tunggu proses render selesai.")
     }
     
     setTimeout(() => {
       setDownloadedClipId(null)
     }, 2000)
+  }
+
+  const handleDelete = async (clipId: string) => {
+    if (!window.confirm("Apakah Anda yakin ingin menghapus klip ini secara permanen?")) return;
+    
+    // Optimistic UI update
+    setClips(prev => prev.filter(c => c.id !== clipId))
+    
+    const { error } = await supabase.from('clips').delete().eq('id', clipId)
+    if (error) {
+      console.error("Failed to delete clip:", error)
+      alert("Terjadi kesalahan. Gagal menghapus klip.")
+    }
   }
 
   return (
@@ -115,7 +128,7 @@ export default function Clips() {
 
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
         gap: '30px'
       }}>
         {isLoading ? (
@@ -140,9 +153,10 @@ export default function Clips() {
               cursor: 'pointer'
             }}
             onClick={() => window.location.href = `/clips/${clip.id}`}
+            className="group"
           >
             {/* Thumbnail Box */}
-            <div style={{ position: 'relative', width: '100%', aspectRatio: '9/16', background: '#000' }}>
+            <div style={{ position: 'relative', width: '100%', aspectRatio: '9/16', background: '#000', overflow: 'hidden' }}>
               <img
                 src={clip.thumbnail_url}
                 alt={clip.title}
@@ -153,9 +167,12 @@ export default function Clips() {
                   width: '100%',
                   height: '100%',
                   objectFit: 'cover',
-                  opacity: 0.7
+                  opacity: 0.7,
+                  transition: 'transform 0.5s ease'
                 }}
+                className="group-hover:scale-105"
               />
+              
               <div style={{
                 position: 'absolute',
                 top: '50%',
@@ -164,20 +181,76 @@ export default function Clips() {
                 width: '50px',
                 height: '50px',
                 borderRadius: '50%',
-                background: 'rgba(124, 58, 237, 0.9)',
+                background: clip.storage_path ? 'rgba(24, 86, 255, 0.9)' : 'rgba(0, 0, 0, 0.7)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                boxShadow: '0 0 15px var(--primary-glow)'
-              }}>
-                <Play size={20} color="#fff" fill="#fff" />
+                boxShadow: clip.storage_path ? '0 0 20px var(--primary-glow)' : 'none',
+                transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
+              }}
+              className="group-hover:scale-110"
+              >
+                {clip.storage_path ? (
+                  <Play size={20} color="#fff" fill="#fff" style={{ marginLeft: '4px' }} />
+                ) : (
+                  <Loader2 size={20} color="var(--warning)" className="animate-spin" />
+                )}
               </div>
 
-              {/* Viral score badge using Badge component */}
-              <div style={{ position: 'absolute', top: '15px', right: '15px' }}>
+              {!clip.storage_path && (
+                <div style={{
+                  position: 'absolute',
+                  top: '50%',
+                  left: '50%',
+                  transform: 'translate(-50%, 40px)',
+                  background: 'rgba(0,0,0,0.7)',
+                  backdropFilter: 'blur(4px)',
+                  padding: '4px 10px',
+                  borderRadius: '12px',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  color: 'var(--warning)',
+                  border: '1px solid var(--warning)'
+                }}>
+                  Sedang Dirender...
+                </div>
+              )}
+
+              {/* Badges & Actions Container */}
+              <div style={{ position: 'absolute', top: '15px', right: '15px', left: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <Badge variant="accent" glow={true} icon={<Flame size={14} fill="var(--accent)" />}>
                   {clip.viral_score}% Viral
                 </Badge>
+                
+                {/* Actions Dropdown */}
+                <div onClick={(e) => e.stopPropagation()}>
+                  <Dropdown
+                    align="right"
+                    width="180px"
+                    trigger={
+                      <div style={{
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '50%',
+                        background: 'rgba(0,0,0,0.5)',
+                        backdropFilter: 'blur(8px)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        cursor: 'pointer',
+                        transition: 'background 0.2s ease'
+                      }} className="hover:bg-white/10">
+                        <MoreVertical size={16} color="#fff" />
+                      </div>
+                    }
+                    items={[
+                      { id: 'edit', label: 'Edit Subtitle', icon: Edit2, onClick: () => window.location.href = `/clips/${clip.id}` },
+                      { id: 'download', label: 'Download Video', icon: downloadedClipId === clip.id ? Check : Download, onClick: () => handleDownload(clip) },
+                      { id: 'delete', label: 'Hapus Klip', icon: Trash2, danger: true, onClick: () => handleDelete(clip.id) },
+                    ]}
+                  />
+                </div>
               </div>
 
               <div style={{
@@ -188,36 +261,40 @@ export default function Clips() {
                 background: 'rgba(0,0,0,0.8)',
                 borderRadius: '6px',
                 fontSize: '12px',
-                fontWeight: 'bold'
+                fontWeight: 'bold',
+                letterSpacing: '0.5px'
               }}>
-                00:{clip.duration_seconds < 10 ? `0${clip.duration_seconds}` : clip.duration_seconds}
+                {String(Math.floor((clip.duration_seconds || 0) / 60)).padStart(2, '0')}:{String(Math.floor((clip.duration_seconds || 0) % 60)).padStart(2, '0')}
               </div>
             </div>
 
             {/* Content Details */}
             <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'flex-start' }}>
-              <div style={{ marginBottom: '0px' }}>
-                <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '8px', color: '#fff' }}>{clip.title}</h3>
-                <p style={{
-                  fontSize: '14px',
-                  color: 'var(--text-dim)',
-                  lineHeight: 1.5,
-                  display: '-webkit-box',
-                  WebkitLineClamp: 3,
-                  WebkitBoxOrient: 'vertical',
-                  overflow: 'hidden',
-                  marginBottom: '15px'
-                }}>
-                  {clip.rationale}
-                </p>
-                
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  {clip.tags?.map((tag: string) => (
-                    <Badge key={tag} variant="muted" glow={false}>
-                      #{tag}
-                    </Badge>
-                  ))}
-                </div>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Calendar size={12} />
+                {clip.created_at ? new Date(clip.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Baru saja'}
+              </p>
+              
+              <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '8px', color: 'var(--text-primary)' }}>{clip.title}</h3>
+              <p style={{
+                fontSize: '14px',
+                color: 'var(--text-dim)',
+                lineHeight: 1.5,
+                display: '-webkit-box',
+                WebkitLineClamp: 3,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+                marginBottom: '15px'
+              }}>
+                {clip.rationale}
+              </p>
+              
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: 'auto' }}>
+                {clip.tags?.map((tag: string) => (
+                  <Badge key={tag} variant="muted" glow={false}>
+                    #{tag}
+                  </Badge>
+                ))}
               </div>
             </div>
           </GlassCard>

@@ -6,7 +6,7 @@ from typing import Dict, Any, List
 from supabase import create_client, Client
 from backend.core.config import settings
 from backend.agents.state import PipelineState
-from backend.agents.tools.ffmpeg_ops import download_and_crop_segment
+from backend.agents.tools.ffmpeg_ops import download_full_video, crop_local_segment
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +99,25 @@ def run_processor_agent(state: PipelineState) -> Dict[str, Any]:
 
     import concurrent.futures
 
+    # PREPARATION PHASE: Download full video ONCE to avoid YouTube API throttling
+    youtube_id = viral_segments[0].get("youtube_id")
+    if not youtube_id:
+        error_msg = "No youtube_id found in segments."
+        logger.error(error_msg)
+        return {"errors": state.get("errors", []) + [error_msg], "current_step": "processing", "progress_pct": 80.0}
+
+    logger.info(f"⏳ [PREPARATION] Downloading full video {youtube_id} to cache...")
+    local_source_path = download_full_video(youtube_id)
+    if not local_source_path:
+        error_msg = f"Failed to download full source video {youtube_id}."
+        logger.error(error_msg)
+        return {
+            "errors": state.get("errors", []) + [error_msg],
+            "current_step": "processing",
+            "progress_pct": 80.0
+        }
+    logger.info(f"✅ [PREPARATION] Full video cached at {local_source_path}")
+
     def process_single_clip(i, segment):
         clip_uuid = str(uuid.uuid4())
         logger.info(f"Processing clip {i+1}/{len(viral_segments)} (ID: {clip_uuid})")
@@ -107,8 +126,8 @@ def run_processor_agent(state: PipelineState) -> Dict[str, Any]:
         local_video = os.path.join(settings.TEMP_DIR, f"{clip_uuid}.mp4").replace("\\", "/")
         local_thumb = os.path.join(settings.TEMP_DIR, f"{clip_uuid}.png").replace("\\", "/")
         
-        success = download_and_crop_segment(
-            youtube_id=segment["youtube_id"],
+        success = crop_local_segment(
+            local_source_path=local_source_path,
             start_time=segment["start_time"],
             end_time=segment["end_time"],
             output_path=local_video,
@@ -306,6 +325,14 @@ def run_processor_agent(state: PipelineState) -> Dict[str, Any]:
                 future.result()
             except Exception as exc:
                 logger.error(f"Clip processing generated an exception: {exc}")
+                
+    # CLEANUP PHASE: Remove the massive local cache video after all clips are done
+    if local_source_path and os.path.exists(local_source_path):
+        try:
+            os.remove(local_source_path)
+            logger.info(f"🧹 [CLEANUP] Deleted local cached source video: {local_source_path}")
+        except Exception as e:
+            logger.warning(f"Failed to delete cached source video {local_source_path}: {e}")
 
     logger.info(f"Processor Agent completed. Fully processed {len(processed_clips)} vertical clips with subtitles.")
     logger.info("=" * 60)

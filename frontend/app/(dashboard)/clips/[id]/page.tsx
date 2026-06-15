@@ -38,6 +38,7 @@ export default function ClipEditorPage({ params }: { params: { id: string } }) {
   const [lineHeight, setLineHeight] = useState(1.2)
   const [isUppercase, setIsUppercase] = useState(false)
   const [positionY, setPositionY] = useState(80)
+  const [brandSettings, setBrandSettings] = useState<any>(null)
   const [isSaved, setIsSaved] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [thumbnailUrl, setThumbnailUrl] = useState('')
@@ -75,12 +76,15 @@ export default function ClipEditorPage({ params }: { params: { id: string } }) {
 
           // Fetch default brand template
           let defaultTemplate: any = {}
+          let defaultBrandSettings: any = null
           if (activeAgent) {
              const { data: bData } = await supabase.from('brand_templates').select('*').eq('agent_id', activeAgent.id).limit(1).single()
              if (bData) {
                defaultTemplate = bData.caption_settings || {}
+               defaultBrandSettings = bData.brand_settings || null
              }
           }
+          setBrandSettings(defaultBrandSettings)
 
           // Parse subtitle_style
           let mergedStyle = { ...defaultTemplate }
@@ -337,6 +341,7 @@ export default function ClipEditorPage({ params }: { params: { id: string } }) {
             width: '100%',
             aspectRatio: '9 / 16',
             position: 'relative',
+            containerType: 'inline-size',
             borderRadius: '24px',
             background: '#030305',
             display: 'flex',
@@ -363,6 +368,27 @@ export default function ClipEditorPage({ params }: { params: { id: string } }) {
                 objectFit: 'contain'
               }}
             />
+
+            {/* Overlay Logo */}
+            {brandSettings?.overlayUrl && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: `${((brandSettings.logoPosition?.y || 15) / 533) * 100}%`,
+                  left: `${((brandSettings.logoPosition?.x || 15) / 300) * 100}%`,
+                  width: `${((60 * (brandSettings.logoScale || 1)) / 300) * 100}%`,
+                  aspectRatio: '1',
+                  zIndex: 20,
+                  pointerEvents: 'none'
+                }}
+              >
+                <img 
+                  src={brandSettings.overlayUrl} 
+                  alt="Brand Overlay"
+                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                />
+              </div>
+            )}
 
             {/* Custom Fullscreen Button */}
             <button
@@ -399,9 +425,9 @@ export default function ClipEditorPage({ params }: { params: { id: string } }) {
             {/* Active Highlight word rendered on video */}
             <div style={{
               position: 'absolute',
-              bottom: `${positionY}px`,
-              left: '15%',
-              right: '15%',
+              bottom: `${(positionY / 533) * 100}%`,
+              left: '50%',
+              transform: 'translateX(-50%)',
               width: '70%',
               textAlign: 'center',
               zIndex: 10,
@@ -409,7 +435,7 @@ export default function ClipEditorPage({ params }: { params: { id: string } }) {
             }}>
               {/* Dynamic subtitle render window */}
               <div style={{
-                fontSize: `${fontSize - 12}px`,
+                fontSize: `calc(${fontSize}cqw / 6)`,
                 fontFamily: `'${fontFamily}', var(--font-display)`,
                 fontWeight: fontWeight === 'Bold' || fontWeight === 'Black' ? 900 : (fontWeight === 'Medium' ? 500 : 400),
                 color: fontColor,

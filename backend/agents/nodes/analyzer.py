@@ -131,9 +131,9 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
                         "CRITICAL INSTRUCTION 1 (DURATION): "
                         f"The length of each segment (end_time - start_time) MUST be STRICTLY between {min_target} and {max_target} seconds. "
                         f"Do NOT return any segment that is shorter than {min_target} seconds. If a viral thought is too short, include the surrounding context to meet the minimum {min_target} seconds requirement.\n\n"
-                        "CRITICAL INSTRUCTION 2 (VIRALITY): You must extract ALL possible segments that have a viral_score of 90 or above. "
+                        "CRITICAL INSTRUCTION 2 (VIRALITY): You must extract ALL possible segments that have a viral_score of 80 or above. "
                         "Do not limit the number of segments you return. Aim to find at least 1-3 highly viral moments per chunk. "
-                        "Be strict with the 90+ score; only choose truly viral moments, but do not stop searching until the end of the transcript.\n\n"
+                        "Be strict with the 80+ score; only choose truly viral moments, but do not stop searching until the end of the transcript.\n\n"
                         "You must evaluate segments based on:\n"
                         "1. Hook Strength (first 3 seconds grab immediate attention)\n"
                         "2. Emotional Intensity (shock, controversy, extreme value, laughter, or deep inspiration)\n"
@@ -146,7 +146,7 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
                         "      \"start_time\": \"MM:SS or HH:MM:SS\",\n"
                         "      \"end_time\": \"MM:SS or HH:MM:SS\",\n"
                         "      \"viral_score\": 0-100 (integer),\n"
-                        "      \"hook_text\": \"The exact opening line of the clip\",\n"
+                        "      \"hook_text\": \"A short, punchy, highly engaging viral TikTok/Reels style title/hook for this clip (max 60 characters)\",\n"
                         "      \"tags\": [\"controversial\", \"inspirational\", \"humor\", etc.],\n"
                         "      \"rationale\": \"Why this clip has huge virality potential\"\n"
                         "    }\n"
@@ -177,9 +177,9 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
                     
                     # --- EARLY STOPPING LOGIC ---
                     if max_clips > 0:
-                        high_quality_clips = [s for s in segments if isinstance(s, dict) and s.get("viral_score", 0) >= 85]
+                        high_quality_clips = [s for s in segments if isinstance(s, dict) and s.get("viral_score", 0) >= 80]
                         if len(high_quality_clips) >= max_clips:
-                            logger.info(f"Early Stopping Triggered: Found {len(high_quality_clips)} high-quality segments (viral_score >= 85). Stopping analysis to save tokens.")
+                            logger.info(f"Early Stopping Triggered: Found {len(high_quality_clips)} high-quality segments (viral_score >= 80). Stopping analysis to save tokens.")
                             break
                 
             except Exception as e:
@@ -194,7 +194,7 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
                     "start_time": "00:13",
                     "end_time": "00:58",
                     "viral_score": 96,
-                    "hook_text": "Here's what nobody tells you about AI right now...",
+                    "hook_text": "Rahasia Gelap AI yang Tidak Anda Ketahui! 🤯",
                     "tags": ["controversial", "tech-future", "quotable"],
                     "rationale": "Strong contrarian hook directly grabbing user interest. Explains why scaling isn't enough and predicts agentic automation taking 90% of tech jobs within a year."
                 },
@@ -202,7 +202,7 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
                     "start_time": "00:58",
                     "end_time": "01:21",
                     "viral_score": 85,
-                    "hook_text": "Because when agents can buy server space...",
+                    "hook_text": "Beli Server Otomatis, AI Kini Makin Gila! 💻",
                     "tags": ["security", "mind-blowing", "future"],
                     "rationale": "High shock factor discussing autonomous agents provisioning servers and coding themselves on the fly."
                 }
@@ -224,7 +224,7 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
             except (ValueError, TypeError):
                 score = 80
                 
-            if score < 90:
+            if score < 80:
                 continue
                 
             start_sec = timestamp_to_seconds(str(segment.get("start_time", "00:00")))

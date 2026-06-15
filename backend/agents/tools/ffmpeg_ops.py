@@ -8,8 +8,52 @@ from backend.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-def download_and_crop_segment(
-    youtube_id: str, 
+def download_full_video(youtube_id: str) -> Optional[str]:
+    """
+    Downloads the entire YouTube video to a local cache file.
+    Returns the path to the downloaded video, or None if failed.
+    """
+    import uuid
+    import shutil
+    
+    os.makedirs(settings.TEMP_DIR, exist_ok=True)
+    temp_raw = os.path.join(settings.TEMP_DIR, f"temp_{youtube_id}_{uuid.uuid4().hex[:8]}_full.mp4")
+    
+    yt_dlp_path = shutil.which("yt-dlp")
+    if not yt_dlp_path:
+        yt_dlp_cmd = [sys.executable, "-m", "yt_dlp"]
+    else:
+        yt_dlp_cmd = [yt_dlp_path]
+        
+    logger.info(f"Downloading FULL YouTube video: {youtube_id} to cache.")
+    format_str = "bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4][height<=1080] / bv*+ba/b"
+    
+    download_cmd = yt_dlp_cmd + [
+        "--ffmpeg-location", settings.FFMPEG_PATH,
+        "--socket-timeout", "30",
+        "--retries", "5",
+        "--force-overwrites",
+        "-f", format_str,
+        "--merge-output-format", "mp4",
+        f"https://www.youtube.com/watch?v={youtube_id}",
+        "-o", temp_raw
+    ]
+    
+    try:
+        # Full download is usually fast and unthrottled, give it 30 mins just in case for huge podcasts
+        subprocess.run(download_cmd, check=True, timeout=1800, capture_output=True)
+        if os.path.exists(temp_raw):
+            return temp_raw
+    except Exception as e:
+        logger.error(f"Failed to download full video {youtube_id}: {str(e)}")
+        if os.path.exists(temp_raw):
+            try: os.remove(temp_raw)
+            except: pass
+            
+    return None
+
+def crop_local_segment(
+    local_source_path: str, 
     start_time: float, 
     end_time: float, 
     output_path: str,
@@ -17,114 +61,37 @@ def download_and_crop_segment(
     video_type: str = "talking_head"
 ) -> bool:
     """
-    Downloads a specific segment range of a YouTube video using yt-dlp,
-    then uses FFmpeg to crop it to vertical 9:16 (1080x1920) aspect ratio.
+    Uses FFmpeg to crop a specific segment from a local video to vertical 9:16 aspect ratio.
     """
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     os.makedirs(os.path.dirname(thumbnail_path), exist_ok=True)
     
-    # Check if yt-dlp and FFmpeg are available
-    # If not, generate a mockup empty/placeholder video file for development
-    yt_dlp_cmd: List[str] = []
-    try:
-        import shutil
-        yt_dlp_path = shutil.which("yt-dlp")
-        if not yt_dlp_path:
-            yt_dlp_cmd = [sys.executable, "-m", "yt_dlp"]
-        else:
-            yt_dlp_cmd = [yt_dlp_path]
-            
-        # Check yt-dlp
-        subprocess.run(yt_dlp_cmd + ["--version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-        # Check ffmpeg
-        subprocess.run([settings.FFMPEG_PATH, "-version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-        has_tools = True
-    except Exception as e:
-        logger.warning(f"yt-dlp or FFmpeg is not installed/reachable. Error: {e}. Generating mock placeholder media assets.")
-        has_tools = False
-
-    if not has_tools:
-        logger.error("Required tools (yt-dlp or FFmpeg) are missing. Cannot process video.")
+    if not os.path.exists(local_source_path):
+        logger.error(f"Local source video not found: {local_source_path}")
         return False
-
-    # Real implementation using yt-dlp + ffmpeg
+        
     try:
         import uuid
-        unique_id = uuid.uuid4().hex[:8]
-        temp_download = os.path.join(settings.TEMP_DIR, f"temp_{youtube_id}_{start_time}_{unique_id}_raw.mp4")
-        downloaded_full_video = False
+        temp_cut = os.path.join(settings.TEMP_DIR, f"temp_cut_{uuid.uuid4().hex[:8]}.mp4")
         
-        # Download exact segment using yt-dlp (efficient range download)
-        logger.info(f"Downloading YouTube segment: {youtube_id} ({start_time}s to {end_time}s)")
-        
-        # Build yt-dlp download command with time limits
-        # We use b[ext=mp4] (pre-muxed 720p) or separate mp4/m4a to prevent DASH WebM corruption on section cuts!
-        format_str = "bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4][height<=1080] / bv*+ba/b"
-        
-        download_cmd = yt_dlp_cmd + [
-            "--ffmpeg-location", settings.FFMPEG_PATH,
-            "--socket-timeout", "30",
-            "--retries", "5",
-            "--force-overwrites",
-            "-f", format_str,
-            "--merge-output-format", "mp4",
-            "--download-sections", f"*{start_time}-{end_time}",
-            "--force-keyframes-at-cuts",
-            f"https://www.youtube.com/watch?v={youtube_id}",
-            "-o", temp_download
+        # Fast local cut using -c copy
+        logger.info(f"Cutting local segment {start_time}-{end_time}...")
+        cut_cmd = [
+            settings.FFMPEG_PATH, "-y",
+            "-ss", str(start_time), "-to", str(end_time),
+            "-i", local_source_path,
+            "-c", "copy",
+            temp_cut
         ]
+        subprocess.run(cut_cmd, check=True, capture_output=True)
         
-        # We don't use check=True here because yt-dlp might fail with a non-zero exit code if the section format isn't supported
-        # We use a 15-minute timeout to ensure it NEVER hangs the backend indefinitely but allows enough time for throttling.
-        try:
-            subprocess.run(download_cmd, timeout=900, capture_output=True)
-        except subprocess.TimeoutExpired:
-            logger.error("yt-dlp section download TIMED OUT after 15 minutes.")
-        
-        temp_raw = temp_download.replace(".mp4", "_raw.mp4")
-        
-        if not os.path.exists(temp_download):
-            # Fallback if download section option failed (compatibility with older yt-dlp versions)
-            logger.info("yt-dlp section download failed or skipped. Trying fallback download full video.")
-            fallback_cmd = yt_dlp_cmd + [
-                "--ffmpeg-location", settings.FFMPEG_PATH,
-                "--socket-timeout", "30",
-                "--retries", "5",
-                "--force-overwrites",
-                "-f", format_str,
-                "--merge-output-format", "mp4",
-                f"https://www.youtube.com/watch?v={youtube_id}",
-                "-o", temp_raw
-            ]
-            try:
-                subprocess.run(fallback_cmd, check=True, timeout=1800, capture_output=True)
-                
-                # PRE-CUT THE FULL VIDEO BEFORE TRACKING
-                logger.info(f"Cutting the full video to extract segment {start_time}-{end_time} without re-encoding...")
-                cut_cmd = [
-                    settings.FFMPEG_PATH, "-y",
-                    "-ss", str(start_time), "-to", str(end_time),
-                    "-i", temp_raw,
-                    "-c", "copy",
-                    temp_download
-                ]
-                subprocess.run(cut_cmd, check=True, capture_output=True)
-                
-                # Clean up the massive raw file immediately to save disk space
-                if os.path.exists(temp_raw):
-                    os.remove(temp_raw)
-                    
-            except subprocess.TimeoutExpired:
-                logger.error("yt-dlp full download TIMED OUT after 30 minutes.")
-                raise Exception("yt-dlp download timed out completely.")
-
-        logger.info(f"Scanning {temp_download} for Smart Auto Tracking (Face Detection)...")
+        logger.info(f"Scanning {temp_cut} for Smart Auto Tracking (Face Detection)...")
         from backend.agents.tools.smart_crop import process_auto_tracking_video
         
-        temp_tracked = temp_download.replace(".mp4", "_tracked.mp4")
+        temp_tracked = temp_cut.replace(".mp4", "_tracked.mp4")
         
         # This will create a perfectly tracked 9:16 video stream without audio
-        tracking_success = process_auto_tracking_video(temp_download, temp_tracked)
+        tracking_success = process_auto_tracking_video(temp_cut, temp_tracked)
         
         if not tracking_success or not os.path.exists(temp_tracked):
             raise Exception("Dynamic Smart Auto Tracking failed to produce a valid video stream.")
@@ -136,7 +103,7 @@ def download_and_crop_segment(
             "-y",
             "-err_detect", "ignore_err",
             "-i", temp_tracked,      # Video stream
-            "-i", temp_download,     # Audio stream
+            "-i", temp_cut,          # Audio stream
             "-c:v", "libx264",
             "-preset", "fast",
             "-crf", "18",
@@ -152,13 +119,7 @@ def download_and_crop_segment(
         
         subprocess.run(ffmpeg_cmd, check=True, capture_output=True)
         
-        # Clean up the intermediate tracked video
-        if os.path.exists(temp_tracked):
-            try: os.remove(temp_tracked)
-            except: pass
-        
         # Generate Thumbnail from middle of the clip
-        # Since the clip is already the exact length, middle time is duration / 2
         middle_time = (end_time - start_time) / 2
         thumb_cmd = [
             settings.FFMPEG_PATH,
@@ -172,11 +133,15 @@ def download_and_crop_segment(
         ]
         subprocess.run(thumb_cmd, check=True, capture_output=True)
 
-        # Clean up raw download
-        if os.path.exists(temp_download):
-            os.remove(temp_download)
+        # Clean up temporary files
+        if os.path.exists(temp_cut):
+            try: os.remove(temp_cut)
+            except: pass
+        if os.path.exists(temp_tracked):
+            try: os.remove(temp_tracked)
+            except: pass
             
-        logger.info(f"Successfully processed and vertical cropped {youtube_id}")
+        logger.info(f"Successfully processed and vertical cropped segment to {output_path}")
         return True
 
     except Exception as e:
