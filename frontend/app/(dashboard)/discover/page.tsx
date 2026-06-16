@@ -73,7 +73,7 @@ export default function Discover() {
       const token = session.access_token
 
       // Use Environment Variable with fallback for API URL
-      const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8002'
 
       const res = await fetch(`${API_BASE_URL}/api/jobs`, {
         method: 'POST',

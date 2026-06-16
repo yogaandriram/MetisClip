@@ -5,24 +5,28 @@ export type MyCompositionProps = {
   videoUrl: string;
   words: any[];
   style: any;
+  brandSettings?: any;
+  durationInFrames?: number;
 };
 
 export const RemotionRoot: React.FC = () => {
   const props = getInputProps() as MyCompositionProps;
+  const duration = props.durationInFrames || 300;
 
   return (
     <>
       <Composition
         id="SubtitleOverlay"
         component={SubtitleOverlay}
-        durationInFrames={300} // Fallback, will be overridden by CLI --frames
+        durationInFrames={duration}
         fps={30}
         width={1080}
         height={1920}
         defaultProps={{
           videoUrl: props.videoUrl || '',
           words: props.words || [],
-          style: props.style || {}
+          style: props.style || {},
+          brandSettings: props.brandSettings || {}
         }}
       />
     </>

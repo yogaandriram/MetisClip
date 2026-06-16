@@ -74,13 +74,15 @@ def crop_local_segment(
         import uuid
         temp_cut = os.path.join(settings.TEMP_DIR, f"temp_cut_{uuid.uuid4().hex[:8]}.mp4")
         
-        # Fast local cut using -c copy
-        logger.info(f"Cutting local segment {start_time}-{end_time}...")
+        # Frame-accurate local cut using ultrafast encoding (prevents subtitle desync caused by keyframe jumping)
+        logger.info(f"Cutting local segment {start_time}-{end_time} with frame accuracy...")
         cut_cmd = [
             settings.FFMPEG_PATH, "-y",
-            "-ss", str(start_time), "-to", str(end_time),
+            "-ss", str(start_time), 
             "-i", local_source_path,
-            "-c", "copy",
+            "-t", str(end_time - start_time),
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "128k",
             temp_cut
         ]
         subprocess.run(cut_cmd, check=True, capture_output=True)

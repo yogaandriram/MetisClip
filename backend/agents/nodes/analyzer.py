@@ -48,18 +48,8 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
     except Exception as e:
         logger.warning(f"Could not connect to Supabase: {str(e)}")
 
-    # Fetch user's custom Groq API Key from database once per job
-    groq_api_key: str | None = None
-    if supabase and user_id:
-        try:
-            agent_res = supabase.table("super_agents").select("groq_api_key").eq("user_id", user_id).execute()
-            if agent_res.data and agent_res.data[0].get("groq_api_key"):
-                groq_api_key = str(agent_res.data[0].get("groq_api_key"))
-        except Exception as e:
-            logger.warning(f"Failed to fetch user's custom Groq key: {e}")
-
-    # Check for Groq API availability
-    has_groq = bool(groq_api_key and groq_api_key != "your_groq_api_key")
+    # Check for 9router API availability
+    has_llm = bool(settings.NINEROUTER_BASE_URL and settings.NINEROUTER_API_KEY)
 
     for video in source_videos:
         video_uuid = video.get("id")
@@ -74,8 +64,8 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
             except Exception as e:
                 logger.warning(f"Failed to update source video status to 'analyzing': {str(e)}")
 
-        # Fetch Transcript passing the groq key for fallback
-        transcript = get_youtube_transcript(yt_id, groq_api_key or "")
+        # Fetch Transcript
+        transcript = get_youtube_transcript(yt_id, "dummy")
         if not transcript:
             logger.warning(f"No transcript found for video {yt_id}. Skipping.")
             continue
@@ -88,12 +78,12 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
             formatted_transcript += f"[{start_min:02d}:{start_sec:02d}] {entry['text']}\n"
         
         segments = []
-        if has_groq:
+        if has_llm:
             try:
-                from groq import Groq
-                client = Groq(api_key=groq_api_key)
+                from openai import OpenAI
+                client = OpenAI(api_key=settings.NINEROUTER_API_KEY, base_url=settings.NINEROUTER_BASE_URL)
                 
-                # Chunk transcript into ~10 minute pieces to avoid Groq TPM (Tokens Per Minute) limits on free tier
+                # Chunk transcript into ~10 minute pieces to avoid LLM TPM limits
                 chunk_duration_limit = 10 * 60 # 10 minutes in seconds
                 transcript_chunks = []
                 current_chunk = []
@@ -128,10 +118,13 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
                         "You are a 10-year experienced viral media growth specialist and expert editor.\n"
                         "Your task is to scan the following video transcript chunk and locate the exact timestamps "
                         f"of segments with the highest potential to go viral as short-form vertical video.\n\n"
-                        "CRITICAL INSTRUCTION 1 (DURATION): "
-                        f"The length of each segment (end_time - start_time) MUST be STRICTLY between {min_target} and {max_target} seconds. "
-                        f"Do NOT return any segment that is shorter than {min_target} seconds. If a viral thought is too short, include the surrounding context to meet the minimum {min_target} seconds requirement.\n\n"
-                        "CRITICAL INSTRUCTION 2 (VIRALITY): You must extract ALL possible segments that have a viral_score of 80 or above. "
+                        "CRITICAL INSTRUCTION 1 (AVOID INTRO): "
+                        "Avoid selecting clips that start within the first 30 seconds of the video if possible, as these are usually boring intros.\n\n"
+                        "CRITICAL INSTRUCTION 2 (DURATION & COMPLETE SENTENCES): "
+                        f"The length of each segment MUST be STRICTLY between {min_target} and {max_target} seconds. "
+                        "The segment MUST start at the beginning of a sentence and end exactly at a punctuation mark (., ?, !). "
+                        "Do not cut off sentences mid-way. If needed, expand the segment to finish the sentence.\n\n"
+                        "CRITICAL INSTRUCTION 3 (VIRALITY): You must extract ALL possible segments that have a viral_score of 80 or above. "
                         "Do not limit the number of segments you return. Aim to find at least 1-3 highly viral moments per chunk. "
                         "Be strict with the 80+ score; only choose truly viral moments, but do not stop searching until the end of the transcript.\n\n"
                         "You must evaluate segments based on:\n"
@@ -155,7 +148,7 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
                     )
 
                     response = client.chat.completions.create(
-                        model="llama-3.3-70b-versatile",
+                        model=settings.NINEROUTER_MODEL,
                         messages=[
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": f"Video Title: {video_title}\n\nTranscript Chunk:\n{formatted_chunk}"}
@@ -169,6 +162,9 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
                     content = response.choices[0].message.content
                     if not content:
                         continue
+                    
+                    logger.debug(f"Raw LLM Response: {content}")
+                    
                     result_json = json.loads(content)
                     chunk_segments = result_json.get("segments", [])
                     segments.extend(chunk_segments)
@@ -183,10 +179,10 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
                             break
                 
             except Exception as e:
-                logger.error(f"Groq API call or JSON parsing failed on chunk analysis: {str(e)}. Falling back to mock parsing.")
-                has_groq = False
+                logger.error(f"LLM API call or JSON parsing failed on chunk analysis: {str(e)}. Falling back to mock parsing.")
+                has_llm = False
 
-        if not has_groq:
+        if not has_llm:
             # High-fidelity mock analysis matching our detailed transcript in tools/transcript.py
             # This represents the target viral hook in our mock data
             segments = [
@@ -220,21 +216,74 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
         for segment in segments:
             # Enforce the >90% rule programmatically just in case the LLM hallucinates lower scores
             try:
-                score = int(str(segment.get("viral_score", "80")))
+                score = int(str(segment.get("viral_score", "70")))
             except (ValueError, TypeError):
-                score = 80
+                score = 70
                 
-            if score < 80:
+            if score < 70:
+                logger.warning(f"Discarding segment due to low viral score: {score}")
                 continue
                 
             start_sec = timestamp_to_seconds(str(segment.get("start_time", "00:00")))
             end_sec = timestamp_to_seconds(str(segment.get("end_time", "00:00")))
             
+            # --- CRITIC AGENT (SELF-REFLECTION) ---
+            # If we have LLM, we pass the proposed clip back to verify and fix mid-sentence cuts.
+            if has_llm and start_sec > 0:
+                try:
+                    logger.info(f"Critic Agent analyzing proposed clip: {start_sec}s - {end_sec}s")
+                    from openai import OpenAI
+                    critic_client = OpenAI(api_key=settings.NINEROUTER_API_KEY, base_url=settings.NINEROUTER_BASE_URL)
+                    
+                    # Extract surrounding context from transcript (+/- 20 seconds)
+                    context_entries = [e for e in transcript if (start_sec - 20) <= e['start'] <= (end_sec + 20)]
+                    context_text = ""
+                    for e in context_entries:
+                        s_min, s_sec = int(e['start'] // 60), int(e['start'] % 60)
+                        context_text += f"[{s_min:02d}:{s_sec:02d}] {e['text']}\n"
+                    
+                    critic_prompt = (
+                        "You are an AI Video Editor Critic. The previous AI proposed a video clip from the following transcript.\n"
+                        "Your job is to ensure the clip DOES NOT start or end in the middle of a sentence.\n"
+                        f"Proposed Start: {segment.get('start_time')}, Proposed End: {segment.get('end_time')}\n\n"
+                        "Review the transcript. If the proposed start or end cuts off a sentence, expand the timestamps to include the full sentence.\n"
+                        "Output EXACTLY a valid JSON object matching this schema:\n"
+                        "{\n"
+                        "  \"start_time\": \"MM:SS\",\n"
+                        "  \"end_time\": \"MM:SS\"\n"
+                        "}"
+                    )
+                    
+                    critic_res = critic_client.chat.completions.create(
+                        model=settings.NINEROUTER_MODEL,
+                        messages=[
+                            {"role": "system", "content": critic_prompt},
+                            {"role": "user", "content": f"Transcript Context:\n{context_text}"}
+                        ],
+                        temperature=0.1,
+                        max_tokens=200,
+                        response_format={"type": "json_object"}
+                    )
+                    
+                    import json
+                    content = critic_res.choices[0].message.content
+                    critic_json = json.loads(content) if content else {}
+                    if critic_json.get("start_time") and critic_json.get("end_time"):
+                        new_start = timestamp_to_seconds(critic_json["start_time"])
+                        new_end = timestamp_to_seconds(critic_json["end_time"])
+                        
+                        # Only accept if the critic didn't wildly hallucinate
+                        if abs(new_start - start_sec) < 30 and abs(new_end - end_sec) < 30:
+                            start_sec = new_start
+                            end_sec = new_end
+                            logger.info(f"Critic Agent refined clip to: {new_start}s - {new_end}s")
+                except Exception as e:
+                    logger.warning(f"Critic Agent failed to refine boundaries: {e}")
+            
             # STRICT DURATION FILTER:
-            # Enforce the duration programmatically to prevent LLM hallucination of too short/long clips.
-            # We allow a small +/- 5 seconds buffer so we don't throw away too many good clips.
+            # We allow a very relaxed +/- 30 seconds buffer so we don't throw away good clips that the Critic expanded.
             duration = round(end_sec - start_sec, 2)
-            if duration < (min_target - 5) or duration > (max_target + 5):
+            if duration < (min_target - 20) or duration > (max_target + 30):
                 logger.warning(f"Discarding segment due to strict duration rule. Target: {min_target}-{max_target}s, Got: {duration}s")
                 continue
             

@@ -33,7 +33,6 @@ export default function SettingsPage() {
 
   const [defaultDuration, setDefaultDuration] = useState('45-60')
   const [defaultKeywords, setDefaultKeywords] = useState('')
-  const [apiKey, setApiKey] = useState('')
   const [isSaved, setIsSaved] = useState(false)
 
   // Handle Composio connection callback
@@ -68,14 +67,12 @@ export default function SettingsPage() {
     if (activeAgent) {
       setDefaultDuration(activeAgent.default_duration || '45-60')
       setDefaultKeywords(activeAgent.default_keywords || '')
-      setApiKey(activeAgent.groq_api_key || '')
       checkSocialConnections(activeAgent.id)
     } else {
       setIsYoutubeConnected(false)
       setIsTiktokConnected(false)
       setIsInstagramConnected(false)
       setDefaultKeywords('')
-      setApiKey('')
     }
   }, [activeAgent])
 
@@ -156,10 +153,30 @@ export default function SettingsPage() {
     }
   }
 
-  const handleDisconnectYoutube = async () => {
-    // For Composio, you can call their API to remove an entity connection
-    // For now, we will just simulate disconnection or you could hit an API endpoint to delete it.
-    toast.error('Fitur pemutusan koneksi harus dilakukan via Dasbor Composio saat ini')
+  const handleDisconnect = async (platform: string, setLoading: (b: boolean) => void) => {
+    if (!activeAgent) return;
+    
+    if (!window.confirm(`Apakah Anda yakin ingin memutus koneksi akun ${platform} ini?`)) return;
+    
+    setLoading(true);
+    try {
+      const res = await fetch('/api/composio/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId: activeAgent.id, platform })
+      });
+      
+      const data = await res.json();
+      if (data.success) {
+        toast.success(`Koneksi ${platform} berhasil diputus`);
+        checkSocialConnections(activeAgent.id);
+      } else {
+        toast.error(data.error || `Gagal memutus koneksi ${platform}`);
+      }
+    } catch (err) {
+      toast.error('Terjadi kesalahan saat memutus koneksi');
+    }
+    setLoading(false);
   }
 
   const handleSave = async (e: React.FormEvent) => {
@@ -171,8 +188,7 @@ export default function SettingsPage() {
       .from('super_agents')
       .update({
         default_duration: defaultDuration,
-        default_keywords: defaultKeywords,
-        groq_api_key: apiKey
+        default_keywords: defaultKeywords
       })
       .eq('id', activeAgent.id)
 
@@ -225,10 +241,10 @@ export default function SettingsPage() {
             
             {isYoutubeConnected ? (
               <div style={{ display: 'flex', gap: '10px' }}>
-                <Badge variant="success" glow={true} icon={<Check size={14} />}>
+                <Badge variant="accent" glow={true} icon={<Check size={14} />}>
                   Terhubung
                 </Badge>
-                <Button variant="danger" size="sm" onClick={handleDisconnectYoutube}>
+                <Button variant="danger" size="sm" onClick={() => handleDisconnect('YOUTUBE', setIsConnectingYt)} loading={isConnectingYt}>
                   Putuskan
                 </Button>
               </div>
@@ -256,10 +272,10 @@ export default function SettingsPage() {
             
             {isTiktokConnected ? (
               <div style={{ display: 'flex', gap: '10px' }}>
-                <Badge variant="success" glow={true} icon={<Check size={14} />}>
+                <Badge variant="accent" glow={true} icon={<Check size={14} />}>
                   Terhubung
                 </Badge>
-                <Button variant="danger" size="sm" onClick={handleDisconnectYoutube}>
+                <Button variant="danger" size="sm" onClick={() => handleDisconnect('TIKTOK', setIsConnectingTiktok)} loading={isConnectingTiktok}>
                   Putuskan
                 </Button>
               </div>
@@ -287,10 +303,10 @@ export default function SettingsPage() {
             
             {isInstagramConnected ? (
               <div style={{ display: 'flex', gap: '10px' }}>
-                <Badge variant="success" glow={true} icon={<Check size={14} />}>
+                <Badge variant="accent" glow={true} icon={<Check size={14} />}>
                   Terhubung
                 </Badge>
-                <Button variant="danger" size="sm" onClick={handleDisconnectYoutube}>
+                <Button variant="danger" size="sm" onClick={() => handleDisconnect('INSTAGRAM', setIsConnectingInstagram)} loading={isConnectingInstagram}>
                   Putuskan
                 </Button>
               </div>
@@ -328,23 +344,7 @@ export default function SettingsPage() {
           </div>
         </GlassCard>
 
-        {/* Credentials and API Keys */}
-        <GlassCard glow={true} padding="30px">
-          <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Key size={20} color="var(--warning)" /> Kunci API Kustom (Opsional)
-          </h3>
-          <p style={{ fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: '20px' }}>
-            Untuk menggunakan jatah quota Anda sendiri, Anda dapat memasukkan kunci API kustom Anda di bawah. Secara default sistem menggunakan serverless cluster bersama kami.
-          </p>
 
-          <InputField
-            label="Groq API Key"
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="gsk_••••••••••••••••••••"
-          />
-        </GlassCard>
 
         {/* Action button */}
         <Divider />

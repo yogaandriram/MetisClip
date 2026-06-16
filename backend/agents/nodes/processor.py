@@ -10,6 +10,15 @@ from backend.agents.tools.ffmpeg_ops import download_full_video, crop_local_segm
 
 logger = logging.getLogger(__name__)
 
+def ensure_uuid(val: str) -> str:
+    if not val:
+        return str(uuid.uuid4())
+    try:
+        uuid.UUID(val)
+        return val
+    except ValueError:
+        return str(uuid.uuid5(uuid.NAMESPACE_DNS, val))
+
 def generate_mock_word_level_subtitles(hook_text: str, duration: float) -> List[Dict[str, Any]]:
     """
     Generates word-level timestamps from the hook text to act as sandbox data.
@@ -249,19 +258,9 @@ def run_processor_agent(state: PipelineState) -> Dict[str, Any]:
             words_timestamps = generate_mock_word_level_subtitles(hook_text, duration)
 
         # Style config
-        default_style = {
-            "font_family": "Montserrat Bold",
-            "font_size": 46,
-            "fontColor": "#FFFFFF",
-            "highlight_color": "#06D6A0",
-            "stroke_color": "#000000",
-            "stroke_width": 3,
-            "position": "bottom-center",
-            "words_per_group": 3,
-            "mode": "popshadow"
-        }
-        if isinstance(brand_template_settings, dict):
-            default_style.update(brand_template_settings)
+        # We save an empty dict so the clip dynamically inherits from brand_templates 
+        # unless explicitly overridden in the editor.
+        default_style = {}
 
         subtitle_payload = {
             "clip_id": clip_uuid,
@@ -272,7 +271,7 @@ def run_processor_agent(state: PipelineState) -> Dict[str, Any]:
         clip_data = {
             "id": clip_uuid,
             "source_video_id": segment.get("source_video_id"),
-            "user_id": user_id,
+            "user_id": ensure_uuid(user_id),
             "start_time": segment["start_time"],
             "end_time": segment["end_time"],
             "duration_seconds": segment["duration_seconds"],

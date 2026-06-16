@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     # AI Settings
     GROQ_API_KEY: str = ""
     WHISPER_MODEL: str = "whisper-large-v3-turbo"
+    NINEROUTER_BASE_URL: str = "http://127.0.0.1:20128/v1"
+    NINEROUTER_API_KEY: str = "sk-dummy"
+    NINEROUTER_MODEL: str = "llama-3.3-70b-versatile"
 
     # YouTube Settings
     YOUTUBE_API_KEY: str = ""

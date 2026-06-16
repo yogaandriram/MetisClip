@@ -1,12 +1,22 @@
 import logging
 from datetime import datetime, timedelta
 import pytz
+import uuid
 from typing import Dict, Any, List
 from supabase import create_client, Client
 from backend.core.config import settings
 from backend.agents.state import PipelineState
 
 logger = logging.getLogger(__name__)
+
+def ensure_uuid(val: str) -> str:
+    if not val:
+        return str(uuid.uuid4())
+    try:
+        uuid.UUID(val)
+        return val
+    except ValueError:
+        return str(uuid.uuid5(uuid.NAMESPACE_DNS, val))
 
 def determine_optimal_posting_time(timezone_str: str, index: int) -> datetime:
     """
@@ -52,13 +62,13 @@ def run_scheduler_ai_agent(state: PipelineState) -> Dict[str, Any]:
         }
 
     # Initialize Supabase client
+    supabase: Client | None = None
     try:
-        supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
+        supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
         has_supabase = True
     except Exception as e:
         logger.warning(f"Could not connect to Supabase: {str(e)}")
         has_supabase = False
-        supabase = None
 
     scheduled_posts = []
     default_timezone = "Asia/Jakarta"
@@ -86,7 +96,7 @@ def run_scheduler_ai_agent(state: PipelineState) -> Dict[str, Any]:
 
         post_data = {
             "clip_id": clip_id,
-            "user_id": user_id,
+            "user_id": ensure_uuid(user_id),
             "platform": "youtube_shorts",
             "scheduled_at": scheduled_time.isoformat(),
             "timezone": default_timezone,
@@ -96,7 +106,7 @@ def run_scheduler_ai_agent(state: PipelineState) -> Dict[str, Any]:
             "status": "scheduled"
         }
 
-        if has_supabase and clip_id:
+        if supabase is not None and clip_id:
             try:
                 res = supabase.table("scheduled_posts").insert(post_data).execute()
                 if res.data:
@@ -108,7 +118,7 @@ def run_scheduler_ai_agent(state: PipelineState) -> Dict[str, Any]:
         scheduled_posts.append(post_data)
 
     # Finally update the Discovery Job status to 'completed'
-    if has_supabase and job_id:
+    if supabase is not None and job_id:
         try:
             supabase.table("discovery_jobs").update({"status": "completed"}).eq("id", job_id).execute()
             logger.info(f"Job {job_id} marked as fully completed.")

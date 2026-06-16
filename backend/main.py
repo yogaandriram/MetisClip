@@ -6,6 +6,10 @@ import logging
 from backend.api.deps import get_current_user
 
 from backend.api.routes import jobs, clips, scheduler
+from fastapi.staticfiles import StaticFiles
+import os
+
+os.makedirs(settings.TEMP_DIR, exist_ok=True)
 
 # Set up logging so we can see the Agent logs in Uvicorn terminal
 logging.basicConfig(
@@ -29,6 +33,8 @@ app = FastAPI(
 app.include_router(jobs.router)
 app.include_router(clips.router)
 app.include_router(scheduler.router)
+
+app.mount("/public/tmp_videos", StaticFiles(directory=settings.TEMP_DIR), name="tmp_videos")
 
 # Set CORS origins
 origins = [

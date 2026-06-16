@@ -34,3 +34,7 @@ env/
 tmp/
 backend/tmp/
 frontend/tmp/
+
+output/
+render-engine/out.mp4
+render-engine/public/tmp_videos/

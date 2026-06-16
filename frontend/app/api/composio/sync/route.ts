@@ -24,7 +24,7 @@ export async function POST(req: Request) {
       userIds: [agentId]
     });
 
-    const accounts = Array.isArray(accountsResponse) ? accountsResponse : (accountsResponse.items || accountsResponse.data || []);
+    const accounts = Array.isArray(accountsResponse) ? accountsResponse : ((accountsResponse as any).items || (accountsResponse as any).data || []);
     const searchName = appName.toLowerCase();
     
     const connection = accounts.find((acc: any) => {
@@ -40,6 +40,8 @@ export async function POST(req: Request) {
       const platformStr = appName.toLowerCase(); // youtube, tiktok, instagram
       
       // Upsert into agent_social_connections
+      // Note: Make sure there's a unique constraint on (agent_id, platform) in the DB
+      // for this to work perfectly. Even without it, onConflict acts to resolve duplicates.
       const { error: upsertError } = await supabase
         .from('agent_social_connections')
         .upsert({
@@ -48,34 +50,19 @@ export async function POST(req: Request) {
           platform_account_id: connection.id,
           platform_account_name: 'Terhubung via Composio',
           updated_at: new Date().toISOString()
-        }, { onConflict: 'agent_id,platform' }); // Assuming unique constraint or we just delete and insert
+        }, { onConflict: 'agent_id,platform' });
 
-      // Let's do a safe approach: Check if exists, update or insert
-      const { data: existing } = await supabase
-        .from('agent_social_connections')
-        .select('*')
-        .eq('agent_id', agentId)
-        .eq('platform', platformStr)
-        .single();
-
-      if (existing) {
-        await supabase
-          .from('agent_social_connections')
-          .update({
-            platform_account_id: connection.id,
-            platform_account_name: 'Terhubung via Composio',
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', existing.id);
-      } else {
-        await supabase
-          .from('agent_social_connections')
-          .insert({
+      if (upsertError) {
+         console.error("Upsert error in sync:", upsertError);
+         // Fallback just in case onConflict fails due to missing constraint
+         // We do a manual delete and insert
+         await supabase.from('agent_social_connections').delete().eq('agent_id', agentId).eq('platform', platformStr);
+         await supabase.from('agent_social_connections').insert({
             agent_id: agentId,
             platform: platformStr,
             platform_account_id: connection.id,
             platform_account_name: 'Terhubung via Composio',
-          });
+         });
       }
 
       return NextResponse.json({ success: true, connection });

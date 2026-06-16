@@ -198,7 +198,7 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
               top: `${pos.y}px`,
               left: `${pos.x}px`,
               width: `${currentLogoSize}px`,
-              height: `${currentLogoSize}px`,
+              height: 'auto',
               zIndex: 20
             }}
           >
@@ -211,8 +211,8 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
               draggable={false}
               style={{ 
                 width: '100%', 
-                height: '100%', 
-                objectFit: 'contain',
+                height: 'auto',
+                display: 'block',
                 cursor: isDragging ? 'grabbing' : 'grab',
                 touchAction: 'none',
                 pointerEvents: 'auto',

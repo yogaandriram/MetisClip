@@ -1,10 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, cast
 from pydantic import BaseModel, Field
 from supabase import Client
 from backend.api.deps import get_current_user, get_supabase_client, get_user_supabase_client
-from backend.agents.graph import execute_autoclip_pipeline
-
+from backend.agents.static_pipeline import execute_static_pipeline
 router = APIRouter(prefix="/api/jobs", tags=["Jobs"])
 
 class JobCreate(BaseModel):
@@ -17,29 +16,27 @@ class JobCreate(BaseModel):
 def run_pipeline_task(
     job_id: str,
     user_id: str,
-    keywords: List[str],
-    youtube_url: str,
+    keywords: Optional[List[str]],
+    youtube_url: Optional[str],
     video_types: List[str],
     clip_duration: str,
     max_clips: int
 ):
     """
-    Background Task to run the LangGraph pipeline asynchronously.
+    Executes the pipeline statically in the background when triggered from the Web UI.
     """
     try:
-        execute_autoclip_pipeline(
+        execute_static_pipeline(
             job_id=job_id,
             user_id=user_id,
-            keywords=keywords,
+            keywords=keywords or [],
             youtube_url=youtube_url,
             video_types=video_types,
             clip_duration=clip_duration,
             max_clips=max_clips
         )
     except Exception as e:
-        # In production, we'd log this to an error tracker (e.g. Sentry)
-        # And update the job status to 'failed' in the database
-        print(f"Background Pipeline Task Failed for job {job_id}: {str(e)}")
+        print(f"Background Static Pipeline Task Failed for job {job_id}: {str(e)}")
         try:
             supabase = get_supabase_client()
             supabase.table("discovery_jobs").update({"status": "failed"}).eq("id", job_id).execute()
@@ -77,8 +74,8 @@ async def create_job(
                 detail="Failed to register job in database."
             )
             
-        job_data = job_res.data[0]
-        job_id = job_data["id"]
+        job_data = cast(Dict[str, Any], job_res.data[0])
+        job_id = str(job_data.get("id"))
 
         # 2. Trigger the LangGraph Agentic Pipeline in the background
         background_tasks.add_task(

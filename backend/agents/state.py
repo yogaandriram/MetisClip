@@ -1,9 +1,14 @@
-from typing import TypedDict, List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Annotated
+from typing_extensions import TypedDict
+from langgraph.graph.message import add_messages
+from langchain_core.messages import AnyMessage
 
 class PipelineState(TypedDict):
     """
     State representing the data flowing between agents in the MetisClip pipeline.
     """
+    messages: Annotated[list[AnyMessage], add_messages]
+    
     # Core Job Configurations
     job_id: str
     user_id: str
