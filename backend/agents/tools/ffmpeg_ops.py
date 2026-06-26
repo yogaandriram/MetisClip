@@ -8,52 +8,8 @@ from backend.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-def download_full_video(youtube_id: str) -> Optional[str]:
-    """
-    Downloads the entire YouTube video to a local cache file.
-    Returns the path to the downloaded video, or None if failed.
-    """
-    import uuid
-    import shutil
-    
-    os.makedirs(settings.TEMP_DIR, exist_ok=True)
-    temp_raw = os.path.join(settings.TEMP_DIR, f"temp_{youtube_id}_{uuid.uuid4().hex[:8]}_full.mp4")
-    
-    yt_dlp_path = shutil.which("yt-dlp")
-    if not yt_dlp_path:
-        yt_dlp_cmd = [sys.executable, "-m", "yt_dlp"]
-    else:
-        yt_dlp_cmd = [yt_dlp_path]
-        
-    logger.info(f"Downloading FULL YouTube video: {youtube_id} to cache.")
-    format_str = "bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4][height<=1080] / bv*+ba/b"
-    
-    download_cmd = yt_dlp_cmd + [
-        "--ffmpeg-location", settings.FFMPEG_PATH,
-        "--socket-timeout", "30",
-        "--retries", "5",
-        "--force-overwrites",
-        "-f", format_str,
-        "--merge-output-format", "mp4",
-        f"https://www.youtube.com/watch?v={youtube_id}",
-        "-o", temp_raw
-    ]
-    
-    try:
-        # Full download is usually fast and unthrottled, give it 30 mins just in case for huge podcasts
-        subprocess.run(download_cmd, check=True, timeout=1800, capture_output=True)
-        if os.path.exists(temp_raw):
-            return temp_raw
-    except Exception as e:
-        logger.error(f"Failed to download full video {youtube_id}: {str(e)}")
-        if os.path.exists(temp_raw):
-            try: os.remove(temp_raw)
-            except: pass
-            
-    return None
-
 def crop_local_segment(
-    local_source_path: str, 
+    youtube_id: str, 
     start_time: float, 
     end_time: float, 
     output_path: str,
@@ -61,31 +17,44 @@ def crop_local_segment(
     video_type: str = "talking_head"
 ) -> bool:
     """
-    Uses FFmpeg to crop a specific segment from a local video to vertical 9:16 aspect ratio.
+    Downloads a specific segment from YouTube using yt-dlp and crops it to vertical 9:16 aspect ratio.
     """
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     os.makedirs(os.path.dirname(thumbnail_path), exist_ok=True)
     
-    if not os.path.exists(local_source_path):
-        logger.error(f"Local source video not found: {local_source_path}")
-        return False
-        
     try:
         import uuid
+        import shutil
         temp_cut = os.path.join(settings.TEMP_DIR, f"temp_cut_{uuid.uuid4().hex[:8]}.mp4")
         
-        # Frame-accurate local cut using ultrafast encoding (prevents subtitle desync caused by keyframe jumping)
-        logger.info(f"Cutting local segment {start_time}-{end_time} with frame accuracy...")
-        cut_cmd = [
-            settings.FFMPEG_PATH, "-y",
-            "-ss", str(start_time), 
-            "-i", local_source_path,
-            "-t", str(end_time - start_time),
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-            "-c:a", "aac", "-b:a", "128k",
-            temp_cut
+        yt_dlp_path = shutil.which("yt-dlp")
+        if not yt_dlp_path:
+            yt_dlp_cmd = [sys.executable, "-m", "yt_dlp"]
+        else:
+            yt_dlp_cmd = [yt_dlp_path]
+            
+        logger.info(f"Downloading and cutting segment {start_time}-{end_time} directly from YouTube...")
+        format_str = "bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4][height<=1080] / bv*+ba/b"
+        
+        section_arg = f"*{start_time}-{end_time}"
+        
+        cut_cmd = yt_dlp_cmd + [
+            "--ffmpeg-location", settings.FFMPEG_PATH,
+            "--socket-timeout", "30",
+            "--retries", "3",
+            "--force-overwrites",
+            "-f", format_str,
+            "--download-sections", section_arg,
+            "--merge-output-format", "mp4",
+            f"https://www.youtube.com/watch?v={youtube_id}",
+            "-o", temp_cut
         ]
+        
         subprocess.run(cut_cmd, check=True, capture_output=True)
+        
+        if not os.path.exists(temp_cut):
+            logger.error(f"Failed to download segment to {temp_cut}")
+            return False
         
         logger.info(f"Scanning {temp_cut} for Smart Auto Tracking (Face Detection)...")
         from backend.agents.tools.smart_crop import process_auto_tracking_video
@@ -146,8 +115,18 @@ def crop_local_segment(
         logger.info(f"Successfully processed and vertical cropped segment to {output_path}")
         return True
 
+    except subprocess.CalledProcessError as e:
+        stderr_output = e.stderr.decode('utf-8', errors='ignore') if e.stderr else 'No stderr output'
+        logger.error(f"❌ [FFMPEG ERROR] Terjadi kesalahan saat memotong segmen {start_time}-{end_time}.\nCommand: {e.cmd}\nExit Code: {e.returncode}\nDetailed FFmpeg Log:\n{stderr_output}")
+        if os.path.exists(output_path):
+            try: os.remove(output_path)
+            except: pass
+        if os.path.exists(thumbnail_path):
+            try: os.remove(thumbnail_path)
+            except: pass
+        return False
     except Exception as e:
-        logger.error(f"❌ [FFMPEG ERROR] Terjadi kesalahan saat memotong segmen {start_time}-{end_time}: {str(e)}")
+        logger.error(f"❌ [SYSTEM ERROR] Kesalahan sistem tidak terduga saat memotong segmen {start_time}-{end_time}: {str(e)}")
         if os.path.exists(output_path):
             try: os.remove(output_path)
             except: pass

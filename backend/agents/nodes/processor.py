@@ -6,7 +6,7 @@ from typing import Dict, Any, List
 from supabase import create_client, Client
 from backend.core.config import settings
 from backend.agents.state import PipelineState
-from backend.agents.tools.ffmpeg_ops import download_full_video, crop_local_segment
+from backend.agents.tools.ffmpeg_ops import crop_local_segment
 
 logger = logging.getLogger(__name__)
 
@@ -108,24 +108,11 @@ def run_processor_agent(state: PipelineState) -> Dict[str, Any]:
 
     import concurrent.futures
 
-    # PREPARATION PHASE: Download full video ONCE to avoid YouTube API throttling
     youtube_id = viral_segments[0].get("youtube_id")
     if not youtube_id:
         error_msg = "No youtube_id found in segments."
         logger.error(error_msg)
         return {"errors": state.get("errors", []) + [error_msg], "current_step": "processing", "progress_pct": 80.0}
-
-    logger.info(f"⏳ [PREPARATION] Downloading full video {youtube_id} to cache...")
-    local_source_path = download_full_video(youtube_id)
-    if not local_source_path:
-        error_msg = f"Failed to download full source video {youtube_id}."
-        logger.error(error_msg)
-        return {
-            "errors": state.get("errors", []) + [error_msg],
-            "current_step": "processing",
-            "progress_pct": 80.0
-        }
-    logger.info(f"✅ [PREPARATION] Full video cached at {local_source_path}")
 
     def process_single_clip(i, segment):
         clip_uuid = str(uuid.uuid4())
@@ -136,7 +123,7 @@ def run_processor_agent(state: PipelineState) -> Dict[str, Any]:
         local_thumb = os.path.join(settings.TEMP_DIR, f"{clip_uuid}.png").replace("\\", "/")
         
         success = crop_local_segment(
-            local_source_path=local_source_path,
+            youtube_id=youtube_id,
             start_time=segment["start_time"],
             end_time=segment["end_time"],
             output_path=local_video,
@@ -158,6 +145,10 @@ def run_processor_agent(state: PipelineState) -> Dict[str, Any]:
         
         if supabase is not None:
             import time
+            import threading
+            
+            # Use a lock to prevent concurrent SSL connection pool exhaustion on Supabase uploads
+            upload_lock = threading.Lock()
             
             # Robust uploader with retry logic
             def upload_with_retry(local_path, storage_path, content_type, max_retries=3):
@@ -165,11 +156,13 @@ def run_processor_agent(state: PipelineState) -> Dict[str, Any]:
                     try:
                         with open(local_path, "rb") as f:
                             file_bytes = f.read()
-                        supabase.storage.from_(settings.CLIP_STORAGE_BUCKET).upload(
-                            path=storage_path,
-                            file=file_bytes,
-                            file_options={"content-type": content_type, "x-upsert": "true"}
-                        )
+                            
+                        with upload_lock:
+                            supabase.storage.from_(settings.CLIP_STORAGE_BUCKET).upload(
+                                path=storage_path,
+                                file=file_bytes,
+                                file_options={"content-type": content_type, "x-upsert": "true"}
+                            )
                         return True
                     except Exception as e:
                         if attempt == max_retries - 1:
@@ -213,6 +206,7 @@ def run_processor_agent(state: PipelineState) -> Dict[str, Any]:
                         file=(os.path.basename(temp_audio), f.read()),
                         model=settings.WHISPER_MODEL,
                         response_format="verbose_json",
+                        timestamp_granularities=["word", "segment"],
                     )
                 
                 if os.path.exists(temp_audio):
@@ -325,13 +319,7 @@ def run_processor_agent(state: PipelineState) -> Dict[str, Any]:
             except Exception as exc:
                 logger.error(f"Clip processing generated an exception: {exc}")
                 
-    # CLEANUP PHASE: Remove the massive local cache video after all clips are done
-    if local_source_path and os.path.exists(local_source_path):
-        try:
-            os.remove(local_source_path)
-            logger.info(f"🧹 [CLEANUP] Deleted local cached source video: {local_source_path}")
-        except Exception as e:
-            logger.warning(f"Failed to delete cached source video {local_source_path}: {e}")
+    # CLEANUP PHASE: Temporary clip files are already removed inside crop_local_segment
 
     logger.info(f"Processor Agent completed. Fully processed {len(processed_clips)} vertical clips with subtitles.")
     logger.info("=" * 60)

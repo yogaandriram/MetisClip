@@ -11,10 +11,14 @@ import os
 
 os.makedirs(settings.TEMP_DIR, exist_ok=True)
 
-# Set up logging so we can see the Agent logs in Uvicorn terminal
+# Set up logging so we can see the Agent logs in Uvicorn terminal AND save them to a file
 logging.basicConfig(
-    level=logging.ERROR,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO, # Changed from ERROR to INFO so we can see all pipeline progress
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("system_pipeline.log", encoding="utf-8"),
+        logging.StreamHandler()
+    ]
 )
 
 # Suppress noisy third-party loggers so only system errors are shown

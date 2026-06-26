@@ -81,7 +81,11 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
         if has_llm:
             try:
                 from openai import OpenAI
-                client = OpenAI(api_key=settings.NINEROUTER_API_KEY, base_url=settings.NINEROUTER_BASE_URL)
+                client = OpenAI(
+                    api_key=settings.NINEROUTER_API_KEY, 
+                    base_url=settings.NINEROUTER_BASE_URL,
+                    default_headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"}
+                )
                 
                 # Chunk transcript into ~10 minute pieces to avoid LLM TPM limits
                 chunk_duration_limit = 10 * 60 # 10 minutes in seconds
@@ -124,9 +128,9 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
                         f"The length of each segment MUST be STRICTLY between {min_target} and {max_target} seconds. "
                         "The segment MUST start at the beginning of a sentence and end exactly at a punctuation mark (., ?, !). "
                         "Do not cut off sentences mid-way. If needed, expand the segment to finish the sentence.\n\n"
-                        "CRITICAL INSTRUCTION 3 (VIRALITY): You must extract ALL possible segments that have a viral_score of 80 or above. "
-                        "Do not limit the number of segments you return. Aim to find at least 1-3 highly viral moments per chunk. "
-                        "Be strict with the 80+ score; only choose truly viral moments, but do not stop searching until the end of the transcript.\n\n"
+                        "CRITICAL INSTRUCTION 3 (VIRALITY): You MUST extract 1-3 highly engaging segments per chunk. "
+                        "Even if the video seems boring, you must find the BEST possible moments that are relatively engaging. "
+                        "You MUST return at least 1 segment per chunk no matter what. Do not return an empty array.\n\n"
                         "You must evaluate segments based on:\n"
                         "1. Hook Strength (first 3 seconds grab immediate attention)\n"
                         "2. Emotional Intensity (shock, controversy, extreme value, laughter, or deep inspiration)\n"
@@ -155,11 +159,13 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
                         ],
                         temperature=0.2,
                         max_tokens=2000,
-                        response_format={"type": "json_object"}
+                        response_format={"type": "json_object"},
+                        stream=False,
+                        timeout=60.0
                     )
                     
                     import json
-                    content = response.choices[0].message.content
+                    content = response.choices[0].message.content  # type: ignore
                     if not content:
                         continue
                     
@@ -173,11 +179,10 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
                     
                     # --- EARLY STOPPING LOGIC ---
                     if max_clips > 0:
-                        high_quality_clips = [s for s in segments if isinstance(s, dict) and s.get("viral_score", 0) >= 80]
-                        if len(high_quality_clips) >= max_clips:
-                            logger.info(f"Early Stopping Triggered: Found {len(high_quality_clips)} high-quality segments (viral_score >= 80). Stopping analysis to save tokens.")
+                        valid_clips = [s for s in segments if isinstance(s, dict) and s.get("start_time")]
+                        if len(valid_clips) >= max_clips:
+                            logger.info(f"Early Stopping Triggered: Found exactly {len(valid_clips)} segments as requested. Stopping analysis to save tokens and prevent rate limits.")
                             break
-                
             except Exception as e:
                 logger.error(f"LLM API call or JSON parsing failed on chunk analysis: {str(e)}. Falling back to mock parsing.")
                 has_llm = False
@@ -214,16 +219,11 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
             return 0.0
 
         for segment in segments:
-            # Enforce the >90% rule programmatically just in case the LLM hallucinates lower scores
+            # Enforce minimal validation to ensure timestamps exist
             try:
                 score = int(str(segment.get("viral_score", "70")))
             except (ValueError, TypeError):
                 score = 70
-                
-            if score < 70:
-                logger.warning(f"Discarding segment due to low viral score: {score}")
-                continue
-                
             start_sec = timestamp_to_seconds(str(segment.get("start_time", "00:00")))
             end_sec = timestamp_to_seconds(str(segment.get("end_time", "00:00")))
             
@@ -233,7 +233,11 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
                 try:
                     logger.info(f"Critic Agent analyzing proposed clip: {start_sec}s - {end_sec}s")
                     from openai import OpenAI
-                    critic_client = OpenAI(api_key=settings.NINEROUTER_API_KEY, base_url=settings.NINEROUTER_BASE_URL)
+                    critic_client = OpenAI(
+                        api_key=settings.NINEROUTER_API_KEY, 
+                        base_url=settings.NINEROUTER_BASE_URL,
+                        default_headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"}
+                    )
                     
                     # Extract surrounding context from transcript (+/- 20 seconds)
                     context_entries = [e for e in transcript if (start_sec - 20) <= e['start'] <= (end_sec + 20)]
@@ -262,11 +266,13 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
                         ],
                         temperature=0.1,
                         max_tokens=200,
-                        response_format={"type": "json_object"}
+                        response_format={"type": "json_object"},
+                        stream=False,
+                        timeout=60.0
                     )
                     
                     import json
-                    content = critic_res.choices[0].message.content
+                    content = critic_res.choices[0].message.content  # type: ignore
                     critic_json = json.loads(content) if content else {}
                     if critic_json.get("start_time") and critic_json.get("end_time"):
                         new_start = timestamp_to_seconds(critic_json["start_time"])
@@ -280,11 +286,11 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
                 except Exception as e:
                     logger.warning(f"Critic Agent failed to refine boundaries: {e}")
             
-            # STRICT DURATION FILTER:
-            # We allow a very relaxed +/- 30 seconds buffer so we don't throw away good clips that the Critic expanded.
-            duration = round(end_sec - start_sec, 2)
-            if duration < (min_target - 20) or duration > (max_target + 30):
-                logger.warning(f"Discarding segment due to strict duration rule. Target: {min_target}-{max_target}s, Got: {duration}s")
+            # Evaluate exact programmatic duration against target with a very loose margin
+            # (LLMs are notoriously bad at math, so we give a large +/- buffer before outright rejecting)
+            duration = end_sec - start_sec
+            if duration < (min_target - 30) or duration > (max_target + 120):
+                logger.warning(f"Discarding segment due to extreme duration mismatch. Target: {min_target}-{max_target}s, Got: {duration}s")
                 continue
             
             segment_data = {

@@ -77,3 +77,17 @@ def execute_static_pipeline(
         logger.error(f"Static pipeline failed with error: {str(e)}")
         state["errors"] = state.get("errors", []) + [str(e)]
         return state
+    finally:
+        # Ensure job status doesn't hang in 'running' if it stopped early
+        try:
+            from backend.api.deps import get_supabase_client
+            supabase = get_supabase_client()
+            job = supabase.table("discovery_jobs").select("status").eq("id", job_id).execute()
+            if job.data and job.data[0]["status"] == "running":
+                # If we stopped early without 100% progress, consider it failed
+                status = "failed"
+                if not state.get("viral_segments"):
+                    logger.warning(f"Marking job {job_id} as failed because no viral segments were found.")
+                supabase.table("discovery_jobs").update({"status": status}).eq("id", job_id).execute()
+        except Exception as e:
+            logger.error(f"Failed to cleanup job status: {str(e)}")
