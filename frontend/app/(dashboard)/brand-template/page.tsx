@@ -16,6 +16,7 @@ import { CaptionSettingsPanel } from './components/CaptionSettingsPanel'
 import { AiSettingsPanel } from './components/AiSettingsPanel'
 import { BrandSettingsPanel } from './components/BrandSettingsPanel'
 import { TemplatePreviewCanvas } from './components/TemplatePreviewCanvas'
+import { presets } from '@/lib/presets'
 
 import { useDebounce } from '@/hooks/useDebounce'
 
@@ -257,11 +258,11 @@ export default function BrandTemplatePage() {
     setIsSaving(false);
   }
 
-  const updateConfig = <K extends 'layout_settings' | 'caption_settings' | 'ai_settings' | 'brand_settings'>(section: K, updates: Partial<TemplateConfig[K]>) => {
+  const updateConfig = <K extends 'layout_settings' | 'caption_settings' | 'ai_settings' | 'brand_settings'>(section: K, updates: Partial<TemplateConfig[K]>, replace: boolean = false) => {
     setConfig(prev => {
       const newConfig = {
         ...prev,
-        [section]: { ...(prev[section] as object), ...updates }
+        [section]: replace ? updates : { ...(prev[section] as object), ...updates }
       }
       
       const newHistory = history.slice(0, historyIndex + 1)
@@ -289,6 +290,9 @@ export default function BrandTemplatePage() {
     }
   }
 
+  const activeCaptionPreset = presets.find(p => p.id === config.caption_settings?.mode) || presets[0];
+  const mergedCaptionSettings = { ...activeCaptionPreset.getDefaultConfig(), ...config.caption_settings };
+
   const renderActiveMenuContent = () => {
     if (activeMenu === 'layout') {
       return (
@@ -302,8 +306,8 @@ export default function BrandTemplatePage() {
     if (activeMenu === 'caption') {
       return (
         <CaptionSettingsPanel 
-          caption={config.caption_settings} 
-          updateCaption={(updates) => updateConfig('caption_settings', updates)} 
+          caption={mergedCaptionSettings} 
+          updateCaption={(updates, replace) => updateConfig('caption_settings', updates, replace)} 
         />
       )
     }
@@ -487,7 +491,7 @@ export default function BrandTemplatePage() {
             <div style={{ marginBottom: '24px' }}>
               <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px', paddingLeft: '8px' }}>Style</p>
               <MenuItem id="layout" icon={Layout} label="Clip layout settings" value={config.layout_settings.aspect} />
-              <MenuItem id="caption" icon={Type} label="Caption" value={`${config.caption_settings.fontFamily} ${config.caption_settings.fontSize}`} />
+              <MenuItem id="caption" icon={Type} label="Caption" value={`${mergedCaptionSettings.fontFamily} ${mergedCaptionSettings.fontSize}`} />
             </div>
 
             <div style={{ marginBottom: '24px' }}>
@@ -511,7 +515,7 @@ export default function BrandTemplatePage() {
 
           {/* Center Canvas */}
           <TemplatePreviewCanvas 
-            caption={config.caption_settings} 
+            caption={mergedCaptionSettings} 
             aiEmojis={config.ai_settings.emojis} 
             brandSettings={config.brand_settings}
             layoutSettings={config.layout_settings}

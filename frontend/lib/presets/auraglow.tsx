@@ -1,11 +1,12 @@
 import React from 'react';
-import { SubtitlePreset } from './types';
+import { SubtitlePreset, generateRoundedStroke } from './types';
 
 export const auraglowPreset: SubtitlePreset = {
   id: 'auraglow',
   name: 'AURA GLOW',
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Outfit',
+    fontSize: 36,
     fontWeight: 'Regular',
     isUppercase: true,
     fontColor: '#ffffff',
@@ -50,10 +51,19 @@ export const auraglowPreset: SubtitlePreset = {
           WebkitTextFillColor: 'transparent',
           color: 'transparent',
           filter: `drop-shadow(0 0 12px ${activeColor}) drop-shadow(0 4px 8px rgba(0,0,0,0.8))`,
-          transform: 'scale(1.1)'
+          display: 'inline-block',
+          animation: 'springPopBtn 2s infinite alternate cubic-bezier(0.175, 0.885, 0.32, 1.275)'
         }}>
           AURA
         </span>
+        <style>
+          {`
+            @keyframes springPopBtn {
+              0% { transform: rotateX(-40deg) translateY(10px) scale(0.9); background-position: 0% center; }
+              100% { transform: rotateX(0deg) translateY(0) scale(1.1); background-position: 200% center; }
+            }
+          `}
+        </style>
       </button>
     );
   },
@@ -77,6 +87,11 @@ export const auraglowPreset: SubtitlePreset = {
       return 400;
     };
     const numericWeight = getWeight(config.fontWeight);
+    const baseFontSize = config.fontSize || 36;
+    const strokeWidth = config.strokeWidth || 0;
+    const strokeColor = config.strokeColor || '#000000';
+    const roundedStrokeShadow = generateRoundedStroke(strokeWidth, strokeColor, baseFontSize);
+    const letterSpacingEm = (config.letterSpacing !== undefined ? config.letterSpacing : 0) / baseFontSize;
     
     return (
       <>
@@ -96,17 +111,30 @@ export const auraglowPreset: SubtitlePreset = {
               font-family: '${config.fontFamily}', var(--font-display);
               font-weight: ${numericWeight};
               text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
-              letter-spacing: ${config.letterSpacing !== undefined ? config.letterSpacing : 0}px;
+              letter-spacing: ${letterSpacingEm}em;
               line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
               transform-style: preserve-3d;
               transition: all 0.3s ease;
+              position: relative;
+              z-index: 1;
+            }
+            .aura-word::after {
+              content: attr(data-text);
+              position: absolute;
+              left: 0;
+              top: 0;
+              z-index: -1;
+              color: transparent;
+              -webkit-text-fill-color: transparent;
+              white-space: nowrap;
             }
             .aura-word.inactive {
               color: ${fontColor};
               opacity: 0.8;
               transform: rotateX(40deg) scale(0.9);
-              text-shadow: 0 4px 10px rgba(0,0,0,0.5);
-              -webkit-text-stroke: ${(config.strokeWidth || 0) > 0 ? `${(config.strokeWidth || 0) * 0.5}px ${config.strokeColor}` : 'none'};
+            }
+            .aura-word.inactive::after {
+              text-shadow: 0 0.111em 0.277em rgba(0,0,0,0.5)${strokeWidth > 0 ? `, ${roundedStrokeShadow}` : ''};
             }
             .aura-word.active {
               animation: springPop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
@@ -115,19 +143,21 @@ export const auraglowPreset: SubtitlePreset = {
               color: transparent;
               -webkit-background-clip: text;
               -webkit-text-fill-color: transparent;
-              -webkit-text-stroke: ${(config.strokeWidth || 0) > 0 ? `${(config.strokeWidth || 0) * 0.5}px ${config.strokeColor}` : 'none'};
-              filter: drop-shadow(0 0 15px ${activeColor}) drop-shadow(0 5px 10px rgba(0,0,0,0.8));
+              filter: drop-shadow(0 0 0.416em ${activeColor}) drop-shadow(0 0.138em 0.277em rgba(0,0,0,0.8));
+            }
+            .aura-word.active::after {
+              text-shadow: ${strokeWidth > 0 ? roundedStrokeShadow : 'none'};
             }
             @keyframes springPop {
-              0% { transform: rotateX(-60deg) translateY(20px) scale(0.8); opacity: 0; background-position: 0% center; }
+              0% { transform: rotateX(-60deg) translateY(0.555em) scale(0.8); opacity: 0; background-position: 0% center; }
               100% { transform: rotateX(0deg) translateY(0) scale(1.1); opacity: 1; background-position: 200% center; }
             }
           `}
         </style>
         <span className="aura-container">
-          <span key={`prev-${activeWordIndex}`} className="aura-word inactive">{words[activeWordIndex - 1]?.word}</span>
-          <span key={`active-${activeWordIndex}`} className="aura-word active">{words[activeWordIndex].word}</span>
-          <span key={`next-${activeWordIndex}`} className="aura-word inactive">{words[activeWordIndex + 1]?.word}</span>
+          <span key={`prev-${activeWordIndex}`} className="aura-word inactive" data-text={words[activeWordIndex - 1]?.word}>{words[activeWordIndex - 1]?.word}</span>
+          <span key={`active-${activeWordIndex}`} className="aura-word active" data-text={words[activeWordIndex].word}>{words[activeWordIndex].word}</span>
+          <span key={`next-${activeWordIndex}`} className="aura-word inactive" data-text={words[activeWordIndex + 1]?.word}>{words[activeWordIndex + 1]?.word}</span>
         </span>
       </>
     );

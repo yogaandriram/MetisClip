@@ -24,7 +24,10 @@ def process_auto_tracking_video(input_path: str, output_path: str):
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         
         target_w = int(video_h * 9 / 16)
-        target_h = video_h
+        # Force dimensions to be strictly even (required by h264/mp4v)
+        # We round DOWN to the nearest even number so we never exceed the actual frame size
+        target_w = target_w & ~1
+        target_h = video_h & ~1
         
         logger.info(f"Pass 1: Scanning {total_frames} frames for face movement...")
         
@@ -46,11 +49,11 @@ def process_auto_tracking_video(input_path: str, output_path: str):
                     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     results = face_detection.process(rgb_frame)
                     
-                    if results.detections:
+                    if getattr(results, 'detections', None): # type: ignore
                         best_face_x = None
                         min_dist = float('inf')
                         
-                        for detection in results.detections:
+                        for detection in results.detections: # type: ignore
                             bbox = detection.location_data.relative_bounding_box
                             # Convert to absolute
                             center_x = int((bbox.xmin + bbox.width / 2) * video_w)
@@ -90,8 +93,9 @@ def process_auto_tracking_video(input_path: str, output_path: str):
         # FFmpeg will re-encode it to libx264 in the next step anyway.
         fourcc = cv2.VideoWriter_fourcc(*'mp4v') # type: ignore
         
-        # We render at exactly 1080x1920 (9:16)
-        out = cv2.VideoWriter(output_path, fourcc, fps, (1080, 1920))
+        # We write the raw cropped resolution (e.g. 607x1080) to save massive CPU cycles.
+        # FFmpeg will handle the upscale to 1080x1920 using optimized C code later.
+        out = cv2.VideoWriter(output_path, fourcc, fps, (target_w, target_h))
         
         cap = cv2.VideoCapture(input_path)
         frame_idx = 0
@@ -114,13 +118,15 @@ def process_auto_tracking_video(input_path: str, output_path: str):
                 x2 = video_w
                 x1 = video_w - target_w
                 
-            # Crop frame vertically
-            cropped_frame = frame[:, x1:x2] # type: ignore
+            # Crop frame vertically (NO RESIZING IN PYTHON - saves ~80% of CPU time in Pass 3)
+            # We strictly enforce target_h and target_w slice sizes to match VideoWriter bounds
+            cropped_frame = frame[:target_h, x1:x2] # type: ignore
             
-            # Resize exactly to 1080x1920 to ensure standard resolution
-            final_frame = cv2.resize(cropped_frame, (1080, 1920), interpolation=cv2.INTER_LINEAR) # type: ignore
+            # CRITICAL: Numpy slicing creates a non-contiguous memory view. 
+            # cv2.VideoWriter in C++ strictly requires contiguous memory, otherwise it throws 'Unknown C++ exception'
+            contiguous_frame = np.ascontiguousarray(cropped_frame)
             
-            out.write(final_frame)
+            out.write(contiguous_frame)
             frame_idx += 1
             
         cap.release()

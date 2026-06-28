@@ -43,6 +43,7 @@ def crop_local_segment(
             "--socket-timeout", "30",
             "--retries", "3",
             "--force-overwrites",
+            "--extractor-args", "youtube:player_client=android",
             "-f", format_str,
             "--download-sections", section_arg,
             "--merge-output-format", "mp4",
@@ -80,6 +81,7 @@ def crop_local_segment(
             "-crf", "18",
             "-profile:v", "high",
             "-pix_fmt", "yuv420p",
+            "-vf", "scale=1080:1920:flags=bicubic", # Upscale raw crop to full 9:16 using optimized C code
             "-c:a", "aac",
             "-b:a", "128k",
             "-map", "0:v:0",         # Take video from 1st input

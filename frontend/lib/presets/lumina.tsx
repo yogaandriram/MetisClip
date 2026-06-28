@@ -6,6 +6,7 @@ export const luminaPreset: SubtitlePreset = {
   name: 'LUMINA',
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Inter',
+    fontSize: 36,
     fontWeight: 'Regular',
     isUppercase: true,
     fontColor: '#ffffff',

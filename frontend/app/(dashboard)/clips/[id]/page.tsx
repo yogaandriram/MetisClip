@@ -601,8 +601,6 @@ export default function ClipEditorPage({ params }: { params: { id: string } }) {
                   fontStyle: isItalic ? 'italic' : 'normal',
                   textDecoration: isUnderline ? 'underline' : 'none',
                   textTransform: isUppercase ? 'uppercase' : 'none',
-                  WebkitTextStroke: strokeWidth > 0 ? `${strokeWidth}px ${strokeColor}` : 'none',
-                  textShadow: hasShadow ? `${shadowX}px ${shadowY}px ${shadowBlur}px ${shadowColor}` : (strokeWidth === 0 ? '2px 2px 0px #000, -2px -2px 0px #000, -2px 2px 0px #000, 2px -2px 0px #000' : 'none'),
                   lineHeight: lineHeight
                 }}>
                   {activeWordIndex !== -1 ? (

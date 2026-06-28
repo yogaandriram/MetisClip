@@ -6,6 +6,7 @@ export const neonpulsePreset: SubtitlePreset = {
   name: 'NEON PULSE',
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Orbitron',
+    fontSize: 36,
     fontWeight: 'Regular',
     isUppercase: true,
     fontColor: '#ffffff',

@@ -1,28 +1,28 @@
 import React from 'react';
 import { SubtitlePreset, generateRoundedStroke } from './types';
 
-export const popshadowPreset: SubtitlePreset = {
-  id: 'popshadow',
-  name: 'POP SHADOW',
+export const velocityzoomPreset: SubtitlePreset = {
+  id: 'velocityzoom',
+  name: 'VELOCITY ZOOM',
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Montserrat',
     fontSize: 36,
-    fontWeight: 'Regular',
+    fontWeight: 'Black',
     isUppercase: true,
     fontColor: '#ffffff',
     strokeColor: '#000000',
-    strokeWidth: 0,
-    hasShadow: false,
+    strokeWidth: 8, // Very thick stroke
+    hasShadow: true,
     shadowColor: '#000000',
     shadowX: 0,
-    shadowY: 0,
-    shadowBlur: 0,
-    highlightColor: baseHighlightColor || '#FFE800',
-    letterSpacing: 0,
-    lineHeight: 1.2
+    shadowY: 10,
+    shadowBlur: 15,
+    highlightColor: baseHighlightColor || '#FFD700', // Bright Yellow default
+    letterSpacing: 2,
+    lineHeight: 1.1
   }),
   renderButton: (isSelected: boolean, onClick: () => void) => {
-    const activeColor = '#A855F7';
+    const activeColor = '#FFD700';
     return (
       <button
         onClick={onClick}
@@ -40,25 +40,25 @@ export const popshadowPreset: SubtitlePreset = {
           fontSize: '24px',
           fontWeight: '900',
           textTransform: "uppercase",
-          boxShadow: isSelected ? '0 0 20px rgba(24, 86, 255, 0.3)' : 'none',
-          overflow: 'hidden'
+          boxShadow: isSelected ? '0 0 20px rgba(255, 215, 0, 0.3)' : 'none',
+          overflow: 'visible'
         }}
       >
         <span style={{ 
-          color: '#ffffff',
-          filter: `drop-shadow(3px 3px 0 ${activeColor})`,
-          transform: 'scale(1.1) translateY(-2px)',
+          color: activeColor,
           display: 'inline-block',
-          animation: 'popShadowButton 2s infinite ease-in-out'
+          animation: 'velocityZoomButton 1s infinite alternate cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+          WebkitTextStroke: '2px black',
+          paintOrder: 'stroke fill',
+          textShadow: '0px 4px 0px rgba(0,0,0,1)'
         }}>
-          SHADOW
+          ZOOM
         </span>
         <style>
           {`
-            @keyframes popShadowButton {
-              0% { transform: scale(0.95) translateY(0); filter: drop-shadow(0px 0px 0 ${activeColor}); }
-              50% { transform: scale(1.15) translateY(-4px); filter: drop-shadow(4px 4px 0 ${activeColor}); }
-              100% { transform: scale(0.95) translateY(0); filter: drop-shadow(0px 0px 0 ${activeColor}); }
+            @keyframes velocityZoomButton {
+              0% { transform: scale(0.8) rotate(0deg); }
+              100% { transform: scale(1.15) rotate(-3deg); }
             }
           `}
         </style>
@@ -66,8 +66,8 @@ export const popshadowPreset: SubtitlePreset = {
     );
   },
   renderPreview: ({ words, activeWordIndex, config }) => {
-    const activeColor = (config.highlightColor && config.highlightColor !== '#000000') ? config.highlightColor : '#A855F7';
-    const strokeWidth = config.strokeWidth !== undefined ? config.strokeWidth : 6;
+    const activeColor = (config.highlightColor && config.highlightColor !== '#000000') ? config.highlightColor : '#FFD700';
+    const strokeWidth = config.strokeWidth !== undefined ? config.strokeWidth : 8;
     const fontColor = config.fontColor || '#ffffff';
     const strokeColor = config.strokeColor || '#000000';
 
@@ -84,9 +84,10 @@ export const popshadowPreset: SubtitlePreset = {
       if (w.includes('bold')) return 700;
       if (w.includes('black')) return 900;
       if (w.includes('regular')) return 400;
-      return 400;
+      return 900;
     };
     const numericWeight = getWeight(config.fontWeight);
+    
     const baseFontSize = config.fontSize || 36;
     const roundedStrokeShadow = generateRoundedStroke(strokeWidth, strokeColor, baseFontSize);
 
@@ -102,50 +103,69 @@ export const popshadowPreset: SubtitlePreset = {
       combinedShadows.push(roundedStrokeShadow);
     }
     const finalTextShadow = combinedShadows.length > 0 ? combinedShadows.join(', ') : 'none';
-    const letterSpacingEm = (config.letterSpacing !== undefined ? config.letterSpacing : 2) / baseFontSize;
-    
+    const letterSpacingEm = (config.letterSpacing !== undefined ? config.letterSpacing : 4) / baseFontSize;
+
     return (
       <>
         <style>
           {`
-            .popshadow-container {
-              display: inline-flex;
-              gap: 12px;
+            .velocityzoom-container {
+              display: flex;
               align-items: center;
-              flex-wrap: wrap;
               justify-content: center;
-              max-width: 100%;
-              padding: 10px; /* To prevent drop-shadow clipping */
+              width: 100%;
+              text-align: center;
             }
-            .popshadow-word {
+
+            .velocityzoom-word {
               display: inline-block;
-              font-family: '${config.fontFamily}', var(--font-display);
+              font-family: ${config.fontFamily || 'Montserrat'}, sans-serif;
+              font-size: ${baseFontSize}px;
               font-weight: ${numericWeight};
+              color: ${activeColor};
+              font-style: ${config.isItalic ? 'italic' : 'normal'};
+              text-decoration: ${config.isUnderline ? 'underline' : 'none'};
               text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
+              
               letter-spacing: ${letterSpacingEm}em;
               line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
+              text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
               text-shadow: ${finalTextShadow};
-              color: ${fontColor};
+              
+              /* Impact animation */
+              animation: velocityImpact 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+              transform-origin: center center;
             }
-            .popshadow-word.inactive {
-              opacity: 0.9;
-            }
-            .popshadow-word.active {
-              color: ${activeColor};
-              transform-origin: center;
-              animation: popShadowAnim 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
-            }
-            @keyframes popShadowAnim {
-              0% { transform: scale(0.8) translateY(0.277em); opacity: 0; }
-              100% { transform: scale(1.15) translateY(-0.111em); opacity: 1; }
+
+            @keyframes velocityImpact {
+              0% {
+                transform: scale(0.3) rotate(5deg);
+                opacity: 0;
+              }
+              50% {
+                transform: scale(1.3) rotate(-3deg);
+                opacity: 1;
+              }
+              100% {
+                transform: scale(1) rotate(0deg);
+                opacity: 1;
+              }
             }
           `}
         </style>
-        <span className="popshadow-container">
-          <span key={`prev-${activeWordIndex}`} className="popshadow-word inactive">{words[activeWordIndex - 1]?.word}</span>
-          <span key={`active-${activeWordIndex}`} className="popshadow-word active">{words[activeWordIndex].word}</span>
-          <span key={`next-${activeWordIndex}`} className="popshadow-word inactive">{words[activeWordIndex + 1]?.word}</span>
-        </span>
+        <div className="velocityzoom-container">
+          {words.map((w, index) => {
+            const isActive = index === activeWordIndex;
+            // Strict Single Word Mode: Only render if it's the active word
+            if (!isActive) return null;
+            
+            return (
+              <span key={index} className="velocityzoom-word">
+                {w.word}
+              </span>
+            );
+          })}
+        </div>
       </>
     );
   }

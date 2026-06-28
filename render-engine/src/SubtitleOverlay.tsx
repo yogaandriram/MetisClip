@@ -105,8 +105,6 @@ export const SubtitleOverlay: React.FC<{
            fontStyle: style.isItalic ? 'italic' : 'normal',
            textDecoration: style.isUnderline ? 'underline' : 'none',
            textTransform: style.isUppercase ? 'uppercase' : 'none',
-           WebkitTextStroke: (style.strokeWidth || 0) > 0 ? `${style.strokeWidth}px ${style.strokeColor || '#000000'}` : 'none',
-           textShadow: style.hasShadow ? `${style.shadowX || 0}px ${style.shadowY || 0}px ${style.shadowBlur || 0}px ${style.shadowColor || '#000000'}` : ((style.strokeWidth || 0) === 0 ? '2px 2px 0px #000, -2px -2px 0px #000, -2px 2px 0px #000, 2px -2px 0px #000' : 'none'),
            lineHeight: style.lineHeight || 1.2
          }}>
             {activeWordIndex >= 0 && activePreset.renderPreview({

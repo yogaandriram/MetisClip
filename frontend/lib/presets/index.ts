@@ -11,6 +11,7 @@ import { hologramPreset } from './hologram';
 import { glitchPreset } from './glitch';
 import { staggerfadePreset } from './staggerfade';
 import { elasticscalePreset } from './elasticscale';
+import { velocityzoomPreset } from './velocityzoom';
 
 export const presets: SubtitlePreset[] = [
   auraglowPreset,
@@ -25,4 +26,5 @@ export const presets: SubtitlePreset[] = [
   glitchPreset,
   staggerfadePreset,
   elasticscalePreset,
+  velocityzoomPreset,
 ];

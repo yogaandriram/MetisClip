@@ -122,15 +122,15 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
                         "You are a 10-year experienced viral media growth specialist and expert editor.\n"
                         "Your task is to scan the following video transcript chunk and locate the exact timestamps "
                         f"of segments with the highest potential to go viral as short-form vertical video.\n\n"
-                        "CRITICAL INSTRUCTION 1 (AVOID INTRO): "
-                        "Avoid selecting clips that start within the first 30 seconds of the video if possible, as these are usually boring intros.\n\n"
+                        "CRITICAL INSTRUCTION 1 (ABSOLUTELY NO INTROS): "
+                        "It is ABSOLUTELY FORBIDDEN to select any clips that start within the first 90 seconds of the video. The intro is boring and must be skipped.\n\n"
                         "CRITICAL INSTRUCTION 2 (DURATION & COMPLETE SENTENCES): "
                         f"The length of each segment MUST be STRICTLY between {min_target} and {max_target} seconds. "
                         "The segment MUST start at the beginning of a sentence and end exactly at a punctuation mark (., ?, !). "
                         "Do not cut off sentences mid-way. If needed, expand the segment to finish the sentence.\n\n"
-                        "CRITICAL INSTRUCTION 3 (VIRALITY): You MUST extract 1-3 highly engaging segments per chunk. "
-                        "Even if the video seems boring, you must find the BEST possible moments that are relatively engaging. "
-                        "You MUST return at least 1 segment per chunk no matter what. Do not return an empty array.\n\n"
+                        "CRITICAL INSTRUCTION 3 (VIRALITY & SKIPPING BORING CHUNKS): "
+                        "You must ONLY extract segments with extremely high engaging potential (arguments, high emotion, shocking facts). "
+                        "If the entire transcript chunk is boring, generic introduction, or sponsor reads, YOU MUST RETURN AN EMPTY ARRAY []. Do not force a clip if there is none.\n\n"
                         "You must evaluate segments based on:\n"
                         "1. Hook Strength (first 3 seconds grab immediate attention)\n"
                         "2. Emotional Intensity (shock, controversy, extreme value, laughter, or deep inspiration)\n"
@@ -173,7 +173,28 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
                     
                     result_json = json.loads(content)
                     chunk_segments = result_json.get("segments", [])
-                    segments.extend(chunk_segments)
+                    
+                    # PROGRAMMATIC ENFORCER: Reject clips starting in the first 90s
+                    valid_chunk_segments = []
+                    for seg in chunk_segments:
+                        try:
+                            start_str = str(seg.get("start_time", "00:00"))
+                            parts = start_str.split(':')
+                            if len(parts) == 2:
+                                s_sec = float(parts[0]) * 60 + float(parts[1])
+                            elif len(parts) == 3:
+                                s_sec = float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
+                            else:
+                                s_sec = 0.0
+                                
+                            if s_sec < 90.0:
+                                logger.info(f"Programmatic Enforcer: Rejected proposed clip starting at {start_str} (Intro Ban).")
+                            else:
+                                valid_chunk_segments.append(seg)
+                        except:
+                            valid_chunk_segments.append(seg)
+                            
+                    segments.extend(valid_chunk_segments)
                     
                     logger.info(f"Chunk {chunk_index+1} yielded {len(chunk_segments)} viral segments.")
                     
@@ -239,8 +260,8 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
                         default_headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"}
                     )
                     
-                    # Extract surrounding context from transcript (+/- 20 seconds)
-                    context_entries = [e for e in transcript if (start_sec - 20) <= e['start'] <= (end_sec + 20)]
+                    # Extract surrounding context from transcript to allow forward expansion up to max_target
+                    context_entries = [e for e in transcript if (start_sec - 30) <= e['start'] <= (end_sec + max_target + 30)]
                     context_text = ""
                     for e in context_entries:
                         s_min, s_sec = int(e['start'] // 60), int(e['start'] % 60)
@@ -248,10 +269,12 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
                     
                     critic_prompt = (
                         "You are an AI Video Editor Critic. The previous AI proposed a video clip from the following transcript.\n"
-                        "Your job is to ensure the clip DOES NOT start or end in the middle of a sentence.\n"
+                        "Your job is to fix two things:\n"
+                        "1. Ensure the clip DOES NOT start or end in the middle of a sentence. Expand timestamps to include the full sentence if needed.\n"
+                        f"2. Ensure the total duration is STRICTLY between {min_target} and {max_target} seconds. If the proposed clip is too short, YOU MUST expand the end_time forward in the transcript to include more context until the duration reaches at least {min_target} seconds.\n\n"
+                        f"Target Duration: {min_target}-{max_target} seconds.\n"
                         f"Proposed Start: {segment.get('start_time')}, Proposed End: {segment.get('end_time')}\n\n"
-                        "Review the transcript. If the proposed start or end cuts off a sentence, expand the timestamps to include the full sentence.\n"
-                        "Output EXACTLY a valid JSON object matching this schema:\n"
+                        "Review the transcript context and output EXACTLY a valid JSON object matching this schema:\n"
                         "{\n"
                         "  \"start_time\": \"MM:SS\",\n"
                         "  \"end_time\": \"MM:SS\"\n"
@@ -286,12 +309,31 @@ def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
                 except Exception as e:
                     logger.warning(f"Critic Agent failed to refine boundaries: {e}")
             
-            # Evaluate exact programmatic duration against target with a very loose margin
-            # (LLMs are notoriously bad at math, so we give a large +/- buffer before outright rejecting)
             duration = end_sec - start_sec
-            if duration < (min_target - 30) or duration > (max_target + 120):
-                logger.warning(f"Discarding segment due to extreme duration mismatch. Target: {min_target}-{max_target}s, Got: {duration}s")
-                continue
+            
+            # PROGRAMMATIC DURATION ENFORCEMENT
+            # If the LLM failed to meet the min_target, we manually push the end_time forward 
+            # by reading the transcript boundaries until the duration is satisfied.
+            if duration < min_target:
+                logger.info(f"Clip is too short ({duration:.1f}s < {min_target}s). Programmatically expanding...")
+                target_end = start_sec + min_target
+                last_valid_end = end_sec
+                for e in transcript:
+                    e_end = e['start'] + e.get('duration', 2.0)
+                    if e_end > last_valid_end:
+                        last_valid_end = e_end
+                    if last_valid_end >= target_end:
+                        break
+                
+                end_sec = last_valid_end
+                duration = end_sec - start_sec
+                logger.info(f"Programmatically expanded clip to {duration:.1f}s to satisfy user settings.")
+
+            # If it's absurdly long, aggressively trim it
+            if duration > (max_target + 30):
+                logger.info(f"Clip is too long ({duration:.1f}s > {max_target}s). Programmatically trimming...")
+                end_sec = start_sec + max_target
+                duration = end_sec - start_sec
             
             segment_data = {
                 "source_video_id": video_uuid,

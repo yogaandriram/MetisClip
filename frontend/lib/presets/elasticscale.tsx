@@ -1,11 +1,12 @@
 import React from 'react';
-import { SubtitlePreset } from './types';
+import { SubtitlePreset, generateRoundedStroke } from './types';
 
 export const elasticscalePreset: SubtitlePreset = {
   id: 'elasticscale',
   name: 'ELASTIC SCALE',
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Inter',
+    fontSize: 36,
     fontWeight: 'Black',
     isUppercase: true,
     fontColor: '#111111',
@@ -89,17 +90,24 @@ export const elasticscalePreset: SubtitlePreset = {
     };
     const numericWeight = getWeight(config.fontWeight);
     
-    // Custom Shadow support if enabled for text
-    const blur = config.shadowBlur ?? 0;
-    const shadowString = config.hasShadow 
-      ? `${config.shadowX || 0}px ${config.shadowY || 0}px ${blur}px ${config.shadowColor}`
-      : 'none';
-      
-    // Stroke
-    let webkitStroke = '';
-    if (config.strokeWidth && config.strokeWidth > 0 && config.strokeColor) {
-      webkitStroke = `-webkit-text-stroke: ${config.strokeWidth}px ${config.strokeColor};`;
+    const baseFontSize = config.fontSize || 36;
+    const strokeWidth = config.strokeWidth || 0;
+    const strokeColor = config.strokeColor || '#000000';
+    const roundedStrokeShadow = generateRoundedStroke(strokeWidth, strokeColor, baseFontSize);
+
+    let combinedShadows = [];
+    if (config.hasShadow && config.shadowColor) {
+      const blur = config.shadowBlur ?? 0;
+      const xEm = (config.shadowX || 0) / baseFontSize;
+      const yEm = (config.shadowY || 0) / baseFontSize;
+      const blurEm = blur / baseFontSize;
+      combinedShadows.push(`${xEm}em ${yEm}em ${blurEm}em ${config.shadowColor}`);
     }
+    if (strokeWidth > 0 && roundedStrokeShadow !== 'none') {
+      combinedShadows.push(roundedStrokeShadow);
+    }
+    const finalTextShadow = combinedShadows.length > 0 ? combinedShadows.join(', ') : 'none';
+    const letterSpacingEm = (config.letterSpacing !== undefined ? config.letterSpacing : 0) / baseFontSize;
     
     return (
       <>
@@ -120,14 +128,13 @@ export const elasticscalePreset: SubtitlePreset = {
               font-weight: ${numericWeight};
               color: ${fontColor};
               background: ${bgColor};
-              letter-spacing: ${config.letterSpacing !== undefined ? config.letterSpacing : 0}px;
+              letter-spacing: ${letterSpacingEm}em;
               line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
               text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
-              text-shadow: ${shadowString};
-              ${webkitStroke}
-              padding: 8px 28px;
-              border-radius: 4px;
-              box-shadow: 0 4px 20px rgba(255,215,0,0.4);
+              text-shadow: ${finalTextShadow};
+              padding: 0.222em 0.777em;
+              border-radius: 0.111em;
+              box-shadow: 0 0.111em 0.555em rgba(255,215,0,0.4);
               animation: elasticScaleAnim 1s cubic-bezier(0.36,0.07,0.19,0.97) forwards;
               transform-origin: left;
               display: inline-block;

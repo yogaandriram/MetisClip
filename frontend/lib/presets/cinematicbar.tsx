@@ -6,6 +6,7 @@ export const cinematicbarPreset: SubtitlePreset = {
   name: 'CINEMATIC BAR',
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Montserrat',
+    fontSize: 36,
     fontWeight: 'Bold',
     isUppercase: true,
     fontColor: '#ffffff',

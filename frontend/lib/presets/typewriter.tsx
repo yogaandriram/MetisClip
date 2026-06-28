@@ -6,6 +6,7 @@ export const typewriterPreset: SubtitlePreset = {
   name: 'TYPEWRITER',
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Courier New',
+    fontSize: 36,
     fontWeight: 'Regular',
     isUppercase: false,
     fontColor: '#00FF88',

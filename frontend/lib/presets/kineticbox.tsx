@@ -6,6 +6,7 @@ export const kineticboxPreset: SubtitlePreset = {
   name: 'KINETIC BOX',
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Montserrat',
+    fontSize: 36,
     fontWeight: 'Regular',
     isUppercase: true,
     fontColor: '#ffffff',
@@ -57,8 +58,8 @@ export const kineticboxPreset: SubtitlePreset = {
     );
   },
   renderPreview: ({ words, activeWordIndex, config }) => {
-    const activeColor = (config.highlightColor && config.highlightColor !== '#000000') ? config.highlightColor : '#FFEB3B';
-    const fontColor = config.fontColor || '#000000';
+    const activeColor = (config.highlightColor && !['#000000', 'transparent', '#00000000', 'rgba(0,0,0,0)'].includes(config.highlightColor.toLowerCase().replace(/\s/g, ''))) ? config.highlightColor : '#FFEB3B';
+    const fontColor = config.fontColor || '#ffffff';
 
     // Helper to map string weights to CSS numbers
     const getWeight = (weight: string | number | undefined) => {
@@ -76,6 +77,8 @@ export const kineticboxPreset: SubtitlePreset = {
       return 400;
     };
     const numericWeight = getWeight(config.fontWeight);
+    const baseFontSize = config.fontSize || 36;
+    const letterSpacingEm = (config.letterSpacing !== undefined ? config.letterSpacing : 0) / baseFontSize;
     
     return (
       <>
@@ -94,7 +97,7 @@ export const kineticboxPreset: SubtitlePreset = {
               font-family: '${config.fontFamily}', var(--font-display);
               font-weight: ${numericWeight};
               text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
-              letter-spacing: ${config.letterSpacing !== undefined ? config.letterSpacing : 0}px;
+              letter-spacing: ${letterSpacingEm}em;
               line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
               transition: all 0.2s ease;
             }
@@ -102,15 +105,15 @@ export const kineticboxPreset: SubtitlePreset = {
               color: ${config.fontColor};
               opacity: 0.9;
               transform: scale(0.95);
-              text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+              text-shadow: 0.055em 0.055em 0.111em rgba(0,0,0,0.8);
             }
             .kinetic-word.active {
               animation: kineticSmash 0.3s cubic-bezier(0.25, 1, 0.5, 1) both;
               background: ${activeColor};
               color: #111;
-              padding: 4px 12px;
+              padding: 0.111em 0.333em;
               transform: skewX(-10deg);
-              box-shadow: 4px 4px 0 rgba(0,0,0,0.8);
+              box-shadow: 0.111em 0.111em 0 rgba(0,0,0,0.8);
             }
             .kinetic-inner {
               display: inline-block;
@@ -118,8 +121,8 @@ export const kineticboxPreset: SubtitlePreset = {
             }
             @keyframes kineticSmash {
               0% { transform: skewX(-10deg) scale(0.5); opacity: 0; box-shadow: 0px 0px 0 rgba(0,0,0,0.8); }
-              60% { transform: skewX(-10deg) scale(1.15); box-shadow: 8px 8px 0 rgba(0,0,0,0.8); }
-              100% { transform: skewX(-10deg) scale(1.05); opacity: 1; box-shadow: 4px 4px 0 rgba(0,0,0,0.8); }
+              60% { transform: skewX(-10deg) scale(1.15); box-shadow: 0.222em 0.222em 0 rgba(0,0,0,0.8); }
+              100% { transform: skewX(-10deg) scale(1.05); opacity: 1; box-shadow: 0.111em 0.111em 0 rgba(0,0,0,0.8); }
             }
           `}
         </style>

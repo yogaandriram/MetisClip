@@ -1,11 +1,12 @@
 import React from 'react';
-import { SubtitlePreset } from './types';
+import { SubtitlePreset, generateRoundedStroke } from './types';
 
 export const slideupfadePreset: SubtitlePreset = {
   id: 'slideupfade',
   name: 'SLIDE UP FADE',
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Poppins',
+    fontSize: 36,
     fontWeight: 'Regular',
     isUppercase: true,
     fontColor: '#ffffff',
@@ -81,7 +82,23 @@ export const slideupfadePreset: SubtitlePreset = {
       return 400;
     };
     const numericWeight = getWeight(config.fontWeight);
+    const baseFontSize = config.fontSize || 36;
+    const strokeWidth = config.strokeWidth || 0;
+    const strokeColor = config.strokeColor || '#000000';
+    const roundedStrokeShadow = generateRoundedStroke(strokeWidth, strokeColor, baseFontSize);
+    const letterSpacingEm = (config.letterSpacing !== undefined ? config.letterSpacing : 0) / baseFontSize;
     
+    // Add text shadow mapping for slideupfade
+    let combinedShadows = [];
+    if (config.hasShadow && config.shadowColor) {
+      const blur = config.shadowBlur ?? 0;
+      const xEm = (config.shadowX || 0) / baseFontSize;
+      const yEm = (config.shadowY || 0) / baseFontSize;
+      const blurEm = blur / baseFontSize;
+      combinedShadows.push(`${xEm}em ${yEm}em ${blurEm}em ${config.shadowColor}`);
+    }
+    const finalTextShadow = combinedShadows.length > 0 ? combinedShadows.join(', ') : 'none';
+
     return (
       <>
         <style>
@@ -94,7 +111,7 @@ export const slideupfadePreset: SubtitlePreset = {
               justify-content: center;
               max-width: 100%;
               position: relative;
-              height: 60px;
+              height: 2em;
               overflow: visible;
             }
             .slideup-word {
@@ -102,16 +119,26 @@ export const slideupfadePreset: SubtitlePreset = {
               font-family: '${config.fontFamily}', sans-serif;
               font-weight: ${numericWeight};
               text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
-              letter-spacing: ${config.letterSpacing !== undefined ? config.letterSpacing : 0}px;
+              letter-spacing: ${letterSpacingEm}em;
               line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
               position: absolute;
               opacity: 0;
-              transform: translateY(40px);
               left: 50%;
               transform-origin: center center;
               white-space: nowrap;
-              /* Center align absolute items */
               transform: translateX(-50%);
+              z-index: 1;
+            }
+            .slideup-word::after {
+              content: attr(data-text);
+              position: absolute;
+              left: 0;
+              top: 0;
+              z-index: -1;
+              color: transparent;
+              -webkit-text-fill-color: transparent;
+              white-space: nowrap;
+              text-shadow: ${strokeWidth > 0 ? roundedStrokeShadow : 'none'}${combinedShadows.length > 0 ? (strokeWidth > 0 ? ', ' : '') + finalTextShadow : ''};
             }
             .slideup-word.active {
               animation: slideUpFadeAnim 1s ease-in-out forwards;
@@ -122,15 +149,15 @@ export const slideupfadePreset: SubtitlePreset = {
               color: transparent; /* fallback */
             }
             @keyframes slideUpFadeAnim {
-              0% { transform: translateY(40px) translateX(-50%); opacity: 0; }
+              0% { transform: translateY(1.111em) translateX(-50%); opacity: 0; }
               30% { transform: translateY(0) translateX(-50%); opacity: 1; }
               70% { transform: translateY(0) translateX(-50%); opacity: 1; }
-              100% { transform: translateY(-10px) translateX(-50%); opacity: 0; }
+              100% { transform: translateY(-0.277em) translateX(-50%); opacity: 0; }
             }
           `}
         </style>
         <span className="slideup-container">
-          <span key={`active-${activeWordIndex}`} className="slideup-word active">
+          <span key={`active-${activeWordIndex}`} className="slideup-word active" data-text={words[activeWordIndex]?.word || ''}>
             {words[activeWordIndex]?.word || ''}
           </span>
         </span>

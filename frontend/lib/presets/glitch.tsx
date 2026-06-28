@@ -1,11 +1,12 @@
 import React from 'react';
-import { SubtitlePreset } from './types';
+import { SubtitlePreset, generateRoundedStroke } from './types';
 
 export const glitchPreset: SubtitlePreset = {
   id: 'glitch',
   name: 'GLITCH EFFECT',
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Orbitron',
+    fontSize: 36,
     fontWeight: 'Black',
     isUppercase: true,
     fontColor: '#00ffff',
@@ -41,12 +42,12 @@ export const glitchPreset: SubtitlePreset = {
         <style>
           {`
             @keyframes glitchBtn1 {
-              0%,100%{clip-path:inset(0 0 90% 0);transform:translate(-2px,0)}
-              50%{clip-path:inset(30% 0 50% 0);transform:translate(2px,0)}
+              0%,100%{clip-path:inset(0 0 90% 0);transform:translate(-4px,0)}
+              50%{clip-path:inset(30% 0 50% 0);transform:translate(4px,0)}
             }
             @keyframes glitchBtn2 {
-              0%,100%{clip-path:inset(60% 0 20% 0);transform:translate(2px,0)}
-              50%{clip-path:inset(10% 0 80% 0);transform:translate(-2px,0)}
+              0%,100%{clip-path:inset(60% 0 20% 0);transform:translate(4px,0)}
+              50%{clip-path:inset(10% 0 80% 0);transform:translate(-4px,0)}
             }
             .glitch-btn-text {
               font-family: 'Orbitron', sans-serif;
@@ -94,17 +95,24 @@ export const glitchPreset: SubtitlePreset = {
     };
     const numericWeight = getWeight(config.fontWeight);
     
-    // Custom Shadow support if enabled, though Glitch doesn't need it by default
-    const blur = config.shadowBlur ?? 0;
-    const shadowString = config.hasShadow 
-      ? `${config.shadowX || 0}px ${config.shadowY || 0}px ${blur}px ${config.shadowColor}`
-      : 'none';
-      
-    // Stroke
-    let webkitStroke = '';
-    if (config.strokeWidth && config.strokeWidth > 0 && config.strokeColor) {
-      webkitStroke = `-webkit-text-stroke: ${config.strokeWidth}px ${config.strokeColor};`;
+    const baseFontSize = config.fontSize || 36;
+    const strokeWidth = config.strokeWidth || 0;
+    const strokeColor = config.strokeColor || '#000000';
+    const roundedStrokeShadow = generateRoundedStroke(strokeWidth, strokeColor, baseFontSize);
+
+    let combinedShadows = [];
+    if (config.hasShadow && config.shadowColor) {
+      const blur = config.shadowBlur ?? 0;
+      const xEm = (config.shadowX || 0) / baseFontSize;
+      const yEm = (config.shadowY || 0) / baseFontSize;
+      const blurEm = blur / baseFontSize;
+      combinedShadows.push(`${xEm}em ${yEm}em ${blurEm}em ${config.shadowColor}`);
     }
+    if (strokeWidth > 0 && roundedStrokeShadow !== 'none') {
+      combinedShadows.push(roundedStrokeShadow);
+    }
+    const finalTextShadow = combinedShadows.length > 0 ? combinedShadows.join(', ') : 'none';
+    const letterSpacingEm = (config.letterSpacing !== undefined ? config.letterSpacing : 4) / baseFontSize;
     
     return (
       <>
@@ -127,11 +135,10 @@ export const glitchPreset: SubtitlePreset = {
               font-family: '${config.fontFamily}', sans-serif;
               font-weight: ${numericWeight};
               color: ${fontColor};
-              letter-spacing: ${config.letterSpacing !== undefined ? config.letterSpacing : 4}px;
+              letter-spacing: ${letterSpacingEm}em;
               line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
               text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
-              text-shadow: ${shadowString};
-              ${webkitStroke}
+              text-shadow: ${finalTextShadow};
               position: relative;
               display: inline-block;
             }
@@ -153,12 +160,12 @@ export const glitchPreset: SubtitlePreset = {
             }
             
             @keyframes glitchAnim1 {
-              0%,100% { clip-path: inset(0 0 90% 0); transform: translate(-4px, 0); }
-              50% { clip-path: inset(30% 0 50% 0); transform: translate(4px, 0); }
+              0%,100% { clip-path: inset(0 0 90% 0); transform: translate(-0.111em, 0); }
+              50% { clip-path: inset(30% 0 50% 0); transform: translate(0.111em, 0); }
             }
             @keyframes glitchAnim2 {
-              0%,100% { clip-path: inset(60% 0 20% 0); transform: translate(4px, 0); }
-              50% { clip-path: inset(10% 0 80% 0); transform: translate(-4px, 0); }
+              0%,100% { clip-path: inset(60% 0 20% 0); transform: translate(0.111em, 0); }
+              50% { clip-path: inset(10% 0 80% 0); transform: translate(-0.111em, 0); }
             }
           `}
         </style>

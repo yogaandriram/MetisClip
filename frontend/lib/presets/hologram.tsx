@@ -1,11 +1,12 @@
 import React from 'react';
-import { SubtitlePreset } from './types';
+import { SubtitlePreset, generateRoundedStroke } from './types';
 
 export const hologramPreset: SubtitlePreset = {
   id: 'hologram',
   name: 'HOLOGRAM',
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Orbitron',
+    fontSize: 36,
     fontWeight: 'Black',
     isUppercase: true,
     fontColor: '#00ffff',
@@ -96,17 +97,26 @@ export const hologramPreset: SubtitlePreset = {
     };
     const numericWeight = getWeight(config.fontWeight);
     
-    const blur = config.shadowBlur ?? 12;
-    // Custom Shadow for chromatic aberration
-    const shadowString = config.hasShadow 
-      ? `0 0 ${blur}px ${config.shadowColor}, 0 0 ${blur * 2}px ${config.shadowColor}, 3px 0 3px rgba(255,0,0,0.5), -3px 0 3px rgba(0,0,255,0.5)`
-      : 'none';
-      
-    // Stroke
-    let webkitStroke = '';
-    if (config.strokeWidth && config.strokeWidth > 0 && config.strokeColor) {
-      webkitStroke = `-webkit-text-stroke: ${config.strokeWidth}px ${config.strokeColor};`;
+    const baseFontSize = config.fontSize || 36;
+    const strokeWidth = config.strokeWidth || 0;
+    const strokeColor = config.strokeColor || '#000000';
+    const roundedStrokeShadow = generateRoundedStroke(strokeWidth, strokeColor, baseFontSize);
+
+    let combinedShadows = [];
+    if (config.hasShadow && config.shadowColor) {
+      const blur = config.shadowBlur ?? 12;
+      const blurEm = blur / baseFontSize;
+      const blurEm2 = (blur * 2) / baseFontSize;
+      combinedShadows.push(`0 0 ${blurEm}em ${config.shadowColor}, 0 0 ${blurEm2}em ${config.shadowColor}, 0.083em 0 0.083em rgba(255,0,0,0.5), -0.083em 0 0.083em rgba(0,0,255,0.5)`);
+    } else {
+      combinedShadows.push(`0.083em 0 0.083em rgba(255,0,0,0.5), -0.083em 0 0.083em rgba(0,0,255,0.5)`);
     }
+    
+    if (strokeWidth > 0 && roundedStrokeShadow !== 'none') {
+      combinedShadows.push(roundedStrokeShadow);
+    }
+    const finalTextShadow = combinedShadows.length > 0 ? combinedShadows.join(', ') : 'none';
+    const letterSpacingEm = (config.letterSpacing !== undefined ? config.letterSpacing : 5) / baseFontSize;
     
     return (
       <>
@@ -141,11 +151,10 @@ export const hologramPreset: SubtitlePreset = {
               font-family: '${config.fontFamily}', sans-serif;
               font-weight: ${numericWeight};
               color: ${fontColor};
-              letter-spacing: ${config.letterSpacing !== undefined ? config.letterSpacing : 5}px;
+              letter-spacing: ${letterSpacingEm}em;
               line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
               text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
-              text-shadow: ${shadowString};
-              ${webkitStroke}
+              text-shadow: ${finalTextShadow};
               animation: holoAnim 0.15s ease-in-out infinite;
               position: relative;
               z-index: 2;

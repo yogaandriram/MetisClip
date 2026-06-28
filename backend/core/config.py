@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     YOUTUBE_CLIENT_SECRET: str = ""
     YOUTUBE_REDIRECT_URI: str = "http://localhost:3000/api/auth/youtube/callback"
 
+    # Cloudflare R2 Settings
+    R2_ENDPOINT_URL: str = ""
+    R2_PUBLIC_URL: str = ""
+    R2_ACCESS_KEY_ID: str = ""
+    R2_SECRET_ACCESS_KEY: str = ""
+    R2_BUCKET_NAME: str = "metisclip"
+
     # Processing Settings
     FFMPEG_PATH: str = Field(default_factory=get_default_ffmpeg_path)
     MAX_CONCURRENT_JOBS: int = 3

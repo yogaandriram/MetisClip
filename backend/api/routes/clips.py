@@ -320,16 +320,17 @@ def trigger_clip_rendering(
             yield f"data: {json.dumps({'status': 'uploading', 'progress': 92})}\n\n"
                 
             # 5. Upload Subbed Video
+            from backend.core.storage import upload_to_r2
             subbed_storage_path = f"{current_user['id']}/{clip_id}_subbed.mp4"
-            supabase_client.storage.from_("clips").upload(
-                path=subbed_storage_path,
-                file=local_subbed,
-                file_options={"content-type": "video/mp4", "x-upsert": "true"}
-            )
+            final_url_res = upload_to_r2(local_subbed, subbed_storage_path, "video/mp4")
+            
+            if not final_url_res:
+                logger.error("Failed to upload subbed video to R2")
+                # Fallback to local
+                final_url_res = local_subbed
             
             yield f"data: {json.dumps({'status': 'uploading', 'progress': 98})}\n\n"
             
-            final_url_res = supabase_client.storage.from_("clips").get_public_url(subbed_storage_path)
             final_url_res = f"{final_url_res}?t={int(time.time())}"
             
             # Auto-Save

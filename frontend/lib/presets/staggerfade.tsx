@@ -1,11 +1,12 @@
 import React from 'react';
-import { SubtitlePreset } from './types';
+import { SubtitlePreset, generateRoundedStroke } from './types';
 
 export const staggerfadePreset: SubtitlePreset = {
   id: 'staggerfade',
   name: 'STAGGER FADE',
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Exo 2',
+    fontSize: 36,
     fontWeight: 'Black',
     isUppercase: true,
     fontColor: '#00CFFF',
@@ -94,17 +95,24 @@ export const staggerfadePreset: SubtitlePreset = {
     };
     const numericWeight = getWeight(config.fontWeight);
     
-    // Custom Shadow support if enabled
-    const blur = config.shadowBlur ?? 0;
-    const shadowString = config.hasShadow 
-      ? `${config.shadowX || 0}px ${config.shadowY || 0}px ${blur}px ${config.shadowColor}`
-      : 'none';
-      
-    // Stroke
-    let webkitStroke = '';
-    if (config.strokeWidth && config.strokeWidth > 0 && config.strokeColor) {
-      webkitStroke = `-webkit-text-stroke: ${config.strokeWidth}px ${config.strokeColor};`;
+    const baseFontSize = config.fontSize || 36;
+    const strokeWidth = config.strokeWidth || 0;
+    const strokeColor = config.strokeColor || '#000000';
+    const roundedStrokeShadow = generateRoundedStroke(strokeWidth, strokeColor, baseFontSize);
+
+    let combinedShadows = [];
+    if (config.hasShadow && config.shadowColor) {
+      const blur = config.shadowBlur ?? 0;
+      const xEm = (config.shadowX || 0) / baseFontSize;
+      const yEm = (config.shadowY || 0) / baseFontSize;
+      const blurEm = blur / baseFontSize;
+      combinedShadows.push(`${xEm}em ${yEm}em ${blurEm}em ${config.shadowColor}`);
     }
+    if (strokeWidth > 0 && roundedStrokeShadow !== 'none') {
+      combinedShadows.push(roundedStrokeShadow);
+    }
+    const finalTextShadow = combinedShadows.length > 0 ? combinedShadows.join(', ') : 'none';
+    const letterSpacingEm = (config.letterSpacing !== undefined ? config.letterSpacing : 2) / baseFontSize;
     
     return (
       <>
@@ -128,15 +136,14 @@ export const staggerfadePreset: SubtitlePreset = {
               font-family: '${config.fontFamily}', sans-serif;
               font-weight: ${numericWeight};
               color: ${fontColor};
-              letter-spacing: ${config.letterSpacing !== undefined ? config.letterSpacing : 2}px;
+              letter-spacing: ${letterSpacingEm}em;
               line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
               text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
-              text-shadow: ${shadowString};
-              ${webkitStroke}
+              text-shadow: ${finalTextShadow};
             }
             
             @keyframes staggerFadeAnim {
-              0%,100%{opacity:0;transform:translateY(25px)}
+              0%,100%{opacity:0;transform:translateY(0.694em)}
               20%,80%{opacity:1;transform:translateY(0)}
             }
           `}

@@ -12,7 +12,7 @@ import { SUPPORTED_FONTS, FONT_WEIGHTS_MAP } from '@/lib/constants';
 
 interface CaptionSettingsPanelProps {
   caption: CaptionSettings;
-  updateCaption: (updates: Partial<CaptionSettings>) => void;
+  updateCaption: (updates: Partial<CaptionSettings>, replace?: boolean) => void;
 }
 
 const CollapsibleSection: React.FC<{ title: string; children: React.ReactNode; defaultOpen?: boolean }> = ({ title, children, defaultOpen = false }) => {
@@ -37,30 +37,9 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
   const [captionTab, setCaptionTab] = useState('presets');
 
   const handlePresetSelect = (presetId: string) => {
-    const p = presets.find(pr => pr.id === presetId);
-    if (p) {
-      const pConfig = p.getDefaultConfig();
-      updateCaption({
-        mode: presetId,
-        fontFamily: pConfig.fontFamily || caption.fontFamily,
-        fontWeight: pConfig.fontWeight || caption.fontWeight,
-        isUppercase: pConfig.isUppercase !== undefined ? pConfig.isUppercase : caption.isUppercase,
-        fontColor: pConfig.fontColor || caption.fontColor,
-        strokeColor: pConfig.strokeColor || caption.strokeColor,
-        strokeWidth: pConfig.strokeWidth !== undefined ? pConfig.strokeWidth : caption.strokeWidth,
-        hasShadow: pConfig.hasShadow !== undefined ? pConfig.hasShadow : caption.hasShadow,
-        shadowColor: pConfig.shadowColor || caption.shadowColor,
-        shadowX: pConfig.shadowX !== undefined ? pConfig.shadowX : caption.shadowX,
-        shadowY: pConfig.shadowY !== undefined ? pConfig.shadowY : caption.shadowY,
-        shadowBlur: pConfig.shadowBlur !== undefined ? pConfig.shadowBlur : caption.shadowBlur,
-        isItalic: pConfig.isItalic !== undefined ? pConfig.isItalic : caption.isItalic,
-        highlightColor: pConfig.highlightColor || caption.highlightColor,
-        letterSpacing: pConfig.letterSpacing !== undefined ? pConfig.letterSpacing : caption.letterSpacing,
-        lineHeight: pConfig.lineHeight !== undefined ? pConfig.lineHeight : caption.lineHeight
-      });
-    } else {
-      updateCaption({ mode: presetId });
-    }
+    // When a preset is selected, we want to clear all styling overrides
+    // but preserve the current positionY layout setting.
+    updateCaption({ mode: presetId, positionY: caption.positionY }, true);
   };
 
   return (

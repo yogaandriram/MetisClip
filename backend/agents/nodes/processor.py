@@ -140,42 +140,35 @@ def run_processor_agent(state: PipelineState) -> Dict[str, Any]:
         # --- 2. UPLOAD TO STORAGE ---
         video_storage_path = f"{user_id}/{clip_uuid}.mp4"
         thumb_storage_path = f"{user_id}/{clip_uuid}.png"
-        uploaded_video = False
-        uploaded_thumb = False
+        uploaded_video_url = None
+        uploaded_thumb_url = None
         
         if supabase is not None:
             import time
-            import threading
-            
-            # Use a lock to prevent concurrent SSL connection pool exhaustion on Supabase uploads
-            upload_lock = threading.Lock()
+            from backend.core.storage import upload_to_r2
             
             # Robust uploader with retry logic
             def upload_with_retry(local_path, storage_path, content_type, max_retries=3):
                 for attempt in range(max_retries):
                     try:
-                        with open(local_path, "rb") as f:
-                            file_bytes = f.read()
-                            
-                        with upload_lock:
-                            supabase.storage.from_(settings.CLIP_STORAGE_BUCKET).upload(
-                                path=storage_path,
-                                file=file_bytes,
-                                file_options={"content-type": content_type, "x-upsert": "true"}
-                            )
-                        return True
+                        # upload_to_r2 internally uses boto3 which is thread-safe
+                        public_url = upload_to_r2(local_path, storage_path, content_type)
+                        if public_url:
+                            return public_url
+                        else:
+                            raise Exception("upload_to_r2 returned None")
                     except Exception as e:
                         if attempt == max_retries - 1:
                             logger.error(f"Failed to upload {local_path} after {max_retries} attempts. Error: {str(e)}")
-                            return False
+                            return None
                         logger.warning(f"Upload failed for {local_path}. Retrying in {2 ** attempt}s... ({str(e)})")
                         time.sleep(2 ** attempt)
-                return False
+                return None
 
-            uploaded_video = upload_with_retry(local_video, video_storage_path, "video/mp4")
-            uploaded_thumb = upload_with_retry(local_thumb, thumb_storage_path, "image/png")
+            uploaded_video_url = upload_with_retry(local_video, video_storage_path, "video/mp4")
+            uploaded_thumb_url = upload_with_retry(local_thumb, thumb_storage_path, "image/png")
             
-            if not uploaded_video or not uploaded_thumb:
+            if not uploaded_video_url or not uploaded_thumb_url:
                 logger.warning("One or more assets failed to upload. The UI may fallback to local placeholders.")
 
         # --- 3. SUBTITLE GENERATION (WHISPER) ---
@@ -183,14 +176,14 @@ def run_processor_agent(state: PipelineState) -> Dict[str, Any]:
         duration = segment.get("duration_seconds", 45.0)
         words_timestamps = []
 
-        if has_groq and supabase is not None and uploaded_video:
+        if has_groq and supabase is not None and uploaded_video_url:
             try:
                 from groq import Groq
                 
                 logger.info("Extracting audio and calling Whisper transcription API...")
                 
-                public_url_res = supabase.storage.from_(settings.CLIP_STORAGE_BUCKET).get_public_url(video_storage_path)
-                video_url = public_url_res if isinstance(public_url_res, str) else public_url_res.get('publicUrl', public_url_res)
+                # Use R2 public URL directly for transcription processing
+                video_url = uploaded_video_url
                 
                 os.makedirs(settings.TEMP_DIR, exist_ok=True)
                 temp_audio = os.path.join(settings.TEMP_DIR, f"temp_{clip_uuid}_audio.mp3")
@@ -273,8 +266,8 @@ def run_processor_agent(state: PipelineState) -> Dict[str, Any]:
             "hook_text": segment["hook_text"],
             "tags": segment["tags"],
             "rationale": segment["rationale"],
-            "storage_path": video_storage_path if uploaded_video else local_video,
-            "thumbnail_path": thumb_storage_path if uploaded_thumb else local_thumb,
+            "storage_path": uploaded_video_url if uploaded_video_url else local_video,
+            "thumbnail_path": uploaded_thumb_url if uploaded_thumb_url else local_thumb,
             "subtitle_data": subtitle_payload,
             "subtitle_style": default_style,
             "status": "ready" # Instantly ready!
@@ -297,9 +290,9 @@ def run_processor_agent(state: PipelineState) -> Dict[str, Any]:
                 logger.warning(f"Failed to update processed_scenes in discovery_jobs: {str(e)}")
 
         # Clean up local video files now that everything is done and uploaded
-        if uploaded_video and os.path.exists(local_video):
+        if uploaded_video_url and os.path.exists(local_video):
             os.remove(local_video)
-        if uploaded_thumb and os.path.exists(local_thumb):
+        if uploaded_thumb_url and os.path.exists(local_thumb):
             os.remove(local_thumb)
             
         return clip_data
