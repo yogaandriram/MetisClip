@@ -103,7 +103,7 @@ export default function BrandTemplatePage() {
         agent_id: activeAgent.id,
         user_id: activeAgent.user_id,
         layout_settings: DEFAULT_TEMPLATE_CONFIG.layout_settings,
-        caption_settings: DEFAULT_TEMPLATE_CONFIG.caption_settings,
+        caption_settings: { mode: 'popshadow' },
         ai_settings: DEFAULT_TEMPLATE_CONFIG.ai_settings,
         brand_settings: DEFAULT_TEMPLATE_CONFIG.brand_settings
       }
@@ -123,7 +123,7 @@ export default function BrandTemplatePage() {
   }
 
   const applyTemplateData = (tpl: any) => {
-    const validModes = ['auraglow', 'kineticbox', 'lumina', 'popshadow', 'typewriter', 'neonpulse', 'slideupfade', 'cinematicbar', 'hologram', 'glitch', 'staggerfade', 'elasticscale'];
+    const validModes = presets.map(p => p.id);
     let safeMode = tpl.caption_settings?.mode || 'popshadow';
     if (!validModes.includes(safeMode)) {
       safeMode = 'popshadow';
@@ -132,13 +132,16 @@ export default function BrandTemplatePage() {
     const newConfig = {
       layout_settings: { ...DEFAULT_TEMPLATE_CONFIG.layout_settings, ...(tpl.layout_settings || {}) },
       caption_settings: { 
-        ...DEFAULT_TEMPLATE_CONFIG.caption_settings, 
         ...(tpl.caption_settings || {}),
         mode: safeMode
       },
       ai_settings: { ...DEFAULT_TEMPLATE_CONFIG.ai_settings, ...(tpl.ai_settings || {}) },
       brand_settings: { ...DEFAULT_TEMPLATE_CONFIG.brand_settings, ...(tpl.brand_settings || {}) }
     }
+    
+    console.log('[BrandTemplate Debug] Loaded from DB:', tpl.caption_settings);
+    console.log('[BrandTemplate Debug] Final Applied Config:', newConfig.caption_settings);
+    
     lastLoadedConfigRef.current = JSON.stringify(newConfig)
     setConfig(newConfig)
     setHistory([newConfig])
@@ -187,6 +190,8 @@ export default function BrandTemplatePage() {
       ai_settings: config.ai_settings,
       brand_settings: config.brand_settings
     }
+    
+    console.log('[BrandTemplate Debug] Saving Payload:', updateData.caption_settings);
     
     const { data, error } = await supabase
       .from('brand_templates')

@@ -107,6 +107,12 @@ export default function ClipEditorPage({ params }: { params: { id: string } }) {
             }
           }
           
+          // Merge with preset defaults so we don't fall back to incorrect initial state values
+          const finalMode = mergedStyle.mode || 'popshadow';
+          const activePreset = presets.find(p => p.id === finalMode) || presets[0];
+          const presetDefaults = activePreset.getDefaultConfig();
+          mergedStyle = { ...presetDefaults, ...mergedStyle };
+          
           const hc = mergedStyle.highlightColor || mergedStyle.highlight_color;
           if (hc) setHighlightColor(hc)
           
@@ -408,8 +414,13 @@ export default function ClipEditorPage({ params }: { params: { id: string } }) {
       }
 
       if (subbedVideoUrl) {
+        let finalUrl = subbedVideoUrl;
+        if (subbedVideoUrl.startsWith('http')) {
+          finalUrl = `${API_URL}/api/clips/proxy-media?url=${encodeURIComponent(subbedVideoUrl)}`;
+        }
+        
         try {
-          const fileRes = await fetch(subbedVideoUrl)
+          const fileRes = await fetch(finalUrl)
           const blob = await fileRes.blob()
           const blobUrl = window.URL.createObjectURL(blob)
           
@@ -423,7 +434,7 @@ export default function ClipEditorPage({ params }: { params: { id: string } }) {
           setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000)
         } catch (downloadErr) {
           console.error("Gagal mendownload otomatis via Blob, fallback ke tab baru:", downloadErr)
-          window.open(subbedVideoUrl, '_blank')
+          window.open(finalUrl, '_blank')
         }
       }
     } catch (err) {

@@ -63,6 +63,12 @@ export const SubtitleOverlay: React.FC<{
   // Determine preset
   const mode = style.mode || 'popshadow';
   const activePreset = presets.find((p: any) => p.id === mode) || presets[0];
+  
+  // Merge missing styles with preset defaults, just like the frontend does
+  const mergedStyle = { ...activePreset.getDefaultConfig(brandSettings?.highlightColor), ...style };
+  
+  // Re-map some properties from mergedStyle for convenience
+  const finalFontFamily = mergedStyle.fontFamily || fontFamily;
 
   const processedVideoUrl = videoUrl.startsWith('http') ? videoUrl : staticFile(videoUrl);
 
@@ -93,24 +99,24 @@ export const SubtitleOverlay: React.FC<{
       <AbsoluteFill style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10 }}>
          <div style={{ 
            position: 'absolute', 
-           bottom: `${((style.positionY || 80) / 533) * 100}%`, 
+           bottom: `${((mergedStyle.positionY ?? 80) / 533) * 100}%`, 
            left: '10%', 
            right: '10%', 
            width: '80%', 
            textAlign: 'center',
-           fontSize: `calc(${style.fontSize || 46}vw / 6)`,
-           fontFamily: `"${fontFamily}", sans-serif`,
-           fontWeight: style.fontWeight === 'Bold' || style.fontWeight === 'Black' ? 900 : (style.fontWeight === 'Medium' ? 500 : 400),
-           color: style.fontColor || '#FFFFFF',
-           fontStyle: style.isItalic ? 'italic' : 'normal',
-           textDecoration: style.isUnderline ? 'underline' : 'none',
-           textTransform: style.isUppercase ? 'uppercase' : 'none',
-           lineHeight: style.lineHeight || 1.2
+           fontSize: `calc(${mergedStyle.fontSize ?? 46}vw / 6)`,
+           fontFamily: `"${finalFontFamily}", sans-serif`,
+           fontWeight: mergedStyle.fontWeight === 'Bold' || mergedStyle.fontWeight === 'Black' ? 900 : (mergedStyle.fontWeight === 'Medium' ? 500 : 400),
+           color: mergedStyle.fontColor || '#FFFFFF',
+           fontStyle: mergedStyle.isItalic ? 'italic' : 'normal',
+           textDecoration: mergedStyle.isUnderline ? 'underline' : 'none',
+           textTransform: mergedStyle.isUppercase ? 'uppercase' : 'none',
+           lineHeight: mergedStyle.lineHeight || 1.2
          }}>
             {activeWordIndex >= 0 && activePreset.renderPreview({
               words,
               activeWordIndex,
-              config: style
+              config: mergedStyle
             })}
          </div>
       </AbsoluteFill>
