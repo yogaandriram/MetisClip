@@ -70,3 +70,39 @@ def upload_to_r2(local_file_path: str, destination_path: str, content_type: str 
     except Exception as e:
         logger.error(f"Error uploading {local_file_path} to R2: {str(e)}")
         return None
+
+def delete_from_r2(public_url: str) -> bool:
+    """
+    Deletes an object from Cloudflare R2 given its public URL.
+    Returns True if successful, False otherwise.
+    """
+    if not public_url:
+        return False
+        
+    r2_client = get_r2_client()
+    if not r2_client:
+        return False
+        
+    try:
+        base_url = settings.R2_PUBLIC_URL.rstrip("/")
+        
+        # Extract the object key from the public URL
+        if public_url.startswith(base_url):
+            # +1 to remove the trailing slash after the base URL
+            object_key = public_url[len(base_url)+1:]
+            # Remove any query parameters (like ?t=123)
+            object_key = object_key.split("?")[0]
+            
+            logger.info(f"Deleting R2 object: {object_key}")
+            r2_client.delete_object(
+                Bucket=settings.R2_BUCKET_NAME,
+                Key=object_key
+            )
+            return True
+        else:
+            logger.warning(f"URL {public_url} does not match R2 base URL {base_url}. Skipping deletion.")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Failed to delete {public_url} from R2: {str(e)}")
+        return False

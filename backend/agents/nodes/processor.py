@@ -182,8 +182,8 @@ def run_processor_agent(state: PipelineState) -> Dict[str, Any]:
                 
                 logger.info("Extracting audio and calling Whisper transcription API...")
                 
-                # Use R2 public URL directly for transcription processing
-                video_url = uploaded_video_url
+                # Use local video file for transcription processing to avoid FFmpeg HTTPS issues
+                video_url = local_video
                 
                 os.makedirs(settings.TEMP_DIR, exist_ok=True)
                 temp_audio = os.path.join(settings.TEMP_DIR, f"temp_{clip_uuid}_audio.mp3")
@@ -315,6 +315,14 @@ def run_processor_agent(state: PipelineState) -> Dict[str, Any]:
     # CLEANUP PHASE: Temporary clip files are already removed inside crop_local_segment
 
     logger.info(f"Processor Agent completed. Fully processed {len(processed_clips)} vertical clips with subtitles.")
+    
+    # ENFORCE CLIP LIMIT (Cleanup old clips)
+    if supabase is not None and user_id:
+        from backend.core.cleanup import enforce_clip_limit
+        import threading
+        # Run cleanup in a background thread to not block the current flow
+        threading.Thread(target=enforce_clip_limit, args=(user_id, supabase)).start()
+        
     logger.info("=" * 60)
     logger.info(f"✅ [END] PROCESSOR AGENT (Job: {job_id})")
     logger.info("=" * 60)

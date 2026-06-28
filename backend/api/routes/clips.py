@@ -8,6 +8,10 @@ import requests
 import tempfile
 import uuid
 from backend.core.config import settings
+import logging
+
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/clips", tags=["Clips"])
 
 from fastapi import Request, Response
@@ -17,6 +21,38 @@ class SubtitleUpdate(BaseModel):
     words: Optional[List[Dict[str, Any]]] = None
     style: Optional[Dict[str, Any]] = None
     reset_style: Optional[bool] = False
+
+from fastapi.responses import RedirectResponse
+from backend.core.storage import get_r2_client
+
+@router.get("/proxy-media")
+def proxy_media(url: str):
+    """
+    Proxy R2 public URLs to bypass ISP blocks on .r2.dev domains by redirecting to a short-lived
+    presigned URL using the unblocked .cloudflarestorage.com endpoint.
+    """
+    if not url or not settings.R2_PUBLIC_URL or not url.startswith(settings.R2_PUBLIC_URL):
+        # If it's not our R2 public URL, just redirect to the original URL
+        return RedirectResponse(url=url)
+        
+    # Extract object key
+    base_url = settings.R2_PUBLIC_URL.rstrip("/")
+    object_key = url[len(base_url)+1:]
+    object_key = object_key.split("?")[0]
+    
+    client = get_r2_client()
+    if not client:
+        return RedirectResponse(url=url)
+        
+    try:
+        presigned_url = client.generate_presigned_url(
+            'get_object',
+            Params={'Bucket': settings.R2_BUCKET_NAME, 'Key': object_key},
+            ExpiresIn=3600
+        )
+        return RedirectResponse(url=presigned_url)
+    except Exception as e:
+        return RedirectResponse(url=url)
 
 @router.get("/media/{clip_id}")
 def serve_local_media(clip_id: str, request: Request):

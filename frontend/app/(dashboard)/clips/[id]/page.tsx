@@ -163,14 +163,22 @@ export default function ClipEditorPage({ params }: { params: { id: string } }) {
 
           // Get Thumbnail URL
           if (data.thumbnail_path && !data.thumbnail_path.includes('tmp')) {
-            const { data: publicUrlData } = supabase.storage.from('clips').getPublicUrl(data.thumbnail_path)
-            setThumbnailUrl(publicUrlData.publicUrl)
+            if (data.thumbnail_path.startsWith('http')) {
+              setThumbnailUrl(`${API_URL}/api/clips/proxy-media?url=${encodeURIComponent(data.thumbnail_path)}`)
+            } else {
+              const { data: publicUrlData } = supabase.storage.from('clips').getPublicUrl(data.thumbnail_path)
+              setThumbnailUrl(publicUrlData.publicUrl)
+            }
           }
 
           // Get Video URL
           if (data.storage_path && !data.storage_path.includes('tmp')) {
-            const { data: publicVideoData } = supabase.storage.from('clips').getPublicUrl(data.storage_path)
-            setVideoUrl(publicVideoData.publicUrl)
+            if (data.storage_path.startsWith('http')) {
+              setVideoUrl(`${API_URL}/api/clips/proxy-media?url=${encodeURIComponent(data.storage_path)}`)
+            } else {
+              const { data: publicVideoData } = supabase.storage.from('clips').getPublicUrl(data.storage_path)
+              setVideoUrl(publicVideoData.publicUrl)
+            }
           }
         }
       } catch (err) {

@@ -14,6 +14,8 @@ export default function Clips() {
   const [downloadedClipId, setDownloadedClipId] = useState<string | null>(null)
   const [clips, setClips] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8002'
 
   useEffect(() => {
     async function fetchClips() {
@@ -39,8 +41,12 @@ export default function Clips() {
           const formattedClips = data.map(clip => {
             let thumbnailUrl = ''
             if (clip.thumbnail_path && clip.thumbnail_path.includes('/') && !clip.thumbnail_path.includes('tmp')) {
-               const { data: publicUrlData } = supabase.storage.from('clips').getPublicUrl(clip.thumbnail_path)
-               thumbnailUrl = publicUrlData.publicUrl
+               if (clip.thumbnail_path.startsWith('http')) {
+                 thumbnailUrl = `${API_URL}/api/clips/proxy-media?url=${encodeURIComponent(clip.thumbnail_path)}`
+               } else {
+                 const { data: publicUrlData } = supabase.storage.from('clips').getPublicUrl(clip.thumbnail_path)
+                 thumbnailUrl = publicUrlData.publicUrl
+               }
             } else {
                thumbnailUrl = 'https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?q=80&w=1080&auto=format&fit=crop'
             }
@@ -79,8 +85,12 @@ export default function Clips() {
     
     let videoUrl = ''
     if (clip.storage_path && clip.storage_path.includes('/')) {
-      const { data } = supabase.storage.from('clips').getPublicUrl(clip.storage_path)
-      videoUrl = data.publicUrl
+      if (clip.storage_path.startsWith('http')) {
+        videoUrl = `${API_URL}/api/clips/proxy-media?url=${encodeURIComponent(clip.storage_path)}`
+      } else {
+        const { data } = supabase.storage.from('clips').getPublicUrl(clip.storage_path)
+        videoUrl = data.publicUrl
+      }
     }
 
     if (videoUrl) {
