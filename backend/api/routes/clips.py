@@ -206,6 +206,7 @@ def update_clip_subtitles(
 @router.post("/{clip_id}/render")
 def trigger_clip_rendering(
     clip_id: str,
+    request: Request,
     agent_id: Optional[str] = None,
     current_user: dict = Depends(get_current_user),
     supabase_client: Client = Depends(get_supabase_client)
@@ -223,6 +224,9 @@ def trigger_clip_rendering(
         )
         
     clip = res.data[0]
+    
+    # Determine actual port from the incoming request to ensure Remotion points to the correct running instance
+    actual_port = request.url.port or settings.PORT
 
     def event_stream():
         import json
@@ -287,7 +291,7 @@ def trigger_clip_rendering(
             export_logger.info(f"[{clip_id}] Raw video downloaded successfully. Size: {os.path.getsize(local_raw_path)} bytes.")
                 
             # Serve video via our FastAPI backend endpoint since the pre-built bundle cannot dynamically serve new files from public/
-            local_video_url = f"http://127.0.0.1:{settings.PORT}/api/clips/media/{clip_id}"
+            local_video_url = f"http://127.0.0.1:{actual_port}/api/clips/media/{clip_id}"
             
             yield f"data: {json.dumps({'status': 'starting', 'progress': 2})}\n\n"
                 
