@@ -269,10 +269,9 @@ def trigger_clip_rendering(
             # Download locally to render-engine/public/tmp_videos
             root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
             render_engine_path = os.path.join(root_dir, "render-engine")
-            public_tmp_dir = os.path.join(render_engine_path, "public", "tmp_videos")
-            os.makedirs(public_tmp_dir, exist_ok=True)
+            os.makedirs(settings.TEMP_DIR, exist_ok=True)
             
-            local_raw_path = os.path.abspath(os.path.join(public_tmp_dir, f"raw_{clip_id}.mp4")).replace("\\", "/")
+            local_raw_path = os.path.abspath(os.path.join(settings.TEMP_DIR, f"raw_{clip_id}.mp4")).replace("\\", "/")
             export_logger.info(f"[{clip_id}] Downloading raw video from {raw_video_url} to {local_raw_path}")
             # Disable SSL warnings for this specific request
             import urllib3
@@ -287,8 +286,8 @@ def trigger_clip_rendering(
                 f.write(response.content)
             export_logger.info(f"[{clip_id}] Raw video downloaded successfully. Size: {os.path.getsize(local_raw_path)} bytes.")
                 
-            # Use relative path so Remotion reads directly from local file via staticFile()
-            local_video_url = f"tmp_videos/raw_{clip_id}.mp4"
+            # Serve video via our FastAPI backend endpoint since the pre-built bundle cannot dynamically serve new files from public/
+            local_video_url = f"http://127.0.0.1:{settings.PORT}/api/clips/media/{clip_id}"
             
             yield f"data: {json.dumps({'status': 'starting', 'progress': 2})}\n\n"
                 
@@ -356,9 +355,10 @@ def trigger_clip_rendering(
                 f"--props={props_path}",
                 "--timeout=600000",
                 "--concurrency=4",
-                "--crf=26",
+                "--crf=18",
+                "--preset=ultrafast",
                 "--image-format=jpeg",
-                "--jpeg-quality=85",
+                "--jpeg-quality=100",
                 "--gl=angle",
                 "--log=info"
             ]
