@@ -350,7 +350,7 @@ def trigger_clip_rendering(
             npx_cmd = "npx.cmd" if os.name == "nt" else "npx"
             cmd = [
                 npx_cmd, "remotion", "render",
-                "src/index.ts",
+                "build",
                 "SubtitleOverlay",
                 local_subbed,
                 f"--props={props_path}",
