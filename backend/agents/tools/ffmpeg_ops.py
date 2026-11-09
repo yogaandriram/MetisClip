@@ -1,200 +1,175 @@
-import os
-import sys
-import subprocess
+"""FFmpeg operations: encoder detection, 9:16 finishing, thumbnails, audio extraction."""
+from __future__ import annotations
+
 import logging
-from typing import Dict, Any, Optional, List
-import glob
-from backend.core.config import settings
+import re
+import threading
+from pathlib import Path
+
+from backend.core import procs
+from backend.core.config import ffmpeg_path
 
 logger = logging.getLogger(__name__)
 
-def crop_local_segment(
-    youtube_id: str, 
-    start_time: float, 
-    end_time: float, 
-    output_path: str,
-    thumbnail_path: str,
-    video_type: str = "talking_head"
-) -> bool:
-    """
-    Downloads a specific segment from YouTube using yt-dlp and crops it to vertical 9:16 aspect ratio.
-    """
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    os.makedirs(os.path.dirname(thumbnail_path), exist_ok=True)
-    
+HW_ORDER = ("h264_nvenc", "h264_qsv", "h264_amf")
+_detect_lock = threading.Lock()
+_detected: list[str] | None = None
+
+
+def detect_hw_encoders() -> list[str]:
+    """Hardware H.264 encoders that actually work on this PC (cached)."""
+    global _detected
+    with _detect_lock:
+        if _detected is not None:
+            return list(_detected)
+        found: list[str] = []
+        try:
+            listing = procs.run([ffmpeg_path(), "-hide_banner", "-encoders"], timeout=30).stdout.decode("utf-8", "replace")
+        except Exception as exc:
+            logger.warning("ffmpeg -encoders failed: %s", exc)
+            listing = ""
+        for enc in HW_ORDER:
+            if not re.search(rf"\b{enc}\b", listing):
+                continue
+            try:
+                procs.run(
+                    [ffmpeg_path(), "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
+                     "color=black:s=320x240:d=0.2", "-c:v", enc, "-f", "null", "-"],
+                    timeout=30,
+                )
+                found.append(enc)
+            except Exception:
+                pass
+        _detected = found
+        logger.info("Hardware encoders available: %s", found or "none")
+        return list(found)
+
+
+def pick_encoder() -> str:
+    from backend.core.settings_store import get_settings
+
     try:
-        import uuid
-        import shutil
-        temp_cut = os.path.join(settings.TEMP_DIR, f"temp_cut_{uuid.uuid4().hex[:8]}.mp4")
-        
-        yt_dlp_path = shutil.which("yt-dlp")
-        if not yt_dlp_path:
-            yt_dlp_cmd = [sys.executable, "-m", "yt_dlp"]
-        else:
-            yt_dlp_cmd = [yt_dlp_path]
-            
-        logger.info(f"Downloading and cutting segment {start_time}-{end_time} directly from YouTube...")
-        format_str = "bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4][height<=1080] / bv*+ba/b"
-        
-        section_arg = f"*{start_time}-{end_time}"
-        
-        cut_cmd = yt_dlp_cmd + [
-            "--ffmpeg-location", settings.FFMPEG_PATH,
-            "--socket-timeout", "30",
-            "--retries", "3",
-            "--force-overwrites",
-            "--extractor-args", "youtube:player_client=android",
-            "-f", format_str,
-            "--download-sections", section_arg,
-            "--merge-output-format", "mp4",
-            f"https://www.youtube.com/watch?v={youtube_id}",
-            "-o", temp_cut
-        ]
-        
-        subprocess.run(cut_cmd, check=True, capture_output=True)
-        
-        if not os.path.exists(temp_cut):
-            logger.error(f"Failed to download segment to {temp_cut}")
-            return False
-        
-        logger.info(f"Scanning {temp_cut} for Smart Auto Tracking (Face Detection)...")
-        from backend.agents.tools.smart_crop import process_auto_tracking_video
-        
-        temp_tracked = temp_cut.replace(".mp4", "_tracked.mp4")
-        
-        # This will create a perfectly tracked 9:16 video stream without audio
-        tracking_success = process_auto_tracking_video(temp_cut, temp_tracked)
-        
-        if not tracking_success or not os.path.exists(temp_tracked):
-            raise Exception("Dynamic Smart Auto Tracking failed to produce a valid video stream.")
-            
-        logger.info(f"Merging tracked video stream with original audio to {output_path}...")
-        
-        ffmpeg_cmd = [
-            settings.FFMPEG_PATH,
-            "-y",
-            "-err_detect", "ignore_err",
-            "-i", temp_tracked,      # Video stream
-            "-i", temp_cut,          # Audio stream
-            "-c:v", "libx264",
-            "-preset", "fast",
-            "-crf", "18",
-            "-profile:v", "high",
-            "-pix_fmt", "yuv420p",
-            "-vf", "scale=1080:1920:flags=bicubic", # Upscale raw crop to full 9:16 using optimized C code
-            "-c:a", "aac",
-            "-b:a", "128k",
-            "-map", "0:v:0",         # Take video from 1st input
-            "-map", "1:a:0",         # Take audio from 2nd input
-            "-shortest",             # End when the shortest stream ends
-            output_path
-        ]
-        
-        subprocess.run(ffmpeg_cmd, check=True, capture_output=True)
-        
-        # Generate Thumbnail from middle of the clip
-        middle_time = (end_time - start_time) / 2
-        thumb_cmd = [
-            settings.FFMPEG_PATH,
-            "-y",
-            "-ss", str(middle_time),
-            "-i", output_path,
-            "-update", "1",
-            "-vframes", "1",
-            "-q:v", "2",
-            thumbnail_path
-        ]
-        subprocess.run(thumb_cmd, check=True, capture_output=True)
+        wanted = get_settings()["processing"]["encoder"]
+    except Exception:
+        wanted = "auto"
+    hw = detect_hw_encoders()
+    if wanted == "auto":
+        return hw[0] if hw else "libx264"
+    if wanted == "libx264" or wanted in hw:
+        return wanted
+    return "libx264"
 
-        # Clean up temporary files
-        if os.path.exists(temp_cut):
-            try: os.remove(temp_cut)
-            except: pass
-        if os.path.exists(temp_tracked):
-            try: os.remove(temp_tracked)
-            except: pass
-            
-        logger.info(f"Successfully processed and vertical cropped segment to {output_path}")
-        return True
 
-    except subprocess.CalledProcessError as e:
-        stderr_output = e.stderr.decode('utf-8', errors='ignore') if e.stderr else 'No stderr output'
-        logger.error(f"❌ [FFMPEG ERROR] Terjadi kesalahan saat memotong segmen {start_time}-{end_time}.\nCommand: {e.cmd}\nExit Code: {e.returncode}\nDetailed FFmpeg Log:\n{stderr_output}")
-        if os.path.exists(output_path):
-            try: os.remove(output_path)
-            except: pass
-        if os.path.exists(thumbnail_path):
-            try: os.remove(thumbnail_path)
-            except: pass
-        return False
-    except Exception as e:
-        logger.error(f"❌ [SYSTEM ERROR] Kesalahan sistem tidak terduga saat memotong segmen {start_time}-{end_time}: {str(e)}")
-        if os.path.exists(output_path):
-            try: os.remove(output_path)
-            except: pass
-        if os.path.exists(thumbnail_path):
-            try: os.remove(thumbnail_path)
-            except: pass
-        return False
+def encoder_args(encoder: str) -> list[str]:
+    if encoder == "h264_nvenc":
+        return ["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "vbr", "-cq", "19", "-b:v", "0", "-profile:v", "high", "-pix_fmt", "yuv420p"]
+    if encoder == "h264_qsv":
+        return ["-c:v", "h264_qsv", "-preset", "medium", "-global_quality", "20", "-pix_fmt", "nv12"]
+    if encoder == "h264_amf":
+        return ["-c:v", "h264_amf", "-quality", "quality", "-rc", "cqp", "-qp_i", "19", "-qp_p", "21", "-pix_fmt", "yuv420p"]
+    return ["-c:v", "libx264", "-preset", "fast", "-crf", "18", "-profile:v", "high", "-pix_fmt", "yuv420p"]
 
-def download_and_chunk_audio(youtube_id: str, chunk_duration_sec: int = 1200) -> List[str]:
-    """
-    Downloads the audio track of a YouTube video and chunks it into smaller files
-    (e.g., 20 mins) to bypass API size limits (like Groq's 25MB limit).
-    Returns a list of local file paths for the chunks.
-    """
-    os.makedirs(settings.TEMP_DIR, exist_ok=True)
-    temp_audio = os.path.join(settings.TEMP_DIR, f"temp_{youtube_id}_audio.m4a")
-    
-    # Download audio only
-    logger.info(f"Downloading full audio track for {youtube_id}")
-    import shutil
-    yt_dlp_cmd = shutil.which("yt-dlp")
-    if not yt_dlp_cmd:
-        yt_dlp_cmd = [sys.executable, "-m", "yt_dlp"]
-    else:
-        yt_dlp_cmd = [yt_dlp_cmd]
 
-    download_cmd = yt_dlp_cmd + [
-        "--ffmpeg-location", settings.FFMPEG_PATH,
-        "-f", "ba[ext=m4a]/ba", # Best audio in m4a format
-        f"https://www.youtube.com/watch?v={youtube_id}",
-        "-o", temp_audio
-    ]
-    
+def _encode_with_fallback(build, cancel: procs.CancelToken | None) -> str:
+    """Run an ffmpeg command built by `build(encoder_args)`; on a hardware-encoder error fall back to libx264."""
+    enc = pick_encoder()
     try:
-        subprocess.run(download_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    except Exception as e:
-        logger.error(f"Failed to download audio for {youtube_id}: {e}")
-        return []
+        procs.run(build(encoder_args(enc)), cancel=cancel, timeout=1800)
+        return enc
+    except procs.ProcessError as exc:
+        if enc == "libx264":
+            raise
+        logger.warning("Encoder %s failed, falling back to libx264: %s", enc, exc)
+        procs.run(build(encoder_args("libx264")), cancel=cancel, timeout=1800)
+        return "libx264"
 
-    if not os.path.exists(temp_audio):
-        logger.error("Audio download finished but file not found.")
-        return []
 
-    # Chunk the audio using FFmpeg segmenting
-    logger.info("Chunking audio into smaller segments for Whisper API...")
-    chunk_pattern = os.path.join(settings.TEMP_DIR, f"temp_{youtube_id}_chunk_%03d.m4a")
-    
-    ffmpeg_cmd = [
-        settings.FFMPEG_PATH,
-        "-y",
-        "-i", temp_audio,
-        "-f", "segment",
-        "-segment_time", str(chunk_duration_sec),
-        "-c", "copy", # Copy codec to avoid re-encoding overhead
-        chunk_pattern
-    ]
-    
+def finish_vertical(tracked_video: Path, source_with_audio: Path, out_path: Path, cancel: procs.CancelToken | None) -> str:
+    """Tracked (cropped, silent) video + original audio -> 1080x1920 H.264/AAC mp4."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def build(venc: list[str]) -> list[str]:
+        return [
+            ffmpeg_path(), "-y", "-hide_banner", "-loglevel", "error", "-err_detect", "ignore_err",
+            "-i", str(tracked_video), "-i", str(source_with_audio),
+            "-map", "0:v:0", "-map", "1:a:0?",
+            "-vf", "scale=1080:1920:flags=bicubic,setsar=1",
+            *venc,
+            "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
+            "-movflags", "+faststart", "-shortest",
+            str(out_path),
+        ]
+
+    return _encode_with_fallback(build, cancel)
+
+
+def center_crop_vertical(source: Path, out_path: Path, cancel: procs.CancelToken | None) -> str:
+    """Fallback when face tracking fails (K16): static center crop to 9:16 in one pass."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def build(venc: list[str]) -> list[str]:
+        return [
+            ffmpeg_path(), "-y", "-hide_banner", "-loglevel", "error", "-err_detect", "ignore_err",
+            "-i", str(source),
+            "-map", "0:v:0", "-map", "0:a:0?",
+            "-vf", "crop='min(iw,trunc(ih*9/16/2)*2)':'trunc(ih/2)*2',scale=1080:1920:flags=bicubic,setsar=1",
+            *venc,
+            "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
+            "-movflags", "+faststart",
+            str(out_path),
+        ]
+
+    return _encode_with_fallback(build, cancel)
+
+
+def thumbnail(video: Path, out_path: Path, at_seconds: float, cancel: procs.CancelToken | None) -> None:
+    procs.run(
+        [ffmpeg_path(), "-y", "-hide_banner", "-loglevel", "error", "-ss", f"{max(0.0, at_seconds):.2f}",
+         "-i", str(video), "-frames:v", "1", "-q:v", "3", "-update", "1", str(out_path)],
+        cancel=cancel, timeout=120,
+    )
+
+
+def extract_audio_mp3(video: Path, out_path: Path, cancel: procs.CancelToken | None) -> Path:
+    """Mono 16 kHz mp3: small enough for the Groq upload limit."""
+    procs.run(
+        [ffmpeg_path(), "-y", "-hide_banner", "-loglevel", "error", "-i", str(video), "-vn",
+         "-ac", "1", "-ar", "16000", "-c:a", "libmp3lame", "-b:a", "48k", str(out_path)],
+        cancel=cancel, timeout=600,
+    )
+    return out_path
+
+
+def chunk_audio(audio: Path, out_dir: Path, chunk_seconds: int, cancel: procs.CancelToken | None) -> list[Path]:
+    """Re-encode to mono 16 kHz mp3 and split into fixed-length chunks."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pattern = out_dir / "chunk_%03d.mp3"
+    procs.run(
+        [ffmpeg_path(), "-y", "-hide_banner", "-loglevel", "error", "-i", str(audio), "-vn",
+         "-ac", "1", "-ar", "16000", "-c:a", "libmp3lame", "-b:a", "48k",
+         "-f", "segment", "-segment_time", str(chunk_seconds), "-reset_timestamps", "1", str(pattern)],
+        cancel=cancel, timeout=3600,
+    )
+    return sorted(out_dir.glob("chunk_*.mp3"))
+
+
+def probe_duration(path: Path) -> float | None:
+    """Duration via `ffmpeg -i` (ffprobe is not bundled with imageio-ffmpeg)."""
     try:
-        subprocess.run(ffmpeg_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        os.remove(temp_audio) # Clean up original full audio
-        
-        # Find all generated chunks
-        chunks = sorted(glob.glob(os.path.join(settings.TEMP_DIR, f"temp_{youtube_id}_chunk_*.m4a")))
-        logger.info(f"Generated {len(chunks)} audio chunks.")
-        return chunks
-    except Exception as e:
-        logger.error(f"Failed to chunk audio: {e}")
-        return []
+        res = procs.run([ffmpeg_path(), "-hide_banner", "-i", str(path)], timeout=60, check=False)
+    except Exception:
+        return None
+    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", (res.stderr or b"").decode("utf-8", "replace"))
+    if not m:
+        return None
+    h, mi, s = m.groups()
+    return int(h) * 3600 + int(mi) * 60 + float(s)
 
+
+def ffmpeg_version() -> str | None:
+    try:
+        out = procs.run([ffmpeg_path(), "-hide_banner", "-version"], timeout=30).stdout.decode("utf-8", "replace")
+        m = re.search(r"ffmpeg version (\S+)", out)
+        return m.group(1) if m else out.splitlines()[0]
+    except Exception:
+        return None

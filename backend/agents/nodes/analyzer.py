@@ -1,378 +1,292 @@
-import json
+"""Analyzer Agent: transcript -> viral segments (LLM in JSON mode + Critic pass)."""
+from __future__ import annotations
+
 import logging
-from typing import Dict, Any, List
-from supabase import create_client, Client
-from backend.core.config import settings
-from backend.agents.state import PipelineState
-from backend.agents.tools.transcript import get_youtube_transcript
+import uuid
+from typing import Any
+
+from backend.agents.context import JobContext, PipelineError
+from backend.agents.tools.transcript import get_transcript
+from backend.core import llm
+from backend.core.config import config
+from backend.core.db import get_db
+from backend.core.secrets import get_secret
 
 logger = logging.getLogger(__name__)
 
-def run_analyzer_agent(state: PipelineState) -> Dict[str, Any]:
-    """
-    Analyzer Agent: Fetches transcripts, analyzes them using Groq LLM to locate
-    scenes with high virality potential, and returns ranked segments with metadata.
-    """
-    logger.info("=" * 60)
-    logger.info(f"🚀 [START] ANALYZER AGENT (Job: {state.get('job_id')})")
-    logger.info("=" * 60)
-    
-    source_videos = state.get("source_videos", [])
-    clip_duration_str = state.get("clip_duration", "45-60")
-    max_clips = state.get("max_clips", 3)
-    user_id = state.get("user_id")
-    
-    if not source_videos:
-        error_msg = "No source videos found to analyze."
-        logger.error(error_msg)
-        return {
-            "errors": state.get("errors", []) + [error_msg],
-            "current_step": "analysis",
-            "progress_pct": 40.0
-        }
+INTRO_BAN_SECONDS = 90.0
+CHUNK_SECONDS = 10 * 60
+CRITIC_MAX_SHIFT = 30.0
 
-    # Parse target duration limits
+
+def parse_duration_range(value: str) -> tuple[float, float]:
     try:
-        duration_parts = clip_duration_str.split('-')
-        min_target = float(duration_parts[0])
-        max_target = float(duration_parts[1])
+        lo, hi = (float(x) for x in str(value).split("-", 1))
+        if 0 < lo < hi:
+            return lo, hi
     except Exception:
-        min_target, max_target = 45.0, 60.0
+        pass
+    return 45.0, 60.0
 
-    all_viral_segments = []
 
-    # Initialize Supabase client
-    supabase: Client | None = None
+def ts_to_seconds(value: Any) -> float | None:
+    """'MM:SS', 'HH:MM:SS', '754', 754.0 -> seconds."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    s = str(value).strip()
+    if not s:
+        return None
     try:
-        supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
-    except Exception as e:
-        logger.warning(f"Could not connect to Supabase: {str(e)}")
+        parts = [float(p) for p in s.split(":")]
+    except ValueError:
+        return None
+    if len(parts) == 1:
+        return parts[0]
+    if len(parts) == 2:
+        return parts[0] * 60 + parts[1]
+    if len(parts) == 3:
+        return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    return None
 
-    # Check for 9router API availability
-    has_llm = bool(settings.NINEROUTER_BASE_URL and settings.NINEROUTER_API_KEY)
 
-    for video in source_videos:
-        video_uuid = video.get("id")
-        yt_id = str(video.get("youtube_id", ""))
-        video_title = video.get("title", "Unknown Title")
-        
-        logger.info(f"Analyzing transcript for video: {video_title} ({yt_id})")
-        
-        if supabase and video_uuid:
+def fmt_ts(seconds: float) -> str:
+    seconds = int(seconds)
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
+
+
+def format_transcript(entries: list[dict[str, Any]]) -> str:
+    return "\n".join(f"[{fmt_ts(e['start'])}] {e['text']}" for e in entries)
+
+
+def chunk_transcript(transcript: list[dict[str, Any]], chunk_seconds: float = CHUNK_SECONDS) -> list[list[dict[str, Any]]]:
+    chunks: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    elapsed = 0.0
+    for e in transcript:
+        current.append(e)
+        elapsed += float(e.get("duration", 0) or 0)
+        if elapsed >= chunk_seconds:
+            chunks.append(current)
+            current, elapsed = [], 0.0
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def scoring_prompt(lo: float, hi: float) -> str:
+    return (
+        "You are a 10-year experienced viral media growth specialist and expert editor.\n"
+        "Your task is to scan the following video transcript chunk and locate the exact timestamps "
+        "of segments with the highest potential to go viral as short-form vertical video.\n\n"
+        "CRITICAL INSTRUCTION 1 (ABSOLUTELY NO INTROS): It is ABSOLUTELY FORBIDDEN to select any clips that start "
+        "within the first 90 seconds of the video. The intro is boring and must be skipped.\n\n"
+        f"CRITICAL INSTRUCTION 2 (DURATION & COMPLETE SENTENCES): The length of each segment MUST be STRICTLY between {lo:g} and {hi:g} seconds. "
+        "The segment MUST start at the beginning of a sentence and end exactly at a punctuation mark (., ?, !). "
+        "Do not cut off sentences mid-way. If needed, expand the segment to finish the sentence.\n\n"
+        "CRITICAL INSTRUCTION 3 (VIRALITY & SKIPPING BORING CHUNKS): You must ONLY extract segments with extremely high engaging "
+        "potential (arguments, high emotion, shocking facts). If the entire transcript chunk is boring, generic introduction, "
+        "or sponsor reads, YOU MUST RETURN AN EMPTY ARRAY. Do not force a clip if there is none.\n\n"
+        "Evaluate segments on:\n"
+        "1. Hook Strength (first 3 seconds grab immediate attention)\n"
+        "2. Emotional Intensity (shock, controversy, extreme value, laughter, or deep inspiration)\n"
+        "3. Standalone Clarity (the clip makes full sense without context)\n"
+        "4. Shareability (relatable or controversial, likely to be reposted)\n\n"
+        "Write hook_text and rationale in the same language as the transcript.\n"
+        "Output EXACTLY one valid JSON object, no other text:\n"
+        "{\n"
+        '  "segments": [\n'
+        "    {\n"
+        '      "start_time": "MM:SS or HH:MM:SS",\n'
+        '      "end_time": "MM:SS or HH:MM:SS",\n'
+        '      "viral_score": 0-100 (integer),\n'
+        '      "hook_text": "short, punchy viral title for this clip (max 60 characters)",\n'
+        '      "tags": ["controversial", "inspirational", "humor"],\n'
+        '      "rationale": "why this clip has huge virality potential"\n'
+        "    }\n"
+        "  ]\n"
+        "}"
+    )
+
+
+def critic_prompt(lo: float, hi: float, start: float, end: float) -> str:
+    return (
+        "You are an AI Video Editor Critic. A previous AI proposed a video clip from the transcript below.\n"
+        "Fix two things:\n"
+        "1. The clip must NOT start or end in the middle of a sentence. Expand timestamps to include the full sentence if needed.\n"
+        f"2. The total duration must be STRICTLY between {lo:g} and {hi:g} seconds. If it is too short, expand end_time forward "
+        f"until the duration reaches at least {lo:g} seconds.\n\n"
+        f"Proposed Start: {fmt_ts(start)}, Proposed End: {fmt_ts(end)}\n\n"
+        'Output EXACTLY one valid JSON object: {"start_time": "MM:SS", "end_time": "MM:SS"}'
+    )
+
+
+def apply_critic(start: float, end: float, critic: dict[str, Any]) -> tuple[float, float]:
+    """Accept the critic's boundaries only when both edges move less than 30 s."""
+    ns, ne = ts_to_seconds(critic.get("start_time")), ts_to_seconds(critic.get("end_time"))
+    if ns is None or ne is None or ne <= ns:
+        return start, end
+    if abs(ns - start) < CRITIC_MAX_SHIFT and abs(ne - end) < CRITIC_MAX_SHIFT:
+        return ns, ne
+    return start, end
+
+
+def enforce_duration(start: float, end: float, lo: float, hi: float, transcript: list[dict[str, Any]],
+                     video_duration: float | None = None) -> tuple[float, float]:
+    """Expand to sentence ends until >= lo, trim when absurdly long, clamp to the video length."""
+    if end - start < lo:
+        target = start + lo
+        last_end = end
+        for e in transcript:
+            e_end = float(e["start"]) + float(e.get("duration", 2.0) or 2.0)
+            if e_end <= end:
+                continue
+            last_end = max(last_end, e_end)
+            if last_end >= target:
+                break
+        end = max(last_end, target) if last_end < target else last_end
+    if end - start > hi + 30:
+        end = start + hi
+    if video_duration and video_duration > 0:
+        end = min(end, video_duration)
+    return round(start, 2), round(end, 2)
+
+
+def segment_id(job_id: str, youtube_id: str, start: float, end: float) -> str:
+    """Deterministic clip id (uuid5) so a resumed job never duplicates clips."""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"metisclip:{job_id}:{youtube_id}:{start:.2f}:{end:.2f}"))
+
+
+MOCK_SEGMENTS = [
+    {"start_time": "00:13", "end_time": "00:58", "viral_score": 96, "hook_text": "[DEV] Rahasia Gelap AI yang Tidak Anda Ketahui!",
+     "tags": ["controversial", "tech-future"], "rationale": "Dev mock segment"},
+    {"start_time": "00:58", "end_time": "01:21", "viral_score": 85, "hook_text": "[DEV] AI Kini Makin Gila!",
+     "tags": ["mind-blowing"], "rationale": "Dev mock segment"},
+]
+
+
+def _analyze_video(ctx: JobContext, video: dict[str, Any], lo: float, hi: float, per_video: int,
+                   transcript: list[dict[str, Any]], use_llm: bool) -> list[dict[str, Any]]:
+    title = video.get("title") or video["youtube_id"]
+    proposals: list[dict[str, Any]] = []
+    if use_llm:
+        chunks = chunk_transcript(transcript)
+        failures = 0
+        for i, chunk in enumerate(chunks):
+            ctx.check()
+            ctx.progress(message=f"Menganalisis '{title[:40]}' bagian {i + 1}/{len(chunks)}…")
             try:
-                supabase.table("source_videos").update({"status": "analyzing"}).eq("id", video_uuid).execute()
-            except Exception as e:
-                logger.warning(f"Failed to update source video status to 'analyzing': {str(e)}")
-
-        # Fetch Transcript
-        transcript = get_youtube_transcript(yt_id, "dummy")
-        if not transcript:
-            logger.warning(f"No transcript found for video {yt_id}. Skipping.")
-            continue
-
-        # Format transcript for LLM
-        formatted_transcript = ""
-        for entry in transcript:
-            start_min = int(entry['start'] // 60)
-            start_sec = int(entry['start'] % 60)
-            formatted_transcript += f"[{start_min:02d}:{start_sec:02d}] {entry['text']}\n"
-        
-        segments = []
-        if has_llm:
-            try:
-                from openai import OpenAI
-                client = OpenAI(
-                    api_key=settings.NINEROUTER_API_KEY, 
-                    base_url=settings.NINEROUTER_BASE_URL,
-                    default_headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"}
+                res = llm.chat_json(
+                    scoring_prompt(lo, hi),
+                    f"Video Title: {title}\n\nTranscript Chunk:\n{format_transcript(chunk)}",
+                    temperature=0.2, max_tokens=2000,
+                    on_retry=lambda m: ctx.progress(message=m), should_stop=lambda: ctx.cancel.cancelled,
                 )
-                
-                # Chunk transcript into ~10 minute pieces to avoid LLM TPM limits
-                chunk_duration_limit = 10 * 60 # 10 minutes in seconds
-                transcript_chunks = []
-                current_chunk = []
-                current_chunk_time = 0.0
-                
-                for entry in transcript:
-                    current_chunk.append(entry)
-                    current_chunk_time += entry.get('duration', 0.0)
-                    
-                    if current_chunk_time >= chunk_duration_limit:
-                        transcript_chunks.append(current_chunk)
-                        current_chunk = []
-                        current_chunk_time = 0.0
-                        
-                if current_chunk:
-                    transcript_chunks.append(current_chunk)
+            except llm.LLMNotConfigured:
+                raise
+            except llm.LLMError as exc:
+                failures += 1
+                ctx.error("analysis", f"Bagian {i + 1} gagal dianalisis: {exc}")
+                if failures >= 3 and failures == i + 1:
+                    raise PipelineError(f"Analisis LLM gagal berulang kali: {exc}") from exc
+                continue
+            for seg in res.get("segments") or []:
+                if not isinstance(seg, dict):
+                    continue
+                s = ts_to_seconds(seg.get("start_time"))
+                e = ts_to_seconds(seg.get("end_time"))
+                if s is None or e is None or e <= s:
+                    continue
+                if s < INTRO_BAN_SECONDS:
+                    logger.info("Intro ban: rejected segment starting at %.0fs", s)
+                    continue
+                proposals.append({**seg, "_start": s, "_end": e})
+            if per_video > 0 and len(proposals) >= per_video:
+                break
+    else:
+        for seg in MOCK_SEGMENTS:
+            proposals.append({**seg, "_start": ts_to_seconds(seg["start_time"]), "_end": ts_to_seconds(seg["end_time"])})
 
-                logger.info(f"Split transcript into {len(transcript_chunks)} chunks for LLM analysis.")
-
-                for chunk_index, t_chunk in enumerate(transcript_chunks):
-                    logger.info(f"Analyzing transcript chunk {chunk_index+1}/{len(transcript_chunks)}...")
-                    
-                    # Format chunk
-                    formatted_chunk = ""
-                    for entry in t_chunk:
-                        start_min = int(entry['start'] // 60)
-                        start_sec = int(entry['start'] % 60)
-                        formatted_chunk += f"[{start_min:02d}:{start_sec:02d}] {entry['text']}\n"
-
-                    # Construct systemic prompt enforcing strict JSON parsing
-                    system_prompt = (
-                        "You are a 10-year experienced viral media growth specialist and expert editor.\n"
-                        "Your task is to scan the following video transcript chunk and locate the exact timestamps "
-                        f"of segments with the highest potential to go viral as short-form vertical video.\n\n"
-                        "CRITICAL INSTRUCTION 1 (ABSOLUTELY NO INTROS): "
-                        "It is ABSOLUTELY FORBIDDEN to select any clips that start within the first 90 seconds of the video. The intro is boring and must be skipped.\n\n"
-                        "CRITICAL INSTRUCTION 2 (DURATION & COMPLETE SENTENCES): "
-                        f"The length of each segment MUST be STRICTLY between {min_target} and {max_target} seconds. "
-                        "The segment MUST start at the beginning of a sentence and end exactly at a punctuation mark (., ?, !). "
-                        "Do not cut off sentences mid-way. If needed, expand the segment to finish the sentence.\n\n"
-                        "CRITICAL INSTRUCTION 3 (VIRALITY & SKIPPING BORING CHUNKS): "
-                        "You must ONLY extract segments with extremely high engaging potential (arguments, high emotion, shocking facts). "
-                        "If the entire transcript chunk is boring, generic introduction, or sponsor reads, YOU MUST RETURN AN EMPTY ARRAY []. Do not force a clip if there is none.\n\n"
-                        "You must evaluate segments based on:\n"
-                        "1. Hook Strength (first 3 seconds grab immediate attention)\n"
-                        "2. Emotional Intensity (shock, controversy, extreme value, laughter, or deep inspiration)\n"
-                        "3. Standalone Clarity (the clip makes full sense and delivers complete value without context)\n"
-                        "4. Shareability (extremely relatable or controversial and likely to be reposted)\n\n"
-                        "You must output EXACTLY a valid JSON object matching this schema. Do not write any conversational text before or after the JSON:\n"
-                        "{\n"
-                        "  \"segments\": [\n"
-                        "    {\n"
-                        "      \"start_time\": \"MM:SS or HH:MM:SS\",\n"
-                        "      \"end_time\": \"MM:SS or HH:MM:SS\",\n"
-                        "      \"viral_score\": 0-100 (integer),\n"
-                        "      \"hook_text\": \"A short, punchy, highly engaging viral TikTok/Reels style title/hook for this clip (max 60 characters)\",\n"
-                        "      \"tags\": [\"controversial\", \"inspirational\", \"humor\", etc.],\n"
-                        "      \"rationale\": \"Why this clip has huge virality potential\"\n"
-                        "    }\n"
-                        "  ]\n"
-                        "}"
-                    )
-
-                    response = client.chat.completions.create(
-                        model=settings.NINEROUTER_MODEL,
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": f"Video Title: {video_title}\n\nTranscript Chunk:\n{formatted_chunk}"}
-                        ],
-                        temperature=0.2,
-                        max_tokens=2000,
-                        response_format={"type": "json_object"},
-                        stream=False,
-                        timeout=60.0
-                    )
-                    
-                    import json
-                    content = response.choices[0].message.content  # type: ignore
-                    if not content:
-                        continue
-                    
-                    logger.debug(f"Raw LLM Response: {content}")
-                    
-                    result_json = json.loads(content)
-                    chunk_segments = result_json.get("segments", [])
-                    
-                    # PROGRAMMATIC ENFORCER: Reject clips starting in the first 90s
-                    valid_chunk_segments = []
-                    for seg in chunk_segments:
-                        try:
-                            start_str = str(seg.get("start_time", "00:00"))
-                            parts = start_str.split(':')
-                            if len(parts) == 2:
-                                s_sec = float(parts[0]) * 60 + float(parts[1])
-                            elif len(parts) == 3:
-                                s_sec = float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
-                            else:
-                                s_sec = 0.0
-                                
-                            if s_sec < 90.0:
-                                logger.info(f"Programmatic Enforcer: Rejected proposed clip starting at {start_str} (Intro Ban).")
-                            else:
-                                valid_chunk_segments.append(seg)
-                        except:
-                            valid_chunk_segments.append(seg)
-                            
-                    segments.extend(valid_chunk_segments)
-                    
-                    logger.info(f"Chunk {chunk_index+1} yielded {len(chunk_segments)} viral segments.")
-                    
-                    # --- EARLY STOPPING LOGIC ---
-                    if max_clips > 0:
-                        valid_clips = [s for s in segments if isinstance(s, dict) and s.get("start_time")]
-                        if len(valid_clips) >= max_clips:
-                            logger.info(f"Early Stopping Triggered: Found exactly {len(valid_clips)} segments as requested. Stopping analysis to save tokens and prevent rate limits.")
-                            break
-            except Exception as e:
-                logger.error(f"LLM API call or JSON parsing failed on chunk analysis: {str(e)}. Falling back to mock parsing.")
-                has_llm = False
-
-        if not has_llm:
-            # High-fidelity mock analysis matching our detailed transcript in tools/transcript.py
-            # This represents the target viral hook in our mock data
-            segments = [
-                {
-                    "start_time": "00:13",
-                    "end_time": "00:58",
-                    "viral_score": 96,
-                    "hook_text": "Rahasia Gelap AI yang Tidak Anda Ketahui! 🤯",
-                    "tags": ["controversial", "tech-future", "quotable"],
-                    "rationale": "Strong contrarian hook directly grabbing user interest. Explains why scaling isn't enough and predicts agentic automation taking 90% of tech jobs within a year."
-                },
-                {
-                    "start_time": "00:58",
-                    "end_time": "01:21",
-                    "viral_score": 85,
-                    "hook_text": "Beli Server Otomatis, AI Kini Makin Gila! 💻",
-                    "tags": ["security", "mind-blowing", "future"],
-                    "rationale": "High shock factor discussing autonomous agents provisioning servers and coding themselves on the fly."
-                }
-            ]
-
-        # Convert timestamps MM:SS or HH:MM:SS to float seconds for the clipper
-        def timestamp_to_seconds(ts: str) -> float:
-            parts = ts.split(':')
-            if len(parts) == 2:
-                return float(parts[0]) * 60 + float(parts[1])
-            elif len(parts) == 3:
-                return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
-            return 0.0
-
-        for segment in segments:
-            # Enforce minimal validation to ensure timestamps exist
+    out: list[dict[str, Any]] = []
+    for seg in proposals:
+        ctx.check()
+        start, end = float(seg["_start"]), float(seg["_end"])
+        if use_llm:
+            context_entries = [e for e in transcript if start - 30 <= e["start"] <= end + hi + 30]
             try:
-                score = int(str(segment.get("viral_score", "70")))
-            except (ValueError, TypeError):
-                score = 70
-            start_sec = timestamp_to_seconds(str(segment.get("start_time", "00:00")))
-            end_sec = timestamp_to_seconds(str(segment.get("end_time", "00:00")))
-            
-            # --- CRITIC AGENT (SELF-REFLECTION) ---
-            # If we have LLM, we pass the proposed clip back to verify and fix mid-sentence cuts.
-            if has_llm and start_sec > 0:
-                try:
-                    logger.info(f"Critic Agent analyzing proposed clip: {start_sec}s - {end_sec}s")
-                    from openai import OpenAI
-                    critic_client = OpenAI(
-                        api_key=settings.NINEROUTER_API_KEY, 
-                        base_url=settings.NINEROUTER_BASE_URL,
-                        default_headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"}
-                    )
-                    
-                    # Extract surrounding context from transcript to allow forward expansion up to max_target
-                    context_entries = [e for e in transcript if (start_sec - 30) <= e['start'] <= (end_sec + max_target + 30)]
-                    context_text = ""
-                    for e in context_entries:
-                        s_min, s_sec = int(e['start'] // 60), int(e['start'] % 60)
-                        context_text += f"[{s_min:02d}:{s_sec:02d}] {e['text']}\n"
-                    
-                    critic_prompt = (
-                        "You are an AI Video Editor Critic. The previous AI proposed a video clip from the following transcript.\n"
-                        "Your job is to fix two things:\n"
-                        "1. Ensure the clip DOES NOT start or end in the middle of a sentence. Expand timestamps to include the full sentence if needed.\n"
-                        f"2. Ensure the total duration is STRICTLY between {min_target} and {max_target} seconds. If the proposed clip is too short, YOU MUST expand the end_time forward in the transcript to include more context until the duration reaches at least {min_target} seconds.\n\n"
-                        f"Target Duration: {min_target}-{max_target} seconds.\n"
-                        f"Proposed Start: {segment.get('start_time')}, Proposed End: {segment.get('end_time')}\n\n"
-                        "Review the transcript context and output EXACTLY a valid JSON object matching this schema:\n"
-                        "{\n"
-                        "  \"start_time\": \"MM:SS\",\n"
-                        "  \"end_time\": \"MM:SS\"\n"
-                        "}"
-                    )
-                    
-                    critic_res = critic_client.chat.completions.create(
-                        model=settings.NINEROUTER_MODEL,
-                        messages=[
-                            {"role": "system", "content": critic_prompt},
-                            {"role": "user", "content": f"Transcript Context:\n{context_text}"}
-                        ],
-                        temperature=0.1,
-                        max_tokens=200,
-                        response_format={"type": "json_object"},
-                        stream=False,
-                        timeout=60.0
-                    )
-                    
-                    import json
-                    content = critic_res.choices[0].message.content  # type: ignore
-                    critic_json = json.loads(content) if content else {}
-                    if critic_json.get("start_time") and critic_json.get("end_time"):
-                        new_start = timestamp_to_seconds(critic_json["start_time"])
-                        new_end = timestamp_to_seconds(critic_json["end_time"])
-                        
-                        # Only accept if the critic didn't wildly hallucinate
-                        if abs(new_start - start_sec) < 30 and abs(new_end - end_sec) < 30:
-                            start_sec = new_start
-                            end_sec = new_end
-                            logger.info(f"Critic Agent refined clip to: {new_start}s - {new_end}s")
-                except Exception as e:
-                    logger.warning(f"Critic Agent failed to refine boundaries: {e}")
-            
-            duration = end_sec - start_sec
-            
-            # PROGRAMMATIC DURATION ENFORCEMENT
-            # If the LLM failed to meet the min_target, we manually push the end_time forward 
-            # by reading the transcript boundaries until the duration is satisfied.
-            if duration < min_target:
-                logger.info(f"Clip is too short ({duration:.1f}s < {min_target}s). Programmatically expanding...")
-                target_end = start_sec + min_target
-                last_valid_end = end_sec
-                for e in transcript:
-                    e_end = e['start'] + e.get('duration', 2.0)
-                    if e_end > last_valid_end:
-                        last_valid_end = e_end
-                    if last_valid_end >= target_end:
-                        break
-                
-                end_sec = last_valid_end
-                duration = end_sec - start_sec
-                logger.info(f"Programmatically expanded clip to {duration:.1f}s to satisfy user settings.")
-
-            # If it's absurdly long, aggressively trim it
-            if duration > (max_target + 30):
-                logger.info(f"Clip is too long ({duration:.1f}s > {max_target}s). Programmatically trimming...")
-                end_sec = start_sec + max_target
-                duration = end_sec - start_sec
-            
-            segment_data = {
-                "source_video_id": video_uuid,
-                "youtube_id": yt_id,
-                "start_time": start_sec,
-                "end_time": end_sec,
-                "duration_seconds": round(end_sec - start_sec, 2),
-                "viral_score": segment.get("viral_score", 80),
-                "hook_text": segment.get("hook_text", ""),
-                "tags": segment.get("tags", []),
-                "rationale": segment.get("rationale", ""),
-                "status": "processing"
-            }
-            all_viral_segments.append(segment_data)
-
-        if supabase and video_uuid:
-            try:
-                supabase.table("source_videos").update({"status": "completed"}).eq("id", video_uuid).execute()
-            except Exception as e:
-                logger.warning(f"Failed to update source video status to 'completed': {str(e)}")
-
-    # Sort by viral_score descending and apply max_clips limit
-    all_viral_segments.sort(key=lambda x: x.get("viral_score", 0), reverse=True)
-    if max_clips > 0:
-        all_viral_segments = all_viral_segments[:max_clips]
-        
-    if supabase and state.get('job_id'):
+                critic = llm.chat_json(
+                    critic_prompt(lo, hi, start, end),
+                    f"Transcript Context:\n{format_transcript(context_entries)}",
+                    temperature=0.1, max_tokens=200, retries=1,
+                    should_stop=lambda: ctx.cancel.cancelled,
+                )
+                start, end = apply_critic(start, end, critic)
+            except llm.LLMError as exc:
+                logger.info("Critic pass skipped: %s", exc)
+        start, end = enforce_duration(start, end, lo, hi, transcript, video.get("duration_seconds"))
+        if end - start < 5:
+            continue
         try:
-            supabase.table("discovery_jobs").update({"total_scenes": len(all_viral_segments)}).eq("id", state.get('job_id')).execute()
-        except Exception as e:
-            logger.warning(f"Failed to update total_scenes in discovery_jobs: {str(e)}")
+            score = int(float(seg.get("viral_score", 70)))
+        except (TypeError, ValueError):
+            score = 70
+        tags = seg.get("tags") if isinstance(seg.get("tags"), list) else []
+        out.append({
+            "segment_id": segment_id(ctx.id, video["youtube_id"], start, end),
+            "source_video_id": video["_id"],
+            "youtube_id": video["youtube_id"],
+            "start_time": start,
+            "end_time": end,
+            "duration_seconds": round(end - start, 2),
+            "viral_score": max(0, min(100, score)),
+            "hook_text": str(seg.get("hook_text") or "")[:120],
+            "tags": [str(t)[:40] for t in tags][:10],
+            "rationale": str(seg.get("rationale") or "")[:1000],
+        })
+    # Drop overlapping duplicates, keep the higher score
+    out.sort(key=lambda x: x["viral_score"], reverse=True)
+    kept: list[dict[str, Any]] = []
+    for seg in out:
+        if any(seg["start_time"] < k["end_time"] and k["start_time"] < seg["end_time"] for k in kept):
+            continue
+        kept.append(seg)
+    return kept
 
-    logger.info(f"Analyzer Agent completed. Found {len(all_viral_segments)} high potential viral segments.")
-    logger.info("=" * 60)
-    logger.info(f"✅ [END] ANALYZER AGENT (Job: {state.get('job_id')})")
-    logger.info("=" * 60)
-    
-    return {
-        "viral_segments": all_viral_segments,
-        "current_step": "analysis",
-        "progress_pct": 40.0
-    }
+
+def run(ctx: JobContext, videos: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    cfg = ctx.config
+    lo, hi = parse_duration_range(cfg.get("clip_duration", "45-60"))
+    max_total = int(cfg.get("max_clips", cfg.get("max_clips_per_video", 3)) or 0)
+    per_video = int(cfg.get("max_clips_per_video", max_total) or 0)
+
+    use_llm = bool(get_secret("llm_api_key"))
+    if not use_llm and not config.is_dev:
+        raise PipelineError("API key LLM belum diisi di Pengaturan")
+
+    db = get_db()
+    segments: list[dict[str, Any]] = []
+    for i, video in enumerate(videos):
+        ctx.check()
+        base = 15 + 25 * i / max(1, len(videos))
+        ctx.progress(base, step="analysis", message=f"Mengambil transkrip '{(video.get('title') or '')[:40]}'…")
+        db.source_videos.update_one({"_id": video["_id"]}, {"$set": {"status": "analyzing"}})
+        try:
+            transcript = get_transcript(video["youtube_id"], ctx.cancel, on_status=lambda m: ctx.progress(message=m))
+            found = _analyze_video(ctx, video, lo, hi, per_video, transcript, use_llm)
+        except (PipelineError, llm.LLMNotConfigured) as exc:
+            db.source_videos.update_one({"_id": video["_id"]}, {"$set": {"status": "failed"}})
+            if isinstance(exc, llm.LLMNotConfigured) or len(videos) == 1:
+                raise PipelineError(str(exc)) from exc
+            ctx.error("analysis", str(exc))
+            continue
+        db.source_videos.update_one({"_id": video["_id"]}, {"$set": {"status": "completed"}})
+        segments.extend(found)
+
+    segments.sort(key=lambda s: s["viral_score"], reverse=True)
+    if max_total > 0:
+        segments = segments[:max_total]
+    ctx.progress(40, step="analysis", total_scenes=len(segments), message=f"{len(segments)} segmen viral ditemukan")
+    return segments

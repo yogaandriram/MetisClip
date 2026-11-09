@@ -1,118 +1,140 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
-from typing import List, Dict, Any, Optional, cast
+"""Pipeline jobs: create, list, cancel, resume, delete."""
+from __future__ import annotations
+
+from typing import Literal, Optional
+
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
-from supabase import Client
-from backend.api.deps import get_current_user, get_supabase_client, get_user_supabase_client
-from backend.agents.static_pipeline import execute_static_pipeline
-router = APIRouter(prefix="/api/jobs", tags=["Jobs"])
+
+from backend.agents.tools.ytdlp import extract_video_id
+from backend.api.dto import http_error, job_dto
+from backend.core import events
+from backend.core.db import get_db, new_id, utcnow
+from backend.core.queue import runner
+from backend.models.documents import DURATIONS, JobConfig, JobDoc, JobSource
+
+router = APIRouter(prefix="/api/jobs", tags=["jobs"])
+
 
 class JobCreate(BaseModel):
-    keywords: Optional[List[str]] = Field(default=[], description="Keywords to search YouTube for")
-    youtube_url: Optional[str] = Field(default=None, description="Direct YouTube URL to process")
-    video_types: List[str] = Field(default=["podcast"], description="Types of video (podcast, interview, speech, etc)")
-    clip_duration: str = Field(default="45-60", description="Clip duration range (30-45, 45-60, 60-75, 75-90)")
-    max_clips: int = Field(default=3, ge=0, le=100, description="Max clips to extract per video")
+    agent_id: str
+    source_type: Literal["keyword", "url"] = "keyword"
+    keywords: list[str] = Field(default_factory=list)
+    youtube_url: Optional[str] = None
+    video_types: list[str] = Field(default_factory=lambda: ["podcast"])
+    clip_duration: str = "45-60"
+    max_clips: int = Field(default=3, ge=0, le=100)
+    min_duration_minutes: int = Field(default=30, ge=0, le=600)
+    min_views: int = Field(default=0, ge=0)
 
-def run_pipeline_task(
-    job_id: str,
-    user_id: str,
-    keywords: Optional[List[str]],
-    youtube_url: Optional[str],
-    video_types: List[str],
-    clip_duration: str,
-    max_clips: int
-):
-    """
-    Executes the pipeline statically in the background when triggered from the Web UI.
-    """
-    try:
-        execute_static_pipeline(
-            job_id=job_id,
-            user_id=user_id,
-            keywords=keywords or [],
-            youtube_url=youtube_url,
-            video_types=video_types,
-            clip_duration=clip_duration,
-            max_clips=max_clips
-        )
-    except Exception as e:
-        print(f"Background Static Pipeline Task Failed for job {job_id}: {str(e)}")
-        try:
-            supabase = get_supabase_client()
-            supabase.table("discovery_jobs").update({"status": "failed"}).eq("id", job_id).execute()
-        except Exception:
-            pass
 
-@router.post("", status_code=status.HTTP_201_CREATED)
-async def create_job(
-    payload: JobCreate,
-    background_tasks: BackgroundTasks,
-    current_user: dict = Depends(get_current_user),
-    supabase_client: Client = Depends(get_supabase_client)
-):
-    """
-    Creates a new discovery job configuration in Supabase and triggers the
-    LangGraph agentic pipeline asynchronously as a background task.
-    """
-    user_id = current_user["id"]
+def _get(job_id: str) -> dict:
+    job = get_db().discovery_jobs.find_one({"_id": job_id})
+    if not job:
+        raise http_error(404, "Job tidak ditemukan")
+    return job
+
+
+MIN_FREE_BYTES = 2 * 1024**3
+
+
+def _check_disk() -> None:
+    import shutil
+
+    from backend.core.paths import get_paths
 
     try:
-        # 1. Save Job Configuration to Database (applying RLS since we use user client)
-        job_res = supabase_client.table("discovery_jobs").insert({
-            "user_id": user_id,
-            "keywords": payload.keywords,
-            "youtube_url": payload.youtube_url,
-            "video_types": payload.video_types,
-            "clip_duration": payload.clip_duration,
-            "max_clips_per_video": payload.max_clips,
-            "status": "pending"
-        }).execute()
-        
-        if not job_res.data:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to register job in database."
-            )
-            
-        job_data = cast(Dict[str, Any], job_res.data[0])
-        job_id = str(job_data.get("id"))
+        free = shutil.disk_usage(get_paths().data_root).free
+    except OSError:
+        return
+    if free < MIN_FREE_BYTES:
+        raise http_error(507, f"Ruang disk hampir habis ({free / 1024**3:.1f} GB tersisa). Kosongkan ruang atau pindahkan lokasi data.")
+    if free < 5 * 1024**3:
+        events.notice(f"Ruang disk tinggal {free / 1024**3:.1f} GB", "warning")
 
-        # 2. Trigger the LangGraph Agentic Pipeline in the background
-        background_tasks.add_task(
-            run_pipeline_task,
-            job_id=job_id,
-            user_id=user_id,
-            keywords=payload.keywords,
-            youtube_url=payload.youtube_url,
-            video_types=payload.video_types,
-            clip_duration=payload.clip_duration,
-            max_clips=payload.max_clips
-        )
 
-        return {
-            "message": "MetisClip Agentic Pipeline started successfully",
-            "job": job_data
-        }
+@router.post("")
+def create_job(body: JobCreate):
+    _check_disk()
+    db = get_db()
+    if not db.super_agents.find_one({"_id": body.agent_id}, {"_id": 1}):
+        raise http_error(400, "Super Agent tidak ditemukan. Pilih agent terlebih dahulu.")
+    if body.clip_duration not in DURATIONS:
+        raise http_error(400, "Durasi klip tidak valid")
+    keywords = [k.strip() for k in body.keywords if k and k.strip()]
+    url = (body.youtube_url or "").strip() or None
+    if body.source_type == "url":
+        if not url or not extract_video_id(url):
+            raise http_error(400, "URL YouTube tidak valid")
+    elif not keywords:
+        raise http_error(400, "Isi minimal satu kata kunci")
+    doc = JobDoc(
+        _id=new_id(),
+        agent_id=body.agent_id,
+        source=JobSource(type=body.source_type, keywords=keywords if body.source_type == "keyword" else [],
+                         youtube_url=url if body.source_type == "url" else None),
+        config=JobConfig(
+            video_types=[v for v in body.video_types if v] or ["podcast"],
+            min_duration_minutes=body.min_duration_minutes,
+            min_views=body.min_views,
+            clip_duration=body.clip_duration,
+            max_clips=body.max_clips,
+            max_clips_per_video=body.max_clips,
+        ),
+    ).to_mongo()
+    db.discovery_jobs.insert_one(doc)
+    events.publish({"type": "job.status", "id": doc["_id"], "agent_id": doc["agent_id"], "status": "pending"})
+    runner.submit_job(doc["_id"])
+    return {"job": job_dto(doc)}
 
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred while creating discovery job: {str(e)}"
-        )
 
 @router.get("")
-def list_jobs(
-    current_user: dict = Depends(get_current_user),
-    supabase_client: Client = Depends(get_user_supabase_client)
-):
-    """
-    Lists all jobs registered by the authenticated user.
-    """
-    try:
-        res = supabase_client.table("discovery_jobs").select("*").order("created_at", desc=True).execute()
-        return {"jobs": res.data}
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch jobs: {str(e)}"
-        )
+def list_jobs(agent_id: Optional[str] = None, status: Optional[str] = None, limit: int = 50):
+    q: dict = {}
+    if agent_id:
+        q["agent_id"] = agent_id
+    if status:
+        q["status"] = status
+    docs = get_db().discovery_jobs.find(q).sort("created_at", -1).limit(max(1, min(500, limit)))
+    return {"jobs": [job_dto(d) for d in docs]}
+
+
+@router.get("/{job_id}")
+def get_job(job_id: str):
+    return {"job": job_dto(_get(job_id))}
+
+
+@router.post("/{job_id}/cancel")
+def cancel_job(job_id: str):
+    job = _get(job_id)
+    if job["status"] not in ("pending", "running"):
+        raise http_error(409, "Job ini tidak sedang berjalan")
+    runner.cancel_job(job_id)
+    return {"job": job_dto(_get(job_id))}
+
+
+@router.post("/{job_id}/resume")
+def resume_job(job_id: str):
+    db = get_db()
+    job = db.discovery_jobs.find_one_and_update(
+        {"_id": job_id, "status": {"$in": ["interrupted", "failed", "cancelled"]}},
+        {"$set": {"status": "pending", "finished_at": None}},
+        return_document=True,
+    )
+    if not job:
+        _get(job_id)
+        raise http_error(409, "Hanya job yang terhenti, gagal, atau dibatalkan yang bisa dilanjutkan")
+    events.publish({"type": "job.status", "id": job_id, "agent_id": job.get("agent_id"), "status": "pending"})
+    runner.submit_job(job_id)
+    return {"job": job_dto(job)}
+
+
+@router.delete("/{job_id}")
+def delete_job(job_id: str):
+    job = _get(job_id)
+    if job["status"] in ("pending", "running"):
+        raise http_error(409, "Batalkan job terlebih dahulu sebelum menghapus")
+    db = get_db()
+    db.source_videos.delete_many({"job_id": job_id})
+    db.discovery_jobs.delete_one({"_id": job_id})  # clips are kept
+    return {"ok": True}

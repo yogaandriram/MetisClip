@@ -1,335 +1,198 @@
-import os
-import uuid
+"""Processor Agent: per segment download -> smart crop -> 1080x1920 -> thumbnail -> Whisper -> clip.
+
+Each segment uses its OWN youtube_id (fixes K1). Clip ids are deterministic
+(uuid5 of job, video, start, end) and written with an upsert, so resuming never
+duplicates clips. Files go to <DATA_ROOT>\\library\\<agent>\\<clip_id>\\.
+"""
+from __future__ import annotations
+
 import logging
-import subprocess
-from typing import Dict, Any, List
-from supabase import create_client, Client
-from backend.core.config import settings
-from backend.agents.state import PipelineState
-from backend.agents.tools.ffmpeg_ops import crop_local_segment
+import shutil
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from typing import Any
+
+from backend.agents.context import JobContext, PipelineError
+from backend.agents.tools import ffmpeg_ops, whisper, ytdlp
+from backend.agents.tools.smart_crop import process_auto_tracking_video
+from backend.agents.tools.transcript import cached as cached_transcript
+from backend.core import events
+from backend.core.db import get_db, utcnow
+from backend.core.paths import get_paths
+from backend.core.procs import Cancelled
+from backend.models.documents import ClipDoc
 
 logger = logging.getLogger(__name__)
 
-def ensure_uuid(val: str) -> str:
-    if not val:
-        return str(uuid.uuid4())
-    try:
-        uuid.UUID(val)
-        return val
-    except ValueError:
-        return str(uuid.uuid5(uuid.NAMESPACE_DNS, val))
 
-def generate_mock_word_level_subtitles(hook_text: str, duration: float) -> List[Dict[str, Any]]:
-    """
-    Generates word-level timestamps from the hook text to act as sandbox data.
-    """
-    words = hook_text.split()
-    if not words:
-        words = ["Here's", "what", "nobody", "tells", "you", "about", "AI"]
-        
-    num_words = len(words)
-    time_per_word = min(0.5, duration / max(1, num_words))
-    
-    words_data = []
-    current_time = 0.0
-    
-    for i, word in enumerate(words):
-        clean_word = word.strip(".,!?\"'")
-        words_data.append({
-            "word": clean_word,
-            "start": round(current_time, 2),
-            "end": round(current_time + time_per_word, 2),
-            "confidence": 0.99
-        })
-        current_time += time_per_word + 0.05
-        
-    return words_data
+def words_from_transcript(youtube_id: str, start: float, end: float) -> list[dict[str, Any]]:
+    """Approximate word timings from the cached transcript (used when Whisper is unavailable)."""
+    segs = cached_transcript(youtube_id) or []
+    words: list[dict[str, Any]] = []
+    for e in segs:
+        s = float(e["start"])
+        d = float(e.get("duration", 0) or 0)
+        if s + d <= start or s >= end:
+            continue
+        words.extend(whisper.split_evenly(e["text"], max(0.0, s - start), max(0.0, min(end, s + d) - start)))
+    return words
 
-def run_processor_agent(state: PipelineState) -> Dict[str, Any]:
-    """
-    Processor Agent (Stream Processing): 
-    Downloads segments, crops them vertically, generates dynamic subtitles via Whisper,
-    uploads everything, and saves to the Database as a fully 'ready' clip in a single loop per segment.
-    """
-    logger.info("=" * 60)
-    logger.info(f"🚀 [START] PROCESSOR AGENT (Job: {state.get('job_id')})")
-    logger.info("=" * 60)
-    
-    viral_segments = state.get("viral_segments", [])
-    user_id = state.get("user_id")
-    job_id = state.get("job_id")
-    
-    if not viral_segments:
-        error_msg = "No viral segments found to extract."
-        logger.error(error_msg)
-        return {
-            "errors": state.get("errors", []) + [error_msg],
-            "current_step": "processing",
-            "progress_pct": 80.0
-        }
 
-    # Initialize Supabase client
-    supabase: Client | None = None
-    try:
-        supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
-        has_supabase = True
-    except Exception as e:
-        logger.warning(f"Could not connect to Supabase: {str(e)}")
-        has_supabase = False
+def mock_words(text: str, duration: float) -> list[dict[str, Any]]:
+    tokens = text.split() or ["MetisClip"]
+    step = min(0.5, duration / max(1, len(tokens)))
+    return [{"word": t.strip(".,!?\"'"), "start": round(i * (step + 0.05), 2), "end": round(i * (step + 0.05) + step, 2)}
+            for i, t in enumerate(tokens)]
 
-    # Fetch user's custom Groq API Key and Agent ID
-    groq_api_key = None
-    agent_id = None
-    if supabase is not None and user_id:
+
+def _subtitles(ctx: JobContext, seg: dict[str, Any], raw: Path, work: Path) -> list[dict[str, Any]]:
+    if whisper.available():
         try:
-            agent_res = supabase.table("super_agents").select("id, groq_api_key").eq("user_id", user_id).execute()
-            if agent_res.data:
-                groq_api_key = agent_res.data[0].get("groq_api_key")
-                agent_id = agent_res.data[0].get("id")
-        except Exception as e:
-            logger.warning(f"Failed to fetch user's agent info: {e}")
-
-    has_groq = bool(groq_api_key and groq_api_key != "your_groq_api_key")
-
-    # Fetch Brand Template settings for the agent
-    brand_template_settings = None
-    if supabase is not None and agent_id:
-        try:
-            bt_res = supabase.table("brand_templates").select("caption_settings").eq("agent_id", agent_id).execute()
-            if bt_res.data and bt_res.data[0].get("caption_settings"):
-                brand_template_settings = bt_res.data[0].get("caption_settings")
-        except Exception as e:
-            logger.warning(f"Failed to fetch brand templates: {e}")
+            audio = ffmpeg_ops.extract_audio_mp3(raw, work / "audio.mp3", ctx.cancel)
+            words = whisper.words_from_payload(whisper.transcribe(audio, words=True))
+            if words:
+                return words
+        except Cancelled:
+            raise
+        except Exception as exc:
+            ctx.error("processing", f"Whisper gagal untuk klip {seg['start_time']:.0f}s, memakai transkrip: {exc}")
+    words = words_from_transcript(seg["youtube_id"], seg["start_time"], seg["end_time"])
+    return words or mock_words(seg.get("hook_text") or "", seg["duration_seconds"])
 
 
-    processed_clips = []
-    video_types = state.get("video_types", ["talking_head"])
-    video_type = video_types[0] if video_types else "talking_head"
+def process_segment(ctx: JobContext, seg: dict[str, Any]) -> dict[str, Any]:
+    clip_id = seg["segment_id"]
+    paths = get_paths()
+    work = ctx.cache_dir / clip_id
+    work.mkdir(parents=True, exist_ok=True)
+    out_dir = paths.clip_dir(ctx.agent_slug, clip_id)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    raw = out_dir / "raw.mp4"
+    thumb = out_dir / "thumb.jpg"
+    try:
+        return _process(ctx, seg, clip_id, work, raw, thumb)
+    except BaseException:
+        # Never leave half-written media behind for a clip that has no document
+        if not get_db().clips.find_one({"_id": clip_id}, {"_id": 1}):
+            shutil.rmtree(out_dir, ignore_errors=True)
+        raise
 
-    import concurrent.futures
 
-    youtube_id = viral_segments[0].get("youtube_id")
-    if not youtube_id:
-        error_msg = "No youtube_id found in segments."
-        logger.error(error_msg)
-        return {"errors": state.get("errors", []) + [error_msg], "current_step": "processing", "progress_pct": 80.0}
-
-    def process_single_clip(i, segment):
-        clip_uuid = str(uuid.uuid4())
-        logger.info(f"Processing clip {i+1}/{len(viral_segments)} (ID: {clip_uuid})")
-        
-        # --- 1. CLIP & CROP ---
-        local_video = os.path.join(settings.TEMP_DIR, f"{clip_uuid}.mp4").replace("\\", "/")
-        local_thumb = os.path.join(settings.TEMP_DIR, f"{clip_uuid}.png").replace("\\", "/")
-        
-        success = crop_local_segment(
-            youtube_id=youtube_id,
-            start_time=segment["start_time"],
-            end_time=segment["end_time"],
-            output_path=local_video,
-            thumbnail_path=local_thumb,
-            video_type=video_type
-        )
-        
-        if not success:
-            logger.error(f"❌ [GAGAL] Sistem gagal memotong klip {i+1} (Mulai: {segment['start_time']}s - Selesai: {segment['end_time']}s). Silakan cek log FFmpeg di atas untuk detail error.")
-            return None
-            
-        logger.info(f"✅ [SUKSES] Sistem berhasil memotong dan merender klip {i+1} (ID: {clip_uuid})")
-
-        # --- 2. UPLOAD TO STORAGE ---
-        video_storage_path = f"{user_id}/{clip_uuid}.mp4"
-        thumb_storage_path = f"{user_id}/{clip_uuid}.png"
-        uploaded_video_url = None
-        uploaded_thumb_url = None
-        
-        if supabase is not None:
-            import time
-            from backend.core.storage import upload_to_r2
-            
-            # Robust uploader with retry logic
-            def upload_with_retry(local_path, storage_path, content_type, max_retries=3):
-                for attempt in range(max_retries):
-                    try:
-                        # upload_to_r2 internally uses boto3 which is thread-safe
-                        public_url = upload_to_r2(local_path, storage_path, content_type)
-                        if public_url:
-                            return public_url
-                        else:
-                            raise Exception("upload_to_r2 returned None")
-                    except Exception as e:
-                        if attempt == max_retries - 1:
-                            logger.error(f"Failed to upload {local_path} after {max_retries} attempts. Error: {str(e)}")
-                            return None
-                        logger.warning(f"Upload failed for {local_path}. Retrying in {2 ** attempt}s... ({str(e)})")
-                        time.sleep(2 ** attempt)
-                return None
-
-            uploaded_video_url = upload_with_retry(local_video, video_storage_path, "video/mp4")
-            uploaded_thumb_url = upload_with_retry(local_thumb, thumb_storage_path, "image/png")
-            
-            if not uploaded_video_url or not uploaded_thumb_url:
-                logger.warning("One or more assets failed to upload. The UI may fallback to local placeholders.")
-
-        # --- 3. SUBTITLE GENERATION (WHISPER) ---
-        hook_text = segment.get("hook_text", "Here's what nobody tells you about AI right now.")
-        duration = segment.get("duration_seconds", 45.0)
-        words_timestamps = []
-
-        if has_groq and supabase is not None and uploaded_video_url:
-            try:
-                from groq import Groq
-                
-                logger.info("Extracting audio and calling Whisper transcription API...")
-                
-                # Use local video file for transcription processing to avoid FFmpeg HTTPS issues
-                video_url = local_video
-                
-                os.makedirs(settings.TEMP_DIR, exist_ok=True)
-                temp_audio = os.path.join(settings.TEMP_DIR, f"temp_{clip_uuid}_audio.mp3")
-                ffmpeg_cmd = [
-                    settings.FFMPEG_PATH, "-y", "-i", video_url,
-                    "-vn", "-acodec", "libmp3lame", "-q:a", "2", temp_audio
-                ]
-                subprocess.run(ffmpeg_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                
-                client = Groq(api_key=groq_api_key)
-                with open(temp_audio, "rb") as f:
-                    transcription = client.audio.transcriptions.create(
-                        file=(os.path.basename(temp_audio), f.read()),
-                        model=settings.WHISPER_MODEL,
-                        response_format="verbose_json",
-                        timestamp_granularities=["word", "segment"],
-                    )
-                
-                if os.path.exists(temp_audio):
-                    os.remove(temp_audio)
-                
-                if hasattr(transcription, "model_dump") and callable(getattr(transcription, "model_dump")):
-                    trans_data = getattr(transcription, "model_dump")()
-                else:
-                    trans_data = transcription
-                    
-                if isinstance(trans_data, str):
-                    import json
-                    trans_data = json.loads(trans_data)
-                
-                if isinstance(trans_data, dict) and "words" in trans_data and trans_data["words"]:
-                    words_timestamps = trans_data["words"]
-                elif isinstance(trans_data, dict) and "segments" in trans_data and trans_data["segments"]:
-                    for seg in trans_data["segments"]:
-                        seg_start = seg.get("start", 0.0)
-                        seg_end = seg.get("end", seg_start + 1.0)
-                        seg_text = seg.get("text", "").strip()
-                        seg_words = seg_text.split()
-                        
-                        if not seg_words: continue
-                            
-                        time_per_word = (seg_end - seg_start) / len(seg_words)
-                        current_t = seg_start
-                        
-                        for w in seg_words:
-                            words_timestamps.append({
-                                "word": w, "start": round(current_t, 2), "end": round(current_t + time_per_word, 2), "confidence": 0.99
-                            })
-                            current_t += time_per_word
-                else:
-                    raw_text = getattr(transcription, "text", hook_text) if not isinstance(trans_data, dict) else trans_data.get("text", hook_text)
-                    words_timestamps = generate_mock_word_level_subtitles(str(raw_text), duration)
-                
-                logger.info(f"Generated {len(words_timestamps)} word timestamps via Whisper")
-            except Exception as e:
-                logger.error(f"Whisper STT failed: {str(e)}. Generating mock subtitles.")
-                words_timestamps = generate_mock_word_level_subtitles(hook_text, duration)
+def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw: Path, thumb: Path) -> dict[str, Any]:
+    paths = get_paths()
+    try:
+        src = ytdlp.download_section(seg["youtube_id"], seg["start_time"], seg["end_time"], work / "src.mp4", ctx.cancel)
+        ctx.check()
+        tracked = work / "tracked.mp4"
+        if process_auto_tracking_video(str(src), str(tracked), ctx.cancel):
+            ffmpeg_ops.finish_vertical(tracked, src, raw, ctx.cancel)
         else:
-            words_timestamps = generate_mock_word_level_subtitles(hook_text, duration)
+            ctx.error("processing", f"Face tracking gagal untuk klip {seg['start_time']:.0f}s, memakai center crop")
+            ffmpeg_ops.center_crop_vertical(src, raw, ctx.cancel)
+        ctx.check()
+        duration = ffmpeg_ops.probe_duration(raw) or seg["duration_seconds"]
+        ffmpeg_ops.thumbnail(raw, thumb, duration / 2, ctx.cancel)
+        words = _subtitles(ctx, seg, raw, work)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
-        # Style config
-        # We save an empty dict so the clip dynamically inherits from brand_templates 
-        # unless explicitly overridden in the editor.
-        default_style = {}
+    now = utcnow()
+    doc = ClipDoc(
+        _id=clip_id,
+        agent_id=ctx.agent_id,
+        job_id=ctx.id,
+        source_video_id=seg.get("source_video_id"),
+        youtube_id=seg["youtube_id"],
+        start_time=seg["start_time"],
+        end_time=seg["end_time"],
+        duration_seconds=round(float(duration), 2),
+        viral_score=seg.get("viral_score", 0),
+        hook_text=seg.get("hook_text", ""),
+        tags=seg.get("tags", []),
+        rationale=seg.get("rationale", ""),
+        files={
+            "raw": paths.to_relative(raw),
+            "final": None,
+            "thumbnail": paths.to_relative(thumb) if thumb.exists() else None,
+        },
+        subtitle={"words": words},
+        subtitle_style={},
+        status="ready",
+        created_at=now,
+        updated_at=now,
+    ).to_mongo()
+    db = get_db()
+    existing = db.clips.find_one({"_id": clip_id}, {"created_at": 1})
+    if existing:
+        doc["created_at"] = existing.get("created_at", now)
+    db.clips.replace_one({"_id": clip_id}, doc, upsert=True)
+    return doc
 
-        subtitle_payload = {
-            "clip_id": clip_uuid,
-            "words": words_timestamps
-        }
 
-        # --- 4. INSERT TO DATABASE ---
-        clip_data = {
-            "id": clip_uuid,
-            "source_video_id": segment.get("source_video_id"),
-            "user_id": ensure_uuid(user_id),
-            "start_time": segment["start_time"],
-            "end_time": segment["end_time"],
-            "duration_seconds": segment["duration_seconds"],
-            "viral_score": segment["viral_score"],
-            "hook_text": segment["hook_text"],
-            "tags": segment["tags"],
-            "rationale": segment["rationale"],
-            "storage_path": uploaded_video_url if uploaded_video_url else local_video,
-            "thumbnail_path": uploaded_thumb_url if uploaded_thumb_url else local_thumb,
-            "subtitle_data": subtitle_payload,
-            "subtitle_style": default_style,
-            "status": "ready" # Instantly ready!
-        }
-        
-        if supabase is not None:
+def run(ctx: JobContext, segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    from backend.core.settings_store import get_settings
+
+    db = get_db()
+    done = set((ctx.job.get("checkpoint") or {}).get("done_segment_ids") or [])
+    results: list[dict[str, Any]] = []
+    todo = []
+    for seg in segments:
+        if seg["segment_id"] in done:
+            clip = db.clips.find_one({"_id": seg["segment_id"]})
+            if clip:
+                results.append(clip)
+                continue
+        todo.append(seg)
+
+    total = len(segments)
+    completed = len(results)
+    lock = threading.Lock()
+    ctx.progress(40 + 55 * completed / max(1, total), step="processing",
+                 message=f"Memproses {len(todo)} klip…" if todo else None)
+    if not todo:
+        return results
+
+    workers = max(1, min(len(todo), int(get_settings()["processing"]["max_workers"])))
+    failures: list[str] = []
+
+    def work(seg: dict[str, Any]) -> dict[str, Any] | None:
+        nonlocal completed
+        ctx.check()
+        try:
+            clip = process_segment(ctx, seg)
+        except Cancelled:
+            raise
+        except Exception as exc:
+            logger.exception("Clip %s failed", seg["segment_id"])
+            msg = f"Klip {seg['start_time']:.0f}–{seg['end_time']:.0f}s ({seg['youtube_id']}) gagal: {exc}"
+            ctx.error("processing", msg)
+            with lock:
+                failures.append(msg)
+            return None
+        ctx.mark_segment_done(seg["segment_id"])
+        with lock:
+            completed += 1
+            pct = 40 + 55 * completed / max(1, total)
+        ctx.progress(pct, inc_processed=1, message=f"Klip {completed}/{total} selesai")
+        events.publish({"type": "clip.created", "id": clip["_id"], "job_id": ctx.id, "agent_id": ctx.agent_id})
+        return clip
+
+    pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix=f"clip-{ctx.id[:8]}")
+    try:
+        futures = [pool.submit(work, s) for s in todo]
+        for f in as_completed(futures):
             try:
-                res = supabase.table("clips").insert(clip_data).execute()
-                if res.data:
-                    clip_data = res.data[0]
-            except Exception as e:
-                logger.error(f"Failed to save fully processed clip record to DB: {str(e)}")
+                clip = f.result()
+            except Cancelled:
+                ctx.cancel.cancel(ctx.cancel.reason)
+                raise
+            if clip:
+                results.append(clip)
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
 
-        processed_clips.append(clip_data)
-
-        if supabase is not None and job_id:
-            try:
-                supabase.table("discovery_jobs").update({"processed_scenes": len(processed_clips)}).eq("id", job_id).execute()
-            except Exception as e:
-                logger.warning(f"Failed to update processed_scenes in discovery_jobs: {str(e)}")
-
-        # Clean up local video files now that everything is done and uploaded
-        if uploaded_video_url and os.path.exists(local_video):
-            os.remove(local_video)
-        if uploaded_thumb_url and os.path.exists(local_thumb):
-            os.remove(local_thumb)
-            
-        return clip_data
-
-    # Use ThreadPoolExecutor to run up to MAX_CONCURRENT_JOBS in parallel
-    max_workers = min(len(viral_segments), getattr(settings, "MAX_CONCURRENT_JOBS", 3))
-    logger.info(f"Starting parallel processing with {max_workers} workers...")
-    
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = []
-        for i, segment in enumerate(viral_segments):
-            futures.append(executor.submit(process_single_clip, i, segment))
-            
-        for future in concurrent.futures.as_completed(futures):
-            try:
-                future.result()
-            except Exception as exc:
-                logger.error(f"Clip processing generated an exception: {exc}")
-                
-    # CLEANUP PHASE: Temporary clip files are already removed inside crop_local_segment
-
-    logger.info(f"Processor Agent completed. Fully processed {len(processed_clips)} vertical clips with subtitles.")
-    
-    # ENFORCE CLIP LIMIT (Cleanup old clips)
-    if supabase is not None and user_id:
-        from backend.core.cleanup import enforce_clip_limit
-        import threading
-        # Run cleanup in a background thread to not block the current flow
-        threading.Thread(target=enforce_clip_limit, args=(user_id, supabase)).start()
-        
-    logger.info("=" * 60)
-    logger.info(f"✅ [END] PROCESSOR AGENT (Job: {job_id})")
-    logger.info("=" * 60)
-    
-    return {
-        "processed_clips": processed_clips,
-        "subtitled_clips": processed_clips, # Both are identical now
-        "current_step": "processing",
-        "progress_pct": 80.0
-    }
+    ctx.check()
+    if not results:
+        raise PipelineError(failures[0] if failures else "Tidak ada klip yang berhasil diproses")
+    return results
