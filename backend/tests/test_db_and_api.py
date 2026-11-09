@@ -219,10 +219,18 @@ def test_settings_roundtrip(client):
     assert client.put("/api/settings", json={"processing": {"max_workers": 99}}).status_code == 400
 
 
-def test_secrets_are_write_only(client):
+def test_secret_values_are_only_returned_on_reveal(client):
     assert client.put("/api/secrets/groq_api_key", json={"value": "gsk_abcdefghijklmnop"}).status_code == 200
     body = client.get("/api/secrets").text
     assert "gsk_" not in body and '"groq_api_key":true' in body
+
+    r = client.post("/api/secrets/groq_api_key/reveal")
+    assert r.status_code == 200 and r.json() == {"value": "gsk_abcdefghijklmnop"}
+    assert r.headers["cache-control"] == "no-store"
+    assert client.post("/api/secrets/llm_api_key/reveal").status_code == 404  # not set
+    assert client.post("/api/secrets/db_password/reveal").status_code == 404  # not a public secret
+    r = client.post("/api/secrets/groq_api_key/reveal", headers={"Authorization": "Bearer wrong"})
+    assert r.status_code == 401 and "gsk_" not in r.text
 
 
 def test_subtitle_update_and_effective_style(client, db):

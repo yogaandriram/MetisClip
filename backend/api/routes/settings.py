@@ -1,9 +1,9 @@
-"""Non-secret settings and write-only secrets."""
+"""Non-secret settings and secrets (a stored value is only returned by the explicit reveal route)."""
 from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, Response
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -79,6 +79,17 @@ def _test(name: str, value: str | None) -> dict:
 
         ok, msg = test_key(key)
     return {"ok": ok, "message": msg}
+
+
+@router.post("/api/secrets/{name}/reveal")
+def reveal_secret(name: str, response: Response):
+    """The stored key, for the eye icon in Pengaturan / Setup Wizard (the user may view their own keys)."""
+    _check_name(name)
+    value = sec.get_secret(name)
+    if not value:
+        raise http_error(404, "API key ini belum diisi")
+    response.headers["Cache-Control"] = "no-store"
+    return {"value": value}
 
 
 @router.post("/api/secrets/{name}/test")

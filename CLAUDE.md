@@ -216,7 +216,7 @@ The tables above describe the web build. On this branch:
 - Renderer settings: `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`. A strict CSP allows `connect-src` only to the engine. The preload API is a small, explicit allow-list.
 - **Nothing shipped is secret.** The installer must not contain a Supabase service-role key, R2 keys or any other server credential.
 - File paths received from the renderer are resolved and checked to stay inside the library, cache or user-chosen export folders (no path traversal). `shell.openPath` and `showItemInFolder` go through IPC with the same check.
-- Secrets never appear in the DB, logs, crash reports or API responses. The API only answers `{ "is_set": true }`.
+- Secrets never appear in the DB, logs or crash reports. `GET /api/secrets` only answers whether each key is set. The stored value is returned only by `POST /api/secrets/{name}/reveal`, when the user clicks the eye icon of an API key field (owner decision, 2026-11-09: users can view their own keys); like every route it needs the per-launch token, and the response is `Cache-Control: no-store`.
 
 ---
 
@@ -607,7 +607,8 @@ Base URL: `http://127.0.0.1:{port}`. Every request carries `Authorization: Beare
 | GET | `/api/system/backups` | List existing backups |
 | GET / PUT | `/api/settings` | Non-secret settings (§8.1) |
 | GET | `/api/secrets` | Which secrets are set (booleans only) |
-| PUT / DELETE | `/api/secrets/{name}` | Write-only secret storage (keyring) |
+| PUT / DELETE | `/api/secrets/{name}` | Secret storage (keyring) |
+| POST | `/api/secrets/{name}/reveal` | The stored value, for the eye icon in Pengaturan and the Setup Wizard |
 | POST | `/api/secrets/{name}/test` | Validate a key (cheap LLM call with that provider's model, or a Whisper ping) |
 | POST | `/api/llm/models` | Text models a provider offers for a key (`{provider, value?, base_url?}`), for the model picker |
 | POST | `/internal/shutdown` | Graceful stop (main process only) |

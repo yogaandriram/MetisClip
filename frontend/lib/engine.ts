@@ -511,6 +511,8 @@ export const api = {
     status: () => request<{ secrets: Record<SecretName, boolean> }>('GET', '/api/secrets'),
     set: (name: SecretName, value: string) => request<{ ok: true }>('PUT', `/api/secrets/${name}`, { body: { value } }),
     remove: (name: SecretName) => request<{ ok: true }>('DELETE', `/api/secrets/${name}`),
+    /** The stored key itself, for the eye icon (status() only says whether one is set) */
+    reveal: (name: SecretName) => request<{ value: string }>('POST', `/api/secrets/${name}/reveal`),
     /** Tests `value` if given, otherwise the stored secret */
     test: (name: SecretName, value?: string) => request<{ ok: boolean; message: string }>('POST', `/api/secrets/${name}/test`, { body: value ? { value } : {} }),
   },

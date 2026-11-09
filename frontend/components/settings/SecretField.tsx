@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { CheckCircle2, XCircle, KeyRound } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api, type SecretName } from '@/lib/engine'
@@ -15,7 +15,7 @@ interface SecretFieldProps {
   description?: React.ReactNode
   /** Whether a value is stored in the engine's secret store */
   configured: boolean
-  /** Controlled input value (never pre-filled with the stored secret) */
+  /** Controlled input value: a new key being typed, or the stored key while it is shown */
   value: string
   onChange: (value: string) => void
   /** Called after a successful save/remove with the new configured state */
@@ -25,19 +25,65 @@ interface SecretFieldProps {
   allowRemove?: boolean
 }
 
-/** API key input: stored values are never shown, only "Tersimpan". */
+/** API key input. The stored key stays hidden until the user clicks the eye icon. */
 export function SecretField({ name, label, description, configured, value, onChange, onConfiguredChange, beforeTest, allowRemove = true }: SecretFieldProps) {
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [removing, setRemoving] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [visible, setVisible] = useState(false)
+  // The stored key fetched for the eye icon (null while hidden)
+  const [revealed, setRevealed] = useState<string | null>(null)
+  const [revealing, setRevealing] = useState(false)
+
+  // Leaving the field (provider switch, page change) drops a shown key from the parent's form state
+  const live = useRef({ value, revealed, onChange })
+  live.current = { value, revealed, onChange }
+  useEffect(
+    () => () => {
+      const l = live.current
+      if (l.revealed !== null && l.value === l.revealed) l.onChange('')
+    },
+    [],
+  )
+
+  const hide = () => {
+    setVisible(false)
+    if (revealed !== null && value === revealed) onChange('')
+    setRevealed(null)
+  }
+
+  const toggleVisible = async () => {
+    if (revealing) return
+    if (visible) return hide()
+    if (configured && !value.trim()) {
+      setRevealing(true)
+      try {
+        const { value: stored } = await api.secrets.reveal(name)
+        setRevealed(stored)
+        onChange(stored)
+      } catch (err) {
+        toast.error(errorMessage(err))
+        return
+      } finally {
+        setRevealing(false)
+      }
+    }
+    setVisible(true)
+  }
+
+  const reset = () => {
+    setVisible(false)
+    setRevealed(null)
+    onChange('')
+  }
 
   const save = async () => {
     if (!value.trim()) return
     setSaving(true)
     try {
       await api.secrets.set(name, value.trim())
-      onChange('')
+      reset()
       onConfiguredChange(true)
       setResult(null)
       toast.success(`${label} disimpan`)
@@ -65,6 +111,7 @@ export function SecretField({ name, label, description, configured, value, onCha
     setRemoving(true)
     try {
       await api.secrets.remove(name)
+      reset()
       onConfiguredChange(false)
       setResult(null)
       toast.success(`${label} dihapus`)
@@ -95,16 +142,19 @@ export function SecretField({ name, label, description, configured, value, onCha
           type="password"
           autoComplete="off"
           spellCheck={false}
-          placeholder={configured ? '•••••••• (isi untuk mengganti)' : 'Tempel API key di sini'}
+          placeholder={configured ? '•••••••• (klik ikon mata untuk melihat, atau isi untuk mengganti)' : 'Tempel API key di sini'}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           icon={<KeyRound size={16} />}
           containerStyle={{ flex: 1 }}
+          className={visible ? 'mc-mono' : undefined}
+          revealed={visible}
+          onRevealToggle={toggleVisible}
         />
         <Button type="button" variant="secondary" size="sm" onClick={test} loading={testing} disabled={!configured && !value.trim()}>
           Tes
         </Button>
-        <Button type="button" variant="primary" size="sm" onClick={save} loading={saving} disabled={!value.trim()}>
+        <Button type="button" variant="primary" size="sm" onClick={save} loading={saving} disabled={!value.trim() || value.trim() === revealed}>
           Simpan
         </Button>
         {allowRemove && configured && (
