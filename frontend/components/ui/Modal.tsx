@@ -65,7 +65,6 @@ export const Modal: React.FC<ModalProps> = ({
             onClick={onClose}
             style={{
               background: 'transparent',
-              border: 'none',
               cursor: 'pointer',
               color: 'var(--text-muted)',
               transition: 'var(--transition-fast)',

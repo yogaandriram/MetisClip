@@ -1,259 +1,229 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
-import { Download, Youtube, Instagram, Share2, Activity, Play, CheckCircle, AlertCircle, Eye } from 'lucide-react'
+import React, { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { Activity, Eye, Film, Flame, KeyRound, Play, Sparkles, ArrowRight } from 'lucide-react'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Badge } from '@/components/ui/Badge'
+import { Button } from '@/components/ui/Button'
+import { Skeleton } from '@/components/ui/Skeleton'
+import { ProgressBar } from '@/components/ui/ProgressBar'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { NoAgentState } from '@/components/NoAgentState'
 import { useAgent } from '@/contexts/AgentContext'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { useEngine } from '@/contexts/EngineContext'
+import { useEngineEvents } from '@/hooks/useEngineEvents'
+import { api, type Clip, type DashboardStats, type Job, type SecretName } from '@/lib/engine'
+import { mediaUrl } from '@/lib/media'
+import { providerInfo } from '@/lib/llmProviders'
+import { JOB_STATUS, errorMessage, formatClock, formatCompactNumber, formatDateTime, jobSource, jobStepLabel } from '@/lib/format'
 
 export default function DashboardOverview() {
+  const router = useRouter()
   const { activeAgent } = useAgent()
-  const supabase = createClientComponentClient()
+  const { epoch } = useEngine()
+  const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [jobs, setJobs] = useState<Job[] | null>(null)
+  const [clips, setClips] = useState<Clip[] | null>(null)
+  const [missingKeys, setMissingKeys] = useState<SecretName[]>([])
+  const [llmLabel, setLlmLabel] = useState('LLM')
+  const [error, setError] = useState<string | null>(null)
 
-  // Social Connections State
-  const [youtubeAccount, setYoutubeAccount] = useState<string | null>(null)
-  const [tiktokAccount, setTiktokAccount] = useState<string | null>(null)
-  const [instagramAccount, setInstagramAccount] = useState<string | null>(null)
-
-  // Stats State
-  const [stats, setStats] = useState({
-    videosProcessed: 0,
-    clipsGenerated: 0,
-    potentialViews: 0
-  })
-  const [isLoadingStats, setIsLoadingStats] = useState(false)
+  const load = useCallback(async (agentId: string) => {
+    setError(null)
+    try {
+      const [s, j, c] = await Promise.all([api.dashboard.stats(agentId), api.jobs.list({ agent_id: agentId, limit: 5 }), api.clips.list({ agent_id: agentId })])
+      setStats(s)
+      setJobs(j.jobs.slice(0, 5))
+      setClips(c.clips.slice(0, 6))
+    } catch (err) {
+      setError(errorMessage(err, 'Gagal memuat ringkasan'))
+    }
+  }, [])
 
   useEffect(() => {
-    if (activeAgent) {
-      checkSocialConnections(activeAgent.id)
-      fetchStats(activeAgent.id)
-    } else {
-      setYoutubeAccount(null)
-      setTiktokAccount(null)
-      setInstagramAccount(null)
-      setStats({ videosProcessed: 0, clipsGenerated: 0, potentialViews: 0 })
+    setStats(null)
+    setJobs(null)
+    setClips(null)
+    if (activeAgent) load(activeAgent.id)
+  }, [activeAgent, load, epoch])
+
+  useEffect(() => {
+    Promise.all([api.secrets.status(), api.settings.get()])
+      .then(([{ secrets }, { settings }]) => {
+        const llmKey = providerInfo(settings.llm.provider).secret
+        setLlmLabel(providerInfo(settings.llm.provider).label)
+        setMissingKeys(([llmKey, 'groq_api_key'] as SecretName[]).filter((k) => !secrets[k]))
+      })
+      .catch(() => setMissingKeys([]))
+  }, [epoch])
+
+  useEngineEvents((e) => {
+    if (!activeAgent) return
+    if (e.type === 'job.progress') {
+      setJobs((prev) => prev?.map((j) => (j.id === e.id ? { ...j, status: e.status, current_step: e.current_step, progress_pct: e.progress_pct, total_scenes: e.total_scenes, processed_scenes: e.processed_scenes } : j)) ?? prev)
+    } else if (e.type === 'job.status' || e.type === 'clip.created' || e.type === 'clip.deleted') {
+      if (e.type === 'clip.deleted' || e.agent_id === activeAgent.id) load(activeAgent.id)
     }
-  }, [activeAgent])
+  })
 
-  const checkSocialConnections = async (agentId: string) => {
-    try {
-      const { data: connections, error } = await supabase
-        .from('agent_social_connections')
-        .select('*')
-        .eq('agent_id', agentId)
-
-      if (error) {
-        console.error("Gagal mengecek status sosial", error)
-        return
-      }
-
-      const yt = connections?.find(c => c.platform.toLowerCase() === 'youtube')
-      setYoutubeAccount(yt ? (yt.platform_account_name || yt.platform_account_id) : null)
-
-      const tt = connections?.find(c => c.platform.toLowerCase() === 'tiktok')
-      setTiktokAccount(tt ? (tt.platform_account_name || tt.platform_account_id) : null)
-
-      const ig = connections?.find(c => c.platform.toLowerCase() === 'instagram')
-      setInstagramAccount(ig ? (ig.platform_account_name || ig.platform_account_id) : null)
-
-    } catch (err) {
-      console.error("Gagal mengecek status", err)
-    }
+  if (!activeAgent) {
+    return (
+      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+        <PageHeader title="Beranda" subtitle="Ringkasan aktivitas agentic AI." />
+        <NoAgentState what="Beranda" />
+      </div>
+    )
   }
 
-  const fetchStats = async (agentId: string) => {
-    setIsLoadingStats(true)
-    try {
-      const res = await fetch(`/api/dashboard/stats?agentId=${agentId}`)
-      const data = await res.json()
-      if (!data.error) {
-        setStats({
-          videosProcessed: data.videosProcessed || 0,
-          clipsGenerated: data.clipsGenerated || 0,
-          potentialViews: data.potentialViews || 0
-        })
-      }
-    } catch (err) {
-      console.error("Gagal fetch stats", err)
-    }
-    setIsLoadingStats(false)
-  }
-
-  // Helper formatting function
-  const formatNumber = (num: number) => {
-    if (num >= 1000) return (num / 1000).toFixed(1) + 'k'
-    return num.toString()
-  }
+  const statCards = [
+    { label: 'Potensi Views', value: stats ? formatCompactNumber(stats.potentialViews) : null, icon: Eye, color: 'var(--accent)', bg: 'rgba(7, 202, 107, 0.1)', note: 'Estimasi dari skor viral klip' },
+    { label: 'Video Diproses', value: stats ? formatCompactNumber(stats.videosProcessed) : null, icon: Play, color: 'var(--primary)', bg: 'rgba(24, 86, 255, 0.1)', note: 'Total video sumber' },
+    { label: 'Clip Dihasilkan', value: stats ? formatCompactNumber(stats.clipsGenerated) : null, icon: Film, color: 'var(--warning)', bg: 'rgba(232, 149, 88, 0.1)', note: 'Total klip vertikal' },
+  ]
 
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '30px' }}>
-      <div>
-        <h1 style={{ fontSize: '32px', fontWeight: 800, marginBottom: '8px' }}>Beranda</h1>
-        <p style={{ color: 'var(--text-dim)', fontSize: '16px' }}>
-          {activeAgent 
-            ? `Ringkasan aktivitas dan status akun untuk ${activeAgent.name}.`
-            : 'Ringkasan aktivitas agentic AI. Pilih Super Agent terlebih dahulu.'}
-        </p>
+      <PageHeader
+        title="Beranda"
+        subtitle={`Ringkasan aktivitas untuk ${activeAgent.name}.`}
+        actions={
+          <Link href="/discover/" style={{ textDecoration: 'none' }}>
+            <Button variant="primary" icon={<Sparkles size={16} />}>
+              Cari video baru
+            </Button>
+          </Link>
+        }
+      />
+
+      {missingKeys.length > 0 && (
+        <GlassCard hoverEffect={false} padding="16px 20px" style={{ border: '1px solid var(--warning)', display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+          <KeyRound size={18} color="var(--warning)" />
+          <span style={{ flex: 1, fontSize: '14px', minWidth: '240px' }}>
+            {missingKeys[0] === 'groq_api_key' ? 'API key Groq' : `API key ${llmLabel}`}
+            {missingKeys.length > 1 ? ' dan API key Groq' : ''} belum diisi. Pipeline AI tidak akan berjalan tanpa key ini.
+          </span>
+          <Link href="/settings/" className="mc-link-button" style={{ textDecoration: 'none' }}>
+            Buka Pengaturan
+          </Link>
+        </GlassCard>
+      )}
+
+      {error && (
+        <GlassCard hoverEffect={false} padding="16px 20px" style={{ border: '1px solid var(--danger)', display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <span style={{ flex: 1, fontSize: '14px' }}>{error}</span>
+          <button className="mc-link-button" onClick={() => load(activeAgent.id)}>
+            Coba lagi
+          </button>
+        </GlassCard>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px' }}>
+        {statCards.map((card) => {
+          const Icon = card.icon
+          return (
+            <GlassCard key={card.label} glow>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '15px' }}>
+                <span style={{ color: 'var(--text-dim)', fontWeight: 500 }}>{card.label}</span>
+                <div style={{ background: card.bg, padding: '8px', borderRadius: '8px', color: card.color }}>
+                  <Icon size={20} />
+                </div>
+              </div>
+              {card.value === null ? <Skeleton height={40} width={120} /> : <div style={{ fontSize: '36px', fontWeight: 800 }}>{card.value}</div>}
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <Activity size={12} />
+                <span>{card.note}</span>
+              </div>
+            </GlassCard>
+          )
+        })}
       </div>
 
-      {/* Stats Row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px', opacity: isLoadingStats ? 0.5 : 1 }}>
-        <GlassCard glow={true}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '15px' }}>
-            <span style={{ color: 'var(--text-dim)', fontWeight: 500 }}>Potensi Views</span>
-            <div style={{ 
-              background: 'rgba(6, 214, 160, 0.1)', 
-              padding: '8px', 
-              borderRadius: '8px',
-              color: 'var(--success)'
-            }}>
-              <Eye size={20} />
-            </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '24px', alignItems: 'start' }}>
+        <section>
+          <SectionHeader title="Job terbaru" href="/jobs/" />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {jobs === null ? (
+              Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} height={76} />)
+            ) : jobs.length === 0 ? (
+              <EmptyLine text="Belum ada job. Mulai dari menu Cari Video." />
+            ) : (
+              jobs.map((job) => {
+                const s = JOB_STATUS[job.status]
+                const title = jobSource(job).text
+                return (
+                  <GlassCard key={job.id} padding="16px" onClick={() => router.push('/jobs/')} style={{ cursor: 'pointer' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '14px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title || 'Job'}</span>
+                      <Badge variant={s.variant} glow={false}>
+                        {s.label}
+                      </Badge>
+                    </div>
+                    {job.status === 'running' || job.status === 'pending' ? (
+                      <>
+                        <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginBottom: '8px' }}>{jobStepLabel(job.current_step)}</div>
+                        <ProgressBar progress={job.progress_pct} height="6px" />
+                      </>
+                    ) : (
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{formatDateTime(job.finished_at || job.created_at)}</div>
+                    )}
+                  </GlassCard>
+                )
+              })
+            )}
           </div>
-          <div style={{ fontSize: '36px', fontWeight: 800 }}>{formatNumber(stats.potentialViews)}</div>
-          <div style={{ fontSize: '12px', color: 'var(--success)', marginTop: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <Activity size={12} />
-            <span>Berdasarkan klip dihasilkan</span>
-          </div>
-        </GlassCard>
+        </section>
 
-        <GlassCard glow={true}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '15px' }}>
-            <span style={{ color: 'var(--text-dim)', fontWeight: 500 }}>Video Diproses</span>
-            <div style={{ 
-              background: 'rgba(124, 58, 237, 0.1)', 
-              padding: '8px', 
-              borderRadius: '8px',
-              color: 'var(--primary)'
-            }}>
-              <Play size={20} />
+        <section>
+          <SectionHeader title="Clip terbaru" href="/clips/" />
+          {clips === null ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} height={200} />
+              ))}
             </div>
-          </div>
-          <div style={{ fontSize: '36px', fontWeight: 800 }}>{stats.videosProcessed}</div>
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px' }}>
-            Total jobs
-          </div>
-        </GlassCard>
-
-        <GlassCard glow={true}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '15px' }}>
-            <span style={{ color: 'var(--text-dim)', fontWeight: 500 }}>Clip Dihasilkan</span>
-            <div style={{ 
-              background: 'rgba(234, 33, 67, 0.1)', 
-              padding: '8px', 
-              borderRadius: '8px',
-              color: 'var(--danger)'
-            }}>
-              <Share2 size={20} />
+          ) : clips.length === 0 ? (
+            <EmptyLine text="Belum ada clip yang dihasilkan." />
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '12px' }}>
+              {clips.map((clip) => (
+                <Link key={clip.id} href={`/clips/detail/?id=${encodeURIComponent(clip.id)}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <div style={{ position: 'relative', aspectRatio: '9 / 16', borderRadius: '12px', overflow: 'hidden', background: '#000', border: '1px solid var(--border-glass)' }}>
+                    {clip.files.thumbnail && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={mediaUrl(clip.id, 'thumbnail', clip.updated_at)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.85 }} loading="lazy" />
+                    )}
+                    <div style={{ position: 'absolute', top: '8px', left: '8px' }}>
+                      <Badge variant="accent" glow={false} icon={<Flame size={11} />}>
+                        {Math.round(clip.viral_score)}
+                      </Badge>
+                    </div>
+                    <div style={{ position: 'absolute', bottom: '8px', right: '8px', fontSize: '11px', background: 'rgba(0,0,0,0.75)', padding: '2px 6px', borderRadius: '6px' }}>
+                      {formatClock(clip.duration_seconds)}
+                    </div>
+                  </div>
+                </Link>
+              ))}
             </div>
-          </div>
-          <div style={{ fontSize: '36px', fontWeight: 800 }}>{stats.clipsGenerated}</div>
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <span>Total klip vertikal</span>
-          </div>
-        </GlassCard>
+          )}
+        </section>
       </div>
-
-      {/* Social Media Connections */}
-      <div>
-        <h2 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '20px' }}>Status Akun Sosial Media</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
-          
-          <GlassCard style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-            <div style={{
-              width: '50px',
-              height: '50px',
-              borderRadius: '12px',
-              background: 'rgba(255, 0, 0, 0.1)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}>
-              <Youtube size={24} color="#FF0000" />
-            </div>
-            <div style={{ flex: 1 }}>
-              <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '4px' }}>YouTube Shorts</h3>
-              <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                {youtubeAccount || 'Belum ditautkan'}
-              </p>
-            </div>
-            {youtubeAccount ? (
-              <Badge variant="accent" icon={<CheckCircle size={12} style={{ marginRight: '4px' }} />}>
-                Tersambung
-              </Badge>
-            ) : (
-              <Badge variant="warning" icon={<AlertCircle size={12} style={{ marginRight: '4px' }} />}>
-                Terputus
-              </Badge>
-            )}
-          </GlassCard>
-
-          <GlassCard style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-            <div style={{
-              width: '50px',
-              height: '50px',
-              borderRadius: '12px',
-              background: 'rgba(0, 0, 0, 0.2)',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: '#fff' }}>
-                <path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5" />
-              </svg>
-            </div>
-            <div style={{ flex: 1 }}>
-              <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '4px' }}>TikTok</h3>
-              <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                {tiktokAccount || 'Belum ditautkan'}
-              </p>
-            </div>
-            {tiktokAccount ? (
-              <Badge variant="accent" icon={<CheckCircle size={12} style={{ marginRight: '4px' }} />}>
-                Tersambung
-              </Badge>
-            ) : (
-              <Badge variant="warning" icon={<AlertCircle size={12} style={{ marginRight: '4px' }} />}>
-                Terputus
-              </Badge>
-            )}
-          </GlassCard>
-
-          <GlassCard style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-            <div style={{
-              width: '50px',
-              height: '50px',
-              borderRadius: '12px',
-              background: 'linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%)',
-              opacity: 0.8,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}>
-              <Instagram size={24} color="#fff" />
-            </div>
-            <div style={{ flex: 1 }}>
-              <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '4px' }}>Instagram Reels</h3>
-              <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                {instagramAccount || 'Belum ditautkan'}
-              </p>
-            </div>
-            {instagramAccount ? (
-              <Badge variant="accent" icon={<CheckCircle size={12} style={{ marginRight: '4px' }} />}>
-                Tersambung
-              </Badge>
-            ) : (
-              <Badge variant="warning" icon={<AlertCircle size={12} style={{ marginRight: '4px' }} />}>
-                Terputus
-              </Badge>
-            )}
-          </GlassCard>
-
-        </div>
-      </div>
-
     </div>
   )
+}
+
+function SectionHeader({ title, href }: { title: string; href: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+      <h2 style={{ fontSize: '18px', fontWeight: 700 }}>{title}</h2>
+      <Link href={href} className="mc-link-button" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+        Lihat semua <ArrowRight size={14} />
+      </Link>
+    </div>
+  )
+}
+
+function EmptyLine({ text }: { text: string }) {
+  return <div style={{ padding: '24px', borderRadius: '12px', border: '1px dashed var(--border-glass)', color: 'var(--text-muted)', fontSize: '14px', textAlign: 'center' }}>{text}</div>
 }

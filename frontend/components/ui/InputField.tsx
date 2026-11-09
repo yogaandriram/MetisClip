@@ -6,6 +6,9 @@ interface InputFieldProps extends React.InputHTMLAttributes<HTMLInputElement> {
   icon?: React.ReactNode
   error?: string
   containerStyle?: React.CSSProperties
+  /** Password fields: control the eye icon from outside (e.g. to fetch a stored value first) */
+  revealed?: boolean
+  onRevealToggle?: () => void
 }
 
 export const InputField: React.FC<InputFieldProps> = ({
@@ -16,9 +19,12 @@ export const InputField: React.FC<InputFieldProps> = ({
   style,
   className = '',
   type,
+  revealed,
+  onRevealToggle,
   ...props
 }) => {
-  const [showPassword, setShowPassword] = useState(false)
+  const [ownShowPassword, setShowPassword] = useState(false)
+  const showPassword = onRevealToggle ? !!revealed : ownShowPassword
   const isPasswordType = type === 'password'
   const currentType = isPasswordType ? (showPassword ? 'text' : 'password') : type
 
@@ -60,7 +66,9 @@ export const InputField: React.FC<InputFieldProps> = ({
         {isPasswordType && (
           <button
             type="button"
-            onClick={() => setShowPassword(!showPassword)}
+            onClick={() => (onRevealToggle ? onRevealToggle() : setShowPassword(!showPassword))}
+            aria-label={showPassword ? 'Sembunyikan' : 'Tampilkan'}
+            title={showPassword ? 'Sembunyikan' : 'Tampilkan'}
             style={{
               position: 'absolute',
               right: '16px',

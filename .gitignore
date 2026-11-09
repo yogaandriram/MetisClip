@@ -38,3 +38,20 @@ frontend/tmp/
 output/
 render-engine/out.mp4
 render-engine/public/tmp_videos/
+
+# Local env files (never commit secrets)
+.env.local
+**/.env.local
+
+# Desktop build artifacts
+.devdata/
+desktop/resources/bin/
+desktop/dist/
+desktop/dist-main/
+backend/build/
+backend/dist/
+render-engine/dist/
+
+# Generated
+frontend/tsconfig.tsbuildinfo
+*.tsbuildinfo

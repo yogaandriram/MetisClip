@@ -1,32 +1,33 @@
-import { Composition, getInputProps } from 'remotion';
-import { SubtitleOverlay } from './SubtitleOverlay';
+import { Composition } from 'remotion';
+import { FPS, OverlayProps, SubtitleOverlay, overlaySegments } from './SubtitleOverlay';
 
-export type MyCompositionProps = {
-  videoUrl: string;
-  words: any[];
-  style: any;
-  brandSettings?: any;
-  durationInFrames?: number;
+export type MyCompositionProps = OverlayProps;
+
+const DEFAULT_PROPS: OverlayProps = {
+  videoUrl: '',
+  words: [],
+  style: {},
+  brandSettings: {},
+  ai: {},
+  durationInFrames: 300,
 };
 
 export const RemotionRoot: React.FC = () => {
-  const props = getInputProps() as MyCompositionProps;
-  const duration = props.durationInFrames || 300;
-
   return (
     <>
       <Composition
         id="SubtitleOverlay"
         component={SubtitleOverlay}
-        durationInFrames={duration}
-        fps={30}
+        durationInFrames={300}
+        fps={FPS}
         width={1080}
         height={1920}
-        defaultProps={{
-          videoUrl: props.videoUrl || '',
-          words: props.words || [],
-          style: props.style || {},
-          brandSettings: props.brandSettings || {}
+        defaultProps={DEFAULT_PROPS}
+        // Output length = kept source ranges (silent pauses / filler words can be cut).
+        calculateMetadata={({ props }) => {
+          const { segments, sourceFrames } = overlaySegments(props, FPS);
+          const total = segments.reduce((sum, s) => sum + s.durationInFrames, 0);
+          return { durationInFrames: Math.max(1, total || sourceFrames) };
         }}
       />
     </>

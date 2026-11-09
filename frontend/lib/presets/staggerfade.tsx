@@ -1,25 +1,31 @@
 import React from 'react';
-import { SubtitlePreset, generateRoundedStroke } from './types';
+import { SubtitlePreset } from './types';
+import { Ease, interpolate, r4 } from './anim';
+import { dropShadow, keywordColor, shadows, stroke, textBase } from './style';
 
 export const staggerfadePreset: SubtitlePreset = {
   id: 'staggerfade',
   name: 'STAGGER FADE',
+  wordsPerPage: 1,
+  // Letters rise one by one; sci-fi sans in cyan
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Exo 2',
-    fontSize: 36,
+    fontSize: 42,
     fontWeight: 'Black',
+    isItalic: false,
+    isUnderline: false,
     isUppercase: true,
     fontColor: '#00CFFF',
     strokeColor: '#000000',
     strokeWidth: 0,
-    hasShadow: false,
+    hasShadow: true,
     shadowColor: '#000000',
     shadowX: 0,
-    shadowY: 0,
-    shadowBlur: 0,
-    highlightColor: baseHighlightColor || '#00CFFF',
+    shadowY: 3,
+    shadowBlur: 8,
+    highlightColor: baseHighlightColor || '#FFFFFF',
     letterSpacing: 2,
-    lineHeight: 1.2
+    lineHeight: 1.15,
   }),
   renderButton: (isSelected: boolean, onClick: () => void) => {
     const text = "STAGGER";
@@ -74,95 +80,40 @@ export const staggerfadePreset: SubtitlePreset = {
       </button>
     );
   },
-  renderPreview: ({ words, activeWordIndex, config }) => {
+  renderPreview: ({ words, activeWordIndex, time, config }) => {
+    const w = words[activeWordIndex];
+    if (!w) return null;
     const fontColor = config.fontColor || '#00CFFF';
-    const currentWord = words[activeWordIndex]?.word || '';
-    
-    // Helper to map string weights to CSS numbers
-    const getWeight = (weight: string | number | undefined) => {
-      if (typeof weight === 'number') return weight;
-      const w = (weight || '').toLowerCase();
-      if (w.includes('thin')) return 100;
-      if (w.includes('extralight')) return 200;
-      if (w.includes('light')) return 300;
-      if (w.includes('medium')) return 500;
-      if (w.includes('semibold')) return 600;
-      if (w.includes('extrabold')) return 800;
-      if (w.includes('bold')) return 700;
-      if (w.includes('black')) return 900;
-      if (w.includes('regular')) return 400;
-      return 400; // Default fallback
-    };
-    const numericWeight = getWeight(config.fontWeight);
-    
-    const baseFontSize = config.fontSize || 36;
-    const strokeWidth = config.strokeWidth || 0;
-    const strokeColor = config.strokeColor || '#000000';
-    const roundedStrokeShadow = generateRoundedStroke(strokeWidth, strokeColor, baseFontSize);
-
-    let combinedShadows = [];
-    if (config.hasShadow && config.shadowColor) {
-      const blur = config.shadowBlur ?? 0;
-      const xEm = (config.shadowX || 0) / baseFontSize;
-      const yEm = (config.shadowY || 0) / baseFontSize;
-      const blurEm = blur / baseFontSize;
-      combinedShadows.push(`${xEm}em ${yEm}em ${blurEm}em ${config.shadowColor}`);
-    }
-    if (strokeWidth > 0 && roundedStrokeShadow !== 'none') {
-      combinedShadows.push(roundedStrokeShadow);
-    }
-    const finalTextShadow = combinedShadows.length > 0 ? combinedShadows.join(', ') : 'none';
-    const letterSpacingEm = (config.letterSpacing !== undefined ? config.letterSpacing : 2) / baseFontSize;
-    
+    const color = w.keyword ? keywordColor(config, fontColor, '#FFD400') : fontColor;
+    const base = textBase(config, { letterSpacing: 2 });
+    const textShadow = shadows(stroke(config), dropShadow(config));
+    const chars = Array.from(w.word);
+    // staggerFadeAnim: each character rises 0.694em and fades in (0.3 s), one after another
+    const step = Math.min(0.06, 0.36 / Math.max(1, chars.length));
+    const t = time - w.start;
     return (
-      <>
-        <style>
-          {`
-            .stagger-container {
-              display: flex;
-              align-items: center;
-              flex-wrap: wrap;
-              justify-content: center;
-              max-width: 100%;
-              justify-content: center;
-              width: 100%;
-              padding: 20px;
-            }
-            .stagger-wrap {
-              display: flex;
-            }
-            .stagger-char {
-              display: inline-block;
-              font-family: '${config.fontFamily}', sans-serif;
-              font-weight: ${numericWeight};
-              color: ${fontColor};
-              letter-spacing: ${letterSpacingEm}em;
-              line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
-              text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
-              text-shadow: ${finalTextShadow};
-            }
-            
-            @keyframes staggerFadeAnim {
-              0%,100%{opacity:0;transform:translateY(0.694em)}
-              20%,80%{opacity:1;transform:translateY(0)}
-            }
-          `}
-        </style>
-        <div className="stagger-container">
-          <div className="stagger-wrap" key={`word-${activeWordIndex}`}>
-            {/* Split active word into characters and apply stagger delay */}
-            {currentWord.split('').map((char, index) => (
-              <span 
-                key={`char-${index}`}
-                className="stagger-char"
-                style={{ animation: `staggerFadeAnim 2s ${index * 0.12}s infinite` }}
+      <div style={{ display: 'flex', justifyContent: 'center', width: '100%', padding: '0.55em 0' }}>
+        <div style={{ display: 'flex', transform: w.keyword ? 'scale(1.1)' : undefined }}>
+          {chars.map((ch, i) => {
+            const local = t - i * step;
+            return (
+              <span
+                key={i}
+                style={{
+                  ...base,
+                  display: 'inline-block',
+                  color,
+                  textShadow,
+                  opacity: r4(interpolate(local, [0, 0.3], [0, 1], Ease.ease)),
+                  transform: `translateY(${r4(interpolate(local, [0, 0.3], [0.694, 0], Ease.ease))}em)`,
+                }}
               >
-                {char}
+                {ch}
               </span>
-            ))}
-          </div>
+            );
+          })}
         </div>
-      </>
+      </div>
     );
-  }
+  },
 };

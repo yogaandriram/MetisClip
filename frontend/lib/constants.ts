@@ -26,6 +26,4 @@ export const FONT_WEIGHTS_MAP: Record<string, string[]> = {
   'Courier New': ['Regular', 'Bold']
 };
 
-export const ASPECT_RATIOS = ['9:16', '1:1', '16:9', '4:5'];
 
-export const LAYOUT_FITS = ['Fill', 'Fit', 'Three', 'Four', 'Split'];

@@ -1,125 +1,134 @@
-import React, { useEffect, useState } from 'react';
-import { AbsoluteFill, useCurrentFrame, useVideoConfig, Video, Img, delayRender, continueRender, staticFile } from 'remotion';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  AbsoluteFill,
+  Img,
+  OffthreadVideo,
+  Series,
+  continueRender,
+  delayRender,
+  interpolate,
+  staticFile,
+  useCurrentFrame,
+  useVideoConfig,
+} from 'remotion';
+// Shared with the editor preview (preview == render). Never fork these files.
+// @ts-ignore - lives outside this package's tsconfig root
+import { CaptionLayer } from '../../frontend/lib/presets/CaptionLayer';
 // @ts-ignore
-import { presets } from '../../frontend/lib/presets/index';
+import { LogoOverlay } from '../../frontend/lib/presets/BrandOverlay';
+// @ts-ignore
+import { resolveCaptionStyle } from '../../frontend/lib/presets/defaults';
+// @ts-ignore
+import { primaryFamily } from '../../frontend/lib/presets/style';
+// @ts-ignore
+import { computeKeepSegments, frameSegments, isCut, resolveAi, sourceTimeAt } from '../../frontend/lib/presets/captions';
+// Bundled woff2 files (offline, deterministic). See scripts/gen-fonts.cjs.
+import { FONT_WEIGHTS } from './fonts';
 
-export const SubtitleOverlay: React.FC<{
+export type OverlayProps = {
   videoUrl: string;
   words: any[];
   style: any;
   brandSettings?: any;
-}> = ({ videoUrl, words, style, brandSettings }) => {
+  /** Effective AI subtitle settings (brand template ⊕ clip override). */
+  ai?: any;
+  /** Length of the SOURCE clip (raw.mp4) in frames. The output can be shorter when pauses are cut. */
+  durationInFrames?: number;
+};
+
+export const FPS = 30;
+
+/** Kept source ranges in frames for these props (also used by calculateMetadata in Root.tsx). */
+export function overlaySegments(props: OverlayProps, fps: number) {
+  const sourceFrames = Math.max(1, Math.round(Number(props.durationInFrames) || 0) || 300);
+  const style = resolveCaptionStyle(props.style || {});
+  const ai = resolveAi(props.ai);
+  const duration = sourceFrames / fps;
+  const kept = computeKeepSegments(Array.isArray(props.words) ? props.words : [], duration, ai, (style.offsetTime || 0) / 1000);
+  const segments = frameSegments(kept, fps);
+  return { segments, cut: isCut(kept, duration), sourceFrames };
+}
+
+export const SubtitleOverlay: React.FC<OverlayProps> = (props) => {
+  const { videoUrl, brandSettings } = props;
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+  const words: any[] = Array.isArray(props.words) ? props.words : [];
+  const style = useMemo(() => resolveCaptionStyle(props.style || {}), [props.style]);
+  const ai = useMemo(() => resolveAi(props.ai), [props.ai]);
+  const { segments, cut } = useMemo(() => overlaySegments(props, fps), [props, fps]);
 
-  const currentTime = frame / fps;
+  const family = primaryFamily(style.fontFamily);
 
-  const fontFamily = style.fontFamily || 'Montserrat';
-  const googleFontUrl = `https://fonts.googleapis.com/css?family=${fontFamily.replace(/ /g, '+')}:400,500,600,700,800,900&display=swap`;
-
-  const [fontLoaded, setFontLoaded] = useState(false);
-  const [handle] = useState(() => delayRender(`Loading font ${fontFamily}`));
+  // Hold the frame until the chosen family (every bundled weight) is loaded from the local bundle.
+  const [handle] = useState(() => delayRender(`Memuat font ${family}`, { timeoutInMilliseconds: 60000 }));
 
   useEffect(() => {
-    // Injeksi URL Google Font ke dalam head dokumen Remotion
-    const link = document.createElement('link');
-    link.href = googleFontUrl;
-    link.rel = 'stylesheet';
-    document.head.appendChild(link);
-    
-    // Tunggu mesin Chromium memuat font sepenuhnya
-    document.fonts.ready.then(() => {
-      // Pasang elemen hantu (invisible) untuk memaksa mesin merender font
-      const div = document.createElement('div');
-      div.style.fontFamily = `"${fontFamily}", sans-serif`;
-      div.innerText = 'Test Font Loading';
-      div.style.position = 'absolute';
-      div.style.opacity = '0';
-      document.body.appendChild(div);
-      
-      // Jeda buffer kecil untuk memastikan font sudah dipoles ke layar sebelum frame diambil
-      setTimeout(() => {
-        setFontLoaded(true);
-        continueRender(handle);
-        document.body.removeChild(div);
-      }, 800);
-    });
-  }, [fontFamily, googleFontUrl, handle]);
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      continueRender(handle);
+    };
+    const weights = FONT_WEIGHTS[family] || [400, 700];
+    const loads = weights.map((w) =>
+      document.fonts.load(`${w} 48px "${family}"`).catch((err) => {
+        console.warn(`Font ${family} ${w} gagal dimuat`, err);
+        return [];
+      }),
+    );
+    // Safety net: never block the render forever if a face is missing (falls back to sans-serif).
+    const timer = setTimeout(() => {
+      console.warn(`Font ${family} belum siap setelah 15 s, lanjut render`);
+      finish();
+    }, 15000);
+    Promise.all(loads)
+      .then(() => document.fonts.ready)
+      .then(() => {
+        clearTimeout(timer);
+        finish();
+      });
+    return () => clearTimeout(timer);
+  }, [family, handle]);
 
-  // Terapkan fitur Sinkronisasi Suara (Offset/Delay)
-  const offsetTime = style.offsetTime || 0; // ms
-  const adjustedTime = currentTime - (offsetTime / 1000);
-
-  // Find active word index based on adjustedTime
-  let activeWordIndex = -1;
-  for (let i = 0; i < words.length; i++) {
-    const w = words[i];
-    if (adjustedTime >= w.start && adjustedTime <= w.end) {
-      activeWordIndex = i;
-      break;
-    }
-  }
-
-  // Determine preset
-  const mode = style.mode || 'popshadow';
-  const activePreset = presets.find((p: any) => p.id === mode) || presets[0];
-  
-  // Merge missing styles with preset defaults, just like the frontend does
-  const mergedStyle = { ...activePreset.getDefaultConfig(brandSettings?.highlightColor), ...style };
-  
-  // Re-map some properties from mergedStyle for convenience
-  const finalFontFamily = mergedStyle.fontFamily || fontFamily;
-
-  const processedVideoUrl = videoUrl.startsWith('http') ? videoUrl : staticFile(videoUrl);
+  const src = !videoUrl || /^(https?:|file:|blob:|data:)/.test(videoUrl) ? videoUrl : staticFile(videoUrl);
+  const videoStyle: React.CSSProperties = { width: '100%', height: '100%', objectFit: 'cover' };
+  // Caption time follows the SOURCE timeline, so cut pauses do not shift the subtitles.
+  const sourceTime = cut ? sourceTimeAt(segments, frame, fps) : frame / fps;
+  const FADE = 2; // frames of audio fade at each cut (avoids clicks)
 
   return (
-    <AbsoluteFill style={{ backgroundColor: 'black' }}>
-      {videoUrl && <Video src={processedVideoUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
-      
-      {/* Brand Logo Overlay */}
-      {brandSettings && brandSettings.overlayUrl && (
-        <AbsoluteFill style={{ zIndex: 5 }}>
-          <div
-            style={{
-              position: 'absolute',
-              top: `${((brandSettings.logoPosition?.y || 15) / 533) * 100}%`,
-              left: `${((brandSettings.logoPosition?.x || 15) / 300) * 100}%`,
-              width: `${((60 * (brandSettings.logoScale || 1)) / 300) * 100}%`,
-              height: 'auto'
-            }}
-          >
-            <Img 
-              src={brandSettings.overlayUrl} 
-              style={{ width: '100%', height: 'auto', display: 'block' }}
-            />
-          </div>
-        </AbsoluteFill>
-      )}
+    <AbsoluteFill style={{ backgroundColor: 'black', containerType: 'inline-size' }}>
+      {src &&
+        (cut ? (
+          <Series>
+            {segments.map((s, i) => (
+              <Series.Sequence key={`${s.startFrame}-${i}`} durationInFrames={s.durationInFrames}>
+                <OffthreadVideo
+                  src={src}
+                  trimBefore={s.startFrame}
+                  trimAfter={s.endFrame}
+                  style={videoStyle}
+                  volume={(f) => {
+                    const fadeIn = s.startFrame > 0 ? interpolate(f, [0, FADE], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }) : 1;
+                    const fadeOut =
+                      i < segments.length - 1
+                        ? interpolate(f, [s.durationInFrames - FADE, s.durationInFrames], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
+                        : 1;
+                    return Math.min(fadeIn, fadeOut);
+                  }}
+                />
+              </Series.Sequence>
+            ))}
+          </Series>
+        ) : (
+          // OffthreadVideo: frame-exact extraction by the Remotion compositor (no browser seeking)
+          <OffthreadVideo src={src} style={videoStyle} />
+        ))}
 
-      <AbsoluteFill style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10 }}>
-         <div style={{ 
-           position: 'absolute', 
-           bottom: `${((mergedStyle.positionY ?? 80) / 533) * 100}%`, 
-           left: '10%', 
-           right: '10%', 
-           width: '80%', 
-           textAlign: 'center',
-           fontSize: `calc(${mergedStyle.fontSize ?? 46}vw / 6)`,
-           fontFamily: `"${finalFontFamily}", sans-serif`,
-           fontWeight: mergedStyle.fontWeight === 'Bold' || mergedStyle.fontWeight === 'Black' ? 900 : (mergedStyle.fontWeight === 'Medium' ? 500 : 400),
-           color: mergedStyle.fontColor || '#FFFFFF',
-           fontStyle: mergedStyle.isItalic ? 'italic' : 'normal',
-           textDecoration: mergedStyle.isUnderline ? 'underline' : 'none',
-           textTransform: mergedStyle.isUppercase ? 'uppercase' : 'none',
-           lineHeight: mergedStyle.lineHeight || 1.2
-         }}>
-            {activeWordIndex >= 0 && activePreset.renderPreview({
-              words,
-              activeWordIndex,
-              config: mergedStyle
-            })}
-         </div>
-      </AbsoluteFill>
+      <LogoOverlay src={brandSettings?.overlayUrl || ''} brand={brandSettings} ImgComponent={Img} />
+
+      <CaptionLayer words={words} time={sourceTime} style={style} ai={ai} />
     </AbsoluteFill>
   );
 };

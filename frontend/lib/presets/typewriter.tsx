@@ -1,25 +1,31 @@
 import React from 'react';
 import { SubtitlePreset } from './types';
+import { cycle, r4 } from './anim';
+import { em, highlight, keywordColor, rowStyle, shadows, stroke, textBase } from './style';
 
 export const typewriterPreset: SubtitlePreset = {
   id: 'typewriter',
   name: 'TYPEWRITER',
+  wordsPerPage: 4,
+  // Terminal look: monospace green, the word being typed is white
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Courier New',
-    fontSize: 36,
-    fontWeight: 'Regular',
+    fontSize: 30,
+    fontWeight: 'Bold',
+    isItalic: false,
+    isUnderline: false,
     isUppercase: false,
     fontColor: '#00FF88',
     strokeColor: '#000000',
-    strokeWidth: 0,
+    strokeWidth: 2,
     hasShadow: true,
     shadowColor: '#00FF88',
     shadowX: 0,
     shadowY: 0,
-    shadowBlur: 4,
-    highlightColor: baseHighlightColor || '#00FF00',
+    shadowBlur: 6,
+    highlightColor: baseHighlightColor || '#FFFFFF',
     letterSpacing: 0,
-    lineHeight: 1.2
+    lineHeight: 1.25,
   }),
   renderButton: (isSelected: boolean, onClick: () => void) => {
     const activeColor = '#00FF88';
@@ -66,102 +72,62 @@ export const typewriterPreset: SubtitlePreset = {
       </button>
     );
   },
-  renderPreview: ({ words, activeWordIndex, config }) => {
-    const activeColor = (config.highlightColor && config.highlightColor !== '#000000') ? config.highlightColor : '#00FF88';
+  renderPreview: ({ words, activeWordIndex, time, config }) => {
     const fontColor = config.fontColor || '#00FF88';
-    const shadowColor = config.hasShadow ? (config.shadowColor || activeColor) : 'transparent';
-    const shadowBlur = config.hasShadow ? (config.shadowBlur || 10) : 0;
+    const activeColor = highlight(config, '#00FF88');
+    const kwColor = keywordColor(config, fontColor, '#00FF88');
+    const base = textBase(config, { generic: 'monospace', fallbackFamily: 'Courier New' });
+    const glow = config.hasShadow ? em(config.shadowBlur || 10, config) : 0;
+    const glowColor = config.shadowColor || activeColor;
+    const glowShadow = (color: string) => shadows(stroke(config), glow > 0 && `0 0 ${r4(glow)}em ${color}`);
 
-    // Helper to map string weights to CSS numbers
-    const getWeight = (weight: string | number | undefined) => {
-      if (typeof weight === 'number') return weight;
-      const w = (weight || '').toLowerCase();
-      if (w.includes('thin')) return 100;
-      if (w.includes('extralight')) return 200;
-      if (w.includes('light')) return 300;
-      if (w.includes('medium')) return 500;
-      if (w.includes('semibold')) return 600;
-      if (w.includes('extrabold')) return 800;
-      if (w.includes('bold')) return 700;
-      if (w.includes('black')) return 900;
-      if (w.includes('regular')) return 400;
-      return 400;
-    };
-    const numericWeight = getWeight(config.fontWeight) || 700;
-    
     return (
-      <>
-        <style>
-          {`
-            .typewriter-container {
-              display: inline-flex;
-              flex-wrap: wrap;
-              gap: 8px;
-              justify-content: center;
-              padding: 10px;
-            }
-            .typewriter-word {
-              font-family: '${config.fontFamily}', monospace;
-              font-weight: ${numericWeight};
-              text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
-              letter-spacing: ${config.letterSpacing !== undefined ? config.letterSpacing : 0}px;
-              line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
-            }
-            .typewriter-word-wrapper {
-              position: relative;
-              display: inline-block;
-            }
-            .typewriter-word.past {
-              display: inline-block;
-              color: ${fontColor};
-              text-shadow: 0 0 ${shadowBlur}px ${shadowColor};
-            }
-            .typewriter-word.active {
-              position: absolute;
-              left: 0;
-              top: 0;
-              bottom: 0;
-              display: inline-block;
-              color: ${activeColor};
-              text-shadow: 0 0 ${shadowBlur}px ${activeColor};
-              border-right: 3px solid ${activeColor};
-              white-space: nowrap;
-              overflow: hidden;
-              animation: typewriterAnim 0.3s steps(10) forwards, blinkAnim 0.7s infinite;
-            }
-            .typewriter-word.future {
-              display: none;
-            }
-            @keyframes typewriterAnim {
-              from { width: 0; }
-              to { width: 100%; }
-            }
-            @keyframes blinkAnim {
-              50% { border-color: transparent; }
-            }
-          `}
-        </style>
-        <span className="typewriter-container">
-          {words.map((w, i) => {
-            const wordText = w.word.trim();
-            if (i < activeWordIndex) {
-              return <span key={i} className="typewriter-word past">{wordText}</span>;
-            } else if (i === activeWordIndex) {
-              return (
-                <span key={i} className="typewriter-word-wrapper">
-                  <span className="typewriter-word" style={{ visibility: 'hidden', whiteSpace: 'nowrap', paddingRight: '5px' }}>
-                    {wordText}
-                  </span>
-                  <span className="typewriter-word active" style={{ paddingRight: '5px' }}>
-                    {wordText}
-                  </span>
-                </span>
-              );
-            }
-            return <span key={i} className="typewriter-word future">{wordText}</span>;
-          })}
-        </span>
-      </>
+      <span style={{ ...rowStyle(0.5), padding: '0.28em' }}>
+        {words.map((w, i) => {
+          const key = `${i}-${w.start}`;
+          const text = w.word;
+          if (i < activeWordIndex) {
+            return (
+              <span key={key} style={{ ...base, display: 'inline-block', color: w.keyword ? kwColor : fontColor, textShadow: glowShadow(w.keyword ? kwColor : glowColor) }}>
+                {text}
+              </span>
+            );
+          }
+          if (i > activeWordIndex) {
+            // Upcoming words keep their place (invisible), so the typed line never re-centers.
+            return (
+              <span key={key} aria-hidden style={{ ...base, display: 'inline-block', visibility: 'hidden' }}>
+                {text}
+              </span>
+            );
+          }
+          // typewriterAnim 0.3s, one character at a time, with a blinking cursor (0.7s)
+          const chars = Array.from(text);
+          const typed = Math.max(1, Math.min(chars.length, Math.ceil(chars.length * ((time - w.start) / 0.3))));
+          const cursorOn = typed < chars.length || cycle(time - w.start, 0.7) < 0.5;
+          const color = w.keyword ? kwColor : activeColor;
+          return (
+            <span key={key} style={{ ...base, display: 'inline-block', position: 'relative', color, textShadow: glowShadow(color) }}>
+              <span style={{ position: 'relative' }}>
+                {chars.slice(0, typed).join('')}
+                <span
+                  aria-hidden
+                  style={{
+                    position: 'absolute',
+                    right: '-0.08em',
+                    top: '0.08em',
+                    bottom: '0.08em',
+                    width: '0.08em',
+                    background: color,
+                    opacity: cursorOn ? 1 : 0,
+                  }}
+                />
+              </span>
+              <span style={{ visibility: 'hidden' }}>{chars.slice(typed).join('')}</span>
+            </span>
+          );
+        })}
+      </span>
     );
-  }
+  },
 };

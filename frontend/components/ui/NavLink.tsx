@@ -7,6 +7,7 @@ interface NavLinkProps {
   icon: LucideIcon
   isActive: boolean
   badgeCount?: number
+  badgeTone?: 'danger' | 'primary'
   children: React.ReactNode
 }
 
@@ -15,6 +16,7 @@ export const NavLink: React.FC<NavLinkProps> = ({
   icon: Icon,
   isActive,
   badgeCount,
+  badgeTone = 'danger',
   children
 }) => {
   return (
@@ -54,13 +56,13 @@ export const NavLink: React.FC<NavLinkProps> = ({
 
       {badgeCount !== undefined && badgeCount > 0 && (
         <div style={{
-          background: 'var(--danger)',
+          background: badgeTone === 'primary' ? 'var(--primary)' : 'var(--danger)',
           color: '#fff',
           fontSize: '11px',
           fontWeight: 700,
           padding: '2px 8px',
           borderRadius: '12px',
-          boxShadow: '0 0 10px rgba(234, 33, 67, 0.4)'
+          boxShadow: badgeTone === 'primary' ? '0 0 10px var(--primary-glow)' : '0 0 10px rgba(234, 33, 67, 0.4)'
         }}>
           {badgeCount}
         </div>

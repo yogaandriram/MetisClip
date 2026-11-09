@@ -37,9 +37,9 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
   const [captionTab, setCaptionTab] = useState('presets');
 
   const handlePresetSelect = (presetId: string) => {
-    // When a preset is selected, we want to clear all styling overrides
-    // but preserve the current positionY layout setting.
-    updateCaption({ mode: presetId, positionY: caption.positionY }, true);
+    // Picking a preset (or "reset") drops the font overrides, so the preset's own default font
+    // settings apply; position and sync offset are kept.
+    updateCaption({ mode: presetId, positionY: caption.positionY, offsetTime: caption.offsetTime }, true);
   };
 
   return (
@@ -50,7 +50,7 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
       
       <Tabs 
         tabs={[
-          { id: 'presets', label: 'Presets' },
+          { id: 'presets', label: 'Preset' },
           { id: 'font', label: 'Font' }
         ]}
         activeTab={captionTab}
@@ -59,6 +59,10 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
       />
 
       {captionTab === 'presets' && (
+        <>
+        <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '14px', lineHeight: 1.5 }}>
+          Setiap preset punya font bawaan sendiri. Memilih preset mengganti pengaturan di tab Font ke bawaannya.
+        </p>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
           {presets.map(p => {
             const isSelected = caption.mode === p.id;
@@ -69,16 +73,17 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
             )
           })}
         </div>
+        </>
       )}
 
       {captionTab === 'font' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-              <span style={{ fontSize: '14px', fontWeight: 600 }}>Font settings</span>
+              <span style={{ fontSize: '14px', fontWeight: 600 }}>Pengaturan font</span>
               <button
                 onClick={() => handlePresetSelect(caption.mode)}
-                title="Reset to preset defaults"
+                title="Kembalikan ke font bawaan preset"
                 style={{
                   background: 'rgba(255,255,255,0.05)',
                   border: '1px solid var(--border-glass)',
@@ -95,12 +100,12 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
                 onMouseEnter={(e) => e.currentTarget.style.color = '#fff'}
                 onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
               >
-                <RotateCcw size={12} /> Reset
+                <RotateCcw size={12} /> Bawaan preset
               </button>
             </div>
             {/* Font Family Row */}
             <div style={{ marginBottom: '15px' }}>
-              <div style={{ marginBottom: '8px', fontSize: '12px', color: 'var(--text-dim)' }}>Font Family</div>
+              <div style={{ marginBottom: '8px', fontSize: '12px', color: 'var(--text-dim)' }}>Jenis font</div>
               <Dropdown
                 width="100%"
                 trigger={
@@ -131,7 +136,7 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
             {/* Font Weight & Size Row */}
             <div style={{ display: 'flex', gap: '15px', marginBottom: '15px' }}>
               <div style={{ flex: 1 }}>
-                <div style={{ marginBottom: '8px', fontSize: '12px', color: 'var(--text-dim)' }}>Font Weight</div>
+                <div style={{ marginBottom: '8px', fontSize: '12px', color: 'var(--text-dim)' }}>Ketebalan</div>
                 <Dropdown
                   width="100%"
                   trigger={
@@ -151,7 +156,7 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
               </div>
               
               <div style={{ width: '100px' }}>
-                <div style={{ marginBottom: '8px', fontSize: '12px', color: 'var(--text-dim)' }}>Size (px)</div>
+                <div style={{ marginBottom: '8px', fontSize: '12px', color: 'var(--text-dim)' }}>Ukuran (px)</div>
                 <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.05)', borderRadius: '10px', padding: '0 12px', border: '1px solid var(--border-glass)', height: '42px' }}>
                   <input type="number" min="10" max="300" value={caption.fontSize} onChange={(e) => updateCaption({ fontSize: Number(e.target.value) })} style={{ background: 'transparent', border: 'none', color: '#fff', width: '100%', outline: 'none', fontSize: '14px' }} />
                 </div>
@@ -161,11 +166,11 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
             {/* Colors Row */}
             <div style={{ display: 'flex', gap: '20px', marginBottom: '5px' }}>
               <div>
-                <div style={{ marginBottom: '8px', fontSize: '12px', color: 'var(--text-dim)' }}>Text Color</div>
+                <div style={{ marginBottom: '8px', fontSize: '12px', color: 'var(--text-dim)' }}>Warna teks</div>
                 <PremiumColorPicker color={caption.fontColor} onChange={(c) => updateCaption({ fontColor: c })} />
               </div>
               <div>
-                <div style={{ marginBottom: '8px', fontSize: '12px', color: 'var(--text-dim)' }}>Highlight (Active)</div>
+                <div style={{ marginBottom: '8px', fontSize: '12px', color: 'var(--text-dim)' }}>Highlight (aktif)</div>
                 <PremiumColorPicker color={caption.highlightColor} onChange={(c) => updateCaption({ highlightColor: c })} />
               </div>
             </div>
@@ -175,7 +180,7 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
           <CollapsibleSection title="Layout & Spacing" defaultOpen={false}>
             <div style={{ marginBottom: '15px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <span style={{ fontSize: '13px', color: 'var(--text-dim)' }}>Vertical Position</span>
+                <span style={{ fontSize: '13px', color: 'var(--text-dim)' }}>Posisi vertikal</span>
                 <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{caption.positionY}px</span>
               </div>
               <PremiumSlider 
@@ -219,7 +224,7 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
 
           <CollapsibleSection title="Advanced Styling" defaultOpen={false}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-              <span style={{ fontSize: '13px', color: 'var(--text-dim)' }}>Font stroke</span>
+              <span style={{ fontSize: '13px', color: 'var(--text-dim)' }}>Garis luar</span>
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                 <PremiumColorPicker color={caption.strokeColor} onChange={(c) => updateCaption({ strokeColor: c })} />
                 <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', padding: '0 10px', border: '1px solid var(--border-glass)', width: '80px' }}>
@@ -231,7 +236,7 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
 
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-                <span style={{ fontSize: '13px', color: 'var(--text-dim)' }}>Font shadows</span>
+                <span style={{ fontSize: '13px', color: 'var(--text-dim)' }}>Bayangan</span>
                 <ToggleSwitch checked={caption.hasShadow} onChange={(v) => updateCaption({ hasShadow: v })} />
               </div>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center', opacity: caption.hasShadow ? 1 : 0.5, pointerEvents: caption.hasShadow ? 'auto' : 'none' }}>

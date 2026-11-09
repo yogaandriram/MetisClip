@@ -1,25 +1,31 @@
 import React from 'react';
-import { SubtitlePreset, generateRoundedStroke } from './types';
+import { SubtitlePreset } from './types';
+import { Ease, cycle, interpolate, r4 } from './anim';
+import { dropShadow, keywordColor, shadows, stroke, textBase } from './style';
 
 export const glitchPreset: SubtitlePreset = {
   id: 'glitch',
   name: 'GLITCH EFFECT',
+  wordsPerPage: 1,
+  // Blocky display face, white with yellow/magenta glitch slices
   getDefaultConfig: (baseHighlightColor?: string) => ({
-    fontFamily: 'Orbitron',
-    fontSize: 36,
-    fontWeight: 'Black',
+    fontFamily: 'Russo One',
+    fontSize: 42,
+    fontWeight: 'Regular',
+    isItalic: false,
+    isUnderline: false,
     isUppercase: true,
-    fontColor: '#00ffff',
+    fontColor: '#FFFFFF',
     strokeColor: '#000000',
     strokeWidth: 0,
-    hasShadow: false,
+    hasShadow: true,
     shadowColor: '#000000',
     shadowX: 0,
-    shadowY: 0,
-    shadowBlur: 0,
-    highlightColor: baseHighlightColor || '#00ffff',
-    letterSpacing: 4,
-    lineHeight: 1.2
+    shadowY: 3,
+    shadowBlur: 6,
+    highlightColor: baseHighlightColor || '#00FFFF',
+    letterSpacing: 3,
+    lineHeight: 1.15,
   }),
   renderButton: (isSelected: boolean, onClick: () => void) => {
     return (
@@ -50,8 +56,8 @@ export const glitchPreset: SubtitlePreset = {
               50%{clip-path:inset(10% 0 80% 0);transform:translate(-4px,0)}
             }
             .glitch-btn-text {
-              font-family: 'Orbitron', sans-serif;
-              font-weight: 900;
+              font-family: 'Russo One', sans-serif;
+              font-weight: 400;
               font-size: 14px;
               color: #0ff;
               text-transform: uppercase;
@@ -74,114 +80,46 @@ export const glitchPreset: SubtitlePreset = {
       </button>
     );
   },
-  renderPreview: ({ words, activeWordIndex, config }) => {
+  renderPreview: ({ words, activeWordIndex, time, config }) => {
+    const w = words[activeWordIndex];
+    if (!w) return null;
     const fontColor = config.fontColor || '#00ffff';
-    const currentWord = words[activeWordIndex]?.word || '';
-    
-    // Helper to map string weights to CSS numbers
-    const getWeight = (weight: string | number | undefined) => {
-      if (typeof weight === 'number') return weight;
-      const w = (weight || '').toLowerCase();
-      if (w.includes('thin')) return 100;
-      if (w.includes('extralight')) return 200;
-      if (w.includes('light')) return 300;
-      if (w.includes('medium')) return 500;
-      if (w.includes('semibold')) return 600;
-      if (w.includes('extrabold')) return 800;
-      if (w.includes('bold')) return 700;
-      if (w.includes('black')) return 900;
-      if (w.includes('regular')) return 400;
-      return 400; // Default fallback
-    };
-    const numericWeight = getWeight(config.fontWeight);
-    
-    const baseFontSize = config.fontSize || 36;
-    const strokeWidth = config.strokeWidth || 0;
-    const strokeColor = config.strokeColor || '#000000';
-    const roundedStrokeShadow = generateRoundedStroke(strokeWidth, strokeColor, baseFontSize);
-
-    let combinedShadows = [];
-    if (config.hasShadow && config.shadowColor) {
-      const blur = config.shadowBlur ?? 0;
-      const xEm = (config.shadowX || 0) / baseFontSize;
-      const yEm = (config.shadowY || 0) / baseFontSize;
-      const blurEm = blur / baseFontSize;
-      combinedShadows.push(`${xEm}em ${yEm}em ${blurEm}em ${config.shadowColor}`);
-    }
-    if (strokeWidth > 0 && roundedStrokeShadow !== 'none') {
-      combinedShadows.push(roundedStrokeShadow);
-    }
-    const finalTextShadow = combinedShadows.length > 0 ? combinedShadows.join(', ') : 'none';
-    const letterSpacingEm = (config.letterSpacing !== undefined ? config.letterSpacing : 4) / baseFontSize;
-    
+    const base = textBase(config, { letterSpacing: 4 });
+    // glitchAnim1 / glitchAnim2: 3s ease infinite, colour copies sliced with clip-path
+    const c = cycle(time - w.start, 3);
+    const k = [0, 0.5, 1];
+    const layer = (color: string, top: number[], bottom: number[], x: number[]): React.CSSProperties => ({
+      ...base,
+      position: 'absolute',
+      left: 0,
+      top: 0,
+      width: '100%',
+      color,
+      clipPath: `inset(${r4(interpolate(c, k, top, Ease.ease))}% 0 ${r4(interpolate(c, k, bottom, Ease.ease))}% 0)`,
+      transform: `translate(${r4(interpolate(c, k, x, Ease.ease))}em, 0)`,
+    });
     return (
-      <>
-        <style>
-          {`
-            .glitch-container {
-              display: flex;
-              align-items: center;
-              flex-wrap: wrap;
-              justify-content: center;
-              max-width: 100%;
-              justify-content: center;
-              width: 100%;
-              padding: 20px;
-            }
-            .glitch-wrap {
-              position: relative;
-            }
-            .glitch-word {
-              font-family: '${config.fontFamily}', sans-serif;
-              font-weight: ${numericWeight};
-              color: ${fontColor};
-              letter-spacing: ${letterSpacingEm}em;
-              line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
-              text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
-              text-shadow: ${finalTextShadow};
-              position: relative;
-              display: inline-block;
-            }
-            .glitch-word::before, .glitch-word::after {
-              content: attr(data-text);
-              position: absolute;
-              top: 0; left: 0; width: 100%;
-              background: transparent;
-            }
-            .glitch-word::before {
-              color: #f0f;
-              animation: glitchAnim1 3s infinite;
-              z-index: -1;
-            }
-            .glitch-word::after {
-              color: #ff0;
-              animation: glitchAnim2 3s infinite;
-              z-index: -2;
-            }
-            
-            @keyframes glitchAnim1 {
-              0%,100% { clip-path: inset(0 0 90% 0); transform: translate(-0.111em, 0); }
-              50% { clip-path: inset(30% 0 50% 0); transform: translate(0.111em, 0); }
-            }
-            @keyframes glitchAnim2 {
-              0%,100% { clip-path: inset(60% 0 20% 0); transform: translate(0.111em, 0); }
-              50% { clip-path: inset(10% 0 80% 0); transform: translate(-0.111em, 0); }
-            }
-          `}
-        </style>
-        <div className="glitch-container">
-          <div className="glitch-wrap">
-            {/* Single word rendering with data-text attribute for CSS pseudo-elements */}
-            <span 
-              key={`active-${activeWordIndex}`} 
-              className="glitch-word"
-              data-text={currentWord}
-            >
-              {currentWord}
-            </span>
-          </div>
-        </div>
-      </>
+      <div style={{ display: 'flex', justifyContent: 'center', width: '100%', padding: '0.55em 0' }}>
+        <span style={{ position: 'relative', display: 'inline-block', transform: w.keyword ? 'scale(1.1)' : undefined }}>
+          <span aria-hidden style={layer('#ffff00', [60, 10, 60], [20, 80, 20], [0.111, -0.111, 0.111])}>
+            {w.word}
+          </span>
+          <span aria-hidden style={layer('#ff00ff', [0, 30, 0], [90, 50, 90], [-0.111, 0.111, -0.111])}>
+            {w.word}
+          </span>
+          <span
+            style={{
+              ...base,
+              position: 'relative',
+              display: 'inline-block',
+              color: w.keyword ? keywordColor(config, fontColor, '#FFD400') : fontColor,
+              textShadow: shadows(stroke(config), dropShadow(config)),
+            }}
+          >
+            {w.word}
+          </span>
+        </span>
+      </div>
     );
-  }
+  },
 };

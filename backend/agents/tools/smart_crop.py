@@ -1,141 +1,137 @@
-import cv2
-import numpy as np
+"""Face-tracking 9:16 crop (MediaPipe) with frames piped straight to FFmpeg.
+
+Pass 1 scans faces at ~5 fps and follows the face closest to its last position,
+pass 2 smooths the pan with a 1.5 s moving average, pass 3 crops every frame and
+pipes raw BGR frames to FFmpeg (near-lossless CRF 10 intermediate).
+Returns False on any failure so the caller can fall back to a center crop.
+"""
+from __future__ import annotations
+
 import logging
-import mediapipe as mp
-from mediapipe.python.solutions import face_detection as mp_face_detection
+import subprocess
+from pathlib import Path
+
+import numpy as np
+
+from backend.core import procs
+from backend.core.config import ffmpeg_path
 
 logger = logging.getLogger(__name__)
 
-def process_auto_tracking_video(input_path: str, output_path: str):
-    """
-    Scans a video frame-by-frame, smoothly tracks the speaker's face,
-    and crops it to a dynamic 9:16 vertical format.
-    """
-    logger.info(f"Initializing True Dynamic Smart Auto Tracking for {input_path}")
-    
+
+def _scan_faces(input_path: str, video_w: int, fps: float, cancel: procs.CancelToken | None) -> list[int]:
+    import cv2
+    from mediapipe.python.solutions import face_detection as mp_face_detection
+
+    interval = max(1, int(round(fps / 5)))
+    raw_x: list[int] = []
+    last_x = video_w // 2
+    cap = cv2.VideoCapture(input_path)
+    try:
+        with mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5) as detector:
+            idx = 0
+            while True:
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                if idx % interval == 0:
+                    if cancel is not None and idx % (interval * 25) == 0:
+                        cancel.check()
+                    results = detector.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                    best, best_d = None, float("inf")
+                    for det in getattr(results, "detections", None) or []:
+                        bbox = det.location_data.relative_bounding_box
+                        cx = int((bbox.xmin + bbox.width / 2) * video_w)
+                        d = abs(cx - last_x)
+                        if d < best_d:
+                            best, best_d = cx, d
+                    if best is not None:
+                        last_x = best
+                raw_x.append(last_x)
+                idx += 1
+    finally:
+        cap.release()
+    return raw_x
+
+
+def _smooth(raw_x: list[int], fps: float) -> np.ndarray:
+    arr = np.asarray(raw_x, dtype=np.float64)
+    window = max(1, int(fps * 1.5))
+    if window <= 1 or len(arr) <= window:
+        return np.full_like(arr, arr.mean()) if len(arr) else arr
+    kernel = np.ones(window) / window
+    smoothed = np.convolve(arr, kernel, mode="same")
+    half = window // 2
+    smoothed[:half] = smoothed[half]
+    smoothed[-half:] = smoothed[-half - 1]
+    return smoothed
+
+
+def process_auto_tracking_video(input_path: str, output_path: str, cancel: procs.CancelToken | None = None) -> bool:
+    import cv2
+
     try:
         cap = cv2.VideoCapture(input_path)
         if not cap.isOpened():
-            raise Exception("Failed to open input video with OpenCV.")
-            
+            raise RuntimeError("OpenCV cannot open the input video")
         video_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         video_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        
-        target_w = int(video_h * 9 / 16)
-        # Force dimensions to be strictly even (required by h264/mp4v)
-        # We round DOWN to the nearest even number so we never exceed the actual frame size
-        target_w = target_w & ~1
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        if not (1.0 <= fps <= 120.0):
+            fps = 30.0
+        cap.release()
+        if video_w <= 0 or video_h <= 0:
+            raise RuntimeError("Invalid video dimensions")
+
         target_h = video_h & ~1
-        
-        logger.info(f"Pass 1: Scanning {total_frames} frames for face movement...")
-        
-        # Detection interval: run MediaPipe every N frames to speed up processing
-        interval = max(1, int(fps / 5)) # ~5 FPS scanning
-        
-        raw_x_targets = []
-        last_known_x = video_w // 2
-        
-        with mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5) as face_detection:
-            frame_idx = 0
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                    
-                if frame_idx % interval == 0:
-                    # OpenCV uses BGR, MediaPipe needs RGB
-                    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    results = face_detection.process(rgb_frame)
-                    
-                    if getattr(results, 'detections', None): # type: ignore
-                        best_face_x = None
-                        min_dist = float('inf')
-                        
-                        for detection in results.detections: # type: ignore
-                            bbox = detection.location_data.relative_bounding_box
-                            # Convert to absolute
-                            center_x = int((bbox.xmin + bbox.width / 2) * video_w)
-                            
-                            # Prioritize face closest to the LAST known face (prevents jumping between guests)
-                            dist = abs(center_x - last_known_x)
-                            if dist < min_dist:
-                                min_dist = dist
-                                best_face_x = center_x
-                        
-                        if best_face_x is not None:
-                            last_known_x = best_face_x
-                            
-                # Append last_known_x for every frame (inherits the detection from interval)
-                raw_x_targets.append(last_known_x)
-                frame_idx += 1
-                
-        cap.release()
-        
-        if not raw_x_targets:
-            raise Exception("No frames read from video.")
-            
-        logger.info("Pass 2: Smoothing camera movements (applying moving average)...")
-        # Apply moving average to simulate a professional smooth camera pan
-        window_size = int(fps * 1.5) # 1.5 seconds smoothing window
-        window = np.ones(window_size, dtype=np.float64) / float(window_size) # type: ignore
-        smoothed_x = np.convolve(raw_x_targets, window, mode='same')
-        
-        # Fix convolution edge effects
-        half_window = window_size // 2
-        smoothed_x[:half_window] = smoothed_x[half_window] # type: ignore
-        smoothed_x[-half_window:] = smoothed_x[-half_window-1] # type: ignore
-        
-        logger.info(f"Pass 3: Rendering dynamically tracked video to {output_path}...")
-        
-        # We must use a standard codec for OpenCV output, e.g. mp4v. 
-        # FFmpeg will re-encode it to libx264 in the next step anyway.
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v') # type: ignore
-        
-        # We write the raw cropped resolution (e.g. 607x1080) to save massive CPU cycles.
-        # FFmpeg will handle the upscale to 1080x1920 using optimized C code later.
-        out = cv2.VideoWriter(output_path, fourcc, fps, (target_w, target_h))
-        
-        cap = cv2.VideoCapture(input_path)
-        frame_idx = 0
-        
-        while True:
-            ret, frame = cap.read()
-            if not ret or frame_idx >= len(smoothed_x):
-                break
-                
-            opt_x = int(smoothed_x[frame_idx]) # type: ignore
-            
-            # Boundary checks
-            x1 = opt_x - target_w // 2
-            x2 = opt_x + target_w // 2
-            
-            if x1 < 0:
-                x1 = 0
-                x2 = target_w
-            if x2 > video_w:
-                x2 = video_w
-                x1 = video_w - target_w
-                
-            # Crop frame vertically (NO RESIZING IN PYTHON - saves ~80% of CPU time in Pass 3)
-            # We strictly enforce target_h and target_w slice sizes to match VideoWriter bounds
-            cropped_frame = frame[:target_h, x1:x2] # type: ignore
-            
-            # CRITICAL: Numpy slicing creates a non-contiguous memory view. 
-            # cv2.VideoWriter in C++ strictly requires contiguous memory, otherwise it throws 'Unknown C++ exception'
-            contiguous_frame = np.ascontiguousarray(cropped_frame)
-            
-            out.write(contiguous_frame)
-            frame_idx += 1
-            
-        cap.release()
-        out.release()
-        
-        logger.info("✅ Dynamic Smart Auto Tracking completed successfully!")
+        target_w = min(int(video_h * 9 / 16), video_w) & ~1
+
+        raw_x = _scan_faces(input_path, video_w, fps, cancel)
+        if not raw_x:
+            raise RuntimeError("No frames read from video")
+        smoothed = _smooth(raw_x, fps)
+
+        cmd = [
+            ffmpeg_path(), "-y", "-hide_banner", "-loglevel", "error",
+            "-f", "rawvideo", "-vcodec", "rawvideo", "-s", f"{target_w}x{target_h}",
+            "-pix_fmt", "bgr24", "-r", f"{fps:.3f}", "-i", "-",
+            "-c:v", "libx264", "-preset", "superfast", "-crf", "10", "-pix_fmt", "yuv420p",
+            output_path,
+        ]
+        proc = procs.popen(cmd, cancel=cancel, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        try:
+            cap = cv2.VideoCapture(input_path)
+            idx = 0
+            try:
+                while idx < len(smoothed):
+                    ok, frame = cap.read()
+                    if not ok:
+                        break
+                    if cancel is not None and idx % 150 == 0:
+                        cancel.check()
+                    cx = int(smoothed[idx])
+                    x1 = max(0, min(video_w - target_w, cx - target_w // 2))
+                    crop = np.ascontiguousarray(frame[:target_h, x1:x1 + target_w])
+                    proc.stdin.write(crop.tobytes())  # type: ignore[union-attr]
+                    idx += 1
+            finally:
+                cap.release()
+            proc.stdin.close()  # type: ignore[union-attr]
+            stderr = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
+            code = proc.wait()
+        finally:
+            procs.release(proc, cancel)
+        if cancel is not None:
+            cancel.check()
+        if code != 0:
+            raise RuntimeError(f"ffmpeg pipe exited with {code}: {stderr[-300:]}")
+        if not Path(output_path).exists() or Path(output_path).stat().st_size == 0:
+            raise RuntimeError("Tracked output is empty")
         return True
-            
-    except Exception as e:
-        logger.error(f"Dynamic Tracking failed: {str(e)}. Attempting to fallback or fail.")
-        # If OpenCV fails, we need to return False so ffmpeg_ops can handle it
+    except procs.Cancelled:
+        raise
+    except Exception as exc:
+        if cancel is not None and cancel.cancelled:
+            raise procs.Cancelled(cancel.reason) from exc
+        logger.warning("Smart auto tracking failed (%s); caller will fall back to center crop", exc)
         return False

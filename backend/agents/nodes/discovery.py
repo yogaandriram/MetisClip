@@ -1,128 +1,102 @@
+"""Discovery Agent: a YouTube link or an uploaded video file -> one `source_videos` document.
+
+YouTube metadata comes from yt-dlp. An uploaded file is used where it is (never copied); ffmpeg
+reads its duration, and the file name becomes the title.
+"""
+from __future__ import annotations
+
+import hashlib
 import logging
-from typing import Dict, Any
-from supabase import create_client, Client
-from backend.core.config import settings
-from backend.agents.state import PipelineState
-from backend.agents.tools.youtube_api import search_youtube_videos
-import re
+import os
+import uuid
+from pathlib import Path
+from typing import Any
+
+from backend.agents.context import JobContext, PipelineError
+from backend.agents.tools import ffmpeg_ops, ytdlp
+from backend.core.config import config
+from backend.core.db import get_db
+from backend.models.documents import SourceVideoDoc
 
 logger = logging.getLogger(__name__)
 
-def run_discovery_agent(state: PipelineState) -> Dict[str, Any]:
-    """
-    Discovery Agent: Finds long-form YouTube videos based on user-defined keywords
-    and video types, scores them, and saves them to the database.
-    """
-    logger.info("=" * 60)
-    logger.info(f"🚀 [START] DISCOVERY AGENT (Job: {state.get('job_id')})")
-    logger.info("=" * 60)
-    
-    keywords = state.get("keywords", [])
-    youtube_url = state.get("youtube_url")
-    video_types = state.get("video_types", ["podcast"])
-    job_id = state.get("job_id")
-    user_id = state.get("user_id")
-    
-    if not keywords and not youtube_url:
-        error_msg = "No keywords or youtube_url provided for discovery."
-        logger.error(error_msg)
-        return {
-            "errors": state.get("errors", []) + [error_msg],
-            "current_step": "discovery",
-            "progress_pct": 20.0
-        }
+# Containers the Cari Video upload accepts (frontend/lib/format.ts VIDEO_FILE_EXTENSIONS)
+VIDEO_EXTENSIONS = (".mp4", ".mkv", ".mov", ".webm", ".m4v", ".avi")
 
-    # Initialize Supabase client
+
+def check_local_video(path_str: str) -> tuple[Path, dict[str, Any]]:
+    """Validates an uploaded video file: (absolute path, media info). Raises PipelineError in Indonesian."""
+    raw = (path_str or "").strip()
+    path = Path(raw)
+    if not raw or not path.is_absolute():
+        raise PipelineError("Pilih file video dari komputer Anda")
+    if not path.is_file():
+        raise PipelineError(f"File video tidak ditemukan: {path}")
+    if path.suffix.lower() not in VIDEO_EXTENSIONS:
+        names = ", ".join(e[1:].upper() for e in VIDEO_EXTENSIONS)
+        raise PipelineError(f"Format file tidak didukung. Pakai video {names}.")
+    info = ffmpeg_ops.probe_media(path)
+    if not info or not info["has_video"] or info["duration"] <= 0:
+        raise PipelineError("File ini tidak bisa dibaca sebagai video. Coba ekspor ulang ke MP4 (H.264).")
+    if not info["has_audio"]:
+        raise PipelineError("Video ini tidak punya suara, jadi tidak bisa ditranskripsi untuk mencari momen viral.")
+    return path.resolve(), info
+
+
+def file_fingerprint(path: Path) -> str:
+    st = path.stat()
+    raw = f"{os.path.normcase(str(path))}|{st.st_size}|{st.st_mtime_ns}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+
+
+def _youtube_metadata(ctx: JobContext, youtube_id: str) -> dict[str, Any]:
     try:
-        supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
-        has_supabase = True
-    except Exception as e:
-        logger.warning(f"Failed to connect to Supabase: {str(e)}")
-        supabase = None
-        has_supabase = False
-
-    # Update job status in DB
-    if has_supabase:
-        try:
-            supabase.table("discovery_jobs").update({"status": "running"}).eq("id", job_id).execute()
-        except Exception as e:
-            logger.warning(f"Could not update job status: {str(e)}")
-
-    all_found_videos = []
-    
-    if youtube_url:
-        logger.info(f"Processing direct YouTube URL: {youtube_url}")
-        
-        # Extract video ID
-        yt_id_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11}).*', youtube_url)
-        yt_id = yt_id_match.group(1) if yt_id_match else "unknown_id"
-        
-        # In a real app, we'd fetch details for this specific video here using youtube_api.py
-        # For now, we mock the metadata since we don't have the API key setup yet (per user request)
-        all_found_videos.append({
-            "youtube_id": yt_id,
-            "title": f"Video from URL ({yt_id})",
-            "channel_name": "Target Channel",
-            "duration_seconds": 3600,
-            "view_count": 100000,
-            "like_count": 5000,
-            "video_type": video_types[0] if video_types else "podcast",
-            "quality_score": 85.0,
-            "job_id": job_id
-        })
-    else:
-        # Run search for each keyword-type pair
-        for keyword in keywords:
-            for v_type in video_types:
-                logger.info(f"Searching YouTube for '{keyword}' as type '{v_type}'")
-                videos = search_youtube_videos(query=keyword, max_results=3, video_type=v_type)
-                
-                for video in videos:
-                    # Add job relation
-                    video["job_id"] = job_id
-                    
-                    # Check for duplicates in our current run list
-                    if not any(v["youtube_id"] == video["youtube_id"] for v in all_found_videos):
-                        all_found_videos.append(video)
-
-    logger.info(f"Discovered {len(all_found_videos)} potential source videos.")
-    
-    # Save discovered source videos to Supabase
-    saved_videos = []
-    for video in all_found_videos:
-        try:
-            if has_supabase:
-                # Insert and get the newly created record containing our local database UUID
-                res = supabase.table("source_videos").insert({
-                    "job_id": job_id,
-                    "youtube_id": video["youtube_id"],
-                    "title": video["title"],
-                    "channel_name": video["channel_name"],
-                    "duration_seconds": video["duration_seconds"],
-                    "view_count": video["view_count"],
-                    "like_count": video["like_count"],
-                    "video_type": video["video_type"],
-                    "quality_score": video["quality_score"],
-                    "status": "pending"
-                }).execute()
-                
-                if res.data:
-                    saved_videos.append(res.data[0])
-            else:
-                raise Exception("No Supabase connection")
-                
-        except Exception as e:
-            logger.error(f"Error inserting video {video['youtube_id']} to DB: {str(e)}")
-            # Even if DB fails, keep the in-memory video metadata with a temporary ID for local sandbox stability
-            video["id"] = f"temp-uuid-{video['youtube_id']}"
-            saved_videos.append(video)
-
-    # If no videos saved, we make sure we have at least memory items for safety
-    if not saved_videos:
-        saved_videos = all_found_videos
-
+        meta = ytdlp.dump_metadata(youtube_id, ctx.cancel)
+    except ytdlp.YtDlpError as exc:
+        if config.is_dev:
+            logger.warning("yt-dlp metadata failed in dev, using placeholder: %s", exc)
+            return {"youtube_id": youtube_id, "title": f"Video {youtube_id}", "channel_name": "",
+                    "duration_seconds": 0, "view_count": 0, "like_count": 0}
+        raise PipelineError(str(exc)) from exc
     return {
-        "source_videos": saved_videos,
-        "current_step": "discovery",
-        "progress_pct": 20.0
+        "youtube_id": youtube_id,
+        "title": meta.get("title") or youtube_id,
+        "channel_name": meta.get("channel") or meta.get("uploader") or "",
+        "duration_seconds": float(meta.get("duration") or 0),
+        "view_count": int(meta.get("view_count") or 0),
+        "like_count": int(meta.get("like_count") or 0),
     }
+
+
+def _file_metadata(path_str: str) -> dict[str, Any]:
+    path, info = check_local_video(path_str)
+    return {
+        "file_path": str(path),
+        "file_fingerprint": file_fingerprint(path),
+        "title": path.stem,
+        "duration_seconds": round(float(info["duration"]), 3),
+    }
+
+
+def run(ctx: JobContext) -> list[dict[str, Any]]:
+    src = ctx.source
+    if src.get("type") == "url":
+        youtube_id = ytdlp.extract_video_id(src.get("youtube_url") or "")
+        if not youtube_id:
+            raise PipelineError("URL YouTube tidak valid")
+        ctx.progress(5, step="discovery", message="Mengambil info video…")
+        video = _youtube_metadata(ctx, youtube_id)
+        identity = youtube_id
+    elif src.get("type") == "local_file":
+        ctx.progress(5, step="discovery", message="Membaca file video…")
+        video = _file_metadata(src.get("local_file_path") or "")
+        identity = f"file:{video['file_path']}"
+    else:
+        raise PipelineError("Sumber job ini tidak didukung lagi. Buat job baru dari link YouTube atau file video.")
+
+    # Deterministic id: re-running discovery after a crash never duplicates rows
+    vid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"metisclip:{ctx.id}:{identity}"))
+    doc = SourceVideoDoc(_id=vid, job_id=ctx.id, agent_id=ctx.agent_id, **video).to_mongo()
+    get_db().source_videos.replace_one({"_id": vid}, doc, upsert=True)
+    ctx.progress(15, step="discovery", message=f"Video sumber: {doc['title']}")
+    return [doc]

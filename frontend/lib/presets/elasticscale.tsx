@@ -1,25 +1,31 @@
 import React from 'react';
-import { SubtitlePreset, generateRoundedStroke } from './types';
+import { SubtitlePreset } from './types';
+import { cubicBezier, interpolate, r4 } from './anim';
+import { dropShadow, shadows, stroke, textBase, withAlpha } from './style';
 
 export const elasticscalePreset: SubtitlePreset = {
   id: 'elasticscale',
   name: 'ELASTIC SCALE',
+  wordsPerPage: 1,
+  // Condensed headline face in a yellow label box (highlight = box color)
   getDefaultConfig: (baseHighlightColor?: string) => ({
-    fontFamily: 'Inter',
-    fontSize: 36,
-    fontWeight: 'Black',
+    fontFamily: 'Anton',
+    fontSize: 44,
+    fontWeight: 'Regular',
+    isItalic: false,
+    isUnderline: false,
     isUppercase: true,
     fontColor: '#111111',
     strokeColor: '#000000',
     strokeWidth: 0,
-    hasShadow: false, // Disabling standard shadow, using box-shadow for bg
+    hasShadow: false,
     shadowColor: '#000000',
     shadowX: 0,
     shadowY: 0,
     shadowBlur: 0,
-    highlightColor: baseHighlightColor || '#FFD700', // Using highlightColor as bg color
-    letterSpacing: 0,
-    lineHeight: 1.2
+    highlightColor: baseHighlightColor || '#FFD700',
+    letterSpacing: 1,
+    lineHeight: 1.1,
   }),
   renderButton: (isSelected: boolean, onClick: () => void) => {
     return (
@@ -51,8 +57,8 @@ export const elasticscalePreset: SubtitlePreset = {
           `}
         </style>
         <div style={{
-          fontFamily: "'Inter', sans-serif",
-          fontWeight: 900,
+          fontFamily: "'Anton', sans-serif",
+          fontWeight: 400,
           fontSize: '12px',
           color: '#111',
           background: '#FFD700',
@@ -68,95 +74,37 @@ export const elasticscalePreset: SubtitlePreset = {
       </button>
     );
   },
-  renderPreview: ({ words, activeWordIndex, config }) => {
+  renderPreview: ({ words, activeWordIndex, time, config }) => {
+    const w = words[activeWordIndex];
+    if (!w) return null;
     const fontColor = config.fontColor || '#111111';
-    const bgColor = config.highlightColor || '#FFD700'; // We use highlightColor for the background
-    const currentWord = words[activeWordIndex]?.word || '';
-    
-    // Helper to map string weights to CSS numbers
-    const getWeight = (weight: string | number | undefined) => {
-      if (typeof weight === 'number') return weight;
-      const w = (weight || '').toLowerCase();
-      if (w.includes('thin')) return 100;
-      if (w.includes('extralight')) return 200;
-      if (w.includes('light')) return 300;
-      if (w.includes('medium')) return 500;
-      if (w.includes('semibold')) return 600;
-      if (w.includes('extrabold')) return 800;
-      if (w.includes('bold')) return 700;
-      if (w.includes('black')) return 900;
-      if (w.includes('regular')) return 400;
-      return 400; // Default fallback
-    };
-    const numericWeight = getWeight(config.fontWeight);
-    
-    const baseFontSize = config.fontSize || 36;
-    const strokeWidth = config.strokeWidth || 0;
-    const strokeColor = config.strokeColor || '#000000';
-    const roundedStrokeShadow = generateRoundedStroke(strokeWidth, strokeColor, baseFontSize);
-
-    let combinedShadows = [];
-    if (config.hasShadow && config.shadowColor) {
-      const blur = config.shadowBlur ?? 0;
-      const xEm = (config.shadowX || 0) / baseFontSize;
-      const yEm = (config.shadowY || 0) / baseFontSize;
-      const blurEm = blur / baseFontSize;
-      combinedShadows.push(`${xEm}em ${yEm}em ${blurEm}em ${config.shadowColor}`);
-    }
-    if (strokeWidth > 0 && roundedStrokeShadow !== 'none') {
-      combinedShadows.push(roundedStrokeShadow);
-    }
-    const finalTextShadow = combinedShadows.length > 0 ? combinedShadows.join(', ') : 'none';
-    const letterSpacingEm = (config.letterSpacing !== undefined ? config.letterSpacing : 0) / baseFontSize;
-    
+    const bgColor = config.highlightColor || '#FFD700'; // the highlight color is the box color here
+    const base = textBase(config);
+    // elasticScaleAnim 0.8s cubic-bezier(0.36, 0.07, 0.19, 0.97): 0% → 35% → 55% → 70%
+    const t = time - w.start;
+    const ease = cubicBezier(0.36, 0.07, 0.19, 0.97);
+    const sx = interpolate(t, [0, 0.28, 0.44, 0.56], [0, 1.15, 0.95, 1], ease);
+    const opacity = interpolate(t, [0, 0.28], [0, 1], ease);
     return (
-      <>
-        <style>
-          {`
-            .elastic-container {
-              display: flex;
-              align-items: center;
-              flex-wrap: wrap;
-              justify-content: center;
-              max-width: 100%;
-              justify-content: center;
-              width: 100%;
-              padding: 20px;
-            }
-            .elastic-word {
-              font-family: '${config.fontFamily}', sans-serif;
-              font-weight: ${numericWeight};
-              color: ${fontColor};
-              background: ${bgColor};
-              letter-spacing: ${letterSpacingEm}em;
-              line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
-              text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
-              text-shadow: ${finalTextShadow};
-              padding: 0.222em 0.777em;
-              border-radius: 0.111em;
-              box-shadow: 0 0.111em 0.555em rgba(255,215,0,0.4);
-              animation: elasticScaleAnim 1s cubic-bezier(0.36,0.07,0.19,0.97) forwards;
-              transform-origin: left;
-              display: inline-block;
-            }
-            
-            @keyframes elasticScaleAnim {
-              0% { transform: scaleX(0); opacity: 0; }
-              35% { transform: scaleX(1.15); opacity: 1; }
-              55% { transform: scaleX(0.95); opacity: 1; }
-              70%, 100% { transform: scaleX(1); opacity: 1; }
-            }
-          `}
-        </style>
-        <div className="elastic-container">
-          <div key={`word-${activeWordIndex}`}>
-            {/* Single word rendering */}
-            <span className="elastic-word">
-              {currentWord}
-            </span>
-          </div>
-        </div>
-      </>
+      <div style={{ display: 'flex', justifyContent: 'center', width: '100%', padding: '0.55em 0' }}>
+        <span
+          style={{
+            ...base,
+            display: 'inline-block',
+            color: fontColor,
+            background: bgColor,
+            textShadow: shadows(stroke(config), dropShadow(config)),
+            padding: '0.222em 0.777em',
+            borderRadius: '0.111em',
+            boxShadow: `0 0.111em 0.555em ${withAlpha(bgColor, 0.4)}`,
+            transformOrigin: 'left center',
+            transform: `scaleX(${r4(sx)})${w.keyword ? ' scale(1.12)' : ''}`,
+            opacity: r4(opacity),
+          }}
+        >
+          {w.word}
+        </span>
+      </div>
     );
-  }
+  },
 };

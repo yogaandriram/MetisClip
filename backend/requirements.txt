@@ -1,16 +1,27 @@
-fastapi>=0.110.0
-uvicorn>=0.28.0
-pydantic>=2.6.4
-pydantic-settings>=2.2.1
-supabase>=2.4.0
-langgraph>=0.0.30
-langchain-core>=0.1.30
-langchain-groq>=0.1.0
-groq>=0.5.0
-yt-dlp>=2024.3.10
-redis>=5.0.3
-python-multipart>=0.0.9
-PyJWT>=2.8.0
-python-dotenv>=1.0.1
-h11>=0.14.0
-boto3>=1.34.0
+# MetisClip engine (Python 3.10, Windows x64). Pinned for reproducible PyInstaller builds.
+fastapi==0.136.3
+uvicorn==0.48.0
+websockets==15.0.1
+pydantic==2.13.4
+python-multipart==0.0.30
+python-dotenv==1.2.2
+pymongo==4.18.3
+keyring==25.7.0
+psutil==7.2.2
+requests==2.34.2
+pytz==2026.2
+openai==2.41.1
+groq==0.37.1
+youtube-transcript-api==1.2.4
+mediapipe==0.10.5
+opencv-python==4.9.0.80
+numpy==1.26.4
+imageio-ffmpeg==0.6.0
+# Dev fallback only: packaged builds use the standalone yt-dlp.exe from the bin dir
+yt-dlp==2026.10.21  # last release supporting Python 3.10; the bundled yt-dlp.exe is pinned separately
+# Optional MCP interface (off by default)
+mcp==1.27.2
+
+# Dev / build
+pytest==9.2.0
+pyinstaller==6.22.3

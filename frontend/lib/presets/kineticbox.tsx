@@ -1,25 +1,32 @@
 import React from 'react';
 import { SubtitlePreset } from './types';
+import { cubicBezier, interpolate, r4 } from './anim';
+import { dropShadow, highlight, keywordColor, rowStyle, shadows, stroke, textBase } from './style';
+import { growRoom } from './metrics';
 
 export const kineticboxPreset: SubtitlePreset = {
   id: 'kineticbox',
   name: 'KINETIC BOX',
+  wordsPerPage: 3,
+  // Condensed bold, so the moving box fits more words per line
   getDefaultConfig: (baseHighlightColor?: string) => ({
-    fontFamily: 'Montserrat',
-    fontSize: 36,
-    fontWeight: 'Regular',
+    fontFamily: 'Oswald',
+    fontSize: 38,
+    fontWeight: 'Bold',
+    isItalic: false,
+    isUnderline: false,
     isUppercase: true,
-    fontColor: '#ffffff',
+    fontColor: '#FFFFFF',
     strokeColor: '#000000',
     strokeWidth: 0,
     hasShadow: true,
     shadowColor: '#000000',
-    shadowX: 0,
-    shadowY: 0,
-    shadowBlur: 0,
+    shadowX: 2,
+    shadowY: 2,
+    shadowBlur: 4,
     highlightColor: baseHighlightColor || '#FFD700',
-    letterSpacing: 0,
-    lineHeight: 1.2
+    letterSpacing: 0.5,
+    lineHeight: 1.15,
   }),
   renderButton: (isSelected: boolean, onClick: () => void) => {
     const activeColor = '#FFFF00';
@@ -36,9 +43,9 @@ export const kineticboxPreset: SubtitlePreset = {
           justifyContent: 'center',
           alignItems: 'center',
           height: '80px',
-          fontFamily: "'Montserrat', var(--font-display)",
+          fontFamily: "'Oswald', var(--font-display)",
           fontSize: '24px',
-          fontWeight: '900',
+          fontWeight: '700',
           textTransform: "uppercase",
           boxShadow: isSelected ? '0 0 20px rgba(24, 86, 255, 0.3)' : 'none',
           overflow: 'hidden'
@@ -57,85 +64,54 @@ export const kineticboxPreset: SubtitlePreset = {
       </button>
     );
   },
-  renderPreview: ({ words, activeWordIndex, config }) => {
-    const activeColor = (config.highlightColor && !['#000000', 'transparent', '#00000000', 'rgba(0,0,0,0)'].includes(config.highlightColor.toLowerCase().replace(/\s/g, ''))) ? config.highlightColor : '#FFEB3B';
+  renderPreview: ({ words, activeWordIndex, time, config }) => {
     const fontColor = config.fontColor || '#ffffff';
+    const activeColor = highlight(config, '#FFEB3B');
+    const kwColor = keywordColor(config, fontColor, '#FFEB3B');
+    const base = textBase(config);
+    const restShadow = shadows(stroke(config), dropShadow(config) || '0.055em 0.055em 0.111em rgba(0,0,0,0.8)');
+    const smash = cubicBezier(0.25, 1, 0.5, 1);
 
-    // Helper to map string weights to CSS numbers
-    const getWeight = (weight: string | number | undefined) => {
-      if (typeof weight === 'number') return weight;
-      const w = (weight || '').toLowerCase();
-      if (w.includes('thin')) return 100;
-      if (w.includes('extralight')) return 200;
-      if (w.includes('light')) return 300;
-      if (w.includes('medium')) return 500;
-      if (w.includes('semibold')) return 600;
-      if (w.includes('extrabold')) return 800;
-      if (w.includes('bold')) return 700;
-      if (w.includes('black')) return 900;
-      if (w.includes('regular')) return 400;
-      return 400;
-    };
-    const numericWeight = getWeight(config.fontWeight);
-    const baseFontSize = config.fontSize || 36;
-    const letterSpacingEm = (config.letterSpacing !== undefined ? config.letterSpacing : 0) / baseFontSize;
-    
     return (
-      <>
-        <style>
-          {`
-            .kinetic-container {
-              display: inline-flex;
-              gap: 12px;
-              align-items: center;
-              flex-wrap: wrap;
-              justify-content: center;
-              max-width: 100%;
-            }
-            .kinetic-word {
-              display: inline-block;
-              font-family: '${config.fontFamily}', var(--font-display);
-              font-weight: ${numericWeight};
-              text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
-              letter-spacing: ${letterSpacingEm}em;
-              line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
-              transition: all 0.2s ease;
-            }
-            .kinetic-word.inactive {
-              color: ${config.fontColor};
-              opacity: 0.9;
-              transform: scale(0.95);
-              text-shadow: 0.055em 0.055em 0.111em rgba(0,0,0,0.8);
-            }
-            .kinetic-word.active {
-              animation: kineticSmash 0.3s cubic-bezier(0.25, 1, 0.5, 1) both;
-              background: ${activeColor};
-              color: #111;
-              padding: 0.111em 0.333em;
-              transform: skewX(-10deg);
-              box-shadow: 0.111em 0.111em 0 rgba(0,0,0,0.8);
-            }
-            .kinetic-inner {
-              display: inline-block;
-              transform: skewX(10deg);
-            }
-            @keyframes kineticSmash {
-              0% { transform: skewX(-10deg) scale(0.5); opacity: 0; box-shadow: 0px 0px 0 rgba(0,0,0,0.8); }
-              60% { transform: skewX(-10deg) scale(1.15); box-shadow: 0.222em 0.222em 0 rgba(0,0,0,0.8); }
-              100% { transform: skewX(-10deg) scale(1.05); opacity: 1; box-shadow: 0.111em 0.111em 0 rgba(0,0,0,0.8); }
-            }
-          `}
-        </style>
-        <span className="kinetic-container">
-          <span key={`prev-${activeWordIndex}`} className="kinetic-word inactive">{words[activeWordIndex - 1]?.word}</span>
-          
-          <span key={`active-${activeWordIndex}`} className="kinetic-word active">
-            <span className="kinetic-inner">{words[activeWordIndex].word}</span>
-          </span>
-          
-          <span key={`next-${activeWordIndex}`} className="kinetic-word inactive">{words[activeWordIndex + 1]?.word}</span>
-        </span>
-      </>
+      <span style={rowStyle(0.08)}>
+        {words.map((w, i) => {
+          const key = `${i}-${w.start}`;
+          // Every word keeps the box padding, so the line does not jump when the box moves on.
+          const box: React.CSSProperties = { ...base, display: 'inline-block', padding: '0.111em 0.333em', marginInline: growRoom(w.word, w.keyword ? 1.12 : 1.05, config) };
+          if (i === activeWordIndex) {
+            // kineticSmash 0.3s cubic-bezier(0.25, 1, 0.5, 1): 0% → 60% → 100%
+            const t = time - w.start;
+            const peak = w.keyword ? 1.25 : 1.15;
+            const scale = interpolate(t, [0, 0.18, 0.3], [0.5, peak, w.keyword ? 1.12 : 1.05], smash);
+            const opacity = interpolate(t, [0, 0.18], [0, 1], smash);
+            const sh = interpolate(t, [0, 0.18, 0.3], [0, 0.222, 0.111], smash);
+            return (
+              <span
+                key={key}
+                style={{
+                  ...box,
+                  background: activeColor,
+                  color: '#111111',
+                  textShadow: 'none',
+                  opacity: r4(opacity),
+                  transform: `skewX(-10deg) scale(${r4(scale)})`,
+                  boxShadow: `${r4(sh)}em ${r4(sh)}em 0 rgba(0,0,0,0.8)`,
+                }}
+              >
+                <span style={{ display: 'inline-block', transform: 'skewX(10deg)' }}>{w.word}</span>
+              </span>
+            );
+          }
+          return (
+            <span
+              key={key}
+              style={{ ...box, color: w.keyword ? kwColor : fontColor, opacity: 0.9, transform: 'scale(0.95)', textShadow: restShadow }}
+            >
+              {w.word}
+            </span>
+          );
+        })}
+      </span>
     );
-  }
+  },
 };

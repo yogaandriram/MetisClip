@@ -1,93 +1,88 @@
+"""Static pipeline: Discovery -> Analyzer (+Critic) -> Processor.
+
+Sequential and deterministic; checkpoints after every node and every clip, so
+`POST /api/jobs/{id}/resume` skips completed work. Cancel/shutdown is checked
+between units of work and kills running child processes.
+"""
+from __future__ import annotations
+
 import logging
-from typing import List, Optional, cast
-from backend.agents.state import PipelineState
-from backend.agents.nodes.discovery import run_discovery_agent
-from backend.agents.nodes.analyzer import run_analyzer_agent
-from backend.agents.nodes.processor import run_processor_agent
-from backend.agents.nodes.scheduler_ai import run_scheduler_ai_agent
+import shutil
+
+from backend.agents.context import JobContext, PipelineError
+from backend.agents.nodes import analyzer, discovery, processor
+from backend.core import events, llm
+from backend.core.db import get_db, utcnow
+from backend.core.procs import Cancelled, CancelToken
 
 logger = logging.getLogger(__name__)
 
-def execute_static_pipeline(
-    job_id: str,
-    user_id: str,
-    keywords: List[str],
-    youtube_url: Optional[str] = None,
-    video_types: List[str] = ["podcast"],
-    clip_duration: str = "45-60",
-    max_clips: int = 3
-):
-    """
-    Executes the video processing pipeline statically (sequentially) without
-    using an autonomous LLM Agent or LangGraph. This is used when the Web UI
-    "Generate" button is clicked, saving tokens by only using 9router for transcript analysis.
-    """
-    logger.info(f"=== STARTING STATIC PIPELINE FOR JOB {job_id} ===")
-    
-    # Initialize State
-    state = PipelineState(
-        job_id=job_id,
-        user_id=user_id,
-        keywords=keywords,
-        youtube_url=youtube_url,
-        video_types=video_types,
-        clip_duration=clip_duration,
-        max_clips=max_clips,
-        source_videos=[],
-        viral_segments=[],
-        processed_clips=[],
-        subtitled_clips=[],
-        scheduled_posts=[],
-        current_step="discovery",
-        errors=[],
-        progress_pct=0.0,
-        messages=[]
+
+def _finish(job_id: str, agent_id: str | None, status: str, error: str | None = None, step: str = "system") -> None:
+    db = get_db()
+    update: dict = {"$set": {"status": status, "finished_at": utcnow()}}
+    if status == "completed":
+        update["$set"]["progress_pct"] = 100.0
+    if error:
+        update["$push"] = {"errors": {"$each": [{"step": step, "message": error[:1000], "at": utcnow()}], "$slice": -50}}
+    db.discovery_jobs.update_one({"_id": job_id}, update)
+    events.publish({"type": "job.status", "id": job_id, "agent_id": agent_id, "status": status, "error": error})
+
+
+def run_job(job_id: str, cancel: CancelToken) -> None:
+    db = get_db()
+    job = db.discovery_jobs.find_one_and_update(
+        {"_id": job_id, "status": "pending"},
+        {"$set": {"status": "running", "started_at": utcnow(), "finished_at": None}},
+        return_document=True,
     )
-    
+    if not job:
+        logger.info("Job %s is no longer pending; skipping", job_id)
+        return
+    ctx = JobContext(job, cancel)
+    events.publish({"type": "job.status", "id": job_id, "agent_id": ctx.agent_id, "status": "running"})
+    logger.info("Job %s started (%s)", job_id, job["source"].get("type"))
+    step = job.get("current_step") or "discovery"
     try:
-        # Step 1: Discovery
-        logger.info("Executing Discovery Node...")
-        state.update(cast(PipelineState, run_discovery_agent(state)))
-        if not state.get("source_videos"):
-            logger.warning("Pipeline stopped: No videos discovered.")
-            return state
+        ck = job.get("checkpoint") or {}
 
-        # Step 2: Analysis (Uses 9Router to find viral moments)
-        logger.info("Executing Analyzer Node...")
-        state.update(cast(PipelineState, run_analyzer_agent(state)))
-        if not state.get("viral_segments"):
-            logger.warning("Pipeline stopped: No viral segments found.")
-            return state
+        step = "discovery"
+        if ck.get("discovery_done"):
+            videos = list(db.source_videos.find({"job_id": job_id}))
+        else:
+            videos = discovery.run(ctx)
+            ctx.checkpoint(discovery_done=True)
+        if not videos:
+            raise PipelineError("Tidak ada video sumber")
+        ctx.check()
 
-        # Step 3: Processing (Download, Crop, Subtitle)
-        logger.info("Executing Processor Node...")
-        state.update(cast(PipelineState, run_processor_agent(state)))
-        if not state.get("subtitled_clips"):
-            logger.warning("Pipeline stopped: Failed to process clips.")
-            return state
+        step = "analysis"
+        if ck.get("analysis_done"):
+            segments = ck.get("segments") or []
+        else:
+            segments = analyzer.run(ctx, videos)
+            ctx.checkpoint(analysis_done=True, segments=segments)
+        if not segments:
+            raise PipelineError("Tidak ditemukan segmen yang cukup menarik untuk dijadikan klip")
+        ctx.check()
 
-        # Step 4: Scheduling
-        logger.info("Executing Scheduler Node...")
-        state.update(cast(PipelineState, run_scheduler_ai_agent(state)))
-        
-        logger.info(f"=== STATIC PIPELINE FINISHED SUCCESSFULLY FOR JOB {job_id} ===")
-        return state
-        
-    except Exception as e:
-        logger.error(f"Static pipeline failed with error: {str(e)}")
-        state["errors"] = state.get("errors", []) + [str(e)]
-        return state
+        step = "processing"
+        clips = processor.run(ctx, segments)
+        ctx.check()
+
+        partial = len(clips) < len(segments)
+        _finish(job_id, ctx.agent_id, "completed",
+                f"{len(segments) - len(clips)} dari {len(segments)} klip gagal diproses" if partial else None, "processing")
+        logger.info("Job %s completed: %s clip(s)", job_id, len(clips))
+    except Cancelled:
+        status = "interrupted" if cancel.reason == "shutdown" else "cancelled"
+        _finish(job_id, ctx.agent_id, status)
+        logger.info("Job %s %s", job_id, status)
+    except (PipelineError, llm.LLMError) as exc:
+        _finish(job_id, ctx.agent_id, "failed", str(exc), step)
+        logger.warning("Job %s failed at %s: %s", job_id, step, exc)
+    except Exception as exc:
+        logger.exception("Job %s crashed at %s", job_id, step)
+        _finish(job_id, ctx.agent_id, "failed", f"Terjadi kesalahan tak terduga: {exc}", step)
     finally:
-        # Ensure job status doesn't hang in 'running' if it stopped early
-        try:
-            from backend.api.deps import get_supabase_client
-            supabase = get_supabase_client()
-            job = supabase.table("discovery_jobs").select("status").eq("id", job_id).execute()
-            if job.data and job.data[0]["status"] == "running":
-                # If we stopped early without 100% progress, consider it failed
-                status = "failed"
-                if not state.get("viral_segments"):
-                    logger.warning(f"Marking job {job_id} as failed because no viral segments were found.")
-                supabase.table("discovery_jobs").update({"status": status}).eq("id", job_id).execute()
-        except Exception as e:
-            logger.error(f"Failed to cleanup job status: {str(e)}")
+        shutil.rmtree(ctx.cache_dir, ignore_errors=True)

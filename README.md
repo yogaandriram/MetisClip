@@ -12,15 +12,8 @@ Sebelum memulai, pastikan komputer Anda telah terpasang:
 
 ---
 
-## Langkah 1: Setup Lingkungan Kerja (Environment)
-1. Buka file `.env` di direktori utama (root).
-2. Lengkapi kunci-kunci berikut (untuk testing awal, Anda bisa membiarkannya kosong karena sistem dilengkapi dengan **Sandbox Mode** otomatis):
-   ```env
-   SUPABASE_ANON_KEY=your_key_here
-   SUPABASE_SERVICE_ROLE_KEY=your_key_here
-   JWT_SECRET=your_jwt_secret_here
-   GROQ_API_KEY=your_groq_key_here
-   ```
+## Langkah 1: API Key
+Jangan isi kredensial apa pun di file `.env`. Semua API key (LLM dan Groq) diisi langsung di aplikasi desktop, lewat **Setup Wizard** saat pertama kali dibuka atau menu **Pengaturan**. Key disimpan di Windows Credential Manager, bukan di file project. Engine tidak membaca API key dari `.env`, juga dalam mode dev.
 
 ---
 
