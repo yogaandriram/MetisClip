@@ -69,7 +69,26 @@ def brand_template_for(agent_id: str | None) -> dict[str, Any]:
 
 def effective_style(clip: dict[str, Any], bt: dict[str, Any] | None = None) -> dict[str, Any]:
     bt = bt if bt is not None else brand_template_for(clip.get("agent_id"))
-    return {**(bt.get("caption_settings") or {}), **(clip.get("subtitle_style") or {})}
+    style = {**(bt.get("caption_settings") or {}), **(clip.get("subtitle_style") or {})}
+    style.pop("ai", None)  # the clip's AI override lives in subtitle_style.ai (see effective_ai)
+    return style
+
+
+# Keep in sync with frontend/lib/presets/captions.ts DEFAULT_AI_SETTINGS.
+DEFAULT_AI_SETTINGS: dict[str, bool] = {"fillerWords": True, "pauses": False, "keywords": True, "emojis": False}
+
+
+def clean_ai(raw: Any) -> dict[str, bool]:
+    """Only the known AI subtitle flags, as booleans."""
+    if not isinstance(raw, dict):
+        return {}
+    return {k: bool(raw[k]) for k in DEFAULT_AI_SETTINGS if isinstance(raw.get(k), bool)}
+
+
+def effective_ai(clip: dict[str, Any] | None, bt: dict[str, Any] | None) -> dict[str, bool]:
+    """AI subtitle settings: defaults ⊕ brand template ai_settings ⊕ the clip's subtitle_style.ai."""
+    clip_ai = ((clip or {}).get("subtitle_style") or {}).get("ai")
+    return {**DEFAULT_AI_SETTINGS, **clean_ai((bt or {}).get("ai_settings")), **clean_ai(clip_ai)}
 
 
 def build_props(clip: dict[str, Any]) -> dict[str, Any]:
@@ -79,6 +98,8 @@ def build_props(clip: dict[str, Any]) -> dict[str, Any]:
         "words": (clip.get("subtitle") or {}).get("words") or [],
         "style": effective_style(clip, bt),
         "brandSettings": resolve_assets(bt.get("brand_settings") or {}),
+        "ai": effective_ai(clip, bt),
+        # Source length; the composition shortens itself when pauses/filler words are cut
         "durationInFrames": max(1, int(round(float(clip.get("duration_seconds") or 1) * FPS))),
     }
 

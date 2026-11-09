@@ -14,10 +14,10 @@ from pathlib import Path
 from typing import Any
 
 from backend.agents.context import JobContext, PipelineError
-from backend.agents.tools import ffmpeg_ops, whisper, ytdlp
+from backend.agents.tools import caption_ai, ffmpeg_ops, whisper, ytdlp
 from backend.agents.tools.smart_crop import process_auto_tracking_video
 from backend.agents.tools.transcript import cached as cached_transcript
-from backend.core import events
+from backend.core import events, llm
 from backend.core.db import get_db, utcnow
 from backend.core.paths import get_paths
 from backend.core.procs import Cancelled
@@ -61,6 +61,23 @@ def _subtitles(ctx: JobContext, seg: dict[str, Any], raw: Path, work: Path) -> l
     return words or mock_words(seg.get("hook_text") or "", seg["duration_seconds"])
 
 
+def _ai_marks(ctx: JobContext, words: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Brand template AI subtitle settings: keywords / emojis (one LLM call). Never fails the clip."""
+    from backend.services.render import effective_ai
+
+    ai = effective_ai(None, (ctx.agent or {}).get("brand_template") or {})
+    if not words or not (ai["keywords"] or ai["emojis"]):
+        return words
+    try:
+        marked, _, _ = caption_ai.enrich_words(
+            words, keywords=ai["keywords"], emojis=ai["emojis"], should_stop=lambda: ctx.cancel.cancelled
+        )
+        return marked
+    except llm.LLMError as exc:
+        ctx.error("processing", f"Sorot kata kunci/emoji AI dilewati: {exc}")
+        return words
+
+
 def process_segment(ctx: JobContext, seg: dict[str, Any]) -> dict[str, Any]:
     clip_id = seg["segment_id"]
     paths = get_paths()
@@ -96,6 +113,8 @@ def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw
         words = _subtitles(ctx, seg, raw, work)
     finally:
         shutil.rmtree(work, ignore_errors=True)
+    ctx.check()
+    words = _ai_marks(ctx, words)
 
     now = utcnow()
     doc = ClipDoc(

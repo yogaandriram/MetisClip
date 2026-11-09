@@ -10,12 +10,14 @@ from pydantic import BaseModel, Field
 
 from backend.api.dto import brand_template_dto, clip_dto, http_error, render_dto
 from backend.api.routes.files import serve_relative
-from backend.core import events
+from backend.agents.tools import caption_ai
+from backend.agents.tools.caption_ai import valid_emoji
+from backend.core import events, llm
 from backend.core.db import get_db, new_id, utcnow
 from backend.core.paths import get_paths
 from backend.core.queue import runner
 from backend.models.documents import RenderJobDoc
-from backend.services.render import effective_style
+from backend.services.render import clean_ai, effective_ai, effective_style
 
 router = APIRouter(tags=["clips"])
 
@@ -48,6 +50,7 @@ def get_clip(clip_id: str):
     return {
         "clip": clip_dto(clip),
         "effective_style": effective_style(clip, bt),
+        "effective_ai": effective_ai(clip, bt),
         "brand_template": brand_template_dto(agent) if agent else None,
     }
 
@@ -57,6 +60,8 @@ class Word(BaseModel):
     start: float = Field(ge=0)
     end: float = Field(ge=0)
     confidence: Optional[float] = None
+    keyword: Optional[bool] = None
+    emoji: Optional[str] = Field(default=None, max_length=16)
 
 
 class SubtitleUpdate(BaseModel):
@@ -75,6 +80,11 @@ def update_subtitles(clip_id: str, body: SubtitleUpdate):
             item = {"word": w.word, "start": round(w.start, 3), "end": round(max(w.end, w.start), 3)}
             if w.confidence is not None:
                 item["confidence"] = w.confidence
+            if w.keyword:
+                item["keyword"] = True
+            emoji = valid_emoji(w.emoji) if w.emoji else None
+            if emoji:
+                item["emoji"] = emoji
             words.append(item)
         if len(words) > 20000:
             raise http_error(400, "Terlalu banyak kata subtitle")
@@ -82,10 +92,40 @@ def update_subtitles(clip_id: str, body: SubtitleUpdate):
     if body.reset_style:
         sets["subtitle_style"] = {}
     elif body.style is not None:
-        sets["subtitle_style"] = body.style
+        style = dict(body.style)
+        if "ai" in style:
+            ai = clean_ai(style.pop("ai"))
+            if ai:
+                style["ai"] = ai
+        sets["subtitle_style"] = style
     get_db().clips.update_one({"_id": clip_id}, {"$set": sets})
     events.publish({"type": "clip.updated", "id": clip_id})
     return {"clip": clip_dto(_get(clip_id))}
+
+
+class EnrichBody(BaseModel):
+    keywords: bool = True
+    emojis: bool = True
+
+
+@router.post("/api/clips/{clip_id}/subtitles/enrich")
+def enrich_subtitles(clip_id: str, body: EnrichBody):
+    """AI subtitle settings: one LLM call marks keywords and/or picks emojis on the saved words."""
+    clip = _get(clip_id)
+    words = (clip.get("subtitle") or {}).get("words") or []
+    if not words:
+        raise http_error(400, "Clip ini belum punya subtitle")
+    if not (body.keywords or body.emojis):
+        raise http_error(400, "Pilih kata kunci atau emoji")
+    try:
+        words, n_kw, n_emoji = caption_ai.enrich_words(words, keywords=body.keywords, emojis=body.emojis)
+    except llm.LLMNotConfigured as exc:
+        raise http_error(400, str(exc))
+    except llm.LLMError as exc:
+        raise http_error(502, f"AI subtitle gagal: {exc}")
+    get_db().clips.update_one({"_id": clip_id}, {"$set": {"subtitle.words": words, "updated_at": utcnow()}})
+    events.publish({"type": "clip.updated", "id": clip_id})
+    return {"clip": clip_dto(_get(clip_id)), "keywords": n_kw, "emojis": n_emoji}
 
 
 @router.get("/api/clips/{clip_id}/media/{kind}")
