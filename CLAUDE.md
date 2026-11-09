@@ -677,7 +677,7 @@ Base URL: `http://127.0.0.1:{port}`. Every request carries `Authorization: Beare
 
 ### 8.2 Secrets (Windows Credential Manager, service name `MetisClip`)
 
-One key per LLM provider: `openai_api_key`, `anthropic_api_key`, `gemini_api_key`, `xai_api_key`, `deepseek_api_key`, `qwen_api_key`, and `llm_api_key` for the OpenAI-compatible endpoint. Plus `groq_api_key` (Whisper). The dev engine uses the service name `MetisClip-Dev`, and in dev it falls back to the repo `.env` (`LLM_API_KEY`/`NINEROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`, `DEEPSEEK_API_KEY`, `DASHSCOPE_API_KEY`, `GROQ_API_KEY`). The MongoDB password is not stored here (see §6.2). They replace `super_agents.groq_api_key`, `.env` keys and Supabase-stored tokens.
+One key per LLM provider: `openai_api_key`, `anthropic_api_key`, `gemini_api_key`, `xai_api_key`, `deepseek_api_key`, `qwen_api_key`, and `llm_api_key` for the OpenAI-compatible endpoint. Plus `groq_api_key` (Whisper). The user enters every key in Pengaturan or the Setup Wizard. **Keys are never read from `.env` or environment variables, not even in dev** (owner decision, 2026-11-09); the dev engine stores them under the service name `MetisClip-Dev`. The MongoDB password is not stored here (see §6.2). They replace `super_agents.groq_api_key`, `.env` keys and Supabase-stored tokens.
 
 ### 8.3 Development `.env` (dev only, never bundled)
 
@@ -685,14 +685,11 @@ One key per LLM provider: `openai_api_key`, `anthropic_api_key`, `gemini_api_key
 METISCLIP_ENV=dev                 # enables mock/sandbox fallbacks
 METISCLIP_DATA_ROOT=.\.devdata    # dev data folder (db\, library\, cache\, backups\)
 MONGODB_URI=mongodb://127.0.0.1:27017/metisclip   # dev mongod without auth; packaged builds use port + keyring
-LLM_API_KEY=                      # OpenAI-compatible endpoint (was NINEROUTER_API_KEY); provider/model live in settings
-OPENAI_API_KEY=                   # optional dev fallbacks for the other providers' keys:
-ANTHROPIC_API_KEY=                #   GEMINI_API_KEY, XAI_API_KEY, DEEPSEEK_API_KEY, DASHSCOPE_API_KEY work the same way
-GROQ_API_KEY=
-WHISPER_MODEL=whisper-large-v3-turbo
 ```
 
-**Removed for desktop:** `SUPABASE_*`, `JWT_SECRET`, `R2_*`, `REDIS_URL`, `COMPOSIO_API_KEY`, `HOST=0.0.0.0`, `PORT`, `TEMP_DIR`, `CLIP_STORAGE_BUCKET`, `YOUTUBE_OAUTH_CLIENT_ID`/`_SECRET`.
+No credentials go in `.env`: API keys are entered in the app (§8.2), and the LLM provider, model, base URL and Whisper model live in `app_settings` (§8.1).
+
+**Removed for desktop:** every API key (`LLM_API_KEY`/`NINEROUTER_API_KEY`, `GROQ_API_KEY` and the other providers' keys), `SUPABASE_*`, `JWT_SECRET`, `R2_*`, `REDIS_URL`, `COMPOSIO_API_KEY`, `HOST=0.0.0.0`, `PORT`, `TEMP_DIR`, `CLIP_STORAGE_BUCKET`, `YOUTUBE_OAUTH_CLIENT_ID`/`_SECRET`.
 
 ---
 

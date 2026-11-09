@@ -21,7 +21,10 @@ logger = logging.getLogger(__name__)
 
 
 def _load_dev_dotenv() -> None:
-    """In dev, read the repo .env so LLM/Groq/YouTube keys work without the UI."""
+    """In dev, read non-secret settings (MONGODB_URI, METISCLIP_*) from the repo .env.
+
+    API keys are never taken from it: core/secrets.py reads Credential Manager only.
+    """
     if is_frozen():
         return
     env_file = repo_root() / ".env"

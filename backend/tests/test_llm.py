@@ -95,8 +95,17 @@ def test_secrets_have_one_key_per_provider(client):
             "qwen_api_key", "llm_api_key", "groq_api_key"} == names
 
 
-def test_missing_key_names_the_provider(db, secrets, monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+def test_api_keys_are_never_read_from_the_environment(db, secrets, monkeypatch):
+    """Keys are entered in Pengaturan only; a key in .env / the environment is ignored, also in dev."""
+    assert config.is_dev
+    for env_name in ("LLM_API_KEY", "NINEROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GROQ_API_KEY"):
+        monkeypatch.setenv(env_name, "sk-from-dotenv-1234567890")
+    for name in ("llm_api_key", "openai_api_key", "anthropic_api_key", "groq_api_key"):
+        assert secrets.get_secret(name) is None
+    assert not llm.is_configured()
+
+
+def test_missing_key_names_the_provider(db, secrets):
     update_settings({"llm": {"provider": "anthropic"}})
     assert not llm.is_configured()
     with pytest.raises(llm.LLMNotConfigured, match="Anthropic"):
