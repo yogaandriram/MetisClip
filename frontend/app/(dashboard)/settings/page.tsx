@@ -28,7 +28,7 @@ const ENCODER_LABELS: Record<EncoderSetting, string> = {
 }
 
 const SECRETS: { name: SecretName; label: string; description: string }[] = [
-  { name: 'groq_api_key', label: 'API key Groq (Whisper)', description: 'Untuk transkripsi subtitle per kata.' },
+  { name: 'groq_api_key', label: 'API key Groq (Whisper)', description: 'Untuk subtitle per kata dan transkrip video yang di-upload.' },
 ]
 
 function Card({ icon: Icon, color, title, subtitle, children }: { icon: React.ElementType; color: string; title: string; subtitle?: string; children: React.ReactNode }) {

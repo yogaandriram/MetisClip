@@ -413,7 +413,7 @@ const SECRET_INFO: { name: SecretName; label: string; description: React.ReactNo
   {
     name: 'groq_api_key',
     label: 'API key Groq (Whisper)',
-    description: 'Dipakai untuk transkripsi suara per kata (subtitle). Bisa dibuat gratis di console.groq.com.',
+    description: 'Dipakai untuk subtitle per kata dan transkrip video yang Anda upload. Bisa dibuat gratis di console.groq.com.',
   },
 ]
 

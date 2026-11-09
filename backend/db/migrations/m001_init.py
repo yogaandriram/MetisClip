@@ -43,8 +43,9 @@ VALIDATORS: dict[str, dict] = {
         },
     ),
     "source_videos": _schema(
-        ["_id", "job_id", "youtube_id", "created_at"],
-        {"_id": STR, "job_id": STR, "youtube_id": STR, "duration_seconds": NUM, "created_at": DATE},
+        ["_id", "job_id", "created_at"],
+        {"_id": STR, "job_id": STR, "youtube_id": NULLABLE_STR, "file_path": NULLABLE_STR, "duration_seconds": NUM,
+         "created_at": DATE},
     ),
     "transcripts": _schema(
         ["_id", "segments", "fetched_at"],

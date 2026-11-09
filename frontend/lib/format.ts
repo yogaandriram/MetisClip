@@ -1,5 +1,5 @@
 // Small formatting helpers shared by the desktop UI (Bahasa Indonesia).
-import { EngineError, type ClipStatus, type JobStatus, type JobStep, type RenderStatus } from './engine'
+import { EngineError, type ClipStatus, type Job, type JobStatus, type JobStep, type RenderStatus } from './engine'
 
 type BadgeVariant = 'primary' | 'accent' | 'warning' | 'danger' | 'muted'
 
@@ -96,6 +96,22 @@ export const CLIP_DURATION_OPTIONS = [
   { value: '60-75', label: '60 - 75 detik (Story)' },
   { value: '75-90', label: '75 - 90 detik (Deep-dive)' },
 ]
+
+/** Video containers Cari Video accepts for upload (backend/agents/nodes/discovery.py VIDEO_EXTENSIONS). */
+export const VIDEO_FILE_EXTENSIONS = ['mp4', 'mkv', 'mov', 'webm', 'm4v', 'avi']
+
+/** "D:\Video\podcast.mp4" -> "podcast.mp4" */
+export function fileName(path: string): string {
+  return path.split(/[\\/]/).pop() || path
+}
+
+/** What a job was made from, for job lists: the YouTube link or the uploaded file's name. */
+export function jobSource(job: Job): { kind: 'link' | 'file'; label: string; text: string } {
+  if (job.source.type === 'local_file' && job.source.local_file_path) {
+    return { kind: 'file', label: 'File', text: fileName(job.source.local_file_path) }
+  }
+  return { kind: 'link', label: 'Link', text: job.source.youtube_url || '-' }
+}
 
 export function isYoutubeUrl(value: string): boolean {
   return /^(https?:\/\/)?((www|m|music)\.)?(youtube\.com|youtu\.be)\/.+/i.test(value.trim())

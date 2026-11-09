@@ -6,9 +6,13 @@ from typing import Optional
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
+from backend.agents.context import PipelineError
+from backend.agents.nodes.discovery import check_local_video
+from backend.agents.tools import whisper
 from backend.agents.tools.ytdlp import extract_video_id
 from backend.api.dto import http_error, job_dto
 from backend.core import events
+from backend.core.config import config
 from backend.core.db import get_db, new_id, utcnow
 from backend.core.queue import runner
 from backend.models.documents import DURATIONS, JobConfig, JobDoc, JobSource
@@ -18,7 +22,9 @@ router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 class JobCreate(BaseModel):
     agent_id: str
-    youtube_url: str
+    # Exactly one source: a YouTube link, or a video file on this PC (used in place, never copied)
+    youtube_url: Optional[str] = None
+    local_file_path: Optional[str] = None
     clip_duration: str = "45-60"
     max_clips: int = Field(default=3, ge=0, le=100)
 
@@ -56,13 +62,27 @@ def create_job(body: JobCreate):
         raise http_error(400, "Super Agent tidak ditemukan. Pilih agent terlebih dahulu.")
     if body.clip_duration not in DURATIONS:
         raise http_error(400, "Durasi klip tidak valid")
-    url = body.youtube_url.strip()
-    if not extract_video_id(url):
-        raise http_error(400, "URL YouTube tidak valid")
+    url = (body.youtube_url or "").strip()
+    file_path = (body.local_file_path or "").strip()
+    if bool(url) == bool(file_path):
+        raise http_error(400, "Isi link YouTube atau pilih file video (salah satu)")
+    if url:
+        if not extract_video_id(url):
+            raise http_error(400, "URL YouTube tidak valid")
+        source = JobSource(type="url", youtube_url=url)
+    else:
+        try:
+            path, _ = check_local_video(file_path)
+        except PipelineError as exc:
+            raise http_error(400, str(exc)) from exc
+        # Uploads have no YouTube subtitles: the transcript always comes from Whisper
+        if not whisper.available() and not config.is_dev:
+            raise http_error(400, "Video upload ditranskripsi dengan Whisper. Isi API key Groq di Pengaturan dulu.")
+        source = JobSource(type="local_file", local_file_path=str(path))
     doc = JobDoc(
         _id=new_id(),
         agent_id=body.agent_id,
-        source=JobSource(type="url", youtube_url=url),
+        source=source,
         config=JobConfig(
             clip_duration=body.clip_duration,
             max_clips=body.max_clips,

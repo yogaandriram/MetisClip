@@ -1,4 +1,4 @@
-"""FFmpeg operations: encoder detection, 9:16 finishing, thumbnails, audio extraction."""
+"""FFmpeg operations: encoder detection, 9:16 finishing, thumbnails, audio extraction, local video cuts."""
 from __future__ import annotations
 
 import logging
@@ -151,6 +151,50 @@ def chunk_audio(audio: Path, out_dir: Path, chunk_seconds: int, cancel: procs.Ca
         cancel=cancel, timeout=3600,
     )
     return sorted(out_dir.glob("chunk_*.mp3"))
+
+
+def cut_section(source: Path, start: float, end: float, out_path: Path, cancel: procs.CancelToken | None) -> Path:
+    """Frame-accurate [start, end] cut of a local video, like a YouTube section download.
+
+    Re-encoded (a stream copy would start at the previous keyframe, seconds early) and scaled down so
+    neither side exceeds 1920 px (4K sources -> 1080p); smaller videos are never upscaled.
+    """
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    procs.run(
+        [ffmpeg_path(), "-y", "-hide_banner", "-loglevel", "error",
+         "-ss", f"{max(0.0, start):.3f}", "-i", str(source), "-t", f"{max(0.1, end - start):.3f}",
+         "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn",
+         "-vf", "scale=w='min(iw,1920)':h='min(ih,1920)':force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1",
+         "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p",
+         "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+         "-movflags", "+faststart", str(out_path)],
+        cancel=cancel, timeout=1800,
+    )
+    if not out_path.exists() or out_path.stat().st_size == 0:
+        raise RuntimeError("Potongan video kosong")
+    return out_path
+
+
+def probe_media(path: Path) -> dict | None:
+    """{duration, has_video, has_audio, width, height} from `ffmpeg -i`, or None when unreadable."""
+    try:
+        res = procs.run([ffmpeg_path(), "-hide_banner", "-i", str(path)], timeout=60, check=False)
+    except Exception:
+        return None
+    text = (res.stderr or b"").decode("utf-8", "replace")
+    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", text)
+    # Cover art is stored as an mjpeg/png "video" stream: it does not count
+    video = re.search(r"Stream #\S+.*?: Video: (?!mjpeg|png|bmp)[^\n]*?\b(\d{2,5})x(\d{2,5})\b", text)
+    if not m and not video:
+        return None
+    h, mi, s = m.groups() if m else ("0", "0", "0")
+    return {
+        "duration": int(h) * 3600 + int(mi) * 60 + float(s),
+        "has_video": bool(video),
+        "has_audio": bool(re.search(r"Stream #\S+.*?: Audio:", text)),
+        "width": int(video.group(1)) if video else 0,
+        "height": int(video.group(2)) if video else 0,
+    }
 
 
 def probe_duration(path: Path) -> float | None:

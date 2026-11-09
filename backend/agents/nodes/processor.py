@@ -1,6 +1,7 @@
-"""Processor Agent: per segment download -> smart crop -> 1080x1920 -> thumbnail -> Whisper -> clip.
+"""Processor Agent: per segment download (or cut) -> smart crop -> 1080x1920 -> thumbnail -> Whisper -> clip.
 
-Each segment uses its OWN youtube_id (fixes K1). Clip ids are deterministic
+Each segment uses its OWN source: a YouTube section download (its own youtube_id, fixes K1) or a
+frame-accurate cut of the uploaded video file. Clip ids are deterministic
 (uuid5 of job, video, start, end) and written with an upsert, so resuming never
 duplicates clips. Files go to <DATA_ROOT>\\library\\<agent>\\<clip_id>\\.
 """
@@ -27,9 +28,18 @@ from backend.services import brand_templates
 logger = logging.getLogger(__name__)
 
 
-def words_from_transcript(youtube_id: str, start: float, end: float) -> list[dict[str, Any]]:
+def _source_label(seg: dict[str, Any]) -> str:
+    return Path(seg["file_path"]).name if seg.get("file_path") else str(seg.get("youtube_id"))
+
+
+def _transcript_key(seg: dict[str, Any]) -> str:
+    # Segments checkpointed before uploads existed carry only the YouTube id
+    return seg.get("transcript_key") or f"yt:{seg['youtube_id']}"
+
+
+def words_from_transcript(transcript_key: str, start: float, end: float) -> list[dict[str, Any]]:
     """Approximate word timings from the cached transcript (used when Whisper is unavailable)."""
-    segs = cached_transcript(youtube_id) or []
+    segs = cached_transcript(transcript_key) or []
     words: list[dict[str, Any]] = []
     for e in segs:
         s = float(e["start"])
@@ -58,7 +68,7 @@ def _subtitles(ctx: JobContext, seg: dict[str, Any], raw: Path, work: Path) -> l
             raise
         except Exception as exc:
             ctx.error("processing", f"Whisper gagal untuk klip {seg['start_time']:.0f}s, memakai transkrip: {exc}")
-    words = words_from_transcript(seg["youtube_id"], seg["start_time"], seg["end_time"])
+    words = words_from_transcript(_transcript_key(seg), seg["start_time"], seg["end_time"])
     return words or mock_words(seg.get("hook_text") or "", seg["duration_seconds"])
 
 
@@ -100,7 +110,10 @@ def process_segment(ctx: JobContext, seg: dict[str, Any]) -> dict[str, Any]:
 def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw: Path, thumb: Path) -> dict[str, Any]:
     paths = get_paths()
     try:
-        src = ytdlp.download_section(seg["youtube_id"], seg["start_time"], seg["end_time"], work / "src.mp4", ctx.cancel)
+        if seg.get("file_path"):
+            src = ffmpeg_ops.cut_section(Path(seg["file_path"]), seg["start_time"], seg["end_time"], work / "src.mp4", ctx.cancel)
+        else:
+            src = ytdlp.download_section(seg["youtube_id"], seg["start_time"], seg["end_time"], work / "src.mp4", ctx.cancel)
         ctx.check()
         tracked = work / "tracked.mp4"
         if process_auto_tracking_video(str(src), str(tracked), ctx.cancel):
@@ -173,6 +186,9 @@ def run(ctx: JobContext, segments: list[dict[str, Any]]) -> list[dict[str, Any]]
                  message=f"Memproses {len(todo)} klip…" if todo else None)
     if not todo:
         return results
+    for path in {s["file_path"] for s in todo if s.get("file_path")}:
+        if not Path(path).is_file():
+            raise PipelineError(f"File video tidak ditemukan: {path}. Kembalikan file ke lokasi itu, lalu lanjutkan job ini.")
 
     workers = max(1, min(len(todo), int(get_settings()["processing"]["max_workers"])))
     failures: list[str] = []
@@ -186,7 +202,7 @@ def run(ctx: JobContext, segments: list[dict[str, Any]]) -> list[dict[str, Any]]
             raise
         except Exception as exc:
             logger.exception("Clip %s failed", seg["segment_id"])
-            msg = f"Klip {seg['start_time']:.0f}–{seg['end_time']:.0f}s ({seg['youtube_id']}) gagal: {exc}"
+            msg = f"Klip {seg['start_time']:.0f}–{seg['end_time']:.0f}s ({_source_label(seg)}) gagal: {exc}"
             ctx.error("processing", msg)
             with lock:
                 failures.append(msg)

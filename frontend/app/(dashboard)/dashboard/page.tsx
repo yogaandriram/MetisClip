@@ -17,7 +17,7 @@ import { useEngineEvents } from '@/hooks/useEngineEvents'
 import { api, type Clip, type DashboardStats, type Job, type SecretName } from '@/lib/engine'
 import { mediaUrl } from '@/lib/media'
 import { providerInfo } from '@/lib/llmProviders'
-import { JOB_STATUS, errorMessage, formatClock, formatCompactNumber, formatDateTime, jobStepLabel } from '@/lib/format'
+import { JOB_STATUS, errorMessage, formatClock, formatCompactNumber, formatDateTime, jobSource, jobStepLabel } from '@/lib/format'
 
 export default function DashboardOverview() {
   const router = useRouter()
@@ -151,7 +151,7 @@ export default function DashboardOverview() {
             ) : (
               jobs.map((job) => {
                 const s = JOB_STATUS[job.status]
-                const title = job.source.youtube_url || '-'
+                const title = jobSource(job).text
                 return (
                   <GlassCard key={job.id} padding="16px" onClick={() => router.push('/jobs/')} style={{ cursor: 'pointer' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', marginBottom: '8px' }}>

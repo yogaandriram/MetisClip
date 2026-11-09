@@ -320,6 +320,7 @@ def _migrations():
         m003_brand_template_library,
         m004_llm_providers,
         m005_remove_keyword_search,
+        m006_local_video_upload,
     )
 
     return [
@@ -328,6 +329,7 @@ def _migrations():
         (3, "brand_template_library", m003_brand_template_library.up),
         (4, "llm_providers", m004_llm_providers.up),
         (5, "remove_keyword_search", m005_remove_keyword_search.up),
+        (6, "local_video_upload", m006_local_video_upload.up),
     ]
 
 

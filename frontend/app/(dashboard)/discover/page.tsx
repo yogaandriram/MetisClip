@@ -2,7 +2,7 @@
 
 import React, { Suspense, useCallback, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Sparkles, CheckCircle, Loader2, Video, AlertCircle, RotateCcw, XCircle, ListChecks, ArrowLeft } from 'lucide-react'
+import { Sparkles, CheckCircle, Loader2, Video, AlertCircle, RotateCcw, XCircle, ListChecks, ArrowLeft, Link as LinkIcon, Upload } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
@@ -14,11 +14,12 @@ import { Badge } from '@/components/ui/Badge'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { NoAgentState } from '@/components/NoAgentState'
+import { VideoFilePicker } from '@/components/discover/VideoFilePicker'
 import { useAgent } from '@/contexts/AgentContext'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
 import { api, type Job } from '@/lib/engine'
-import { CLIP_DURATION_OPTIONS, JOB_STATUS, JOB_STEPS, RESUMABLE_JOB_STATUSES, errorMessage, formatDateTime, isYoutubeUrl } from '@/lib/format'
+import { CLIP_DURATION_OPTIONS, JOB_STATUS, JOB_STEPS, RESUMABLE_JOB_STATUSES, errorMessage, formatDateTime, isYoutubeUrl, jobSource } from '@/lib/format'
 
 export default function DiscoverPage() {
   return (
@@ -47,7 +48,7 @@ function Discover() {
     <div style={{ maxWidth: '900px', margin: '0 auto' }}>
       <PageHeader
         title="Cari & Ekstrak Konten"
-        subtitle="Tempel link video YouTube, lalu biarkan AI memotong klip terbaik untuk Anda."
+        subtitle="Tempel link YouTube atau upload video dari komputer, lalu biarkan AI memotong klip terbaik untuk Anda."
         actions={
           jobId ? (
             <Button variant="secondary" size="sm" icon={<ArrowLeft size={14} />} onClick={() => router.push('/discover/')}>
@@ -65,7 +66,9 @@ function Discover() {
 
 function JobForm({ onCreated }: { onCreated: (jobId: string) => void }) {
   const { activeAgent } = useAgent()
+  const [mode, setMode] = useState<'url' | 'file'>('url')
   const [youtubeUrl, setYoutubeUrl] = useState('')
+  const [filePath, setFilePath] = useState<string | null>(null)
   const [duration, setDuration] = useState(activeAgent?.default_duration || '45-60')
   const [maxClips, setMaxClips] = useState<number>(3)
   const [submitting, setSubmitting] = useState(false)
@@ -75,15 +78,19 @@ function JobForm({ onCreated }: { onCreated: (jobId: string) => void }) {
     e.preventDefault()
     if (!activeAgent) return
     setFormError(null)
-    if (!isYoutubeUrl(youtubeUrl)) {
+    if (mode === 'url' && !isYoutubeUrl(youtubeUrl)) {
       setFormError('Format URL tidak valid. Masukkan link YouTube yang benar (youtube.com/watch?v=… atau youtu.be/…).')
+      return
+    }
+    if (mode === 'file' && !filePath) {
+      setFormError('Pilih file video dulu.')
       return
     }
     setSubmitting(true)
     try {
       const { job } = await api.jobs.create({
         agent_id: activeAgent.id,
-        youtube_url: youtubeUrl.trim(),
+        ...(mode === 'url' ? { youtube_url: youtubeUrl.trim() } : { local_file_path: filePath! }),
         clip_duration: duration,
         max_clips: maxClips,
       })
@@ -96,18 +103,49 @@ function JobForm({ onCreated }: { onCreated: (jobId: string) => void }) {
     }
   }
 
+  const tabStyle = (active: boolean): React.CSSProperties => ({
+    padding: '8px 16px',
+    borderRadius: '8px',
+    background: active ? 'var(--primary)' : 'transparent',
+    color: active ? '#fff' : 'var(--text-dim)',
+    border: 'none',
+    cursor: 'pointer',
+    fontWeight: 600,
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    transition: 'background 0.2s, color 0.2s',
+  })
+  const switchMode = (m: 'url' | 'file') => {
+    setMode(m)
+    setFormError(null)
+  }
+
   return (
     <form onSubmit={submit}>
       <GlassCard glow hoverEffect={false} padding="36px">
+        <div role="tablist" aria-label="Sumber video" style={{ display: 'flex', gap: '10px', marginBottom: '28px', background: 'rgba(0,0,0,0.2)', padding: '5px', borderRadius: '12px', width: 'fit-content' }}>
+          <button type="button" role="tab" aria-selected={mode === 'url'} onClick={() => switchMode('url')} style={tabStyle(mode === 'url')}>
+            <LinkIcon size={16} /> Link YouTube
+          </button>
+          <button type="button" role="tab" aria-selected={mode === 'file'} onClick={() => switchMode('file')} style={tabStyle(mode === 'file')}>
+            <Upload size={16} /> Upload Video
+          </button>
+        </div>
+
         <div style={{ display: 'flex', flexDirection: 'column', gap: '26px', marginBottom: '28px' }}>
-          <InputField
-            label="Link YouTube"
-            placeholder="https://www.youtube.com/watch?v=…"
-            value={youtubeUrl}
-            onChange={(e) => setYoutubeUrl(e.target.value)}
-            icon={<Video size={18} />}
-            autoFocus
-          />
+          {mode === 'url' ? (
+            <InputField
+              label="Link YouTube"
+              placeholder="https://www.youtube.com/watch?v=…"
+              value={youtubeUrl}
+              onChange={(e) => setYoutubeUrl(e.target.value)}
+              icon={<Video size={18} />}
+              autoFocus
+            />
+          ) : (
+            <VideoFilePicker value={filePath} onChange={setFilePath} onError={setFormError} />
+          )}
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '24px' }}>
             <SelectField label="Durasi Clip" value={duration} onChange={(e) => setDuration(e.target.value)} options={CLIP_DURATION_OPTIONS} />
@@ -259,7 +297,7 @@ function JobProgress({ jobId }: { jobId: string }) {
             </Badge>
           </div>
           <p style={{ color: 'var(--text-muted)', fontSize: '13px', wordBreak: 'break-all' }}>
-            Link: {job.source.youtube_url || '-'} · dimulai {formatDateTime(job.started_at || job.created_at)}
+            {jobSource(job).label}: {jobSource(job).text} · dimulai {formatDateTime(job.started_at || job.created_at)}
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>

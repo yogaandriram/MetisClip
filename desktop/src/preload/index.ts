@@ -1,6 +1,6 @@
 // Preload (sandboxed): exposes exactly the MetisBridge interface from frontend/types/metis.d.ts.
 // Only 'electron' may be required here (sandbox), so channel names are duplicated from main/ipc.ts.
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 
 const CH = {
   getEngineInfo: 'metis:get-engine-info',
@@ -67,6 +67,14 @@ const bridge = {
   selectFolder: (opts?: { title?: string; defaultPath?: string }) => invoke<string | null>(CH.selectFolder, opts ?? {}),
   selectFile: (opts?: { title?: string; defaultPath?: string; filters?: Array<{ name: string; extensions: string[] }> }) =>
     invoke<string | null>(CH.selectFile, opts ?? {}),
+  /** Absolute path of a File dropped onto the page ('' when it has none, e.g. dragged from a browser). */
+  pathForFile(file: File): string {
+    try {
+      return webUtils.getPathForFile(file) || ''
+    } catch {
+      return ''
+    }
+  },
   openPath: (absPath: string) => invoke<{ ok: boolean; error?: string }>(CH.openPath, absPath),
   showItemInFolder: (absPath: string) => invoke<void>(CH.showItemInFolder, absPath),
   openExternal: (url: string) => invoke<void>(CH.openExternal, url),

@@ -30,7 +30,7 @@
 
 ### 1.2 What it does
 
-1. **Discover:** takes a link to a long-form YouTube video (podcast, interview, talk show and similar) and reads its metadata with yt-dlp. There is no keyword search (D6).
+1. **Discover:** takes a link to a long-form YouTube video (podcast, interview, talk show and similar), or a video file from the user's PC ("Upload Video", used in place). There is no keyword search (D6).
 2. **Analyze:** reads the transcript and finds viral-worthy segments using an LLM with a critic pass.
 3. **Clip:** downloads only those time ranges, then smart-crops them to 9:16 with face tracking.
 4. **Subtitle and render:** generates word-level subtitles with Whisper. They stay editable, and the final MP4 is rendered with animated subtitle presets and the Brand Template.
@@ -55,7 +55,7 @@
 - macOS or Linux builds
 - Multi-user or team collaboration, and cloud sync of clips
 - **Scheduling and social media publishing** (YouTube Shorts, TikTok, Instagram) and connecting social accounts (OAuth). Removed by the owner on 2026-11-09 (D3): uploads need OAuth apps, API audits and, for TikTok/Instagram, server-side secrets or public video URLs. Users export clips and post them with the platforms' own tools.
-- **Keyword search for videos** (YouTube Data API). Removed by the owner on 2026-11-09 (D6): the user pastes a YouTube link instead, so no YouTube API key or search quota is needed.
+- **Keyword search for videos** (YouTube Data API). Removed by the owner on 2026-11-09 (D6): the user pastes a YouTube link or uploads a video file instead, so no YouTube API key or search quota is needed.
 - Mobile or tablet layouts. These are replaced by desktop window-sizing requirements (§9).
 
 ### 1.5 Target user and hardware
@@ -139,6 +139,7 @@ The tables above describe the web build. On this branch:
 | yt-dlp | Bundled exe is copied to `%LOCALAPPDATA%\MetisClip\bin` and updated there (`POST /api/system/update-ytdlp`). Downloads prefer H.264 over HTTPS (HLS sections are very slow). Builds older than a few months get HTTP 403 from YouTube, so keep the pin fresh. |
 | Removed (D3, 2026-11-09) | Scheduling (`scheduler_ai`, `/api/schedule`, Jadwal Post page), social account connections (`/api/connections`, Settings card) and the `metisclip://` protocol. Migration `002_remove_publishing` drops `scheduled_posts` and `super_agents.social_connections` from existing databases after the usual pre-migration backup. |
 | Removed (D6, 2026-11-09) | Keyword search ("Pencarian Pintar"): `tools/youtube_api.py`, the YouTube Data API key, the `api_cache` collection, the agents' default keywords and video types, and the job filters (`video_types`, `min_duration_minutes`, `min_views`) and quality score. Jobs take a YouTube link only. Migration `005_remove_keyword_search` cleans existing databases (after the pre-migration backup) and deletes the stored YouTube key. |
+| Video upload (2026-11-09) | Cari Video has two tabs, "Link YouTube" and "Upload Video" (drag & drop via `window.metis.pathForFile`, or the file dialog). The file is used in place, never copied; jobs store `source.local_file_path`. Its transcript always comes from Whisper, so outside dev the job is refused without the Groq key. Migration `006_local_video_upload` lets `source_videos` hold a file instead of a `youtube_id`. |
 | Still open | K4: the Composio key in `frontend/.env.local` is untracked but **must still be rotated**. Phase 1 items not done: signing, installer run on a clean VM, tray/auto-update, daily yt-dlp update check. |
 | Tests | `pytest backend/tests` runs against a throwaway bundled `mongod.exe`. It includes a link-job pipeline test (real FFmpeg and MediaPipe) and resume idempotency. |
 | Packaging | `scripts/build-engine.ps1` → `backend/dist/metisclip-engine/` (onedir, about 320 MB, mostly cv2 and mediapipe), with a smoke test and self-test. `scripts/build-desktop.ps1 -Pack` → `desktop/dist/MetisClip-Setup-<version>.exe` (about 440 MB, unsigned). |
@@ -302,7 +303,7 @@ metisclip/
 ### 5.0 Orchestration
 
 - **Static pipeline** (`agents/static_pipeline.py`) is the default, triggered by the UI "Generate" button. It is sequential and deterministic; the LLM is only used inside the Analyzer, which saves tokens.
-- **MCP server** (`backend/mcp_server.py`) exposes the pipeline as MCP tools (`list_agents`, `clip_youtube_video`, `job_status`, `list_clips`, `render_clip`) for LLM-driven orchestration. It is optional and off by default on desktop. It talks to the running engine over HTTP (`METISCLIP_ENGINE_URL`, `METISCLIP_TOKEN`), so job state always lives in MongoDB.
+- **MCP server** (`backend/mcp_server.py`) exposes the pipeline as MCP tools (`list_agents`, `clip_youtube_video`, `clip_local_video`, `job_status`, `list_clips`, `render_clip`) for LLM-driven orchestration. It is optional and off by default on desktop. It talks to the running engine over HTTP (`METISCLIP_ENGINE_URL`, `METISCLIP_TOKEN`), so job state always lives in MongoDB.
 - **LangGraph has been removed.** Nodes receive a `JobContext` (`agents/context.py`: progress, errors, checkpoint and cancel helpers) and the job state lives in the `discovery_jobs` document. Do not add a graph unless a node genuinely needs branching or loops.
 - **Clip count:** `max_clips` (UI "Jumlah Klip (Max)", 0 = unlimited) caps the whole job. It is also the per-video early-stop limit (`config.max_clips_per_video`).
 - **Checkpointing:** after every node, and after every finished clip inside the Processor, persist progress to `discovery_jobs.checkpoint`. `POST /api/jobs/{id}/resume` skips completed work.
@@ -322,13 +323,14 @@ run_job(job_id, cancel)                    claims pending → running atomically
 
 ### 5.1 Discovery Agent (`nodes/discovery.py`, `tools/ytdlp.py`)
 
-- **Input:** a YouTube link, or (P2) importing a local video file (MP4/MKV, by drag-and-drop or file picker). Keyword search was removed (D6); do not reintroduce the YouTube Data API.
-- **Logic:** extract the video ID → `yt-dlp -J --skip-download` for title, channel, duration and stats → save one `source_videos` document (deterministic `_id`, so a re-run never duplicates it). Without metadata the job fails with yt-dlp's Indonesian error; dev uses a placeholder.
-- Jobs whose source type is not `url` (keyword jobs from older databases) fail discovery with "Sumber job ini tidak didukung lagi"; resuming one still works when its videos were already found.
+- **Input:** a YouTube link, or a video file on the user's PC ("Upload Video": drag & drop or file picker; MP4, MKV, MOV, WEBM, M4V, AVI). Keyword search was removed (D6); do not reintroduce the YouTube Data API.
+- **YouTube logic:** extract the video ID → `yt-dlp -J --skip-download` for title, channel, duration and stats → save one `source_videos` document (deterministic `_id`, so a re-run never duplicates it). Without metadata the job fails with yt-dlp's Indonesian error; dev uses a placeholder.
+- **Upload logic:** the file is used where it is, never copied into the data folder (multi-GB sources). `check_local_video` (also run by `POST /api/jobs`) requires an absolute path, a supported extension, and a stream ffmpeg can read with both video and audio. The source video stores `file_path`, the file name as title, the duration, and `file_fingerprint` (sha256 of path, size and mtime; the transcript cache id). If the file is moved before processing, the job fails with "File video tidak ditemukan" and can be resumed once the file is back.
+- Jobs whose source type is neither `url` nor `local_file` (keyword jobs from older databases) fail discovery with "Sumber job ini tidak didukung lagi"; resuming one still works when its videos were already found.
 
 ### 5.2 Analyzer Agent (`nodes/analyzer.py`, `tools/transcript.py`)
 
-- **Transcript chain:** youtube-transcript-api (`en`, `id`) → download audio (yt-dlp) → 20-min chunks → Groq Whisper `verbose_json`. Mock data is allowed in dev only. Transcripts are cached in the `transcripts` collection keyed by `youtube_id`, so resumes and re-analysis never refetch them.
+- **Transcript chain:** youtube-transcript-api (`en`, `id`) → download audio (yt-dlp) → 20-min chunks → Groq Whisper `verbose_json`. Uploaded files skip YouTube subtitles: their audio track goes straight to the 20-min chunks and Whisper. Mock data is allowed in dev only. Transcripts are cached in the `transcripts` collection (`yt:<youtube_id>` or `file:<fingerprint>`), so resumes and re-analysis never refetch them.
 - **Scoring prompt:** hook strength (first 3 s), emotional intensity, standalone clarity and shareability, in JSON mode at temperature 0.2.
 - **Guards:**
   - intro ban (`start < 90 s` is rejected in code)
@@ -365,7 +367,7 @@ run_job(job_id, cancel)                    claims pending → running atomically
 
 This merges the original Clipper and Subtitler agents. Each segment goes through these steps, with segments processed in parallel workers:
 
-1. **Download:** `yt-dlp --download-sections *{start}-{end}` (≤1080p, mp4). Never the full video.
+1. **Download:** `yt-dlp --download-sections *{start}-{end}` (≤1080p, mp4). Never the full video. For an uploaded file, `ffmpeg_ops.cut_section` makes a frame-accurate re-encoded cut instead (scaled so neither side exceeds 1920 px, never upscaled).
 2. **Smart crop:** MediaPipe face detection at ~5 fps, following the face closest to its last position, with a 1.5 s moving-average pan. Raw BGR frames are piped to FFmpeg (x264 CRF 10 intermediate).
    - **Fallback:** a static center crop when no face is found or tracking fails (K16).
 3. **Merge and scale:** tracked video plus the original audio → 1080×1920, CRF 18, AAC 128k.
@@ -525,10 +527,11 @@ Database name: `metisclip`.
 // source_videos
 { _id: "uuid", job_id: "uuid", agent_id: "uuid", youtube_id: "…", title: "…", channel_name: "…",
   duration_seconds: 5400, view_count: 120000, like_count: 4000,
+  file_path: null, file_fingerprint: null,   // an upload: youtube_id null, file_path absolute, title = file name
   status: "pending" | "analyzing" | "completed" | "failed", created_at: ISODate() }
 
 // transcripts: cache keyed by video, reused across jobs and on resume
-{ _id: "yt:<youtube_id>", source: "youtube" | "whisper", language: "id",
+{ _id: "yt:<youtube_id>" | "file:<fingerprint>", source: "youtube" | "whisper", language: "id",
   segments: [ { text: "…", start: 13.6, duration: 4.5 } ], fetched_at: ISODate() }
 
 // clips
@@ -623,7 +626,7 @@ Base URL: `http://127.0.0.1:{port}`. Every request carries `Authorization: Beare
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/api/jobs` | Create a job from a YouTube link (`agent_id`, `youtube_url`, `clip_duration`, `max_clips`) |
+| POST | `/api/jobs` | Create a job from a YouTube link or a video file on this PC (`agent_id`, `youtube_url` or `local_file_path`, `clip_duration`, `max_clips`) |
 | GET | `/api/jobs?agent_id=` | List jobs |
 | GET | `/api/jobs/{id}` | Detail, progress and errors |
 | POST | `/api/jobs/{id}/cancel` | Cancel and kill children |
@@ -811,7 +814,7 @@ cd desktop; npx playwright test
 9. **Every subprocess** uses `creationflags=CREATE_NO_WINDOW` on Windows, is registered with its job, and is tree-killed on cancel or quit. Use `core/procs.py` only.
 10. **Jobs are idempotent and resumable.** Checkpoint after each node and each finished clip. On startup, `running` becomes `interrupted`.
 11. **Real-time progress uses WebSocket events.** No polling and no fake progress.
-12. **Jobs start from a YouTube link.** Metadata and downloads go through yt-dlp; there is no keyword search and no YouTube Data API key (D6).
+12. **Jobs start from a YouTube link or an uploaded video file.** YouTube metadata and downloads go through yt-dlp; uploads are used in place (never copied) and cut with ffmpeg. There is no keyword search and no YouTube Data API key (D6).
 13. **Mock or sandbox data only when `METISCLIP_ENV=dev`.** Production shows actionable errors in Bahasa Indonesia.
 14. **Smart crop uses face tracking** (MediaPipe) with a center-crop fallback, so a clip never fails just because tracking failed.
 15. **Never delete user media automatically.** Cache is purged automatically; library files only on explicit user action.
@@ -848,7 +851,7 @@ cd desktop; npx playwright test
 
 ### Phase 3: Extended (P2)
 
-- Local video file import, local Whisper (faster-whisper on CPU or CUDA), drag-out of clips, tray/background mode and toasts for long jobs, opt-in crash reporting, optional MCP server toggle.
+- Local Whisper (faster-whisper on CPU or CUDA), drag-out of clips, tray/background mode and toasts for long jobs, opt-in crash reporting, optional MCP server toggle.
 - Then the open-decision items: account and license, macOS.
 
 The former "Publishing" phase (YouTube OAuth, scheduled uploads) was dropped on 2026-11-09; see D3.
@@ -895,4 +898,4 @@ The former "Publishing" phase (YouTube OAuth, scheduled uploads) was dropped on 
 | **D3** | Scheduling and publishing to social media (YouTube, TikTok, Instagram) | **Decided 2026-11-09: removed.** No account connections or uploads in the app; users post exported clips themselves. Revisit only with a server-side relay and API audits. |
 | **D4** | Migrate existing web users' data (Supabase/R2 → local MongoDB + files)? | No, unless real users exist |
 | **D5** | Keep the web version running in parallel? | Freeze the web version. The engine stays HTTP-based, so a web build could be revived later. |
-| **D6** | Keyword search for videos (YouTube Data API) | **Decided 2026-11-09: removed.** The Cari Video page takes a YouTube link only; metadata comes from yt-dlp, so there is no YouTube API key or quota. |
+| **D6** | Keyword search for videos (YouTube Data API) | **Decided 2026-11-09: removed.** The Cari Video page takes a YouTube link (metadata from yt-dlp) or an uploaded video file, so there is no YouTube API key or quota. |

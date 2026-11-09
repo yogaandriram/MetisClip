@@ -58,7 +58,7 @@ export interface Job {
   id: string
   agent_id: string | null
   source: {
-    /** New jobs are always 'url'. Databases from before the keyword search was removed may hold other types. */
+    /** 'url' | 'local_file'. Databases from before the keyword search was removed may hold other types. */
     type: string
     youtube_url: string | null
     local_file_path: string | null
@@ -78,9 +78,12 @@ export interface Job {
   finished_at: ISODate | null
 }
 
+/** Exactly one source: a YouTube link, or a video file on this PC (used in place, never copied). */
 export interface JobCreate {
   agent_id: string
-  youtube_url: string
+  youtube_url?: string
+  /** Absolute path; the engine checks that it is a readable video with sound */
+  local_file_path?: string
   /** '30-45' | '45-60' | '60-75' | '75-90' */
   clip_duration?: string
   max_clips?: number

@@ -98,7 +98,11 @@ class JobDoc(Doc):
 class SourceVideoDoc(Doc):
     job_id: str
     agent_id: Optional[str]
-    youtube_id: str
+    # A YouTube video, or an uploaded file used in place (never copied)
+    youtube_id: Optional[str] = None
+    file_path: Optional[str] = None
+    # sha256 of path, size and mtime: the transcript cache id ("file:<fingerprint>")
+    file_fingerprint: Optional[str] = None
     title: str = ""
     channel_name: str = ""
     duration_seconds: float = 0

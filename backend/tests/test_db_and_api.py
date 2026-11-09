@@ -16,7 +16,7 @@ def client(db, secrets):
 
 
 def test_migration_creates_indexes_and_version(db):
-    assert db.meta.find_one({"_id": "schema"})["version"] == 5
+    assert db.meta.find_one({"_id": "schema"})["version"] == 6
     assert not {"scheduled_posts", "api_cache"} & set(db.list_collection_names())
     names = {ix["name"] for ix in db.clips.list_indexes()}
     assert "agent_id_1_created_at_-1" in names
@@ -31,7 +31,7 @@ def test_validator_rejects_bad_status(db):
 def test_migration_is_idempotent(db):
     from backend.core.db import migrate
 
-    assert migrate(db) == 5
+    assert migrate(db) == 6
 
 
 def test_migration_002_removes_publishing_data(mongo):
@@ -55,7 +55,7 @@ def test_migration_002_removes_publishing_data(mongo):
                                        "checkpoint": {"analysis_done": True, "scheduling_done": True}})
         old.meta.insert_one({"_id": "schema", "version": 1})
 
-        assert dbm.migrate(old) == 5
+        assert dbm.migrate(old) == 6
         assert "scheduled_posts" not in old.list_collection_names()
         assert "social_connections" not in old.super_agents.find_one({"_id": "a1"})
         job = old.discovery_jobs.find_one({"_id": "j1"})
@@ -92,14 +92,41 @@ def test_migration_005_removes_keyword_search(mongo, secrets):
         old.meta.insert_one({"_id": "schema", "version": 4})
         secrets.set_secret("youtube_api_key", "AIza-test-key")
 
-        assert dbm.migrate(old) == 5
+        assert dbm.migrate(old) == 6
         assert "api_cache" not in old.list_collection_names()
         assert old.super_agents.find_one({"_id": "a1"}, {"_id": 0, "created_at": 0}) == {"name": "Agen", "niche": "bisnis"}
         job = old.discovery_jobs.find_one({"_id": "j1"})
         assert job["source"] == {"type": "keyword", "youtube_url": None} and job["config"] == {"clip_duration": "45-60"}
         assert set(old.source_videos.find_one({"_id": "v1"})) == {"_id", "job_id", "youtube_id", "created_at"}
         assert secrets.get_secret("youtube_api_key") is None
-        assert dbm.migrate(old) == 5  # idempotent
+        assert dbm.migrate(old) == 6  # idempotent
+    finally:
+        mongo.drop_database(name)
+        dbm.set_db(None, None)  # type: ignore[arg-type]
+
+
+def test_migration_006_accepts_uploaded_source_videos(mongo):
+    """Before 006 the validator required youtube_id; an uploaded file has file_path instead."""
+    import os
+    import time
+
+    from backend.core import db as dbm
+    from backend.db.migrations import m001_init
+
+    name = f"metisclip_v5_{os.getpid()}_{time.time_ns()}"
+    old = mongo[name]
+    dbm.set_db(old, mongo)
+    try:
+        m001_init.up(old)
+        old.command("collMod", "source_videos", validator={"$jsonSchema": {
+            "bsonType": "object", "required": ["_id", "job_id", "youtube_id", "created_at"],
+            "properties": {"youtube_id": {"bsonType": "string"}}}}, validationLevel="moderate")
+        upload = {"_id": "v1", "job_id": "j1", "youtube_id": None, "file_path": "D:\\Video\\a.mp4", "created_at": utcnow()}
+        with pytest.raises(WriteError):
+            old.source_videos.insert_one(dict(upload))
+        old.meta.insert_one({"_id": "schema", "version": 5})
+        assert dbm.migrate(old) == 6
+        old.source_videos.insert_one(upload)
     finally:
         mongo.drop_database(name)
         dbm.set_db(None, None)  # type: ignore[arg-type]
@@ -131,13 +158,41 @@ def test_agent_crud_and_brand_template(client):
     assert len(client.get("/api/agents").json()["agents"]) == 1
 
 
-def test_jobs_take_a_youtube_link_only(client):
-    agent = client.post("/api/agents", json={"name": "Agen Link"}).json()["agent"]
-    # The removed keyword search: no link -> rejected by the schema
-    assert client.post("/api/jobs", json={"agent_id": agent["id"], "source_type": "keyword",
-                                          "keywords": ["AI"]}).status_code == 422
-    r = client.post("/api/jobs", json={"agent_id": agent["id"], "youtube_url": "https://example.com/video"})
-    assert r.status_code == 400 and r.json()["detail"] == "URL YouTube tidak valid"
+def _video(path, *, audio=True):
+    from backend.core import procs
+    from backend.core.config import ffmpeg_path
+
+    args = [ffmpeg_path(), "-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=5:duration=1"]
+    if audio:
+        args += ["-f", "lavfi", "-i", "sine=duration=1", "-c:a", "aac", "-shortest"]
+    procs.run(args + ["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(path)], timeout=120)
+    return str(path)
+
+
+def test_job_sources_are_validated(client, tmp_path, monkeypatch):
+    agent = client.post("/api/agents", json={"name": "Agen Sumber"}).json()["agent"]
+
+    def post(**body):
+        r = client.post("/api/jobs", json={"agent_id": agent["id"], **body})
+        return r.status_code, r.json().get("detail")
+
+    one_of = (400, "Isi link YouTube atau pilih file video (salah satu)")
+    assert post(source_type="keyword", keywords=["AI"]) == one_of  # the removed keyword search
+    assert post(youtube_url="https://youtu.be/abcdefghijk", local_file_path="C:\\a.mp4") == one_of
+    assert post(youtube_url="https://example.com/video") == (400, "URL YouTube tidak valid")
+    # Uploads: an absolute path to a readable video with sound
+    assert post(local_file_path="video.mp4") == (400, "Pilih file video dari komputer Anda")
+    assert post(local_file_path=str(tmp_path / "hilang.mp4"))[1].startswith("File video tidak ditemukan")
+    (tmp_path / "catatan.txt").write_text("x")
+    assert post(local_file_path=str(tmp_path / "catatan.txt"))[1].startswith("Format file tidak didukung")
+    (tmp_path / "rusak.mp4").write_text("bukan video")
+    assert post(local_file_path=str(tmp_path / "rusak.mp4"))[1].startswith("File ini tidak bisa dibaca")
+    silent = _video(tmp_path / "bisu.mp4", audio=False)
+    assert "tidak punya suara" in post(local_file_path=silent)[1]
+    # Outside dev, uploads need the Groq key: their transcript always comes from Whisper
+    monkeypatch.setattr(config, "env", "production")
+    status, detail = post(local_file_path=_video(tmp_path / "Klip Saya ü.mp4"))
+    assert status == 400 and "API key Groq" in detail
 
 
 def test_files_route_blocks_private_dirs(client, paths):

@@ -63,6 +63,8 @@ declare global {
 
     selectFolder(opts?: { title?: string; defaultPath?: string }): Promise<string | null>
     selectFile(opts?: { title?: string; defaultPath?: string; filters?: MetisFileFilter[] }): Promise<string | null>
+    /** Absolute path of a File dropped onto the page ('' when it has none, e.g. dragged from a browser) */
+    pathForFile(file: File): string
     /** Opens a folder or a media file with the default app. Refuses executables. */
     openPath(absPath: string): Promise<{ ok: boolean; error?: string }>
     showItemInFolder(absPath: string): Promise<void>

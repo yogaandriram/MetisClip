@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ListChecks, RotateCcw, Trash2, XCircle, Eye, Sparkles, Link as LinkIcon } from 'lucide-react'
+import { ListChecks, RotateCcw, Trash2, XCircle, Eye, Sparkles, Link as LinkIcon, FileVideo } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
@@ -18,7 +18,7 @@ import { useAgent } from '@/contexts/AgentContext'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
 import { api, type Job } from '@/lib/engine'
-import { ACTIVE_JOB_STATUSES, JOB_STATUS, RESUMABLE_JOB_STATUSES, errorMessage, formatDateTime, jobStepLabel } from '@/lib/format'
+import { ACTIVE_JOB_STATUSES, JOB_STATUS, RESUMABLE_JOB_STATUSES, errorMessage, formatDateTime, jobSource, jobStepLabel } from '@/lib/format'
 
 type PendingAction = { kind: 'cancel' | 'delete'; job: Job } | null
 
@@ -136,21 +136,21 @@ export default function JobsPage() {
           ))}
         </div>
       ) : jobs.length === 0 ? (
-        <EmptyState icon={ListChecks} title="Antrian kosong" description="Belum ada job. Tempel link YouTube di menu Cari Video." />
+        <EmptyState icon={ListChecks} title="Antrian kosong" description="Belum ada job. Tempel link YouTube atau upload video di menu Cari Video." />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {jobs.map((job) => {
             const s = JOB_STATUS[job.status]
             const active = ACTIVE_JOB_STATUSES.includes(job.status)
-            const source = job.source.youtube_url
+            const source = jobSource(job)
             const lastError = job.errors[job.errors.length - 1]
             return (
               <GlassCard key={job.id} hoverEffect={false} padding="20px">
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
                   <div style={{ flex: 1, minWidth: '260px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-                      <LinkIcon size={16} color="var(--text-muted)" />
-                      <span style={{ fontWeight: 600, fontSize: '15px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '520px' }}>{source || '-'}</span>
+                      {source.kind === 'file' ? <FileVideo size={16} color="var(--text-muted)" /> : <LinkIcon size={16} color="var(--text-muted)" />}
+                      <span style={{ fontWeight: 600, fontSize: '15px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '520px' }} title={job.source.local_file_path || undefined}>{source.text}</span>
                       <Badge variant={s.variant} glow={false}>
                         {s.label}
                       </Badge>

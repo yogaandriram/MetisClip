@@ -6,7 +6,7 @@ import uuid
 from typing import Any
 
 from backend.agents.context import JobContext, PipelineError
-from backend.agents.tools.transcript import get_transcript
+from backend.agents.tools.transcript import cache_key, get_transcript
 from backend.core import llm
 from backend.core.config import config
 from backend.core.db import get_db
@@ -154,9 +154,11 @@ def enforce_duration(start: float, end: float, lo: float, hi: float, transcript:
     return round(start, 2), round(end, 2)
 
 
-def segment_id(job_id: str, youtube_id: str, start: float, end: float) -> str:
-    """Deterministic clip id (uuid5) so a resumed job never duplicates clips."""
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"metisclip:{job_id}:{youtube_id}:{start:.2f}:{end:.2f}"))
+def segment_id(job_id: str, source: str, start: float, end: float) -> str:
+    """Deterministic clip id (uuid5 of job, source video, start, end) so a resumed job never duplicates clips.
+
+    `source` is the YouTube id, or the source video document id for an uploaded file."""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"metisclip:{job_id}:{source}:{start:.2f}:{end:.2f}"))
 
 
 MOCK_SEGMENTS = [
@@ -169,7 +171,7 @@ MOCK_SEGMENTS = [
 
 def _analyze_video(ctx: JobContext, video: dict[str, Any], lo: float, hi: float, per_video: int,
                    transcript: list[dict[str, Any]], use_llm: bool) -> list[dict[str, Any]]:
-    title = video.get("title") or video["youtube_id"]
+    title = video.get("title") or video.get("youtube_id") or "video"
     proposals: list[dict[str, Any]] = []
     if use_llm:
         chunks = chunk_transcript(transcript)
@@ -234,9 +236,11 @@ def _analyze_video(ctx: JobContext, video: dict[str, Any], lo: float, hi: float,
             score = 70
         tags = seg.get("tags") if isinstance(seg.get("tags"), list) else []
         out.append({
-            "segment_id": segment_id(ctx.id, video["youtube_id"], start, end),
+            "segment_id": segment_id(ctx.id, video.get("youtube_id") or video["_id"], start, end),
             "source_video_id": video["_id"],
-            "youtube_id": video["youtube_id"],
+            "youtube_id": video.get("youtube_id"),
+            "file_path": video.get("file_path"),
+            "transcript_key": cache_key(video),
             "start_time": start,
             "end_time": end,
             "duration_seconds": round(end - start, 2),
@@ -276,7 +280,7 @@ def run(ctx: JobContext, videos: list[dict[str, Any]]) -> list[dict[str, Any]]:
         ctx.progress(base, step="analysis", message=f"Mengambil transkrip '{(video.get('title') or '')[:40]}'…")
         db.source_videos.update_one({"_id": video["_id"]}, {"$set": {"status": "analyzing"}})
         try:
-            transcript = get_transcript(video["youtube_id"], ctx.cancel, on_status=lambda m: ctx.progress(message=m))
+            transcript = get_transcript(video, ctx.cancel, on_status=lambda m: ctx.progress(message=m))
             found = _analyze_video(ctx, video, lo, hi, per_video, transcript, use_llm)
         except (PipelineError, llm.LLMNotConfigured) as exc:
             db.source_videos.update_one({"_id": video["_id"]}, {"$set": {"status": "failed"}})
