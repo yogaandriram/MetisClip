@@ -9,6 +9,7 @@ from starlette.concurrency import run_in_threadpool
 
 from backend.api.dto import http_error
 from backend.core import secrets as sec
+from backend.core.llm_providers import PROVIDERS, provider_for_secret
 from backend.core.settings_store import SettingsError, get_settings, update_settings
 
 router = APIRouter(tags=["settings"])
@@ -68,10 +69,11 @@ def _test(name: str, value: str | None) -> dict:
     key = (value or "").strip() or sec.get_secret(name)
     if not key:
         return {"ok": False, "message": "Belum diisi"}
-    if name == "llm_api_key":
+    provider = provider_for_secret(name)
+    if provider:
         from backend.core.llm import test_connection
 
-        ok, msg = test_connection(key)
+        ok, msg = test_connection(provider.id, key)
     elif name == "groq_api_key":
         from backend.agents.tools.whisper import test_key
 
@@ -87,3 +89,27 @@ def _test(name: str, value: str | None) -> dict:
 async def test_secret(name: str, body: SecretTest = Body(default_factory=SecretTest)):
     _check_name(name)
     return await run_in_threadpool(_test, name, body.value)
+
+
+class ModelListRequest(BaseModel):
+    provider: str
+    # Unsaved values from the form; the stored key / settings are used when omitted
+    base_url: Optional[str] = None
+    value: Optional[str] = None
+
+
+def _list_models(body: ModelListRequest) -> dict:
+    from backend.core import llm
+
+    if body.provider not in PROVIDERS:
+        raise http_error(400, "Penyedia LLM tidak dikenal")
+    try:
+        return {"models": llm.list_models(body.provider, key=body.value, base_url=body.base_url or None)}
+    except llm.LLMError as exc:
+        raise http_error(400, str(exc))
+
+
+@router.post("/api/llm/models")
+async def list_llm_models(body: ModelListRequest):
+    """Model ids the provider offers for this key, for the model picker."""
+    return await run_in_threadpool(_list_models, body)

@@ -10,15 +10,23 @@ import os
 import threading
 
 from backend.core.config import config
+from backend.core.llm_providers import LLM_SECRETS
 from backend.core.logging_setup import redactor
 
 logger = logging.getLogger(__name__)
 
-PUBLIC_SECRETS = ("llm_api_key", "groq_api_key", "youtube_api_key")
+# One key per LLM provider (llm_api_key = the OpenAI-compatible endpoint), plus Whisper and YouTube
+PUBLIC_SECRETS = (*LLM_SECRETS, "groq_api_key", "youtube_api_key")
 
 # Dev-only fallbacks from the repo .env (never used in packaged builds)
 _DEV_ENV = {
     "llm_api_key": ("LLM_API_KEY", "NINEROUTER_API_KEY"),
+    "openai_api_key": ("OPENAI_API_KEY",),
+    "anthropic_api_key": ("ANTHROPIC_API_KEY",),
+    "gemini_api_key": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+    "xai_api_key": ("XAI_API_KEY",),
+    "deepseek_api_key": ("DEEPSEEK_API_KEY",),
+    "qwen_api_key": ("DASHSCOPE_API_KEY", "QWEN_API_KEY"),
     "groq_api_key": ("GROQ_API_KEY",),
     "youtube_api_key": ("YOUTUBE_API_KEY",),
 }

@@ -5,12 +5,8 @@ import copy
 import os
 from typing import Any
 
+from backend.core.llm_providers import DEFAULT_COMPATIBLE_BASE_URL, DEFAULT_PROVIDER, PROVIDERS
 from backend.core.paths import get_paths
-
-LLM_PRESETS = {
-    "9router": {"base_url": "https://9routeryoga.my.id/v1", "model": "metisclip"},
-    "groq": {"base_url": "https://api.groq.com/openai/v1", "model": "llama-3.3-70b-versatile"},
-}
 
 
 def _default_workers() -> int:
@@ -27,7 +23,13 @@ def defaults() -> dict[str, Any]:
     return {
         "export_dir": str(get_paths().exports_dir),
         "cache_limit_gb": 10,
-        "llm": {"preset": "9router", **LLM_PRESETS["9router"]},
+        # provider: one of llm_providers.PROVIDERS; models: the chosen model per provider;
+        # base_url: only used by the OpenAI-compatible provider
+        "llm": {
+            "provider": DEFAULT_PROVIDER,
+            "base_url": DEFAULT_COMPATIBLE_BASE_URL,
+            "models": {pid: p.default_model for pid, p in PROVIDERS.items()},
+        },
         "whisper": {"provider": "groq", "model": "whisper-large-v3-turbo"},
         "processing": {"max_workers": _default_workers(), "encoder": "auto"},
         "render": {"concurrency": 1},
@@ -65,12 +67,18 @@ class SettingsError(ValueError):
 
 
 def _validate(s: dict) -> None:
-    if s["llm"]["preset"] not in ("9router", "groq", "custom"):
-        raise SettingsError("Preset LLM tidak dikenal")
-    if not str(s["llm"].get("base_url") or "").startswith(("http://", "https://")):
-        raise SettingsError("Base URL LLM harus diawali http:// atau https://")
-    if not str(s["llm"].get("model") or "").strip():
+    llm = s["llm"]
+    if llm.get("provider") not in PROVIDERS:
+        raise SettingsError("Penyedia LLM tidak dikenal")
+    models = llm.get("models") if isinstance(llm.get("models"), dict) else {}
+    llm["models"] = {pid: str(models.get(pid) or "").strip()[:200] for pid in PROVIDERS}
+    if not llm["models"][llm["provider"]]:
         raise SettingsError("Model LLM wajib diisi")
+    for pid, p in PROVIDERS.items():
+        llm["models"][pid] = llm["models"][pid] or p.default_model
+    llm["base_url"] = str(llm.get("base_url") or "").strip()
+    if llm["provider"] == "openai_compatible" and not llm["base_url"].startswith(("http://", "https://")):
+        raise SettingsError("Base URL LLM harus diawali http:// atau https://")
     if s["processing"]["encoder"] not in ("auto", "libx264", "h264_nvenc", "h264_qsv", "h264_amf"):
         raise SettingsError("Encoder tidak dikenal")
     try:
@@ -115,13 +123,6 @@ def update_settings(patch: dict) -> dict[str, Any]:
     clean = _only_known(patch or {}, defaults())
     if "export_dir" in clean and clean["export_dir"] is not None:
         clean["export_dir"] = str(clean["export_dir"]).strip()
-    # Selecting a preset fills its endpoint unless the caller sent explicit values
-    llm_patch = clean.get("llm") or {}
-    preset = llm_patch.get("preset")
-    if preset in LLM_PRESETS:
-        llm_patch.setdefault("base_url", LLM_PRESETS[preset]["base_url"])
-        llm_patch.setdefault("model", LLM_PRESETS[preset]["model"])
-        clean["llm"] = llm_patch
     merged = deep_merge(current, clean)
     _validate(merged)
     stored = copy.deepcopy(merged)

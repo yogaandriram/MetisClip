@@ -10,7 +10,6 @@ from backend.agents.tools.transcript import get_transcript
 from backend.core import llm
 from backend.core.config import config
 from backend.core.db import get_db
-from backend.core.secrets import get_secret
 
 logger = logging.getLogger(__name__)
 
@@ -262,9 +261,12 @@ def run(ctx: JobContext, videos: list[dict[str, Any]]) -> list[dict[str, Any]]:
     max_total = int(cfg.get("max_clips", cfg.get("max_clips_per_video", 3)) or 0)
     per_video = int(cfg.get("max_clips_per_video", max_total) or 0)
 
-    use_llm = bool(get_secret("llm_api_key"))
+    use_llm = llm.is_configured()
     if not use_llm and not config.is_dev:
-        raise PipelineError("API key LLM belum diisi di Pengaturan")
+        try:
+            llm.target()
+        except llm.LLMError as exc:  # the actionable message (which key or setting is missing)
+            raise PipelineError(str(exc)) from exc
 
     db = get_db()
     segments: list[dict[str, Any]] = []

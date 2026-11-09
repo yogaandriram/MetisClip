@@ -314,12 +314,18 @@ def close() -> None:
 # ---------------------------------------------------------------------------
 
 def _migrations():
-    from backend.db.migrations import m001_init, m002_remove_publishing, m003_brand_template_library
+    from backend.db.migrations import (
+        m001_init,
+        m002_remove_publishing,
+        m003_brand_template_library,
+        m004_llm_providers,
+    )
 
     return [
         (1, "init", m001_init.up),
         (2, "remove_publishing", m002_remove_publishing.up),
         (3, "brand_template_library", m003_brand_template_library.up),
+        (4, "llm_providers", m004_llm_providers.up),
     ]
 
 

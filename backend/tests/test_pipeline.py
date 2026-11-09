@@ -111,4 +111,4 @@ def test_missing_llm_key_fails_with_indonesian_message_in_production(db, fake_wo
     static_pipeline.run_job(job_id, procs.CancelToken())
     job = db.discovery_jobs.find_one({"_id": job_id})
     assert job["status"] == "failed"
-    assert "API key LLM belum diisi" in job["errors"][-1]["message"]
+    assert "API key LLM (OpenAI-compatible) belum diisi" in job["errors"][-1]["message"]

@@ -150,6 +150,7 @@ Rules:
 | PUT | `/api/secrets/{name}` | `{value}` | `{ok: true}` |
 | DELETE | `/api/secrets/{name}` | — | `{ok: true}` |
 | POST | `/api/secrets/{name}/test` | `{value?}` (test stored value when omitted) | `{ok, message}` |
+| POST | `/api/llm/models` | `{provider: LlmProvider, value?, base_url?}` (unsaved key / base URL from the form; stored ones when omitted) | `{models: string[]}` (text models, newest first), 400 with an Indonesian message on failure |
 | GET | `/api/agents` | — | `{agents: Agent[]}` |
 | POST | `/api/agents` | `AgentInput` | `{agent: Agent}` |
 | PUT | `/api/agents/{id}` | `Partial<AgentInput>` | `{agent: Agent}` |

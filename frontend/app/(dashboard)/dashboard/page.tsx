@@ -16,6 +16,7 @@ import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
 import { api, type Clip, type DashboardStats, type Job, type SecretName } from '@/lib/engine'
 import { mediaUrl } from '@/lib/media'
+import { providerInfo } from '@/lib/llmProviders'
 import { JOB_STATUS, errorMessage, formatClock, formatCompactNumber, formatDateTime, jobStepLabel } from '@/lib/format'
 
 export default function DashboardOverview() {
@@ -26,6 +27,7 @@ export default function DashboardOverview() {
   const [jobs, setJobs] = useState<Job[] | null>(null)
   const [clips, setClips] = useState<Clip[] | null>(null)
   const [missingKeys, setMissingKeys] = useState<SecretName[]>([])
+  const [llmLabel, setLlmLabel] = useState('LLM')
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async (agentId: string) => {
@@ -48,9 +50,12 @@ export default function DashboardOverview() {
   }, [activeAgent, load, epoch])
 
   useEffect(() => {
-    api.secrets
-      .status()
-      .then(({ secrets }) => setMissingKeys((['llm_api_key', 'groq_api_key'] as SecretName[]).filter((k) => !secrets[k])))
+    Promise.all([api.secrets.status(), api.settings.get()])
+      .then(([{ secrets }, { settings }]) => {
+        const llmKey = providerInfo(settings.llm.provider).secret
+        setLlmLabel(providerInfo(settings.llm.provider).label)
+        setMissingKeys(([llmKey, 'groq_api_key'] as SecretName[]).filter((k) => !secrets[k]))
+      })
       .catch(() => setMissingKeys([]))
   }, [epoch])
 
@@ -96,7 +101,7 @@ export default function DashboardOverview() {
         <GlassCard hoverEffect={false} padding="16px 20px" style={{ border: '1px solid var(--warning)', display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
           <KeyRound size={18} color="var(--warning)" />
           <span style={{ flex: 1, fontSize: '14px', minWidth: '240px' }}>
-            {missingKeys.includes('llm_api_key') ? 'API key LLM' : 'API key Groq'}
+            {missingKeys[0] === 'groq_api_key' ? 'API key Groq' : `API key ${llmLabel}`}
             {missingKeys.length > 1 ? ' dan API key Groq' : ''} belum diisi. Pipeline AI tidak akan berjalan tanpa key ini.
           </span>
           <Link href="/settings/" className="mc-link-button" style={{ textDecoration: 'none' }}>

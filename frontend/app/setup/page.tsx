@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { Spinner } from '@/components/ui/Spinner'
 import { Badge } from '@/components/ui/Badge'
 import { SecretField } from '@/components/settings/SecretField'
-import { LlmFields, DEFAULT_LLM_MODEL, type LlmValue } from '@/components/settings/LlmFields'
+import { LlmSection, type LlmValue } from '@/components/settings/LlmFields'
 import { AgentForm, toAgentInput } from '@/components/agents/AgentForm'
 
 const STEPS = [
@@ -411,11 +411,6 @@ function DataStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
 
 const SECRET_INFO: { name: SecretName; label: string; description: React.ReactNode }[] = [
   {
-    name: 'llm_api_key',
-    label: 'API key LLM',
-    description: 'Dipakai untuk menganalisis transkrip dan memilih momen viral (endpoint OpenAI-compatible di atas).',
-  },
-  {
     name: 'groq_api_key',
     label: 'API key Groq (Whisper)',
     description: 'Dipakai untuk transkripsi suara per kata (subtitle). Bisa dibuat gratis di console.groq.com.',
@@ -430,9 +425,9 @@ const SECRET_INFO: { name: SecretName; label: string; description: React.ReactNo
 function KeysStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [configured, setConfigured] = useState<Record<SecretName, boolean>>({ llm_api_key: false, groq_api_key: false, youtube_api_key: false })
-  const [values, setValues] = useState<Record<SecretName, string>>({ llm_api_key: '', groq_api_key: '', youtube_api_key: '' })
-  const [llm, setLlm] = useState<LlmValue>({ preset: '9router', base_url: '', model: DEFAULT_LLM_MODEL })
+  const [configured, setConfigured] = useState<Record<SecretName, boolean> | null>(null)
+  const [values, setValues] = useState<Partial<Record<SecretName, string>>>({})
+  const [llm, setLlm] = useState<LlmValue | null>(null)
   const [savedLlm, setSavedLlm] = useState<string>('')
   const [saving, setSaving] = useState(false)
 
@@ -456,7 +451,7 @@ function KeysStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
   }, [load])
 
   const saveLlm = async () => {
-    if (JSON.stringify(llm) === savedLlm) return
+    if (!llm || JSON.stringify(llm) === savedLlm) return
     const { settings } = await api.settings.update({ llm })
     setSavedLlm(JSON.stringify(settings.llm))
   }
@@ -466,7 +461,7 @@ function KeysStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
     try {
       await saveLlm()
       for (const { name } of SECRET_INFO) {
-        const v = values[name].trim()
+        const v = (values[name] || '').trim()
         if (v) await api.secrets.set(name, v)
       }
       onNext()
@@ -477,7 +472,7 @@ function KeysStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
     }
   }
 
-  if (loading) {
+  if (loading || (!error && (!llm || !configured))) {
     return (
       <>
         <StepTitle title="API key" />
@@ -511,18 +506,25 @@ function KeysStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
         subtitle="API key disimpan aman di Windows Credential Manager, bukan di file biasa, dan tidak pernah ditampilkan kembali. Anda bisa melewati langkah ini dan mengisinya nanti di Pengaturan."
       />
       <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-        <LlmFields value={llm} onChange={setLlm} />
+        <LlmSection
+          value={llm!}
+          onChange={setLlm}
+          secrets={configured!}
+          onSecretConfigured={(name, c) => setConfigured((prev) => (prev ? { ...prev, [name]: c } : prev))}
+          persist={saveLlm}
+          allowRemove={false}
+        />
+        <div style={{ borderTop: '1px solid var(--border-glass)', paddingTop: '18px', fontSize: '14px', fontWeight: 700 }}>Transkripsi & pencarian video</div>
         {SECRET_INFO.map((s) => (
           <SecretField
             key={s.name}
             name={s.name}
             label={s.label}
             description={s.description}
-            configured={configured[s.name]}
-            value={values[s.name]}
+            configured={configured![s.name]}
+            value={values[s.name] || ''}
             onChange={(v) => setValues((prev) => ({ ...prev, [s.name]: v }))}
-            onConfiguredChange={(c) => setConfigured((prev) => ({ ...prev, [s.name]: c }))}
-            beforeTest={s.name === 'llm_api_key' ? saveLlm : undefined}
+            onConfiguredChange={(c) => setConfigured((prev) => (prev ? { ...prev, [s.name]: c } : prev))}
             allowRemove={false}
           />
         ))}

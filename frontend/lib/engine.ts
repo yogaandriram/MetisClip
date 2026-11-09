@@ -187,13 +187,15 @@ export interface ExportResult {
   skipped: { clip_id: string; reason: string }[]
 }
 
-export type LlmPreset = '9router' | 'groq' | 'custom'
+/** LLM providers (backend/core/llm_providers.py); labels and key links live in lib/llmProviders.ts */
+export type LlmProvider = 'openai' | 'anthropic' | 'gemini' | 'xai' | 'deepseek' | 'qwen' | 'openai_compatible'
 export type EncoderSetting = 'auto' | 'libx264' | 'h264_nvenc' | 'h264_qsv' | 'h264_amf'
 
 export interface Settings {
   export_dir: string
   cache_limit_gb: number
-  llm: { preset: LlmPreset; base_url: string; model: string }
+  /** base_url is only used by the OpenAI-compatible provider; models holds the chosen model per provider */
+  llm: { provider: LlmProvider; base_url: string; models: Record<LlmProvider, string> }
   whisper: { provider: 'groq'; model: string }
   processing: { max_workers: number; encoder: EncoderSetting }
   render: { concurrency: number }
@@ -204,7 +206,9 @@ export interface Settings {
 
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
 
-export type SecretName = 'llm_api_key' | 'groq_api_key' | 'youtube_api_key'
+/** One key per LLM provider (llm_api_key = OpenAI-compatible endpoint), plus Groq Whisper and YouTube */
+export type LlmSecretName = 'openai_api_key' | 'anthropic_api_key' | 'gemini_api_key' | 'xai_api_key' | 'deepseek_api_key' | 'qwen_api_key' | 'llm_api_key'
+export type SecretName = LlmSecretName | 'groq_api_key' | 'youtube_api_key'
 
 export interface SystemInfo {
   version: string
@@ -517,6 +521,12 @@ export const api = {
     remove: (name: SecretName) => request<{ ok: true }>('DELETE', `/api/secrets/${name}`),
     /** Tests `value` if given, otherwise the stored secret */
     test: (name: SecretName, value?: string) => request<{ ok: boolean; message: string }>('POST', `/api/secrets/${name}/test`, { body: value ? { value } : {} }),
+  },
+
+  llm: {
+    /** Text models the provider offers; uses the unsaved key / base URL from the form when given */
+    models: (provider: LlmProvider, opts: { value?: string; base_url?: string } = {}) =>
+      request<{ models: string[] }>('POST', '/api/llm/models', { body: { provider, ...(opts.value ? { value: opts.value } : {}), ...(opts.base_url ? { base_url: opts.base_url } : {}) } }),
   },
 
   agents: {

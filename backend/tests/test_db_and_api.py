@@ -16,7 +16,7 @@ def client(db, secrets):
 
 
 def test_migration_creates_indexes_and_version(db):
-    assert db.meta.find_one({"_id": "schema"})["version"] == 3
+    assert db.meta.find_one({"_id": "schema"})["version"] == 4
     assert "scheduled_posts" not in db.list_collection_names()
     names = {ix["name"] for ix in db.clips.list_indexes()}
     assert "agent_id_1_created_at_-1" in names
@@ -33,7 +33,7 @@ def test_validator_rejects_bad_status(db):
 def test_migration_is_idempotent(db):
     from backend.core.db import migrate
 
-    assert migrate(db) == 3
+    assert migrate(db) == 4
 
 
 def test_migration_002_removes_publishing_data(mongo):
@@ -57,7 +57,7 @@ def test_migration_002_removes_publishing_data(mongo):
                                        "checkpoint": {"analysis_done": True, "scheduling_done": True}})
         old.meta.insert_one({"_id": "schema", "version": 1})
 
-        assert dbm.migrate(old) == 3
+        assert dbm.migrate(old) == 4
         assert "scheduled_posts" not in old.list_collection_names()
         assert "social_connections" not in old.super_agents.find_one({"_id": "a1"})
         job = old.discovery_jobs.find_one({"_id": "j1"})
@@ -108,9 +108,12 @@ def test_clips_list_route_exists_k2(client):
 
 
 def test_settings_roundtrip(client):
-    s = client.put("/api/settings", json={"llm": {"preset": "custom", "base_url": "http://localhost:1234/v1", "model": "m"},
+    s = client.put("/api/settings", json={"llm": {"provider": "openai_compatible", "base_url": "http://localhost:1234/v1",
+                                                  "models": {"openai_compatible": "m", "bogus": "x"}},
                                           "unknown": 1}).json()["settings"]
-    assert s["llm"] == {"preset": "custom", "base_url": "http://localhost:1234/v1", "model": "m"}
+    assert s["llm"]["provider"] == "openai_compatible" and s["llm"]["base_url"] == "http://localhost:1234/v1"
+    assert s["llm"]["models"]["openai_compatible"] == "m" and "bogus" not in s["llm"]["models"]
+    assert s["llm"]["models"]["anthropic"]  # every provider keeps a (default) model
     assert "unknown" not in s
     assert client.put("/api/settings", json={"processing": {"max_workers": 99}}).status_code == 400
 

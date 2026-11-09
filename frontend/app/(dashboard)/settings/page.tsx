@@ -11,7 +11,7 @@ import { ToggleSwitch } from '@/components/ui/ToggleSwitch'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { SecretField } from '@/components/settings/SecretField'
-import { LlmFields } from '@/components/settings/LlmFields'
+import { LlmSection } from '@/components/settings/LlmFields'
 import { AgentForm, toAgentInput, type AgentFormValue } from '@/components/agents/AgentForm'
 import { useAgent } from '@/contexts/AgentContext'
 import { useEngine } from '@/contexts/EngineContext'
@@ -28,7 +28,6 @@ const ENCODER_LABELS: Record<EncoderSetting, string> = {
 }
 
 const SECRETS: { name: SecretName; label: string; description: string }[] = [
-  { name: 'llm_api_key', label: 'API key LLM', description: 'Untuk analisis transkrip & pemilihan momen viral.' },
   { name: 'groq_api_key', label: 'API key Groq (Whisper)', description: 'Untuk transkripsi subtitle per kata.' },
   { name: 'youtube_api_key', label: 'API key YouTube Data v3', description: 'Untuk pencarian video berdasarkan keyword.' },
 ]
@@ -94,7 +93,7 @@ export default function SettingsPage() {
   const [savedSettings, setSavedSettings] = useState('')
   const [encoders, setEncoders] = useState<string[]>([])
   const [secrets, setSecrets] = useState<Record<SecretName, boolean> | null>(null)
-  const [secretValues, setSecretValues] = useState<Record<SecretName, string>>({ llm_api_key: '', groq_api_key: '', youtube_api_key: '' })
+  const [secretValues, setSecretValues] = useState<Partial<Record<SecretName, string>>>({})
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -218,7 +217,14 @@ export default function SettingsPage() {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
-            <LlmFields value={settings.llm} onChange={(llm) => patch('llm', llm)} />
+            <LlmSection
+              value={settings.llm}
+              onChange={(llm) => patch('llm', llm)}
+              secrets={secrets}
+              onSecretConfigured={(name, c) => setSecrets((prev) => (prev ? { ...prev, [name]: c } : prev))}
+              persist={saveLlmOnly}
+            />
+            <div style={{ borderTop: '1px solid var(--border-glass)', paddingTop: '18px', fontSize: '14px', fontWeight: 700 }}>Transkripsi & pencarian video</div>
             {SECRETS.map((s) => (
               <SecretField
                 key={s.name}
@@ -226,10 +232,9 @@ export default function SettingsPage() {
                 label={s.label}
                 description={s.description}
                 configured={secrets[s.name]}
-                value={secretValues[s.name]}
+                value={secretValues[s.name] || ''}
                 onChange={(v) => setSecretValues((prev) => ({ ...prev, [s.name]: v }))}
                 onConfiguredChange={(c) => setSecrets((prev) => (prev ? { ...prev, [s.name]: c } : prev))}
-                beforeTest={s.name === 'llm_api_key' ? saveLlmOnly : undefined}
               />
             ))}
             <InputField

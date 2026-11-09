@@ -25,7 +25,7 @@
 | **Engine** | Python FastAPI as a sidecar process, frozen with PyInstaller |
 | **Render** | Remotion: prebuilt bundle plus bundled Chrome Headless Shell |
 | **Data** | **MongoDB** (Community Server, bundled `mongod.exe` run locally by the app) for metadata, plus local files for media. Both live in one data folder the user picks on their own drive (§6). |
-| **AI core** | OpenAI-compatible LLM endpoint (default 9router → Llama 3.3 70B), Groq Whisper (STT), MediaPipe (face tracking) |
+| **AI core** | LLM from one of seven providers chosen in Pengaturan: OpenAI, Anthropic (Claude), Google Gemini, xAI (Grok), DeepSeek, Alibaba Qwen, or any OpenAI-compatible endpoint (default: 9Router). Groq Whisper (STT), MediaPipe (face tracking) |
 | **UI language** | Bahasa Indonesia (default timezone `Asia/Jakarta`) |
 
 ### 1.2 What it does
@@ -256,7 +256,8 @@ metisclip/
 │   │   ├── config.py             # env + settings table
 │   │   ├── paths.py              # NEW: data / cache / library / bin resolution (no CWD paths)
 │   │   ├── db.py                 # NEW: PyMongo client, collections, migration runner, backups
-│   │   ├── llm.py                # NEW: the single OpenAI-compatible client
+│   │   ├── llm.py                # NEW: the single LLM client (7 providers, §8.1)
+│   │   ├── llm_providers.py      # provider registry: base URL, key name, default model
 │   │   ├── secrets.py            # NEW: keyring (Windows Credential Manager)
 │   │   ├── procs.py              # NEW: subprocess helper (CREATE_NO_WINDOW, cancel, tree-kill)
 │   │   ├── events.py             # NEW: WS event bus
@@ -359,7 +360,8 @@ run_job(job_id, cancel)                    claims pending → running atomically
 ```
 
 **Desktop changes**
-- All LLM calls go through `core/llm.py`: one client with `base_url`, `model` and key from settings. Do not create a new `OpenAI(...)` client per call, and do not spoof a browser User-Agent per call.
+- All LLM calls go through `core/llm.py`: the provider, model and (for OpenAI-compatible) base URL come from settings, the key from that provider's secret. Clients are cached; do not create a new `OpenAI(...)` client per call, and do not spoof a browser User-Agent per call.
+- Providers accept different request parameters (reasoning models refuse `temperature` or `max_tokens`, some lack JSON mode). `core/llm.py` retries a refused request without the named parameter and remembers it per endpoint and model; Anthropic goes through its Messages API with a JSON-only instruction.
 - Outside dev, a missing or invalid key shows an actionable Indonesian error (e.g. "API key LLM belum diisi di Pengaturan") instead of producing mock clips.
 - Handle HTTP 429 and timeouts with retry and backoff, and report them as job events.
 
@@ -611,7 +613,8 @@ Base URL: `http://127.0.0.1:{port}`. Every request carries `Authorization: Beare
 | GET / PUT | `/api/settings` | Non-secret settings (§8.1) |
 | GET | `/api/secrets` | Which secrets are set (booleans only) |
 | PUT / DELETE | `/api/secrets/{name}` | Write-only secret storage (keyring) |
-| POST | `/api/secrets/{name}/test` | Validate a key (cheap LLM call, Whisper ping, YouTube quota call) |
+| POST | `/api/secrets/{name}/test` | Validate a key (cheap LLM call with that provider's model, Whisper ping, YouTube quota call) |
+| POST | `/api/llm/models` | Text models a provider offers for a key (`{provider, value?, base_url?}`), for the model picker |
 | POST | `/internal/shutdown` | Graceful stop (main process only) |
 
 ### Agents and brand
@@ -669,7 +672,9 @@ Base URL: `http://127.0.0.1:{port}`. Every request carries `Authorization: Beare
 - The data folder (`data_root`) is **not** stored in MongoDB, because it is needed before mongod starts. It lives in `%APPDATA%\MetisClip\bootstrap.json` and only changes through "Pindahkan Lokasi Data".
 - `export_dir`, `cache_limit_gb`
 - `db.wiredtiger_cache_gb` (default 0.25, applied on restart)
-- `llm.base_url`, `llm.model` (presets: 9router, Groq `https://api.groq.com/openai/v1`, Custom)
+- `llm.provider`: `openai` | `anthropic` | `gemini` | `xai` | `deepseek` | `qwen` | `openai_compatible` (default; 9Router). The six hosted providers have fixed endpoints in `core/llm_providers.py`.
+- `llm.models`: the chosen model per provider, so switching back keeps the earlier choice. Defaults (Nov 2026): `gpt-6.1-terra`, `claude-haiku-5-5`, `gemini-3.6-flash`, `grok-4.3`, `deepseek-flash`, `qwen-plus`, `metisclip` (9Router). Model names change often; the UI loads the live list from the provider ("Muat daftar model").
+- `llm.base_url`: only for `openai_compatible` (quick fills: 9Router, Groq, OpenRouter, Together AI, Fireworks AI). Migration 004 turned the old presets (9router, Groq, Custom) into this provider.
 - `whisper.provider` (`groq` | `local` in P2), `whisper.model` (default `whisper-large-v3-turbo`)
 - `processing.max_workers`, `processing.encoder` (`auto` | `libx264` | `h264_nvenc` | `h264_qsv` | `h264_amf`), `render.concurrency`
 - `ytdlp.player_client`, `ytdlp.cookies_file`
@@ -677,7 +682,7 @@ Base URL: `http://127.0.0.1:{port}`. Every request carries `Authorization: Beare
 
 ### 8.2 Secrets (Windows Credential Manager, service name `MetisClip`)
 
-`llm_api_key`, `groq_api_key`, `youtube_api_key` (YouTube Data API, used for discovery only). The dev engine uses the service name `MetisClip-Dev`, and in dev it falls back to the repo `.env` (`LLM_API_KEY`/`NINEROUTER_API_KEY`, `GROQ_API_KEY`, `YOUTUBE_API_KEY`). The MongoDB password is not stored here (see §6.2). They replace `super_agents.groq_api_key`, `.env` keys and Supabase-stored tokens.
+One key per LLM provider: `openai_api_key`, `anthropic_api_key`, `gemini_api_key`, `xai_api_key`, `deepseek_api_key`, `qwen_api_key`, and `llm_api_key` for the OpenAI-compatible endpoint. Plus `groq_api_key` (Whisper) and `youtube_api_key` (YouTube Data API, used for discovery only). The dev engine uses the service name `MetisClip-Dev`, and in dev it falls back to the repo `.env` (`LLM_API_KEY`/`NINEROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`, `DEEPSEEK_API_KEY`, `DASHSCOPE_API_KEY`, `GROQ_API_KEY`, `YOUTUBE_API_KEY`). The MongoDB password is not stored here (see §6.2). They replace `super_agents.groq_api_key`, `.env` keys and Supabase-stored tokens.
 
 ### 8.3 Development `.env` (dev only, never bundled)
 
@@ -685,9 +690,9 @@ Base URL: `http://127.0.0.1:{port}`. Every request carries `Authorization: Beare
 METISCLIP_ENV=dev                 # enables mock/sandbox fallbacks
 METISCLIP_DATA_ROOT=.\.devdata    # dev data folder (db\, library\, cache\, backups\)
 MONGODB_URI=mongodb://127.0.0.1:27017/metisclip   # dev mongod without auth; packaged builds use port + keyring
-LLM_BASE_URL=                     # was NINEROUTER_BASE_URL
-LLM_API_KEY=                      # was NINEROUTER_API_KEY
-LLM_MODEL=llama-3.3-70b-versatile # was NINEROUTER_MODEL
+LLM_API_KEY=                      # OpenAI-compatible endpoint (was NINEROUTER_API_KEY); provider/model live in settings
+OPENAI_API_KEY=                   # optional dev fallbacks for the other providers' keys:
+ANTHROPIC_API_KEY=                #   GEMINI_API_KEY, XAI_API_KEY, DEEPSEEK_API_KEY, DASHSCOPE_API_KEY work the same way
 GROQ_API_KEY=
 WHISPER_MODEL=whisper-large-v3-turbo
 YOUTUBE_API_KEY=
@@ -805,7 +810,7 @@ cd desktop; npx playwright test
 ## 12. Critical Implementation Rules
 
 1. **Never download full videos for clipping.** Use yt-dlp `--download-sections`. A full audio download is allowed only for the Whisper transcript fallback.
-2. **All LLM calls go through `core/llm.py`** (an OpenAI-compatible client; the provider comes from settings, default 9router → Llama 3.3 70B). No provider SDK calls or hard-coded endpoints inside nodes. Speech-to-text uses Groq Whisper (local Whisper is P2).
+2. **All LLM calls go through `core/llm.py`** (the provider and model come from settings: OpenAI, Anthropic, Gemini, xAI, DeepSeek, Qwen or an OpenAI-compatible endpoint, default 9Router). No provider SDK calls or hard-coded endpoints inside nodes; endpoints live in `core/llm_providers.py`. Speech-to-text uses Groq Whisper (local Whisper is P2).
 3. **Subtitles are always editable data** (`subtitle_data` JSON). They are burned in only during export.
 4. **Preview == render.** Subtitle presets live in one place and are used by both the editor and Remotion.
 5. **Local-first.** No clip or video bytes go to cloud storage. The network is used only for AI APIs, the YouTube Data API (search and metadata), YouTube downloads via yt-dlp, and updates. The app never uploads or posts to social media.
