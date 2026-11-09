@@ -398,6 +398,8 @@ This merges the original Clipper and Subtitler agents. Each segment goes through
   - All three render through the shared `CaptionLayer` (position, size in `cqw`, word pages, AI emoji) and `LogoOverlay`. The parent box must set `container-type: inline-size`.
   - Presets are pure functions of caption time (`anim.ts` helpers): no CSS keyframes or transitions, sizes in `em`. A browser preview and a frame-by-frame Remotion render therefore show the same frame.
   - Words are shown in pages of 1–4 words (`wordsPerPage`, capped by the characters that fit one line), not a moving window.
+  - Each preset has its own default font settings in `getDefaultConfig` (family, weight, size, case, outline, shadow, colors). Picking a preset in the editor or the Brand Template resets the font settings to those defaults; "Bawaan preset" does the same for the current preset.
+  - `metrics.ts` estimates text width from per-font glyph advances (measured from the bundled fonts) to decide how many characters fit on a line, and shrinks a page whose longest word would not fit inside the video.
 - **AI subtitle settings** (`ai`: `fillerWords`, `pauses`, `keywords`, `emojis`; defaults `true/false/true/false`, kept in sync between `captions.ts` and `services/render.py`):
   - Filler words (eh, hmm…) are hidden from the captions and, like silent pauses, cut from the export by `computeKeepSegments` (Remotion `<Series>` of trimmed `OffthreadVideo`s). The editor preview skips the same ranges.
   - Keywords and emojis are word marks set by the LLM (`POST /api/clips/{id}/subtitles/enrich`, or automatically by the Processor) and editable per word in the clip editor.

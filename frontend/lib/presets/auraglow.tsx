@@ -1,19 +1,23 @@
 import React from 'react';
 import { SubtitlePreset } from './types';
 import { Ease, clamp, interpolate, r4 } from './anim';
-import { growRoom, highlight, keywordColor, rowStyle, shadows, sinceNext, stroke, textBase } from './style';
+import { highlight, keywordColor, rowStyle, shadows, sinceNext, stroke, textBase } from './style';
+import { growRoom } from './metrics';
 import { LayeredText } from './parts';
 
 export const auraglowPreset: SubtitlePreset = {
   id: 'auraglow',
   name: 'AURA GLOW',
   wordsPerPage: 3,
+  // Rounded geometric sans; the active word gets a violet-cyan gradient glow
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Outfit',
-    fontSize: 36,
-    fontWeight: 'Regular',
+    fontSize: 34,
+    fontWeight: 'Extra-Bold',
+    isItalic: false,
+    isUnderline: false,
     isUppercase: true,
-    fontColor: '#ffffff',
+    fontColor: '#FFFFFF',
     strokeColor: '#000000',
     strokeWidth: 0,
     hasShadow: true,
@@ -21,9 +25,9 @@ export const auraglowPreset: SubtitlePreset = {
     shadowX: 0,
     shadowY: 4,
     shadowBlur: 10,
-    highlightColor: baseHighlightColor || '#4F46E5',
+    highlightColor: baseHighlightColor || '#7B61FF',
     letterSpacing: 0,
-    lineHeight: 1.2
+    lineHeight: 1.2,
   }),
   renderButton: (isSelected: boolean, onClick: () => void) => {
     const activeColor = '#1856FF';

@@ -7,22 +7,25 @@ export const typewriterPreset: SubtitlePreset = {
   id: 'typewriter',
   name: 'TYPEWRITER',
   wordsPerPage: 4,
+  // Terminal look: monospace green, the word being typed is white
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Courier New',
-    fontSize: 36,
-    fontWeight: 'Regular',
+    fontSize: 30,
+    fontWeight: 'Bold',
+    isItalic: false,
+    isUnderline: false,
     isUppercase: false,
     fontColor: '#00FF88',
     strokeColor: '#000000',
-    strokeWidth: 0,
+    strokeWidth: 2,
     hasShadow: true,
     shadowColor: '#00FF88',
     shadowX: 0,
     shadowY: 0,
-    shadowBlur: 4,
-    highlightColor: baseHighlightColor || '#00FF00',
+    shadowBlur: 6,
+    highlightColor: baseHighlightColor || '#FFFFFF',
     letterSpacing: 0,
-    lineHeight: 1.2
+    lineHeight: 1.25,
   }),
   renderButton: (isSelected: boolean, onClick: () => void) => {
     const activeColor = '#00FF88';
@@ -79,7 +82,7 @@ export const typewriterPreset: SubtitlePreset = {
     const glowShadow = (color: string) => shadows(stroke(config), glow > 0 && `0 0 ${r4(glow)}em ${color}`);
 
     return (
-      <span style={{ ...rowStyle(0.22), padding: '0.28em' }}>
+      <span style={{ ...rowStyle(0.5), padding: '0.28em' }}>
         {words.map((w, i) => {
           const key = `${i}-${w.start}`;
           const text = w.word;

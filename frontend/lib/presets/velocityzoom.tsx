@@ -7,22 +7,25 @@ export const velocityzoomPreset: SubtitlePreset = {
   id: 'velocityzoom',
   name: 'VELOCITY ZOOM',
   wordsPerPage: 1,
+  // Comic impact: very large word, thick outline
   getDefaultConfig: (baseHighlightColor?: string) => ({
-    fontFamily: 'Montserrat',
-    fontSize: 36,
-    fontWeight: 'Black',
+    fontFamily: 'Bangers',
+    fontSize: 54,
+    fontWeight: 'Regular',
+    isItalic: false,
+    isUnderline: false,
     isUppercase: true,
-    fontColor: '#ffffff',
+    fontColor: '#FFFFFF',
     strokeColor: '#000000',
-    strokeWidth: 8, // Very thick stroke
+    strokeWidth: 6,
     hasShadow: true,
     shadowColor: '#000000',
     shadowX: 0,
-    shadowY: 10,
-    shadowBlur: 15,
-    highlightColor: baseHighlightColor || '#FFD700', // Bright Yellow default
+    shadowY: 8,
+    shadowBlur: 12,
+    highlightColor: baseHighlightColor || '#FFD700',
     letterSpacing: 2,
-    lineHeight: 1.1
+    lineHeight: 1.0,
   }),
   renderButton: (isSelected: boolean, onClick: () => void) => {
     const activeColor = '#FFD700';
@@ -39,9 +42,9 @@ export const velocityzoomPreset: SubtitlePreset = {
           justifyContent: 'center',
           alignItems: 'center',
           height: '80px',
-          fontFamily: "'Montserrat', var(--font-display)",
+          fontFamily: "'Bangers', var(--font-display)",
           fontSize: '24px',
-          fontWeight: '900',
+          fontWeight: '400',
           textTransform: "uppercase",
           boxShadow: isSelected ? '0 0 20px rgba(255, 215, 0, 0.3)' : 'none',
           overflow: 'visible'

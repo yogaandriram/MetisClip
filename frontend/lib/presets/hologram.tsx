@@ -7,22 +7,25 @@ export const hologramPreset: SubtitlePreset = {
   id: 'hologram',
   name: 'HOLOGRAM',
   wordsPerPage: 1,
+  // Cyan hologram glow, white keywords
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Orbitron',
-    fontSize: 36,
+    fontSize: 38,
     fontWeight: 'Black',
+    isItalic: false,
+    isUnderline: false,
     isUppercase: true,
-    fontColor: '#00ffff',
+    fontColor: '#00FFFF',
     strokeColor: '#000000',
     strokeWidth: 0,
     hasShadow: true,
-    shadowColor: '#00ffff',
+    shadowColor: '#00FFFF',
     shadowX: 0,
     shadowY: 0,
     shadowBlur: 12,
-    highlightColor: baseHighlightColor || '#00ffff',
+    highlightColor: baseHighlightColor || '#FFFFFF',
     letterSpacing: 5,
-    lineHeight: 1.2
+    lineHeight: 1.2,
   }),
   renderButton: (isSelected: boolean, onClick: () => void) => {
     return (

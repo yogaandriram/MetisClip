@@ -7,22 +7,25 @@ export const cinematicbarPreset: SubtitlePreset = {
   id: 'cinematicbar',
   name: 'CINEMATIC BAR',
   wordsPerPage: 1,
+  // Film title: lighter weight, wide tracking, gold keywords
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Montserrat',
-    fontSize: 36,
-    fontWeight: 'Bold',
+    fontSize: 28,
+    fontWeight: 'Semi-Bold',
+    isItalic: false,
+    isUnderline: false,
     isUppercase: true,
-    fontColor: '#ffffff',
+    fontColor: '#FFFFFF',
     strokeColor: '#000000',
     strokeWidth: 0,
-    hasShadow: false,
+    hasShadow: true,
     shadowColor: '#000000',
     shadowX: 0,
-    shadowY: 0,
-    shadowBlur: 0,
-    highlightColor: baseHighlightColor || '#ffffff',
+    shadowY: 2,
+    shadowBlur: 8,
+    highlightColor: baseHighlightColor || '#F2C94C',
     letterSpacing: 8,
-    lineHeight: 1.2
+    lineHeight: 1.2,
   }),
   renderButton: (isSelected: boolean, onClick: () => void) => {
     return (

@@ -1,18 +1,22 @@
 import React from 'react';
 import { SubtitlePreset } from './types';
 import { Ease, cycle, interpolate, lerp, r4 } from './anim';
-import { em, growRoom, highlight, keywordColor, rowStyle, shadows, sinceNext, stroke, textBase, withAlpha } from './style';
+import { em, highlight, keywordColor, rowStyle, shadows, sinceNext, stroke, textBase, withAlpha } from './style';
+import { growRoom } from './metrics';
 
 export const neonpulsePreset: SubtitlePreset = {
   id: 'neonpulse',
   name: 'NEON PULSE',
   wordsPerPage: 3,
+  // Wide techno face (smaller size), magenta neon glow
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Orbitron',
-    fontSize: 36,
-    fontWeight: 'Regular',
+    fontSize: 30,
+    fontWeight: 'Bold',
+    isItalic: false,
+    isUnderline: false,
     isUppercase: true,
-    fontColor: '#ffffff',
+    fontColor: '#FFFFFF',
     strokeColor: '#000000',
     strokeWidth: 0,
     hasShadow: true,
@@ -20,9 +24,9 @@ export const neonpulsePreset: SubtitlePreset = {
     shadowX: 0,
     shadowY: 0,
     shadowBlur: 10,
-    highlightColor: baseHighlightColor || '#FF00FF',
-    letterSpacing: 0,
-    lineHeight: 1.2
+    highlightColor: baseHighlightColor || '#FF2BD6',
+    letterSpacing: 1,
+    lineHeight: 1.2,
   }),
   renderButton: (isSelected: boolean, onClick: () => void) => {
     const activeColor = '#FF00FF';

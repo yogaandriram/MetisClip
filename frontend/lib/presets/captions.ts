@@ -129,12 +129,6 @@ export function buildPages(words: CaptionWord[], perPage: number, maxChars = 18)
   });
 }
 
-/** Characters that fit on one caption line (80% of the width) at this font size. */
-export function lineChars(fontSize: number, uppercase: boolean): number {
-  const fit = (20 * 36) / Math.max(10, fontSize || 36);
-  return Math.max(6, Math.min(40, Math.round(uppercase ? fit * 0.85 : fit)));
-}
-
 export interface CaptionFrame {
   page: CaptionPage;
   pageIndex: number;

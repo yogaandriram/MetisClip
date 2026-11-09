@@ -37,9 +37,9 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
   const [captionTab, setCaptionTab] = useState('presets');
 
   const handlePresetSelect = (presetId: string) => {
-    // When a preset is selected, we want to clear all styling overrides
-    // but preserve the current positionY layout setting.
-    updateCaption({ mode: presetId, positionY: caption.positionY }, true);
+    // Picking a preset (or "reset") drops the font overrides, so the preset's own default font
+    // settings apply; position and sync offset are kept.
+    updateCaption({ mode: presetId, positionY: caption.positionY, offsetTime: caption.offsetTime }, true);
   };
 
   return (
@@ -59,6 +59,10 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
       />
 
       {captionTab === 'presets' && (
+        <>
+        <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '14px', lineHeight: 1.5 }}>
+          Setiap preset punya font bawaan sendiri. Memilih preset mengganti pengaturan di tab Font ke bawaannya.
+        </p>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
           {presets.map(p => {
             const isSelected = caption.mode === p.id;
@@ -69,6 +73,7 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
             )
           })}
         </div>
+        </>
       )}
 
       {captionTab === 'font' && (
@@ -78,7 +83,7 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
               <span style={{ fontSize: '14px', fontWeight: 600 }}>Pengaturan font</span>
               <button
                 onClick={() => handlePresetSelect(caption.mode)}
-                title="Reset to preset defaults"
+                title="Kembalikan ke font bawaan preset"
                 style={{
                   background: 'rgba(255,255,255,0.05)',
                   border: '1px solid var(--border-glass)',
@@ -95,7 +100,7 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
                 onMouseEnter={(e) => e.currentTarget.style.color = '#fff'}
                 onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
               >
-                <RotateCcw size={12} /> Reset
+                <RotateCcw size={12} /> Bawaan preset
               </button>
             </div>
             {/* Font Family Row */}

@@ -1,28 +1,32 @@
 import React from 'react';
 import { SubtitlePreset } from './types';
 import { Ease, clamp, interpolate, r4 } from './anim';
-import { dropShadow, growRoom, highlight, keywordColor, rowStyle, shadows, sinceNext, stroke, textBase } from './style';
+import { dropShadow, highlight, keywordColor, rowStyle, shadows, sinceNext, stroke, textBase } from './style';
+import { growRoom } from './metrics';
 
 export const popshadowPreset: SubtitlePreset = {
   id: 'popshadow',
   name: 'POP SHADOW',
   wordsPerPage: 3,
+  // Bold TikTok style: heavy sans, thin outline, hard drop shadow
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Montserrat',
-    fontSize: 36,
-    fontWeight: 'Regular',
+    fontSize: 34,
+    fontWeight: 'Black',
+    isItalic: false,
+    isUnderline: false,
     isUppercase: true,
-    fontColor: '#ffffff',
+    fontColor: '#FFFFFF',
     strokeColor: '#000000',
-    strokeWidth: 0,
-    hasShadow: false,
+    strokeWidth: 3,
+    hasShadow: true,
     shadowColor: '#000000',
     shadowX: 0,
-    shadowY: 0,
+    shadowY: 4,
     shadowBlur: 0,
     highlightColor: baseHighlightColor || '#FFE800',
     letterSpacing: 0,
-    lineHeight: 1.2
+    lineHeight: 1.1,
   }),
   renderButton: (isSelected: boolean, onClick: () => void) => {
     const activeColor = '#A855F7';

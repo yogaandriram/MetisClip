@@ -8,22 +8,25 @@ export const slideupfadePreset: SubtitlePreset = {
   id: 'slideupfade',
   name: 'SLIDE UP FADE',
   wordsPerPage: 1,
+  // One large word with a gradient fill
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Poppins',
-    fontSize: 36,
-    fontWeight: 'Regular',
+    fontSize: 44,
+    fontWeight: 'Extra-Bold',
+    isItalic: false,
+    isUnderline: false,
     isUppercase: true,
-    fontColor: '#ffffff',
+    fontColor: '#FFFFFF',
     strokeColor: '#000000',
     strokeWidth: 0,
     hasShadow: true,
     shadowColor: '#000000',
     shadowX: 0,
-    shadowY: 2,
-    shadowBlur: 4,
+    shadowY: 3,
+    shadowBlur: 6,
     highlightColor: baseHighlightColor || '#FF6584',
     letterSpacing: 0,
-    lineHeight: 1.2
+    lineHeight: 1.1,
   }),
   renderButton: (isSelected: boolean, onClick: () => void) => {
     return (

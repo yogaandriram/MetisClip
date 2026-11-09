@@ -1,28 +1,32 @@
 import React from 'react';
 import { SubtitlePreset } from './types';
 import { cubicBezier, interpolate, r4 } from './anim';
-import { dropShadow, growRoom, highlight, keywordColor, rowStyle, shadows, stroke, textBase } from './style';
+import { dropShadow, highlight, keywordColor, rowStyle, shadows, stroke, textBase } from './style';
+import { growRoom } from './metrics';
 
 export const kineticboxPreset: SubtitlePreset = {
   id: 'kineticbox',
   name: 'KINETIC BOX',
   wordsPerPage: 3,
+  // Condensed bold, so the moving box fits more words per line
   getDefaultConfig: (baseHighlightColor?: string) => ({
-    fontFamily: 'Montserrat',
-    fontSize: 36,
-    fontWeight: 'Regular',
+    fontFamily: 'Oswald',
+    fontSize: 38,
+    fontWeight: 'Bold',
+    isItalic: false,
+    isUnderline: false,
     isUppercase: true,
-    fontColor: '#ffffff',
+    fontColor: '#FFFFFF',
     strokeColor: '#000000',
     strokeWidth: 0,
     hasShadow: true,
     shadowColor: '#000000',
-    shadowX: 0,
-    shadowY: 0,
-    shadowBlur: 0,
+    shadowX: 2,
+    shadowY: 2,
+    shadowBlur: 4,
     highlightColor: baseHighlightColor || '#FFD700',
-    letterSpacing: 0,
-    lineHeight: 1.2
+    letterSpacing: 0.5,
+    lineHeight: 1.15,
   }),
   renderButton: (isSelected: boolean, onClick: () => void) => {
     const activeColor = '#FFFF00';
@@ -39,9 +43,9 @@ export const kineticboxPreset: SubtitlePreset = {
           justifyContent: 'center',
           alignItems: 'center',
           height: '80px',
-          fontFamily: "'Montserrat', var(--font-display)",
+          fontFamily: "'Oswald', var(--font-display)",
           fontSize: '24px',
-          fontWeight: '900',
+          fontWeight: '700',
           textTransform: "uppercase",
           boxShadow: isSelected ? '0 0 20px rgba(24, 86, 255, 0.3)' : 'none',
           overflow: 'hidden'

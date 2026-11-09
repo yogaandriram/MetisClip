@@ -7,22 +7,25 @@ export const glitchPreset: SubtitlePreset = {
   id: 'glitch',
   name: 'GLITCH EFFECT',
   wordsPerPage: 1,
+  // Blocky display face, white with yellow/magenta glitch slices
   getDefaultConfig: (baseHighlightColor?: string) => ({
-    fontFamily: 'Orbitron',
-    fontSize: 36,
-    fontWeight: 'Black',
+    fontFamily: 'Russo One',
+    fontSize: 42,
+    fontWeight: 'Regular',
+    isItalic: false,
+    isUnderline: false,
     isUppercase: true,
-    fontColor: '#00ffff',
+    fontColor: '#FFFFFF',
     strokeColor: '#000000',
     strokeWidth: 0,
-    hasShadow: false,
+    hasShadow: true,
     shadowColor: '#000000',
     shadowX: 0,
-    shadowY: 0,
-    shadowBlur: 0,
-    highlightColor: baseHighlightColor || '#00ffff',
-    letterSpacing: 4,
-    lineHeight: 1.2
+    shadowY: 3,
+    shadowBlur: 6,
+    highlightColor: baseHighlightColor || '#00FFFF',
+    letterSpacing: 3,
+    lineHeight: 1.15,
   }),
   renderButton: (isSelected: boolean, onClick: () => void) => {
     return (
@@ -53,8 +56,8 @@ export const glitchPreset: SubtitlePreset = {
               50%{clip-path:inset(10% 0 80% 0);transform:translate(-4px,0)}
             }
             .glitch-btn-text {
-              font-family: 'Orbitron', sans-serif;
-              font-weight: 900;
+              font-family: 'Russo One', sans-serif;
+              font-weight: 400;
               font-size: 14px;
               color: #0ff;
               text-transform: uppercase;

@@ -113,14 +113,3 @@ export const rowStyle = (gapEm = 0.28): React.CSSProperties => ({
 /** Seconds since the word after `i` started (Infinity when there is none): drives a past word's "release". */
 export const sinceNext = (words: CaptionWord[], i: number, time: number): number =>
   i + 1 < words.length ? time - words[i + 1].start : Infinity;
-
-/**
- * Horizontal room (em, per side) a word needs when it is scaled up to `peak`: transforms do not
- * affect layout, so without it a growing word overlaps its neighbours. Reserved on every word all
- * the time, so the line never shifts while words animate. Width is estimated from the character count.
- */
-export function growRoom(word: string, peak: number, c: Cfg): string {
-  const perChar = c.isUppercase ? 0.68 : 0.56;
-  const width = Array.from(word || '').length * perChar + em(c.letterSpacing, c) * Array.from(word || '').length;
-  return `${Math.max(0, ((peak - 1) * width) / 2).toFixed(3)}em`;
-}

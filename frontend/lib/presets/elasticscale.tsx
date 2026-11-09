@@ -7,22 +7,25 @@ export const elasticscalePreset: SubtitlePreset = {
   id: 'elasticscale',
   name: 'ELASTIC SCALE',
   wordsPerPage: 1,
+  // Condensed headline face in a yellow label box (highlight = box color)
   getDefaultConfig: (baseHighlightColor?: string) => ({
-    fontFamily: 'Inter',
-    fontSize: 36,
-    fontWeight: 'Black',
+    fontFamily: 'Anton',
+    fontSize: 44,
+    fontWeight: 'Regular',
+    isItalic: false,
+    isUnderline: false,
     isUppercase: true,
     fontColor: '#111111',
     strokeColor: '#000000',
     strokeWidth: 0,
-    hasShadow: false, // Disabling standard shadow, using box-shadow for bg
+    hasShadow: false,
     shadowColor: '#000000',
     shadowX: 0,
     shadowY: 0,
     shadowBlur: 0,
-    highlightColor: baseHighlightColor || '#FFD700', // Using highlightColor as bg color
-    letterSpacing: 0,
-    lineHeight: 1.2
+    highlightColor: baseHighlightColor || '#FFD700',
+    letterSpacing: 1,
+    lineHeight: 1.1,
   }),
   renderButton: (isSelected: boolean, onClick: () => void) => {
     return (
@@ -54,8 +57,8 @@ export const elasticscalePreset: SubtitlePreset = {
           `}
         </style>
         <div style={{
-          fontFamily: "'Inter', sans-serif",
-          fontWeight: 900,
+          fontFamily: "'Anton', sans-serif",
+          fontWeight: 400,
           fontSize: '12px',
           color: '#111',
           background: '#FFD700',

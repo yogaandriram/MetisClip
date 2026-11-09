@@ -33,7 +33,7 @@ import toast from 'react-hot-toast'
 import { presets } from '@/lib/presets'
 import { CaptionLayer } from '@/lib/presets/CaptionLayer'
 import { LogoOverlay } from '@/lib/presets/BrandOverlay'
-import { type CaptionStyle, BASE_CAPTION_STYLE, resolveCaptionStyle } from '@/lib/presets/defaults'
+import { type CaptionStyle, BASE_CAPTION_STYLE, getPreset, presetSwitch, resolveCaptionStyle } from '@/lib/presets/defaults'
 import { type AiCaptionSettings, DEFAULT_AI_SETTINGS, computeKeepSegments, isCut, isFiller, keptDuration, nextKeptTime, resolveAi } from '@/lib/presets/captions'
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch'
 import { Dropdown } from '@/components/ui/Dropdown'
@@ -756,13 +756,13 @@ function ClipEditor() {
 
           <div style={{ flex: 1, overflowY: 'auto', padding: '18px' }}>
             <Section title="GAYA ANIMASI">
+              <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '10px' }}>
+                Setiap preset punya font bawaan sendiri. Memilih preset mengganti pengaturan font ke bawaannya.
+              </p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                 {presets.map((preset) => (
                   <React.Fragment key={preset.id}>
-                    {preset.renderButton(style.mode === preset.id, () => {
-                      const cfg = preset.getDefaultConfig() as Partial<CaptionStyle>
-                      setStyle({ ...cfg, mode: preset.id })
-                    })}
+                    {preset.renderButton(style.mode === preset.id, () => setStyle(presetSwitch(style, preset.id)))}
                   </React.Fragment>
                 ))}
               </div>
@@ -792,7 +792,20 @@ function ClipEditor() {
               )}
             </Section>
 
-            <Section title="TAMPILAN FONT" divider>
+            <Section
+              title="TAMPILAN FONT"
+              divider
+              action={
+                <button
+                  type="button"
+                  onClick={() => setStyle(presetSwitch(style, style.mode))}
+                  title={`Kembalikan font ke bawaan preset ${getPreset(style.mode).name}`}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '11px', cursor: 'pointer', padding: 0 }}
+                >
+                  <RotateCcw size={12} /> Bawaan preset
+                </button>
+              }
+            >
               <div style={{ marginBottom: '14px' }}>
                 <Dropdown
                   width="100%"
@@ -1060,10 +1073,13 @@ function ClipEditor() {
 // Small inspector controls
 // ---------------------------------------------------------------------------
 
-function Section({ title, divider, children }: { title: string; divider?: boolean; children: React.ReactNode }) {
+function Section({ title, divider, action, children }: { title: string; divider?: boolean; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: '22px', paddingBottom: divider ? '22px' : 0, borderBottom: divider ? '1px solid var(--border-glass)' : 'none' }}>
-      <h3 style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-dim)', marginBottom: '12px', letterSpacing: '0.5px' }}>{title}</h3>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '12px' }}>
+        <h3 style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.5px' }}>{title}</h3>
+        {action}
+      </div>
       {children}
     </div>
   )

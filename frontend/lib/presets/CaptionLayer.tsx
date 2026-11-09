@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
 import type { CaptionWord } from './types';
 import { type CaptionStyle, DESIGN_CANVAS, getPreset } from './defaults';
-import { type AiCaptionSettings, buildPages, captionAt, displayWords, lineChars, resolveAi } from './captions';
+import { type AiCaptionSettings, buildPages, captionAt, displayWords, resolveAi } from './captions';
+import { fitScale, lineChars } from './metrics';
 import { Ease, interpolate, r4 } from './anim';
 
 /**
@@ -30,11 +31,12 @@ export const CaptionLayer: React.FC<CaptionLayerProps> = ({ words, time, style, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [words, settings.fillerWords, settings.keywords, settings.emojis],
   );
-  const maxChars = lineChars(style.fontSize, style.isUppercase);
+  const maxChars = lineChars(style);
   const pages = useMemo(() => buildPages(display, preset.wordsPerPage, maxChars), [display, preset.wordsPerPage, maxChars]);
 
   const t = time - (style.offsetTime || 0) / 1000;
   const frame = captionAt(pages, t);
+  const fit = frame ? fitScale(frame.page.words, style) : 1;
 
   let emoji: { char: string; start: number } | null = null;
   if (frame) {
@@ -65,7 +67,7 @@ export const CaptionLayer: React.FC<CaptionLayerProps> = ({ words, time, style, 
       }}
     >
       {frame && (
-        <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', width: '100%', opacity: r4(1 - frame.exit) }}>
+        <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', width: '100%', fontSize: fit < 1 ? `${r4(fit)}em` : undefined, opacity: r4(1 - frame.exit) }}>
           {emoji && <EmojiBadge char={emoji.char} t={t - emoji.start} />}
           {preset.renderPreview({ words: frame.page.words, activeWordIndex: frame.activeIndex, time: t, config: style })}
         </div>

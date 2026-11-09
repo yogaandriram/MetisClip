@@ -7,22 +7,25 @@ export const staggerfadePreset: SubtitlePreset = {
   id: 'staggerfade',
   name: 'STAGGER FADE',
   wordsPerPage: 1,
+  // Letters rise one by one; sci-fi sans in cyan
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Exo 2',
-    fontSize: 36,
+    fontSize: 42,
     fontWeight: 'Black',
+    isItalic: false,
+    isUnderline: false,
     isUppercase: true,
     fontColor: '#00CFFF',
     strokeColor: '#000000',
     strokeWidth: 0,
-    hasShadow: false,
+    hasShadow: true,
     shadowColor: '#000000',
     shadowX: 0,
-    shadowY: 0,
-    shadowBlur: 0,
-    highlightColor: baseHighlightColor || '#00CFFF',
+    shadowY: 3,
+    shadowBlur: 8,
+    highlightColor: baseHighlightColor || '#FFFFFF',
     letterSpacing: 2,
-    lineHeight: 1.2
+    lineHeight: 1.15,
   }),
   renderButton: (isSelected: boolean, onClick: () => void) => {
     const text = "STAGGER";
