@@ -154,9 +154,12 @@ Rules:
 | POST | `/api/agents` | `AgentInput` | `{agent: Agent}` |
 | PUT | `/api/agents/{id}` | `Partial<AgentInput>` | `{agent: Agent}` |
 | DELETE | `/api/agents/{id}` | `?delete_files=true\|false` | `{ok: true}` |
-| GET | `/api/agents/{id}/brand-template` | — | `{brand_template: BrandTemplate \| null}` |
-| PUT | `/api/agents/{id}/brand-template` | `Partial<BrandTemplateInput>` (each top-level key replaces the stored one) | `{brand_template: BrandTemplate}` |
-| POST | `/api/agents/{id}/brand-assets` | multipart: `file`, `kind` | `{value: "asset://library/<slug>/_assets/<file>", path}` |
+| GET | `/api/brand-templates` | — | `{brand_templates: BrandTemplate[]}` (oldest first, with `used_by_agents` and `clip_count`) |
+| POST | `/api/brand-templates` | `{name, copy_from?}` (`copy_from` duplicates that template's settings; asset files are shared) | `{brand_template: BrandTemplate}` |
+| GET | `/api/brand-templates/{id}` | — | `{brand_template: BrandTemplate}` |
+| PUT | `/api/brand-templates/{id}` | `Partial<BrandTemplateInput>` (`name`, or sections; each section replaces the stored one) | `{brand_template: BrandTemplate}` |
+| DELETE | `/api/brand-templates/{id}` | — | `{ok: true}`; 400 for the last template. Its clips fall back to their agent's default, agents using it get the oldest template, and asset copies no other template uses are deleted |
+| POST | `/api/brand-templates/{id}/assets` | multipart: `file`, `kind` | `{value: "asset://library/_brand/<template id>/<file>", path}` |
 | GET | `/api/files/{relative path}` | `?token=` | file bytes (Range supported), only under the data root |
 | GET | `/api/jobs` | `?agent_id=&status=&limit=` | `{jobs: Job[]}` |
 | POST | `/api/jobs` | `JobCreate` | `{job: Job}` |
@@ -166,7 +169,7 @@ Rules:
 | DELETE | `/api/jobs/{id}` | — | `{ok: true}` |
 | GET | `/api/clips` | `?agent_id=&job_id=&status=` | `{clips: Clip[]}` |
 | GET | `/api/clips/{id}` | — | `ClipDetail` |
-| PUT | `/api/clips/{id}/subtitles` | `{words?, style?, reset_style?}` | `{clip: Clip}` |
+| PUT | `/api/clips/{id}/subtitles` | `{words?, style?, reset_style?, brand_template_id?}` (`brand_template_id: null` = follow the agent's default) | `{clip: Clip}` |
 | DELETE | `/api/clips/{id}` | `?delete_files=true\|false` | `{ok: true}` |
 | GET | `/api/clips/{id}/media/{raw\|final\|thumbnail}` | `?token=&v=` | media bytes (Range) |
 | POST | `/api/clips/{id}/render` | — | `{render_job: RenderJob}` |

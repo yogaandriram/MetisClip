@@ -196,6 +196,7 @@ export default function AgentsPage() {
               default_duration: editing.default_duration || '45-60',
               default_keywords: editing.default_keywords || '',
               default_video_type: editing.default_video_types?.[0] || 'podcast',
+              default_brand_template_id: editing.default_brand_template_id || '',
             }}
             onSubmit={update}
             onCancel={() => setEditing(null)}

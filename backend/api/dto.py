@@ -22,22 +22,34 @@ def agent_dto(doc: dict[str, Any]) -> dict[str, Any]:
         "default_keywords": ", ".join(kw) if isinstance(kw, list) else (kw or None),
         "default_video_types": doc.get("default_video_types") or [],
         "timezone": doc.get("timezone", "Asia/Jakarta"),
+        "default_brand_template_id": doc.get("default_brand_template_id"),
         "created_at": iso(doc.get("created_at")),
     }
 
 
-def brand_template_dto(agent: dict[str, Any]) -> dict[str, Any] | None:
-    bt = agent.get("brand_template")
-    if not bt:
+def brand_template_dto(
+    doc: dict[str, Any] | None,
+    *,
+    used_by_agents: list[dict[str, Any]] | None = None,
+    clip_count: int | None = None,
+) -> dict[str, Any] | None:
+    if not doc:
         return None
-    return {
-        "agent_id": agent["_id"],
-        "brand_settings": bt.get("brand_settings") or {},
-        "caption_settings": bt.get("caption_settings") or {},
-        "layout_settings": bt.get("layout_settings") or {},
-        "ai_settings": bt.get("ai_settings") or {},
-        "updated_at": iso(bt.get("updated_at")),
+    out = {
+        "id": doc["_id"],
+        "name": doc.get("name") or "",
+        "brand_settings": doc.get("brand_settings") or {},
+        "caption_settings": doc.get("caption_settings") or {},
+        "layout_settings": doc.get("layout_settings") or {},
+        "ai_settings": doc.get("ai_settings") or {},
+        "created_at": iso(doc.get("created_at")),
+        "updated_at": iso(doc.get("updated_at")),
     }
+    if used_by_agents is not None:
+        out["used_by_agents"] = [{"id": a["_id"], "name": a.get("name") or ""} for a in used_by_agents]
+    if clip_count is not None:
+        out["clip_count"] = clip_count
+    return out
 
 
 def job_dto(doc: dict[str, Any]) -> dict[str, Any]:
@@ -76,6 +88,7 @@ def clip_dto(doc: dict[str, Any]) -> dict[str, Any]:
         "files": {"raw": files.get("raw"), "final": files.get("final"), "thumbnail": files.get("thumbnail")},
         "subtitle_data": {"clip_id": doc["_id"], "words": (doc.get("subtitle") or {}).get("words") or []},
         "subtitle_style": doc.get("subtitle_style") or {},
+        "brand_template_id": doc.get("brand_template_id"),
         "created_at": iso(doc.get("created_at")),
         "updated_at": iso(doc.get("updated_at")),
     }

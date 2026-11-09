@@ -190,6 +190,7 @@ export default function SettingsPage() {
               default_duration: activeAgent.default_duration || '45-60',
               default_keywords: activeAgent.default_keywords || '',
               default_video_type: activeAgent.default_video_types?.[0] || 'podcast',
+              default_brand_template_id: activeAgent.default_brand_template_id || '',
             }}
             onSubmit={saveAgent}
           />

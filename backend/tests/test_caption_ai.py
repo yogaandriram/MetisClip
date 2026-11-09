@@ -82,7 +82,7 @@ def _clip(db, agent_id, words):
 
 def test_subtitle_words_keep_ai_marks_and_clip_ai_override(client, db):
     agent = client.post("/api/agents", json={"name": "A"}).json()["agent"]
-    client.put(f"/api/agents/{agent['id']}/brand-template", json={"ai_settings": {"pauses": True}})
+    client.put(f"/api/brand-templates/{agent['default_brand_template_id']}", json={"ai_settings": {"pauses": True}})
     cid = _clip(db, agent["id"], [])
     words = [{"word": "Halo", "start": 0, "end": 0.4, "keyword": True, "emoji": "👋"},
              {"word": "semua", "start": 0.4, "end": 0.8, "emoji": "not-an-emoji"}]
@@ -122,10 +122,11 @@ def test_render_props_carry_ai_settings(db):
     from backend.services.render import build_props
 
     agent_id = new_id()
-    from backend.models.documents import AgentDoc, BrandTemplateDoc
+    from backend.models.documents import AgentDoc
+    from backend.services import brand_templates
 
-    db.super_agents.insert_one(AgentDoc(_id=agent_id, name="A", slug="a", brand_template=BrandTemplateDoc(
-        ai_settings={"pauses": True}, caption_settings={"mode": "lumina"})).to_mongo())
+    tpl = brand_templates.create("T", {"ai_settings": {"pauses": True}, "caption_settings": {"mode": "lumina"}})
+    db.super_agents.insert_one(AgentDoc(_id=agent_id, name="A", slug="a", default_brand_template_id=tpl["_id"]).to_mongo())
     clip = {"_id": new_id(), "agent_id": agent_id, "duration_seconds": 12.5,
             "subtitle": {"words": WORDS}, "subtitle_style": {"ai": {"keywords": False}, "fontSize": 50}}
     props = build_props(clip)

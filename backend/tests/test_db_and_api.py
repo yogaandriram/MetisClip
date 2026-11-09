@@ -16,7 +16,7 @@ def client(db, secrets):
 
 
 def test_migration_creates_indexes_and_version(db):
-    assert db.meta.find_one({"_id": "schema"})["version"] == 2
+    assert db.meta.find_one({"_id": "schema"})["version"] == 3
     assert "scheduled_posts" not in db.list_collection_names()
     names = {ix["name"] for ix in db.clips.list_indexes()}
     assert "agent_id_1_created_at_-1" in names
@@ -33,7 +33,7 @@ def test_validator_rejects_bad_status(db):
 def test_migration_is_idempotent(db):
     from backend.core.db import migrate
 
-    assert migrate(db) == 2
+    assert migrate(db) == 3
 
 
 def test_migration_002_removes_publishing_data(mongo):
@@ -57,7 +57,7 @@ def test_migration_002_removes_publishing_data(mongo):
                                        "checkpoint": {"analysis_done": True, "scheduling_done": True}})
         old.meta.insert_one({"_id": "schema", "version": 1})
 
-        assert dbm.migrate(old) == 2
+        assert dbm.migrate(old) == 3
         assert "scheduled_posts" not in old.list_collection_names()
         assert "social_connections" not in old.super_agents.find_one({"_id": "a1"})
         job = old.discovery_jobs.find_one({"_id": "j1"})
@@ -82,11 +82,15 @@ def test_agent_crud_and_brand_template(client):
     assert r.status_code == 200
     agent = r.json()["agent"]
     assert agent["default_keywords"] == "AI, startup"
+    # A fresh database has one library template; new agents use the oldest one by default
+    [tpl] = client.get("/api/brand-templates").json()["brand_templates"]
+    assert tpl["name"] == "Template Default" and agent["default_brand_template_id"] == tpl["id"]
     # Same name -> unique slug
     client.post("/api/agents", json={"name": "Podcast Bisnis"})
-    bt = client.put(f"/api/agents/{agent['id']}/brand-template", json={"caption_settings": {"mode": "glitch"}}).json()
+    bt = client.put(f"/api/brand-templates/{tpl['id']}", json={"caption_settings": {"mode": "glitch"}}).json()
     assert bt["brand_template"]["caption_settings"] == {"mode": "glitch"}
     assert client.delete(f"/api/agents/{agent['id']}").json() == {"ok": True}
+    assert len(client.get("/api/brand-templates").json()["brand_templates"]) == 1  # templates outlive agents
     assert len(client.get("/api/agents").json()["agents"]) == 1
 
 
@@ -119,7 +123,7 @@ def test_secrets_are_write_only(client):
 
 def test_subtitle_update_and_effective_style(client, db):
     agent = client.post("/api/agents", json={"name": "A"}).json()["agent"]
-    client.put(f"/api/agents/{agent['id']}/brand-template", json={"caption_settings": {"mode": "lumina", "fontSize": 60}})
+    client.put(f"/api/brand-templates/{agent['default_brand_template_id']}", json={"caption_settings": {"mode": "lumina", "fontSize": 60}})
     cid = new_id()
     from backend.models.documents import ClipDoc
 

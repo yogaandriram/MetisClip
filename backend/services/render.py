@@ -60,15 +60,15 @@ def resolve_assets(value: Any) -> Any:
     return value
 
 
-def brand_template_for(agent_id: str | None) -> dict[str, Any]:
-    if not agent_id:
-        return {}
-    agent = get_db().super_agents.find_one({"_id": agent_id}, {"brand_template": 1})
-    return (agent or {}).get("brand_template") or {}
+def template_for(clip: dict[str, Any]) -> dict[str, Any]:
+    """The clip's brand template document ({} = built-in defaults)."""
+    from backend.services import brand_templates
+
+    return brand_templates.for_clip(clip) or {}
 
 
 def effective_style(clip: dict[str, Any], bt: dict[str, Any] | None = None) -> dict[str, Any]:
-    bt = bt if bt is not None else brand_template_for(clip.get("agent_id"))
+    bt = bt if bt is not None else template_for(clip)
     style = {**(bt.get("caption_settings") or {}), **(clip.get("subtitle_style") or {})}
     style.pop("ai", None)  # the clip's AI override lives in subtitle_style.ai (see effective_ai)
     return style
@@ -92,7 +92,7 @@ def effective_ai(clip: dict[str, Any] | None, bt: dict[str, Any] | None) -> dict
 
 
 def build_props(clip: dict[str, Any]) -> dict[str, Any]:
-    bt = brand_template_for(clip.get("agent_id"))
+    bt = template_for(clip)
     return {
         "videoUrl": f"{config.base_url}/api/clips/{clip['_id']}/media/raw?token={config.token}",
         "words": (clip.get("subtitle") or {}).get("words") or [],

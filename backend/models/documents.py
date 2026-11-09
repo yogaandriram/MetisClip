@@ -31,12 +31,16 @@ class Doc(BaseModel):
         return data
 
 
-class BrandTemplateDoc(BaseModel):
+class BrandTemplateDoc(Doc):
+    """A named brand template in the shared library (collection `brand_templates`)."""
+
+    name: str = Field(min_length=1, max_length=80)
     brand_settings: dict[str, Any] = Field(default_factory=dict)
     caption_settings: dict[str, Any] = Field(default_factory=lambda: {"mode": "popshadow"})
     layout_settings: dict[str, Any] = Field(default_factory=dict)
     ai_settings: dict[str, Any] = Field(default_factory=dict)
-    updated_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)
 
 
 class AgentDoc(Doc):
@@ -47,7 +51,8 @@ class AgentDoc(Doc):
     default_keywords: list[str] = Field(default_factory=list)
     default_video_types: list[str] = Field(default_factory=lambda: ["podcast"])
     timezone: str = "Asia/Jakarta"
-    brand_template: Optional[BrandTemplateDoc] = None
+    # Template used by this agent's new clips (brand_templates._id)
+    default_brand_template_id: Optional[str] = None
     created_at: datetime = Field(default_factory=_now)
 
     @field_validator("default_duration")
@@ -139,6 +144,8 @@ class ClipDoc(Doc):
     files: ClipFiles = Field(default_factory=ClipFiles)
     subtitle: dict[str, Any] = Field(default_factory=lambda: {"words": []})
     subtitle_style: dict[str, Any] = Field(default_factory=dict)
+    # Brand template of this clip (set from the agent's default at creation, switchable in the editor)
+    brand_template_id: Optional[str] = None
     status: ClipStatus = "processing"
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)

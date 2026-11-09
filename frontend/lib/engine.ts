@@ -17,6 +17,8 @@ export interface Agent {
   default_keywords: string | null
   default_video_types: string[]
   timezone: string
+  /** Brand template used by this agent's new clips */
+  default_brand_template_id: string | null
   created_at: ISODate
 }
 
@@ -27,18 +29,26 @@ export interface AgentInput {
   default_keywords?: string | null
   default_video_types?: string[]
   timezone?: string
+  default_brand_template_id?: string | null
 }
 
+/** A named template in the shared brand template library (used by any Super Agent). */
 export interface BrandTemplate {
-  agent_id: string
+  id: string
+  name: string
   brand_settings: Record<string, any>
   caption_settings: Record<string, any>
   layout_settings: Record<string, any>
   ai_settings: Record<string, any>
+  created_at: ISODate | null
   updated_at: ISODate | null
+  /** Agents whose default this template is (list / detail responses) */
+  used_by_agents?: { id: string; name: string }[]
+  /** Clips that use this template */
+  clip_count?: number
 }
 
-export type BrandTemplateInput = Partial<Pick<BrandTemplate, 'brand_settings' | 'caption_settings' | 'layout_settings' | 'ai_settings'>>
+export type BrandTemplateInput = Partial<Pick<BrandTemplate, 'name' | 'brand_settings' | 'caption_settings' | 'layout_settings' | 'ai_settings'>>
 
 export type JobStatus = 'pending' | 'running' | 'interrupted' | 'cancelled' | 'completed' | 'failed'
 export type JobStep = 'discovery' | 'analysis' | 'processing'
@@ -133,6 +143,8 @@ export interface Clip {
   subtitle_data: { clip_id: string; words: SubtitleWord[] }
   /** Per-clip override of the brand caption settings ({} = inherit) */
   subtitle_style: Record<string, any>
+  /** The clip's brand template (null = its agent's default) */
+  brand_template_id: string | null
   created_at: ISODate
   updated_at: ISODate
 }
@@ -143,6 +155,7 @@ export interface ClipDetail {
   effective_style: Record<string, any>
   /** brand ai_settings merged with clip.subtitle_style.ai */
   effective_ai: AiSubtitleSettings
+  /** The template in effect (the clip's own choice, else its agent's default); null = built-in */
   brand_template: BrandTemplate | null
 }
 
@@ -150,6 +163,8 @@ export interface SubtitleUpdate {
   words?: SubtitleWord[]
   style?: Record<string, any>
   reset_style?: boolean
+  /** Switch the clip's brand template (null = follow the agent's default) */
+  brand_template_id?: string | null
 }
 
 export type RenderStatus = 'queued' | 'rendering' | 'completed' | 'failed' | 'cancelled'
@@ -266,6 +281,8 @@ export type EngineEvent =
   | { type: 'clip.created'; id: string; job_id: string | null; agent_id: string | null }
   | { type: 'clip.updated'; id: string }
   | { type: 'clip.deleted'; id: string }
+  | { type: 'brand_template.updated'; id: string }
+  | { type: 'brand_template.deleted'; id: string }
   | { type: 'render.progress'; id: string; clip_id: string; status: RenderStatus; progress_pct: number }
   | { type: 'render.status'; id: string; clip_id: string; status: RenderStatus; output_path?: string | null; error?: string | null }
   | { type: 'system.notice'; level: 'info' | 'warning' | 'error'; message: string }
@@ -507,15 +524,24 @@ export const api = {
     create: (input: AgentInput) => request<{ agent: Agent }>('POST', '/api/agents', { body: input }),
     update: (id: string, patch: Partial<AgentInput>) => request<{ agent: Agent }>('PUT', `/api/agents/${id}`, { body: patch }),
     remove: (id: string, deleteFiles = false) => request<{ ok: true }>('DELETE', `/api/agents/${id}`, { query: { delete_files: deleteFiles } }),
-    getBrandTemplate: (id: string) => request<{ brand_template: BrandTemplate | null }>('GET', `/api/agents/${id}/brand-template`),
-    updateBrandTemplate: (id: string, patch: BrandTemplateInput) =>
-      request<{ brand_template: BrandTemplate }>('PUT', `/api/agents/${id}/brand-template`, { body: patch }),
+  },
+
+  brandTemplates: {
+    list: () => request<{ brand_templates: BrandTemplate[] }>('GET', '/api/brand-templates'),
+    get: (id: string) => request<{ brand_template: BrandTemplate }>('GET', `/api/brand-templates/${id}`),
+    /** New template with default settings, or a duplicate of `copy_from` */
+    create: (name: string, copyFrom?: string) =>
+      request<{ brand_template: BrandTemplate }>('POST', '/api/brand-templates', { body: { name, copy_from: copyFrom || null } }),
+    update: (id: string, patch: BrandTemplateInput) =>
+      request<{ brand_template: BrandTemplate }>('PUT', `/api/brand-templates/${id}`, { body: patch }),
+    /** Its clips fall back to their agent's default; refused for the last template */
+    remove: (id: string) => request<{ ok: true }>('DELETE', `/api/brand-templates/${id}`),
     /** Uploads a brand asset; store the returned `value` (asset://…) in brand_settings */
-    uploadBrandAsset: (id: string, file: File, kind: string) => {
+    uploadAsset: (id: string, file: File, kind: string) => {
       const form = new FormData()
       form.append('file', file)
       form.append('kind', kind)
-      return request<{ value: string; path: string }>('POST', `/api/agents/${id}/brand-assets`, { form })
+      return request<{ value: string; path: string }>('POST', `/api/brand-templates/${id}/assets`, { form })
     },
   },
 

@@ -94,7 +94,7 @@ backend/mcp_server.py: the same nodes exposed as MCP tools for LLM-driven orches
 | Processor (clip + crop + subtitles) | `agents/nodes/processor.py`, `tools/ffmpeg_ops.py`, `tools/smart_crop.py` | ✅ Works | yt-dlp `--download-sections` (≤1080p) → MediaPipe face scan at ~5 fps with 1.5 s moving-average pan → raw frames piped to FFmpeg → 1080×1920 x264 CRF 18. Thumbnail is the middle frame. Whisper word timestamps use the Groq key from the `super_agents` row. Uploads to R2. Runs in parallel with `ThreadPoolExecutor`. |
 | Subtitle editor and presets | `frontend/app/(dashboard)/clips/[id]`, `frontend/lib/presets/*` | ✅ Works | 13 presets are shared by the editor preview **and** the Remotion composition (`render-engine/src/SubtitleOverlay.tsx` imports `../../frontend/lib/presets`). |
 | Export render | `backend/api/routes/clips.py` (`/render`), `render-engine/` | ✅ Works (web-only design) | Requires Node and npm on the machine (`npx.cmd`). Loads Google Fonts at render time. Uses an R2 round-trip. |
-| Brand Template | `frontend/app/(dashboard)/brand-template/*` | ✅ Works | `brand_settings`, `caption_settings`, `layout_settings` and `ai_settings` per agent. Assets go to the Supabase Storage bucket `brand_assets`. |
+| Brand Template | `frontend/app/(dashboard)/brand-template/*` | ✅ Works | `brand_settings`, `caption_settings`, `layout_settings` and `ai_settings` per agent. Assets go to the Supabase Storage bucket `brand_assets`. **Desktop: a shared library of named templates (§6.3).** |
 | Super Agents (niche workspaces) | `frontend/app/(dashboard)/agents`, `contexts/AgentContext.tsx` | ✅ Works | The active agent is stored in `localStorage`. |
 | Scheduler | `agents/nodes/scheduler_ai.py` | ⚠️ Heuristic | Fixed slots at 17:30 and 19:45 WIB, 2 per day starting tomorrow, with template titles. No LLM and no analytics. **Removed on desktop (D3).** |
 | YouTube upload | `services/youtube_upload.py`, `api/routes/scheduler.py` | ❌ Mock | Returns a fake video ID. The OAuth refresh code exists but is unused. **Removed on desktop (D3).** |
@@ -133,7 +133,7 @@ The tables above describe the web build. On this branch:
 | Engine (`backend/`) | FastAPI sidecar on MongoDB: `core/{paths,config,procs,db,llm,secrets,settings_store,events,auth,queue}.py`, routes per `frontend/lib/engine.ts`, `run.py` ready-line protocol, `--selftest`. Supabase, R2, JWT, Redis, LangGraph and `cleanup.py` are removed. |
 | Known issues fixed in the engine | K1 (each segment uses its own `youtube_id`), K2, K3 (per-launch token instead of JWT), K6 (jobs require `agent_id`), K7 (pinned `requirements.txt`), K9, K11 (127.0.0.1 only), K12, K15 (no auto-deletion), K16 (center-crop fallback) |
 | Desktop shell (`desktop/`) | Electron 45 main + preload: mongod lifecycle (auth, orphan-lock recovery), engine sidecar with restart, `app://` static UI, data-root wizard IPC and missing-drive recovery screen, path-checked shell IPC. Verification hooks (`METISCLIP_UI_DIR`, `METISCLIP_DATA_ROOT_OVERRIDE`, `METISCLIP_SCREENSHOT*`, `METISCLIP_AUTOQUIT_MS`) are documented in `desktop/README.md`. |
-| Frontend | Static export, no Supabase or Composio. All data goes through `lib/engine.ts` + WS events. New: setup wizard, Jobs, System (incl. "Update yt-dlp"), `clips/detail?id=` editor. Fonts are local woff2. Brand Template: intro/outro, music and layout ratio/fit were removed (they never reached the render); `layout_settings` keeps only the safe zone, and the AI subtitle settings work (§5.4). |
+| Frontend | Static export, no Supabase or Composio. All data goes through `lib/engine.ts` + WS events. New: setup wizard, Jobs, System (incl. "Update yt-dlp"), `clips/detail?id=` editor. Fonts are local woff2. Brand Template: intro/outro, music and layout ratio/fit were removed (they never reached the render); `layout_settings` keeps only the safe zone, and the AI subtitle settings work (§5.4). Brand templates are a named, shared library (migration 003); agents pick a default and the clip editor can switch a clip's template. |
 | Render (`render-engine/`) | `dist/render.js` worker (`@remotion/renderer`, run via Electron-as-Node), React 18.3.1 like the frontend (K14), local fonts (K10), Chrome Headless Shell bundled by `build-desktop.ps1`. |
 | yt-dlp | Bundled exe is copied to `%LOCALAPPDATA%\MetisClip\bin` and updated there (`POST /api/system/update-ytdlp`). Downloads prefer H.264 over HTTPS (HLS sections are very slow). Builds older than a few months get HTTP 403 from YouTube, so keep the pin fresh. |
 | Removed (D3, 2026-11-09) | Scheduling (`scheduler_ai`, `/api/schedule`, Jadwal Post page), social account connections (`/api/connections`, Settings card) and the `metisclip://` protocol. Migration `002_remove_publishing` drops `scheduled_posts` and `super_agents.social_connections` from existing databases after the usual pre-migration backup. |
@@ -436,8 +436,8 @@ The user picks the data folder in the Setup Wizard. The default is `%USERPROFILE
 │   └── {agent-slug}\
 │       ├── {clip_id}\raw.mp4      9:16 clip without subtitles
 │       ├── {clip_id}\final.mp4    last export with burned-in subtitles
-│       ├── {clip_id}\thumb.jpg
-│       └── _assets\               brand logos and overlays
+│       └── {clip_id}\thumb.jpg
+│   └── _brand\{template_id}\     brand logos, overlays and sample videos of a brand template
 ├── exports\                       default "Export ke…" target (can point elsewhere)
 ├── cache\                         segment downloads, audio chunks, render props, intermediates;
 │                                  purged per job, capped (default 10 GB)
@@ -492,7 +492,7 @@ Database name: `metisclip`.
 - Dates are BSON `Date` in UTC.
 - Each collection has a Pydantic model in `backend/models/`, and a `$jsonSchema` validator (`validationLevel: "moderate"`) created by migrations.
 - Collection names follow the current Supabase tables, to keep the refactor small. There is no `user_id` or RLS (single local user); data is scoped per `agent_id`.
-- Brand templates are **embedded** in their Super Agent (1:1). The API (`/api/agents/{id}/brand-template`) hides this from the UI.
+- Brand templates are a **shared library** of named templates (`brand_templates`), usable by any Super Agent. Each agent has a default template (`default_brand_template_id`) that new clips copy into `clips.brand_template_id`; the clip editor can switch a clip's template. A clip whose template was deleted falls back to its agent's default. There is always at least one template. (Until migration 003 the template was embedded 1:1 in its agent.)
 
 ```js
 // super_agents: one per niche workspace
@@ -500,11 +500,16 @@ Database name: `metisclip`.
   _id: "uuid", name: "Podcast Bisnis", niche: "bisnis",
   default_duration: "45-60", default_keywords: ["startup", "AI"], default_video_types: ["podcast"],
   timezone: "Asia/Jakarta",
-  brand_template: {                         // was the brand_templates table
-    brand_settings: {}, caption_settings: { mode: "popshadow" }, layout_settings: {}, ai_settings: {},
-    updated_at: ISODate()
-  },
+  default_brand_template_id: "uuid",        // template used by this agent's new clips
   created_at: ISODate()
+}
+
+// brand_templates: the shared, named template library
+{
+  _id: "uuid", name: "Podcast gelap",
+  brand_settings: { overlayUrl: "asset://library/_brand/<id>/logo-1a2b.png" }, caption_settings: { mode: "popshadow" },
+  layout_settings: { safeZone: "tiktok" }, ai_settings: { fillerWords: true },
+  created_at: ISODate(), updated_at: ISODate()
 }
 
 // discovery_jobs
@@ -541,8 +546,9 @@ Database name: `metisclip`.
     thumbnail: "library/podcast-bisnis/<clip_id>/thumb.jpg"
   },
   subtitle: { words: [ { word: "Nobody", start: 0.0, end: 0.35, confidence: 0.98, keyword: true, emoji: "🔥" } ] },  // was subtitle_data; keyword/emoji optional
-  subtitle_style: {},                       // per-clip override of brand_template.caption_settings;
-                                            // optional `ai` key overrides brand_template.ai_settings
+  subtitle_style: {},                       // per-clip override of the template's caption_settings
+                                            // (only changed keys); optional `ai` key overrides its ai_settings
+  brand_template_id: "uuid",                // the clip's template (missing = its agent's default)
   status: "processing" | "ready" | "rendering" | "exported" | "failed",
   created_at: ISODate(), updated_at: ISODate()
 }
@@ -562,7 +568,8 @@ Database name: `metisclip`.
 |---|---|
 | `discovery_jobs` | `{agent_id: 1, created_at: -1}`, `{status: 1}` |
 | `source_videos` | `{job_id: 1}`, `{youtube_id: 1}` |
-| `clips` | `{agent_id: 1, created_at: -1}`, `{job_id: 1}`, `{status: 1}` |
+| `clips` | `{agent_id: 1, created_at: -1}`, `{job_id: 1}`, `{status: 1}`, `{brand_template_id: 1}` |
+| `brand_templates` | `{created_at: 1}` |
 | `render_jobs` | `{clip_id: 1, created_at: -1}`, `{status: 1}` |
 | `api_cache` | `{expires_at: 1}` with `expireAfterSeconds: 0` (expired entries are removed automatically) |
 
@@ -571,7 +578,8 @@ Database name: `metisclip`.
 - **Progress:** one `update_one` per event, e.g. `{$set: {progress_pct, current_step}, $inc: {processed_scenes: 1}}`.
 - **Idempotent clip creation:** the clip `_id` is derived deterministically (`uuid5` of job ID, `youtube_id`, start and end) and written with an upsert, so a resumed job never duplicates clips.
 - **Errors:** `$push` with `$slice: -50`, so a job document never grows without bound.
-- **Deleting an agent:** remove dependants collection by collection (render jobs → clips → source videos → jobs → agent). A crash part-way is safe to re-run. Library files are deleted only when the user ticks "Hapus file juga".
+- **Deleting an agent:** remove dependants collection by collection (render jobs → clips → source videos → jobs → agent). A crash part-way is safe to re-run. Library files are deleted only when the user ticks "Hapus file juga". Brand templates are not deleted with an agent.
+- **Deleting a brand template:** unset `brand_template_id` on its clips, move agents that used it to the oldest remaining template, then delete the imported asset copies no other template references (only under `library\_brand\`).
 
 ### 6.4 Migrations and backups
 
@@ -612,8 +620,9 @@ Base URL: `http://127.0.0.1:{port}`. Every request carries `Authorization: Beare
 |---|---|---|
 | GET / POST | `/api/agents` | List / create Super Agents |
 | PUT / DELETE | `/api/agents/{id}` | Update / delete (confirm in UI; asks whether library files are deleted too) |
-| GET / PUT | `/api/agents/{id}/brand-template` | Brand, caption, layout and AI settings |
-| POST | `/api/agents/{id}/brand-assets` | Import a logo or overlay file into `{agent}\_assets\` |
+| GET / POST | `/api/brand-templates` | List the template library (with usage) / create one (`{name, copy_from?}` duplicates) |
+| GET / PUT / DELETE | `/api/brand-templates/{id}` | Name, brand, caption, layout and AI settings; delete (refused for the last template) |
+| POST | `/api/brand-templates/{id}/assets` | Import a logo, overlay or sample video into `library\_brand\{id}\` |
 
 ### Jobs (pipeline)
 

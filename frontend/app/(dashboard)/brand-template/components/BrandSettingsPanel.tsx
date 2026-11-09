@@ -16,12 +16,12 @@ const ASSET_KIND: Record<AssetKey, string> = {
 }
 
 interface BrandSettingsPanelProps {
-  agentId: string
+  templateId: string
   brand: BrandSettings
   updateBrand: (updates: Partial<BrandSettings>) => void
 }
 
-export const BrandSettingsPanel: React.FC<BrandSettingsPanelProps> = ({ agentId, brand, updateBrand }) => {
+export const BrandSettingsPanel: React.FC<BrandSettingsPanelProps> = ({ templateId, brand, updateBrand }) => {
   const [uploading, setUploading] = useState<AssetKey | null>(null)
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, key: AssetKey) => {
@@ -39,7 +39,7 @@ export const BrandSettingsPanel: React.FC<BrandSettingsPanelProps> = ({ agentId,
     setUploading(key)
     const toastId = toast.loading('Mengunggah ke folder data…')
     try {
-      const { value } = await api.agents.uploadBrandAsset(agentId, file, ASSET_KIND[key])
+      const { value } = await api.brandTemplates.uploadAsset(templateId, file, ASSET_KIND[key])
       updateBrand({ [key]: value } as Partial<BrandSettings>)
       toast.success('Aset tersimpan. Jangan lupa klik Simpan.', { id: toastId })
     } catch (err) {

@@ -1,26 +1,21 @@
-"""Super Agents, their embedded brand template and brand assets."""
+"""Super Agents (niche workspaces). Brand templates live in routes/brand_templates.py."""
 from __future__ import annotations
 
-import re
 import shutil
-import uuid
-from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from backend.api.dto import agent_dto, brand_template_dto, http_error
+from backend.api.dto import agent_dto, http_error
 from backend.core import events
-from backend.core.db import get_db, new_id, utcnow
+from backend.core.db import get_db, new_id
 from backend.core.paths import get_paths, slugify
 from backend.core.queue import runner
-from backend.models.documents import AgentDoc, BrandTemplateDoc
+from backend.models.documents import AgentDoc
+from backend.services import brand_templates
 
 router = APIRouter(tags=["agents"])
-
-ASSET_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".mp4", ".mov", ".webm", ".mp3", ".wav", ".m4a", ".aac", ".ogg"}
-MAX_ASSET_BYTES = 500 * 1024 * 1024
 
 
 class AgentIn(BaseModel):
@@ -30,6 +25,7 @@ class AgentIn(BaseModel):
     default_keywords: Optional[Any] = None  # comma-separated string (UI) or list
     default_video_types: Optional[list[str]] = None
     timezone: Optional[str] = None
+    default_brand_template_id: Optional[str] = None
 
 
 def _keywords(value: Any) -> list[str]:
@@ -50,6 +46,11 @@ def _unique_slug(name: str, exclude_id: str | None = None) -> str:
         slug = f"{base}-{n}"
         n += 1
     return slug
+
+
+def _template_id(value: str | None) -> str | None:
+    """`value` when it names an existing brand template, else None."""
+    return value if value and brand_templates.get(value) else None
 
 
 def _get_agent(agent_id: str) -> dict:
@@ -79,7 +80,7 @@ def create_agent(body: AgentIn):
         default_keywords=_keywords(body.default_keywords),
         default_video_types=body.default_video_types or ["podcast"],
         timezone=body.timezone or "Asia/Jakarta",
-        brand_template=BrandTemplateDoc(updated_at=utcnow()),
+        default_brand_template_id=_template_id(body.default_brand_template_id) or brand_templates.ensure_default(),
     ).to_mongo()
     get_db().super_agents.insert_one(doc)
     get_paths().agent_library(doc["slug"]).mkdir(parents=True, exist_ok=True)
@@ -106,6 +107,11 @@ def update_agent(agent_id: str, body: AgentIn):
         sets["default_video_types"] = data["default_video_types"] or []
     if "timezone" in data and data["timezone"]:
         sets["timezone"] = data["timezone"]
+    if data.get("default_brand_template_id"):
+        tid = _template_id(data["default_brand_template_id"])
+        if not tid:
+            raise http_error(400, "Brand template tidak ditemukan")
+        sets["default_brand_template_id"] = tid
     if sets:
         get_db().super_agents.update_one({"_id": agent_id}, {"$set": sets})
     return {"agent": agent_dto(_get_agent(agent_id))}
@@ -134,61 +140,3 @@ def delete_agent(agent_id: str, delete_files: bool = False):
     for cid in clip_ids:
         events.publish({"type": "clip.deleted", "id": cid})
     return {"ok": True}
-
-
-# -- brand template -----------------------------------------------------------
-
-class BrandTemplateIn(BaseModel):
-    brand_settings: Optional[dict[str, Any]] = None
-    caption_settings: Optional[dict[str, Any]] = None
-    layout_settings: Optional[dict[str, Any]] = None
-    ai_settings: Optional[dict[str, Any]] = None
-
-
-@router.get("/api/agents/{agent_id}/brand-template")
-def get_brand_template(agent_id: str):
-    return {"brand_template": brand_template_dto(_get_agent(agent_id))}
-
-
-@router.put("/api/agents/{agent_id}/brand-template")
-def put_brand_template(agent_id: str, body: BrandTemplateIn):
-    agent = _get_agent(agent_id)
-    current = agent.get("brand_template") or BrandTemplateDoc().model_dump()
-    for key, value in body.model_dump(exclude_unset=True).items():
-        if value is not None:
-            current[key] = value  # each top-level key replaces the stored one
-    current["updated_at"] = utcnow()
-    bt = BrandTemplateDoc(**current).model_dump()
-    get_db().super_agents.update_one({"_id": agent_id}, {"$set": {"brand_template": bt}})
-    return {"brand_template": brand_template_dto(_get_agent(agent_id))}
-
-
-_safe_name = re.compile(r"[^A-Za-z0-9._-]+")
-
-
-@router.post("/api/agents/{agent_id}/brand-assets")
-async def upload_brand_asset(agent_id: str, file: UploadFile = File(...), kind: str = Form("asset")):
-    agent = _get_agent(agent_id)
-    ext = Path(file.filename or "").suffix.lower()
-    if ext not in ASSET_EXT:
-        raise http_error(400, "Jenis file tidak didukung")
-    paths = get_paths()
-    slug = agent.get("slug") or slugify(agent.get("name", ""))
-    assets = paths.agent_library(slug) / "_assets"
-    assets.mkdir(parents=True, exist_ok=True)
-    kind_clean = _safe_name.sub("-", kind or "asset").strip("-")[:20] or "asset"
-    dest = assets / f"{kind_clean}-{uuid.uuid4().hex[:8]}{ext}"
-    size = 0
-    with dest.open("wb") as out:
-        while True:
-            chunk = await file.read(1024 * 1024)
-            if not chunk:
-                break
-            size += len(chunk)
-            if size > MAX_ASSET_BYTES:
-                out.close()
-                dest.unlink(missing_ok=True)
-                raise http_error(400, "File terlalu besar (maks. 500 MB)")
-            out.write(chunk)
-    rel = paths.to_relative(dest)
-    return {"value": f"asset://{rel}", "path": rel}

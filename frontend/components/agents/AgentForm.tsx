@@ -1,7 +1,7 @@
 'use client'
 
-import React, { useState } from 'react'
-import type { AgentInput } from '@/lib/engine'
+import React, { useEffect, useState } from 'react'
+import { api, type AgentInput, type BrandTemplate } from '@/lib/engine'
 import { CLIP_DURATION_OPTIONS, VIDEO_TYPE_OPTIONS } from '@/lib/format'
 import { Button } from '@/components/ui/Button'
 import { InputField } from '@/components/ui/InputField'
@@ -13,6 +13,8 @@ export interface AgentFormValue {
   default_duration: string
   default_keywords: string
   default_video_type: string
+  /** '' = the oldest template in the library */
+  default_brand_template_id: string
 }
 
 export const EMPTY_AGENT_FORM: AgentFormValue = {
@@ -21,6 +23,7 @@ export const EMPTY_AGENT_FORM: AgentFormValue = {
   default_duration: '45-60',
   default_keywords: '',
   default_video_type: 'podcast',
+  default_brand_template_id: '',
 }
 
 export function toAgentInput(v: AgentFormValue): AgentInput {
@@ -31,6 +34,7 @@ export function toAgentInput(v: AgentFormValue): AgentInput {
     default_keywords: v.default_keywords.trim() || null,
     default_video_types: [v.default_video_type],
     timezone: 'Asia/Jakarta',
+    ...(v.default_brand_template_id ? { default_brand_template_id: v.default_brand_template_id } : {}),
   }
 }
 
@@ -44,6 +48,23 @@ interface AgentFormProps {
 export function AgentForm({ initial = EMPTY_AGENT_FORM, submitLabel, onSubmit, onCancel }: AgentFormProps) {
   const [value, setValue] = useState<AgentFormValue>(initial)
   const [busy, setBusy] = useState(false)
+  const [templates, setTemplates] = useState<BrandTemplate[] | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    api.brandTemplates
+      .list()
+      .then(({ brand_templates }) => {
+        if (cancelled) return
+        setTemplates(brand_templates)
+        // New agents: show the template the engine would pick (the oldest one)
+        setValue((v) => (v.default_brand_template_id || !brand_templates.length ? v : { ...v, default_brand_template_id: brand_templates[0].id }))
+      })
+      .catch(() => setTemplates([]))
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -72,6 +93,19 @@ export function AgentForm({ initial = EMPTY_AGENT_FORM, submitLabel, onSubmit, o
           onChange={(e) => setValue({ ...value, default_keywords: e.target.value })}
         />
       </div>
+      {templates && templates.length > 0 && (
+        <div>
+          <SelectField
+            label="Brand Template Default"
+            value={value.default_brand_template_id}
+            options={templates.map((t) => ({ value: t.id, label: t.name }))}
+            onChange={(e) => setValue({ ...value, default_brand_template_id: e.target.value })}
+          />
+          <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '6px' }}>
+            Dipakai oleh clip baru dari agent ini. Tiap clip tetap bisa diganti template-nya di editor.
+          </p>
+        </div>
+      )}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
         {onCancel && (
           <Button type="button" variant="secondary" onClick={onCancel} disabled={busy}>

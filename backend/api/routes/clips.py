@@ -17,6 +17,7 @@ from backend.core.db import get_db, new_id, utcnow
 from backend.core.paths import get_paths
 from backend.core.queue import runner
 from backend.models.documents import RenderJobDoc
+from backend.services import brand_templates
 from backend.services.render import clean_ai, effective_ai, effective_style
 
 router = APIRouter(tags=["clips"])
@@ -45,13 +46,14 @@ def list_clips(agent_id: Optional[str] = None, job_id: Optional[str] = None, sta
 @router.get("/api/clips/{clip_id}")
 def get_clip(clip_id: str):
     clip = _get(clip_id)
-    agent = get_db().super_agents.find_one({"_id": clip.get("agent_id")}) if clip.get("agent_id") else None
-    bt = (agent or {}).get("brand_template") or {}
+    tpl = brand_templates.for_clip(clip)
+    bt = tpl or {}
     return {
         "clip": clip_dto(clip),
         "effective_style": effective_style(clip, bt),
         "effective_ai": effective_ai(clip, bt),
-        "brand_template": brand_template_dto(agent) if agent else None,
+        # The template in effect (the clip's own choice, else its agent's default); null = built-in
+        "brand_template": brand_template_dto(tpl),
     }
 
 
@@ -68,12 +70,22 @@ class SubtitleUpdate(BaseModel):
     words: Optional[list[Word]] = None
     style: Optional[dict[str, Any]] = None
     reset_style: bool = False
+    # Switch the clip's brand template (null = follow the agent's default)
+    brand_template_id: Optional[str] = None
 
 
 @router.put("/api/clips/{clip_id}/subtitles")
 def update_subtitles(clip_id: str, body: SubtitleUpdate):
     _get(clip_id)
     sets: dict[str, Any] = {"updated_at": utcnow()}
+    unsets: dict[str, Any] = {}
+    if "brand_template_id" in body.model_fields_set:
+        if body.brand_template_id is None:
+            unsets["brand_template_id"] = ""
+        elif brand_templates.get(body.brand_template_id):
+            sets["brand_template_id"] = body.brand_template_id
+        else:
+            raise http_error(400, "Brand template tidak ditemukan")
     if body.words is not None:
         words = []
         for w in body.words:
@@ -98,7 +110,7 @@ def update_subtitles(clip_id: str, body: SubtitleUpdate):
             if ai:
                 style["ai"] = ai
         sets["subtitle_style"] = style
-    get_db().clips.update_one({"_id": clip_id}, {"$set": sets})
+    get_db().clips.update_one({"_id": clip_id}, {"$set": sets, **({"$unset": unsets} if unsets else {})})
     events.publish({"type": "clip.updated", "id": clip_id})
     return {"clip": clip_dto(_get(clip_id))}
 

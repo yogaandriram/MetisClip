@@ -22,6 +22,7 @@ from backend.core.db import get_db, utcnow
 from backend.core.paths import get_paths
 from backend.core.procs import Cancelled
 from backend.models.documents import ClipDoc
+from backend.services import brand_templates
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ def _ai_marks(ctx: JobContext, words: list[dict[str, Any]]) -> list[dict[str, An
     """Brand template AI subtitle settings: keywords / emojis (one LLM call). Never fails the clip."""
     from backend.services.render import effective_ai
 
-    ai = effective_ai(None, (ctx.agent or {}).get("brand_template") or {})
+    ai = effective_ai(None, brand_templates.for_agent(ctx.agent) or {})
     if not words or not (ai["keywords"] or ai["emojis"]):
         return words
     try:
@@ -137,6 +138,7 @@ def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw
         },
         subtitle={"words": words},
         subtitle_style={},
+        brand_template_id=(ctx.agent or {}).get("default_brand_template_id"),
         status="ready",
         created_at=now,
         updated_at=now,

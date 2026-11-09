@@ -8,9 +8,9 @@ import { useEngine } from '@/contexts/EngineContext'
 import { Button } from '@/components/ui/Button'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Skeleton } from '@/components/ui/Skeleton'
-import { Badge } from '@/components/ui/Badge'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
-import { NoAgentState } from '@/components/NoAgentState'
+import { Modal } from '@/components/ui/Modal'
+import { InputField } from '@/components/ui/InputField'
 import { api, type BrandTemplate } from '@/lib/engine'
 import { errorMessage, formatDateTime } from '@/lib/format'
 import { presets } from '@/lib/presets'
@@ -23,8 +23,28 @@ import { CaptionSettingsPanel } from './components/CaptionSettingsPanel'
 import { AiSettingsPanel } from './components/AiSettingsPanel'
 import { BrandSettingsPanel } from './components/BrandSettingsPanel'
 import { TemplatePreviewCanvas } from './components/TemplatePreviewCanvas'
+import { TemplateLibraryBar } from './components/TemplateLibraryBar'
 
 type Section = 'layout_settings' | 'caption_settings' | 'ai_settings' | 'brand_settings'
+type NameDialog = { mode: 'create' | 'duplicate' | 'rename'; value: string }
+
+const STORAGE_KEY = 'brandTemplateId'
+
+function readStoredId(): string | null {
+  try {
+    return localStorage.getItem(STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
+function writeStoredId(id: string) {
+  try {
+    localStorage.setItem(STORAGE_KEY, id)
+  } catch {
+    /* per-viewer convenience only */
+  }
+}
 
 function toConfig(tpl: BrandTemplate | null): TemplateConfig {
   const validModes = presets.map((p) => p.id)
@@ -43,14 +63,14 @@ function toConfig(tpl: BrandTemplate | null): TemplateConfig {
 }
 
 export default function BrandTemplatePage() {
-  const { activeAgent } = useAgent()
+  const { activeAgent, isAgentLoading, refreshAgents } = useAgent()
   const { epoch } = useEngine()
 
+  const [templates, setTemplates] = useState<BrandTemplate[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [config, setConfig] = useState<TemplateConfig>(() => toConfig(null))
   const [loaded, setLoaded] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [updatedAt, setUpdatedAt] = useState<string | null>(null)
-  const [isNew, setIsNew] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
   const [confirmDefaults, setConfirmDefaults] = useState(false)
@@ -59,45 +79,105 @@ export default function BrandTemplatePage() {
   const [history, setHistory] = useState<TemplateConfig[]>([config])
   const [historyIndex, setHistoryIndex] = useState(0)
 
-  const load = useCallback(async (agentId: string) => {
-    setLoaded(false)
-    setLoadError(null)
-    try {
-      const { brand_template } = await api.agents.getBrandTemplate(agentId)
-      const next = toConfig(brand_template)
-      savedRef.current = brand_template ? JSON.stringify(next) : ''
-      setConfig(next)
-      setHistory([next])
-      setHistoryIndex(0)
-      setUpdatedAt(brand_template?.updated_at || null)
-      setIsNew(!brand_template)
-    } catch (err) {
-      setLoadError(errorMessage(err, 'Gagal memuat brand template'))
-    } finally {
-      setLoaded(true)
-    }
+  // Library actions
+  const [nameDialog, setNameDialog] = useState<NameDialog | null>(null)
+  const [nameBusy, setNameBusy] = useState(false)
+  const [discardThen, setDiscardThen] = useState<(() => void) | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [settingDefault, setSettingDefault] = useState(false)
+
+  const selected = templates.find((t) => t.id === selectedId) || null
+  const hasChanges = !!selected && JSON.stringify(config) !== savedRef.current
+
+  const applyTemplate = useCallback((tpl: BrandTemplate) => {
+    const next = toConfig(tpl)
+    savedRef.current = JSON.stringify(next)
+    setConfig(next)
+    setHistory([next])
+    setHistoryIndex(0)
+    setSelectedId(tpl.id)
+    writeStoredId(tpl.id)
   }, [])
 
-  useEffect(() => {
-    if (activeAgent) load(activeAgent.id)
-  }, [activeAgent, load, epoch])
+  /** Reload the library; open `preferId`, else the active agent's default, else the last one used. */
+  const loadAll = useCallback(
+    async (preferId?: string | null) => {
+      setLoaded(false)
+      setLoadError(null)
+      try {
+        const { brand_templates } = await api.brandTemplates.list()
+        setTemplates(brand_templates)
+        const wanted = [preferId, activeAgent?.default_brand_template_id, readStoredId()]
+        const tpl = wanted.map((id) => id && brand_templates.find((t) => t.id === id)).find(Boolean) || brand_templates[0]
+        if (tpl) applyTemplate(tpl)
+      } catch (err) {
+        setLoadError(errorMessage(err, 'Gagal memuat brand template'))
+      } finally {
+        setLoaded(true)
+      }
+    },
+    // The agent only decides the first template shown; switching agents later keeps the open template
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [applyTemplate],
+  )
 
-  const hasChanges = JSON.stringify(config) !== savedRef.current
+  // First load once the agents are known (the active agent's default is opened first). Later agent
+  // refreshes (e.g. "Jadikan default") must not reload the editor and drop unsaved changes.
+  const initRef = useRef(false)
+  useEffect(() => {
+    if (isAgentLoading || initRef.current) return
+    initRef.current = true
+    loadAll(null)
+  }, [isAgentLoading, loadAll])
+
+  // Engine restarted: refresh names and usage only
+  const epochRef = useRef(epoch)
+  useEffect(() => {
+    if (epoch === epochRef.current) return
+    epochRef.current = epoch
+    if (initRef.current) refreshList()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [epoch])
+
+  /** Refresh names and usage counts without touching the open editor state. */
+  const refreshList = async () => {
+    try {
+      const { brand_templates } = await api.brandTemplates.list()
+      setTemplates(brand_templates)
+      return brand_templates
+    } catch {
+      return templates
+    }
+  }
+
+  /** Run `action` now, or after the user agrees to drop unsaved changes. */
+  const guard = (action: () => void) => {
+    if (hasChanges) setDiscardThen(() => action)
+    else action()
+  }
+
+  const selectTemplate = (id: string) => {
+    if (id === selectedId) return
+    guard(() => {
+      const tpl = templates.find((t) => t.id === id)
+      if (tpl) applyTemplate(tpl)
+    })
+  }
 
   const save = async () => {
-    if (!activeAgent || isSaving) return
+    if (!selected || isSaving) return
     setIsSaving(true)
     try {
-      const { brand_template } = await api.agents.updateBrandTemplate(activeAgent.id, {
+      const { brand_template } = await api.brandTemplates.update(selected.id, {
         layout_settings: config.layout_settings as unknown as Record<string, any>,
         caption_settings: config.caption_settings as unknown as Record<string, any>,
         ai_settings: config.ai_settings as unknown as Record<string, any>,
         brand_settings: config.brand_settings as unknown as Record<string, any>,
       })
       savedRef.current = JSON.stringify(config)
-      setUpdatedAt(brand_template.updated_at)
-      setIsNew(false)
-      toast.success('Brand template disimpan. Clip baru & render berikutnya memakai pengaturan ini.')
+      setTemplates((list) => list.map((t) => (t.id === brand_template.id ? brand_template : t)))
+      toast.success(`"${brand_template.name}" disimpan. Clip yang memakai template ini ikut berubah saat dirender.`)
     } catch (err) {
       toast.error(errorMessage(err, 'Gagal menyimpan brand template'))
     } finally {
@@ -118,6 +198,63 @@ export default function BrandTemplatePage() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+
+  const submitName = async () => {
+    if (!nameDialog || nameBusy) return
+    const name = nameDialog.value.trim()
+    if (!name) return
+    setNameBusy(true)
+    try {
+      if (nameDialog.mode === 'rename' && selected) {
+        const { brand_template } = await api.brandTemplates.update(selected.id, { name })
+        setTemplates((list) => list.map((t) => (t.id === brand_template.id ? brand_template : t)))
+        toast.success('Nama template diubah')
+      } else {
+        const copyFrom = nameDialog.mode === 'duplicate' ? selected?.id : undefined
+        const { brand_template } = await api.brandTemplates.create(name, copyFrom)
+        await refreshList()
+        applyTemplate(brand_template)
+        toast.success(copyFrom ? 'Template diduplikat' : 'Template baru dibuat')
+      }
+      setNameDialog(null)
+    } catch (err) {
+      toast.error(errorMessage(err))
+    } finally {
+      setNameBusy(false)
+    }
+  }
+
+  const deleteSelected = async () => {
+    if (!selected) return
+    setDeleting(true)
+    try {
+      await api.brandTemplates.remove(selected.id)
+      const list = await refreshList()
+      await refreshAgents()
+      const next = list.find((t) => t.id === activeAgent?.default_brand_template_id) || list[0]
+      if (next) applyTemplate(next)
+      toast.success(`Template "${selected.name}" dihapus`)
+      setConfirmDelete(false)
+    } catch (err) {
+      toast.error(errorMessage(err))
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const makeDefault = async () => {
+    if (!activeAgent || !selected) return
+    setSettingDefault(true)
+    try {
+      await api.agents.update(activeAgent.id, { default_brand_template_id: selected.id })
+      await Promise.all([refreshAgents(), refreshList()])
+      toast.success(`Clip baru dari ${activeAgent.name} memakai "${selected.name}"`)
+    } catch (err) {
+      toast.error(errorMessage(err))
+    } finally {
+      setSettingDefault(false)
+    }
+  }
 
   const updateConfig = <K extends Section>(section: K, updates: Partial<TemplateConfig[K]>, replace = false) => {
     const next = { ...config, [section]: replace ? updates : { ...(config[section] as object), ...updates } } as TemplateConfig
@@ -152,15 +289,6 @@ export default function BrandTemplatePage() {
     setConfirmDefaults(false)
   }
 
-  if (!activeAgent) {
-    return (
-      <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
-        <h1 style={{ fontSize: '30px', fontWeight: 800, marginBottom: '24px' }}>Brand Template</h1>
-        <NoAgentState what="Brand Template" />
-      </div>
-    )
-  }
-
   // Same resolution as the clip editor and the render (base ⊕ preset defaults ⊕ saved settings)
   const mergedCaptionSettings = resolveCaptionStyle(config.caption_settings)
   const SAFE_ZONE_LABEL: Record<string, string> = { none: 'Tidak ada', tiktok: 'TikTok', reels: 'IG Reels', shorts: 'YT Shorts' }
@@ -172,8 +300,8 @@ export default function BrandTemplatePage() {
     if (activeMenu === 'caption') {
       return <CaptionSettingsPanel caption={mergedCaptionSettings} updateCaption={(updates, replace) => updateConfig('caption_settings', updates, replace)} />
     }
-    if (activeMenu === 'overlay') {
-      return <BrandSettingsPanel agentId={activeAgent.id} brand={config.brand_settings} updateBrand={(updates) => updateConfig('brand_settings', updates)} />
+    if (activeMenu === 'overlay' && selected) {
+      return <BrandSettingsPanel templateId={selected.id} brand={config.brand_settings} updateBrand={(updates) => updateConfig('brand_settings', updates)} />
     }
     return null
   }
@@ -207,19 +335,15 @@ export default function BrandTemplatePage() {
     )
   }
 
+  const nameTitle = nameDialog?.mode === 'rename' ? 'Ganti nama template' : nameDialog?.mode === 'duplicate' ? 'Duplikat template' : 'Template baru'
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', paddingBottom: '20px', borderBottom: '1px solid var(--border-glass)', marginBottom: '20px', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '14px', flexWrap: 'wrap' }}>
           <h1 style={{ fontSize: '22px', fontWeight: 800 }}>Brand Template</h1>
-          <span style={{ fontSize: '14px', color: 'var(--text-muted)' }}>Gaya default clip untuk {activeAgent.name}</span>
-          {isNew ? (
-            <Badge variant="warning" glow={false}>
-              Belum pernah disimpan
-            </Badge>
-          ) : (
-            updatedAt && <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Disimpan {formatDateTime(updatedAt)}</span>
-          )}
+          <span style={{ fontSize: '14px', color: 'var(--text-muted)' }}>Simpan beberapa gaya clip dan pakai di Super Agent mana pun</span>
+          {selected?.updated_at && <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Disimpan {formatDateTime(selected.updated_at)}</span>}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -229,19 +353,19 @@ export default function BrandTemplatePage() {
           <button className="mc-icon-button" onClick={handleRedo} disabled={historyIndex >= history.length - 1} title="Redo">
             <Redo size={16} />
           </button>
-          <button className="mc-icon-button" onClick={() => load(activeAgent.id)} title="Muat ulang dari database">
+          <button className="mc-icon-button" onClick={() => guard(() => loadAll(selectedId))} title="Muat ulang dari database">
             <RefreshCw size={16} className={!loaded ? 'animate-spin' : ''} />
           </button>
-          <Button variant="secondary" size="sm" onClick={() => setConfirmDefaults(true)} icon={<RotateCcw size={14} />}>
+          <Button variant="secondary" size="sm" onClick={() => setConfirmDefaults(true)} icon={<RotateCcw size={14} />} disabled={!selected}>
             Default
           </Button>
-          <Button variant="primary" size="sm" onClick={save} loading={isSaving} disabled={!hasChanges && !isNew} icon={<Save size={14} />}>
+          <Button variant="primary" size="sm" onClick={save} loading={isSaving} disabled={!hasChanges} icon={<Save size={14} />}>
             Simpan
           </Button>
         </div>
       </div>
 
-      {!loaded ? (
+      {!loaded && !selected ? (
         <div style={{ display: 'flex', gap: '10px' }}>
           <Skeleton width={300} height={610} />
           <Skeleton width={300} height={533} style={{ margin: '0 auto' }} />
@@ -249,48 +373,131 @@ export default function BrandTemplatePage() {
       ) : loadError ? (
         <GlassCard hoverEffect={false} padding="20px" style={{ border: '1px solid var(--danger)', display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span style={{ flex: 1 }}>{loadError}</span>
-          <button className="mc-link-button" onClick={() => load(activeAgent.id)}>
+          <button className="mc-link-button" onClick={() => loadAll(selectedId)}>
             Coba lagi
           </button>
         </GlassCard>
       ) : (
-        <div style={{ display: 'flex', flex: 1, gap: '10px' }}>
-          <GlassCard hoverEffect={false} style={{ width: '300px', height: '610px', padding: '20px', flexShrink: 0 }}>
-            <h2 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '20px' }}>Pengaturan</h2>
-
-            <div style={{ marginBottom: '24px' }}>
-              <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px', paddingLeft: '8px' }}>Gaya</p>
-              <MenuItem id="layout" icon={Layout} label="Safe zone" value={SAFE_ZONE_LABEL[config.layout_settings.safeZone || 'none'] || ''} />
-              <MenuItem id="caption" icon={Type} label="Caption" value={`${mergedCaptionSettings.fontFamily} ${mergedCaptionSettings.fontSize}`} />
-            </div>
-
-            <div style={{ marginBottom: '24px' }}>
-              <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px', paddingLeft: '8px' }}>Brand</p>
-              <MenuItem id="overlay" icon={ImageIcon} label="Overlay (logo, CTA)" value={config.brand_settings.overlayUrl ? '1 dipilih' : ''} />
-            </div>
-
-            <div>
-              <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px', paddingLeft: '8px' }}>AI subtitle</p>
-              <AiSettingsPanel ai={config.ai_settings} updateAi={(updates) => updateConfig('ai_settings', updates)} />
-            </div>
-          </GlassCard>
-
-          {activeMenu && renderActiveMenuContent()}
-
-          <TemplatePreviewCanvas
-            caption={mergedCaptionSettings}
-            ai={config.ai_settings}
-            brandSettings={config.brand_settings}
-            layoutSettings={config.layout_settings}
-            onUpdateBrand={(updates) => updateConfig('brand_settings', updates)}
+        <>
+          <TemplateLibraryBar
+            templates={templates}
+            selected={selected}
+            activeAgent={activeAgent}
+            settingDefault={settingDefault}
+            onSelect={selectTemplate}
+            onCreate={() => guard(() => setNameDialog({ mode: 'create', value: `Template ${templates.length + 1}` }))}
+            onDuplicate={() => selected && guard(() => setNameDialog({ mode: 'duplicate', value: `${selected.name} (salinan)`.slice(0, 80) }))}
+            onRename={() => selected && setNameDialog({ mode: 'rename', value: selected.name })}
+            onDelete={() => setConfirmDelete(true)}
+            onMakeDefault={makeDefault}
           />
-        </div>
+
+          <div style={{ display: 'flex', flex: 1, gap: '10px' }}>
+            <GlassCard hoverEffect={false} style={{ width: '300px', height: '610px', padding: '20px', flexShrink: 0 }}>
+              <h2 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '20px' }}>Pengaturan</h2>
+
+              <div style={{ marginBottom: '24px' }}>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px', paddingLeft: '8px' }}>Gaya</p>
+                <MenuItem id="layout" icon={Layout} label="Safe zone" value={SAFE_ZONE_LABEL[config.layout_settings.safeZone || 'none'] || ''} />
+                <MenuItem id="caption" icon={Type} label="Caption" value={`${mergedCaptionSettings.fontFamily} ${mergedCaptionSettings.fontSize}`} />
+              </div>
+
+              <div style={{ marginBottom: '24px' }}>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px', paddingLeft: '8px' }}>Brand</p>
+                <MenuItem id="overlay" icon={ImageIcon} label="Overlay (logo, CTA)" value={config.brand_settings.overlayUrl ? '1 dipilih' : ''} />
+              </div>
+
+              <div>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px', paddingLeft: '8px' }}>AI subtitle</p>
+                <AiSettingsPanel ai={config.ai_settings} updateAi={(updates) => updateConfig('ai_settings', updates)} />
+              </div>
+            </GlassCard>
+
+            {activeMenu && renderActiveMenuContent()}
+
+            <TemplatePreviewCanvas
+              caption={mergedCaptionSettings}
+              ai={config.ai_settings}
+              brandSettings={config.brand_settings}
+              layoutSettings={config.layout_settings}
+              onUpdateBrand={(updates) => updateConfig('brand_settings', updates)}
+            />
+          </div>
+        </>
       )}
+
+      <Modal isOpen={!!nameDialog} onClose={() => !nameBusy && setNameDialog(null)} title={nameTitle}>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            submitName()
+          }}
+          style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}
+        >
+          <InputField
+            label="Nama template"
+            value={nameDialog?.value || ''}
+            onChange={(e) => nameDialog && setNameDialog({ ...nameDialog, value: e.target.value })}
+            maxLength={80}
+            autoFocus
+            onFocus={(e) => e.currentTarget.select()}
+            placeholder="Misal: Podcast gelap, Edukasi cerah"
+          />
+          {nameDialog?.mode === 'duplicate' && (
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '-8px' }}>Semua pengaturan &quot;{selected?.name}&quot; yang sudah disimpan ikut disalin.</p>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+            <Button type="button" variant="secondary" size="sm" onClick={() => setNameDialog(null)} disabled={nameBusy}>
+              Batal
+            </Button>
+            <Button type="submit" variant="primary" size="sm" loading={nameBusy} disabled={!nameDialog?.value.trim()}>
+              {nameDialog?.mode === 'rename' ? 'Simpan nama' : 'Buat template'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <ConfirmModal
+        isOpen={!!discardThen}
+        title="Buang perubahan?"
+        message={`Perubahan pada "${selected?.name || 'template ini'}" belum disimpan dan akan hilang.`}
+        confirmLabel="Buang & lanjutkan"
+        danger
+        onConfirm={() => {
+          const action = discardThen
+          setDiscardThen(null)
+          action?.()
+        }}
+        onClose={() => setDiscardThen(null)}
+      />
+
+      <ConfirmModal
+        isOpen={confirmDelete}
+        title={`Hapus template "${selected?.name || ''}"?`}
+        message={
+          <>
+            {(selected?.used_by_agents || []).length > 0 && (
+              <p>
+                Template ini default untuk {(selected?.used_by_agents || []).map((a) => a.name).join(', ')}. Agent tersebut akan memakai template paling lama.
+              </p>
+            )}
+            <p>
+              {selected?.clip_count || 0} clip yang memakai template ini akan kembali ke template default agent-nya. Logo dan file brand yang hanya dipakai template ini
+              ikut dihapus. Tindakan ini tidak bisa dibatalkan.
+            </p>
+          </>
+        }
+        confirmLabel="Hapus template"
+        danger
+        loading={deleting}
+        onConfirm={deleteSelected}
+        onClose={() => setConfirmDelete(false)}
+      />
 
       <ConfirmModal
         isOpen={confirmDefaults}
         title="Kembalikan ke pengaturan default?"
-        message="Semua pengaturan di halaman ini diganti dengan nilai bawaan MetisClip. Perubahan baru tersimpan setelah Anda klik Simpan (bisa di-undo)."
+        message="Semua pengaturan template ini diganti dengan nilai bawaan MetisClip. Perubahan baru tersimpan setelah Anda klik Simpan (bisa di-undo)."
         confirmLabel="Pakai default"
         onConfirm={resetToDefaults}
         onClose={() => setConfirmDefaults(false)}

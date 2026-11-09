@@ -43,16 +43,35 @@ import { Modal } from '@/components/ui/Modal'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { ProgressBar } from '@/components/ui/ProgressBar'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { SelectField } from '@/components/ui/SelectField'
 import { SUPPORTED_FONTS, FONT_WEIGHTS_MAP } from '@/lib/constants'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
-import { api, type ClipDetail, type RenderJob, type SubtitleWord } from '@/lib/engine'
+import { api, type BrandTemplate, type ClipDetail, type RenderJob, type SubtitleWord } from '@/lib/engine'
 import { assetUrl, isDesktop, mediaUrl } from '@/lib/media'
 import { RENDER_STATUS, errorMessage, formatClock } from '@/lib/format'
 
 // Style model: lib/presets/defaults.ts (shared with the Brand Template page and the render).
 // `ai` is the clip's AI subtitle settings (brand ai_settings unless overridden; saved in subtitle_style.ai).
-type Snapshot = { words: SubtitleWord[]; style: CaptionStyle; ai: AiCaptionSettings }
+/** templateId: the brand template in effect (null = built-in defaults) */
+type Snapshot = { words: SubtitleWord[]; style: CaptionStyle; ai: AiCaptionSettings; templateId: string | null }
+
+/** Caption style keys that differ from the template (all keys when the preset differs), so later
+ * template edits still reach the clip for everything it did not change. */
+function styleOverrides(style: CaptionStyle, tpl: BrandTemplate | null): Record<string, any> {
+  const base = resolveCaptionStyle(tpl?.caption_settings || {})
+  if (style.mode !== base.mode) return { ...style }
+  const out: Record<string, any> = {}
+  for (const [k, v] of Object.entries(style)) if ((base as Record<string, any>)[k] !== v) out[k] = v
+  return out
+}
+
+function aiOverrides(ai: AiCaptionSettings, tpl: BrandTemplate | null): Partial<AiCaptionSettings> {
+  const base = resolveAi(tpl?.ai_settings)
+  const out: Partial<AiCaptionSettings> = {}
+  for (const k of Object.keys(ai) as (keyof AiCaptionSettings)[]) if (ai[k] !== base[k]) out[k] = ai[k]
+  return out
+}
 
 const isTypingTarget = (t: EventTarget | null) => {
   const el = t as HTMLElement | null
@@ -94,6 +113,7 @@ function ClipEditor() {
   const containerRef = useRef<HTMLDivElement>(null)
 
   const [detail, setDetail] = useState<ClipDetail | null>(null)
+  const [templates, setTemplates] = useState<BrandTemplate[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [present, setPresent] = useState<Snapshot | null>(null)
   const [savedJson, setSavedJson] = useState('')
@@ -106,8 +126,8 @@ function ClipEditor() {
   const [saving, setSaving] = useState(false)
   const [justSaved, setJustSaved] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
-  const [confirmLeave, setConfirmLeave] = useState(false)
-  const [resetting, setResetting] = useState(false)
+  /** Where to go after the unsaved-changes prompt (null = no prompt) */
+  const [leaveTo, setLeaveTo] = useState<string | null>(null)
   const [showShortcuts, setShowShortcuts] = useState(false)
 
   const [render, setRender] = useState<RenderJob | null>(null)
@@ -122,6 +142,7 @@ function ClipEditor() {
       words: (d.clip.subtitle_data?.words || []).map((w) => ({ ...w })),
       style: resolveCaptionStyle(d.effective_style || {}),
       ai: resolveAi(d.effective_ai),
+      templateId: d.brand_template?.id ?? null,
     }
     setDetail(d)
     setPresent(snap)
@@ -144,6 +165,12 @@ function ClipEditor() {
       .catch((err) => {
         if (!cancelled) setLoadError(errorMessage(err, 'Clip tidak ditemukan'))
       })
+    api.brandTemplates
+      .list()
+      .then(({ brand_templates }) => {
+        if (!cancelled) setTemplates(brand_templates)
+      })
+      .catch(() => undefined)
     // Re-attach to a render that is still running for this clip
     api.renderJobs
       .list({ clip_id: clipId })
@@ -297,7 +324,14 @@ function ClipEditor() {
       const cleanWords = present.words
         .filter((w) => w.word.trim() !== '')
         .map((w) => ({ ...w, start: Number(w.start) || 0, end: Math.max(Number(w.end) || 0, Number(w.start) || 0) }))
-      const { clip } = await api.clips.updateSubtitles(clipId, { words: cleanWords, style: { ...present.style, ai: { ...present.ai } } })
+      const tpl = templateById(present.templateId)
+      const aiDiff = aiOverrides(present.ai, tpl)
+      const savedTemplateId = savedJson ? (JSON.parse(savedJson) as Snapshot).templateId : null
+      const { clip } = await api.clips.updateSubtitles(clipId, {
+        words: cleanWords,
+        style: { ...styleOverrides(present.style, tpl), ...(Object.keys(aiDiff).length ? { ai: aiDiff } : {}) },
+        ...(present.templateId !== savedTemplateId ? { brand_template_id: present.templateId } : {}),
+      })
       const snap = { ...present, words: cleanWords }
       setDetail((d) => (d ? { ...d, clip } : d))
       setPresent(snap)
@@ -316,18 +350,27 @@ function ClipEditor() {
     }
   }
 
-  const resetToTemplate = async () => {
-    setResetting(true)
-    try {
-      await api.clips.updateSubtitles(clipId, { reset_style: true })
-      applyDetail(await api.clips.get(clipId))
-      toast.success('Gaya dikembalikan ke Brand Template')
-      setConfirmReset(false)
-    } catch (err) {
-      toast.error(errorMessage(err))
-    } finally {
-      setResetting(false)
-    }
+  /** The template with this id: from the library, else the one the clip was loaded with. */
+  const templateById = (id: string | null): BrandTemplate | null =>
+    (id && templates.find((t) => t.id === id)) || (detail?.brand_template && detail.brand_template.id === id ? detail.brand_template : null)
+
+  /** Switch the clip's template: its caption style, logo and AI settings apply (sync offset kept). */
+  const chooseTemplate = (id: string) => {
+    if (!present || id === present.templateId) return
+    const tpl = templateById(id)
+    if (!tpl) return
+    const style = resolveCaptionStyle(tpl.caption_settings || {})
+    update({ ...present, templateId: id, style: { ...style, offsetTime: present.style.offsetTime }, ai: resolveAi(tpl.ai_settings) })
+    toast.success(`Memakai template "${tpl.name}". Klik Simpan untuk menyimpan.`)
+  }
+
+  /** Drop this clip's style and AI overrides (undoable; saved with Simpan). */
+  const resetToTemplate = () => {
+    if (!present) return
+    const tpl = templateById(present.templateId)
+    update({ ...present, style: resolveCaptionStyle(tpl?.caption_settings || {}), ai: resolveAi(tpl?.ai_settings) })
+    setConfirmReset(false)
+    toast.success(`Gaya dikembalikan ke template "${tpl?.name || 'bawaan'}". Klik Simpan untuk menyimpan.`)
   }
 
   const [enriching, setEnriching] = useState(false)
@@ -408,10 +451,11 @@ function ClipEditor() {
     }
   }
 
-  const goBack = () => {
-    if (dirty) setConfirmLeave(true)
-    else router.push('/clips/')
+  const leave = (to: string) => {
+    if (dirty) setLeaveTo(to)
+    else router.push(to)
   }
+  const goBack = () => leave('/clips/')
 
   // ---- keyboard shortcuts -------------------------------------------------
 
@@ -470,7 +514,9 @@ function ClipEditor() {
   if (!detail || !present) return <EditorSkeleton />
 
   const clip = detail.clip
-  const brand = detail.brand_template?.brand_settings || null
+  const activeTemplate = templateById(present.templateId)
+  const brand = activeTemplate?.brand_settings || null
+  const agentDefaultId = templates.find((t) => (t.used_by_agents || []).some((a) => a.id === clip.agent_id))?.id || null
   const overlaySrc = brand?.overlayUrl ? assetUrl(brand.overlayUrl) : ''
   const keywordCount = words.filter((w) => w.keyword).length
   const emojiCount = words.filter((w) => w.emoji).length
@@ -755,6 +801,35 @@ function ClipEditor() {
           </div>
 
           <div style={{ flex: 1, overflowY: 'auto', padding: '18px' }}>
+            <Section
+              title="BRAND TEMPLATE"
+              divider
+              action={
+                <button
+                  type="button"
+                  onClick={() => leave('/brand-template/')}
+                  style={{ background: 'none', border: 'none', padding: 0, fontSize: '11px', color: 'var(--text-muted)', cursor: 'pointer' }}
+                >
+                  Kelola template
+                </button>
+              }
+            >
+              <SelectField
+                value={present.templateId || ''}
+                options={[
+                  ...(present.templateId ? [] : [{ value: '', label: 'Bawaan MetisClip' }]),
+                  ...(templates.length ? templates : activeTemplate ? [activeTemplate] : []).map((t) => ({
+                    value: t.id,
+                    label: t.id === agentDefaultId ? `${t.name} (default agent)` : t.name,
+                  })),
+                ]}
+                onChange={(e) => e.target.value && chooseTemplate(e.target.value)}
+              />
+              <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px' }}>
+                Mengganti template memakai gaya caption, logo, dan pengaturan AI dari template itu untuk clip ini.
+              </p>
+            </Section>
+
             <Section title="GAYA ANIMASI">
               <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '10px' }}>
                 Setiap preset punya font bawaan sendiri. Memilih preset mengganti pengaturan font ke bawaannya.
@@ -1039,28 +1114,27 @@ function ClipEditor() {
       <ConfirmModal
         isOpen={confirmReset}
         title="Kembalikan ke Brand Template?"
-        message="Semua pengaturan gaya khusus untuk clip ini akan dihapus dan clip kembali mengikuti Brand Template agent. Teks & timing subtitle tidak berubah."
+        message={`Gaya caption dan pengaturan AI khusus clip ini diganti dengan template "${activeTemplate?.name || 'bawaan'}". Teks & timing subtitle tidak berubah. Bisa di-undo; tersimpan setelah klik Simpan.`}
         confirmLabel="Reset gaya"
         danger
-        loading={resetting}
         onConfirm={resetToTemplate}
         onClose={() => setConfirmReset(false)}
       />
 
       <ConfirmModal
-        isOpen={confirmLeave}
+        isOpen={!!leaveTo}
         title="Perubahan belum disimpan"
         message="Simpan perubahan subtitle sebelum keluar dari editor?"
         confirmLabel="Simpan & keluar"
         cancelLabel="Batal"
         loading={saving}
         onConfirm={async () => {
-          if (await save(true)) router.push('/clips/')
+          if (await save(true)) router.push(leaveTo || '/clips/')
         }}
-        onClose={() => setConfirmLeave(false)}
+        onClose={() => setLeaveTo(null)}
       >
         <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
-          <button className="mc-link-button" style={{ color: 'var(--danger)' }} onClick={() => router.push('/clips/')}>
+          <button className="mc-link-button" style={{ color: 'var(--danger)' }} onClick={() => router.push(leaveTo || '/clips/')}>
             Keluar tanpa menyimpan
           </button>
         </div>
