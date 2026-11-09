@@ -151,7 +151,7 @@ export default function DashboardOverview() {
             ) : (
               jobs.map((job) => {
                 const s = JOB_STATUS[job.status]
-                const title = job.source.type === 'url' ? job.source.youtube_url : job.source.keywords.join(', ')
+                const title = job.source.youtube_url || '-'
                 return (
                   <GlassCard key={job.id} padding="16px" onClick={() => router.push('/jobs/')} style={{ cursor: 'pointer' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', marginBottom: '8px' }}>

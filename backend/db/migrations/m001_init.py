@@ -22,8 +22,6 @@ VALIDATORS: dict[str, dict] = {
         {
             "_id": STR,
             "name": {"bsonType": "string", "minLength": 1},
-            "default_keywords": {"bsonType": "array"},
-            "default_video_types": {"bsonType": "array"},
             "brand_template": {"bsonType": ["object", "null"]},
             "created_at": DATE,
         },
@@ -81,7 +79,6 @@ VALIDATORS: dict[str, dict] = {
         },
     ),
     "app_settings": _schema(["_id"], {"_id": STR}),
-    "api_cache": _schema(["_id", "value", "expires_at"], {"_id": STR, "expires_at": DATE}),
     "meta": _schema(["_id"], {"_id": STR}),
 }
 
@@ -94,7 +91,6 @@ INDEXES: dict[str, list[tuple[list, dict]]] = {
         ([("status", ASCENDING)], {}),
     ],
     "render_jobs": [([("clip_id", ASCENDING), ("created_at", DESCENDING)], {}), ([("status", ASCENDING)], {})],
-    "api_cache": [([("expires_at", ASCENDING)], {"expireAfterSeconds": 0})],
 }
 
 

@@ -15,8 +15,8 @@ from backend.core.logging_setup import redactor
 
 logger = logging.getLogger(__name__)
 
-# One key per LLM provider (llm_api_key = the OpenAI-compatible endpoint), plus Whisper and YouTube
-PUBLIC_SECRETS = (*LLM_SECRETS, "groq_api_key", "youtube_api_key")
+# One key per LLM provider (llm_api_key = the OpenAI-compatible endpoint), plus Groq Whisper
+PUBLIC_SECRETS = (*LLM_SECRETS, "groq_api_key")
 
 # Dev-only fallbacks from the repo .env (never used in packaged builds)
 _DEV_ENV = {
@@ -28,9 +28,8 @@ _DEV_ENV = {
     "deepseek_api_key": ("DEEPSEEK_API_KEY",),
     "qwen_api_key": ("DASHSCOPE_API_KEY", "QWEN_API_KEY"),
     "groq_api_key": ("GROQ_API_KEY",),
-    "youtube_api_key": ("YOUTUBE_API_KEY",),
 }
-_PLACEHOLDERS = {"", "your_groq_api_key", "your_youtube_api_key", "your_api_key", "changeme"}
+_PLACEHOLDERS = {"", "your_groq_api_key", "your_api_key", "changeme"}
 
 
 class _MemoryBackend:

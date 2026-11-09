@@ -13,9 +13,6 @@ export interface Agent {
   name: string
   niche: string | null
   default_duration: string
-  /** Comma-separated, as entered in the UI */
-  default_keywords: string | null
-  default_video_types: string[]
   timezone: string
   /** Brand template used by this agent's new clips */
   default_brand_template_id: string | null
@@ -26,8 +23,6 @@ export interface AgentInput {
   name: string
   niche?: string | null
   default_duration?: string
-  default_keywords?: string | null
-  default_video_types?: string[]
   timezone?: string
   default_brand_template_id?: string | null
 }
@@ -63,15 +58,12 @@ export interface Job {
   id: string
   agent_id: string | null
   source: {
-    type: 'keyword' | 'url' | 'local_file'
-    keywords: string[]
+    /** New jobs are always 'url'. Databases from before the keyword search was removed may hold other types. */
+    type: string
     youtube_url: string | null
     local_file_path: string | null
   }
   config: {
-    video_types: string[]
-    min_duration_minutes: number
-    min_views: number
     clip_duration: string
     max_clips_per_video: number
   }
@@ -88,10 +80,7 @@ export interface Job {
 
 export interface JobCreate {
   agent_id: string
-  source_type: 'keyword' | 'url'
-  keywords?: string[]
-  youtube_url?: string | null
-  video_types?: string[]
+  youtube_url: string
   /** '30-45' | '45-60' | '60-75' | '75-90' */
   clip_duration?: string
   max_clips?: number
@@ -208,7 +197,7 @@ export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartia
 
 /** One key per LLM provider (llm_api_key = OpenAI-compatible endpoint), plus Groq Whisper and YouTube */
 export type LlmSecretName = 'openai_api_key' | 'anthropic_api_key' | 'gemini_api_key' | 'xai_api_key' | 'deepseek_api_key' | 'qwen_api_key' | 'llm_api_key'
-export type SecretName = LlmSecretName | 'groq_api_key' | 'youtube_api_key'
+export type SecretName = LlmSecretName | 'groq_api_key'
 
 export interface SystemInfo {
   version: string

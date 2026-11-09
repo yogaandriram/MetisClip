@@ -10,7 +10,7 @@ HTTP, so job state always lives in MongoDB (no in-memory JOB_MEMORY).
 from __future__ import annotations
 
 import os
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 import requests
 from mcp.server.fastmcp import FastMCP
@@ -39,15 +39,11 @@ def list_agents() -> list:
 
 
 @mcp.tool()
-def discover_videos(agent_id: str, keywords: Optional[List[str]] = None, youtube_url: Optional[str] = None,
-                    video_types: Optional[List[str]] = None, clip_duration: str = "45-60", max_clips: int = 3) -> dict:
-    """Start a full pipeline job (discover -> analyze -> clip). Returns the job."""
+def clip_youtube_video(agent_id: str, youtube_url: str, clip_duration: str = "45-60", max_clips: int = 3) -> dict:
+    """Start a full pipeline job for a YouTube link (analyze -> clip). Returns the job."""
     body = {
         "agent_id": agent_id,
-        "source_type": "url" if youtube_url else "keyword",
-        "keywords": keywords or [],
         "youtube_url": youtube_url,
-        "video_types": video_types or ["podcast"],
         "clip_duration": clip_duration,
         "max_clips": max_clips,
     }

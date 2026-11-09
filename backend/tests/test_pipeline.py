@@ -1,5 +1,4 @@
-"""Phase 0 done-criterion: a keyword job with 2+ source videos cuts each clip from ITS OWN video (K1),
-and resuming a finished job never duplicates clips or posts."""
+"""A link job cuts its clips from that video, and resuming a finished job never duplicates clips."""
 from pathlib import Path
 
 import pytest
@@ -13,7 +12,8 @@ from backend.core.db import new_id, utcnow
 from backend.core.paths import get_paths
 from backend.models.documents import JobConfig, JobDoc, JobSource
 
-VID_A, VID_B = "AAAAAAAAAAA", "BBBBBBBBBBB"
+VID = "AAAAAAAAAAA"
+URL = f"https://www.youtube.com/watch?v={VID}"
 TRANSCRIPT = [{"text": f"Ini kalimat nomor {i}.", "start": float(i * 5), "duration": 5.0} for i in range(400)]
 
 
@@ -22,10 +22,8 @@ def fake_world(monkeypatch, db, secrets):
     secrets.set_secret("llm_api_key", "sk-test-0000000000")
     downloads: list[str] = []
 
-    def fake_search(query, video_type, max_results=3):
-        vid = VID_A if query == "satu" else VID_B
-        return [{"youtube_id": vid, "title": f"Video {vid}", "channel_name": "c", "duration_seconds": 3600,
-                 "view_count": 100000, "like_count": 5000, "video_type": video_type, "quality_score": 50.0}]
+    def fake_metadata(youtube_id, cancel=None):
+        return {"title": f"Video {youtube_id}", "channel": "c", "duration": 3600, "view_count": 100000, "like_count": 5000}
 
     def fake_transcript(youtube_id, cancel, on_status=None):
         db.transcripts.replace_one({"_id": f"yt:{youtube_id}"}, {"_id": f"yt:{youtube_id}", "source": "youtube",
@@ -35,9 +33,8 @@ def fake_world(monkeypatch, db, secrets):
     def fake_chat(system, user, **kw):
         if "Critic" in system:
             return {}
-        if VID_A in user:
-            return {"segments": [{"start_time": "02:00", "end_time": "02:46", "viral_score": 90, "hook_text": "dari A"}]}
-        return {"segments": [{"start_time": "05:00", "end_time": "05:46", "viral_score": 95, "hook_text": "dari B"}]}
+        return {"segments": [{"start_time": "02:00", "end_time": "02:46", "viral_score": 90, "hook_text": "pertama"},
+                             {"start_time": "05:00", "end_time": "05:46", "viral_score": 95, "hook_text": "kedua"}]}
 
     def fake_download(youtube_id, start, end, out_path: Path, cancel=None):
         downloads.append(youtube_id)
@@ -49,7 +46,7 @@ def fake_world(monkeypatch, db, secrets):
                    str(out_path)], timeout=120)
         return out_path
 
-    monkeypatch.setattr(discovery.youtube_api, "search_videos", fake_search)
+    monkeypatch.setattr(discovery.ytdlp, "dump_metadata", fake_metadata)
     monkeypatch.setattr(analyzer, "get_transcript", fake_transcript)
     monkeypatch.setattr(analyzer.llm, "chat_json", fake_chat)
     monkeypatch.setattr(processor.ytdlp, "download_section", fake_download)
@@ -58,26 +55,25 @@ def fake_world(monkeypatch, db, secrets):
 
 def _make_job(db, agent_id):
     job = JobDoc(_id=new_id(), agent_id=agent_id,
-                 source=JobSource(type="keyword", keywords=["satu", "dua"]),
-                 config=JobConfig(video_types=["podcast"], clip_duration="45-60", max_clips=2, max_clips_per_video=2)).to_mongo()
+                 source=JobSource(type="url", youtube_url=URL),
+                 config=JobConfig(clip_duration="45-60", max_clips=2, max_clips_per_video=2)).to_mongo()
     db.discovery_jobs.insert_one(job)
     return job["_id"]
 
 
-def test_multi_video_job_uses_each_segments_own_video(db, fake_world):
+def test_link_job_clips_its_video_and_resume_is_idempotent(db, fake_world):
     db.super_agents.insert_one({"_id": "agent-1", "name": "Agen", "slug": "agen", "timezone": "Asia/Jakarta",
-                                "default_keywords": [], "default_video_types": [],
                                 "created_at": utcnow()})
     job_id = _make_job(db, "agent-1")
     static_pipeline.run_job(job_id, procs.CancelToken())
 
     job = db.discovery_jobs.find_one({"_id": job_id})
     assert job["status"] == "completed", job.get("errors")
+    [video] = list(db.source_videos.find({"job_id": job_id}))
+    assert video["youtube_id"] == VID and video["title"] == f"Video {VID}" and video["duration_seconds"] == 3600
     clips = list(db.clips.find({"job_id": job_id}))
-    assert {c["youtube_id"] for c in clips} == {VID_A, VID_B}
-    assert sorted(fake_world) == sorted([VID_A, VID_B])  # each download used its own video id
-    by_hook = {c["hook_text"]: c for c in clips}
-    assert by_hook["dari A"]["youtube_id"] == VID_A and by_hook["dari B"]["youtube_id"] == VID_B
+    assert {c["hook_text"] for c in clips} == {"pertama", "kedua"}
+    assert {c["youtube_id"] for c in clips} == {VID} and fake_world == [VID, VID]
     for c in clips:
         assert c["status"] == "ready" and c["agent_id"] == "agent-1"
         raw = get_paths().from_relative(c["files"]["raw"])

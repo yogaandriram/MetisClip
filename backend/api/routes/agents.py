@@ -22,20 +22,8 @@ class AgentIn(BaseModel):
     name: Optional[str] = Field(default=None, max_length=80)
     niche: Optional[str] = None
     default_duration: Optional[str] = None
-    default_keywords: Optional[Any] = None  # comma-separated string (UI) or list
-    default_video_types: Optional[list[str]] = None
     timezone: Optional[str] = None
     default_brand_template_id: Optional[str] = None
-
-
-def _keywords(value: Any) -> list[str]:
-    if value is None:
-        return []
-    if isinstance(value, list):
-        items = value
-    else:
-        items = str(value).split(",")
-    return [s.strip() for s in items if str(s).strip()][:50]
 
 
 def _unique_slug(name: str, exclude_id: str | None = None) -> str:
@@ -77,8 +65,6 @@ def create_agent(body: AgentIn):
         slug=_unique_slug(name),
         niche=(body.niche or None),
         default_duration=body.default_duration or "45-60",
-        default_keywords=_keywords(body.default_keywords),
-        default_video_types=body.default_video_types or ["podcast"],
         timezone=body.timezone or "Asia/Jakarta",
         default_brand_template_id=_template_id(body.default_brand_template_id) or brand_templates.ensure_default(),
     ).to_mongo()
@@ -101,10 +87,6 @@ def update_agent(agent_id: str, body: AgentIn):
         sets["niche"] = data["niche"] or None
     if "default_duration" in data and data["default_duration"] in ("30-45", "45-60", "60-75", "75-90"):
         sets["default_duration"] = data["default_duration"]
-    if "default_keywords" in data:
-        sets["default_keywords"] = _keywords(data["default_keywords"])
-    if "default_video_types" in data:
-        sets["default_video_types"] = data["default_video_types"] or []
     if "timezone" in data and data["timezone"]:
         sets["timezone"] = data["timezone"]
     if data.get("default_brand_template_id"):

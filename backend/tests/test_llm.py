@@ -92,7 +92,7 @@ def test_default_settings_have_every_provider(db):
 def test_secrets_have_one_key_per_provider(client):
     names = set(client.get("/api/secrets").json()["secrets"])
     assert {"openai_api_key", "anthropic_api_key", "gemini_api_key", "xai_api_key", "deepseek_api_key",
-            "qwen_api_key", "llm_api_key", "groq_api_key", "youtube_api_key"} <= names
+            "qwen_api_key", "llm_api_key", "groq_api_key"} == names
 
 
 def test_missing_key_names_the_provider(db, secrets, monkeypatch):

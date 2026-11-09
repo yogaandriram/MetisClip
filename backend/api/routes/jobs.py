@@ -1,7 +1,7 @@
 """Pipeline jobs: create, list, cancel, resume, delete."""
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Optional
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
@@ -18,14 +18,9 @@ router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 class JobCreate(BaseModel):
     agent_id: str
-    source_type: Literal["keyword", "url"] = "keyword"
-    keywords: list[str] = Field(default_factory=list)
-    youtube_url: Optional[str] = None
-    video_types: list[str] = Field(default_factory=lambda: ["podcast"])
+    youtube_url: str
     clip_duration: str = "45-60"
     max_clips: int = Field(default=3, ge=0, le=100)
-    min_duration_minutes: int = Field(default=30, ge=0, le=600)
-    min_views: int = Field(default=0, ge=0)
 
 
 def _get(job_id: str) -> dict:
@@ -61,22 +56,14 @@ def create_job(body: JobCreate):
         raise http_error(400, "Super Agent tidak ditemukan. Pilih agent terlebih dahulu.")
     if body.clip_duration not in DURATIONS:
         raise http_error(400, "Durasi klip tidak valid")
-    keywords = [k.strip() for k in body.keywords if k and k.strip()]
-    url = (body.youtube_url or "").strip() or None
-    if body.source_type == "url":
-        if not url or not extract_video_id(url):
-            raise http_error(400, "URL YouTube tidak valid")
-    elif not keywords:
-        raise http_error(400, "Isi minimal satu kata kunci")
+    url = body.youtube_url.strip()
+    if not extract_video_id(url):
+        raise http_error(400, "URL YouTube tidak valid")
     doc = JobDoc(
         _id=new_id(),
         agent_id=body.agent_id,
-        source=JobSource(type=body.source_type, keywords=keywords if body.source_type == "keyword" else [],
-                         youtube_url=url if body.source_type == "url" else None),
+        source=JobSource(type="url", youtube_url=url),
         config=JobConfig(
-            video_types=[v for v in body.video_types if v] or ["podcast"],
-            min_duration_minutes=body.min_duration_minutes,
-            min_views=body.min_views,
             clip_duration=body.clip_duration,
             max_clips=body.max_clips,
             max_clips_per_video=body.max_clips,

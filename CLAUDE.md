@@ -30,7 +30,7 @@
 
 ### 1.2 What it does
 
-1. **Discover:** finds long-form YouTube videos (podcast, interview, talk show and similar) by keyword and filters, or accepts a direct YouTube URL.
+1. **Discover:** takes a link to a long-form YouTube video (podcast, interview, talk show and similar) and reads its metadata with yt-dlp. There is no keyword search (D6).
 2. **Analyze:** reads the transcript and finds viral-worthy segments using an LLM with a critic pass.
 3. **Clip:** downloads only those time ranges, then smart-crops them to 9:16 with face tracking.
 4. **Subtitle and render:** generates word-level subtitles with Whisper. They stay editable, and the final MP4 is rendered with animated subtitle presets and the Brand Template.
@@ -55,6 +55,7 @@
 - macOS or Linux builds
 - Multi-user or team collaboration, and cloud sync of clips
 - **Scheduling and social media publishing** (YouTube Shorts, TikTok, Instagram) and connecting social accounts (OAuth). Removed by the owner on 2026-11-09 (D3): uploads need OAuth apps, API audits and, for TikTok/Instagram, server-side secrets or public video URLs. Users export clips and post them with the platforms' own tools.
+- **Keyword search for videos** (YouTube Data API). Removed by the owner on 2026-11-09 (D6): the user pastes a YouTube link instead, so no YouTube API key or search quota is needed.
 - Mobile or tablet layouts. These are replaced by desktop window-sizing requirements (§9).
 
 ### 1.5 Target user and hardware
@@ -137,8 +138,9 @@ The tables above describe the web build. On this branch:
 | Render (`render-engine/`) | `dist/render.js` worker (`@remotion/renderer`, run via Electron-as-Node), React 18.3.1 like the frontend (K14), local fonts (K10), Chrome Headless Shell bundled by `build-desktop.ps1`. |
 | yt-dlp | Bundled exe is copied to `%LOCALAPPDATA%\MetisClip\bin` and updated there (`POST /api/system/update-ytdlp`). Downloads prefer H.264 over HTTPS (HLS sections are very slow). Builds older than a few months get HTTP 403 from YouTube, so keep the pin fresh. |
 | Removed (D3, 2026-11-09) | Scheduling (`scheduler_ai`, `/api/schedule`, Jadwal Post page), social account connections (`/api/connections`, Settings card) and the `metisclip://` protocol. Migration `002_remove_publishing` drops `scheduled_posts` and `super_agents.social_connections` from existing databases after the usual pre-migration backup. |
+| Removed (D6, 2026-11-09) | Keyword search ("Pencarian Pintar"): `tools/youtube_api.py`, the YouTube Data API key, the `api_cache` collection, the agents' default keywords and video types, and the job filters (`video_types`, `min_duration_minutes`, `min_views`) and quality score. Jobs take a YouTube link only. Migration `005_remove_keyword_search` cleans existing databases (after the pre-migration backup) and deletes the stored YouTube key. |
 | Still open | K4: the Composio key in `frontend/.env.local` is untracked but **must still be rotated**. Phase 1 items not done: signing, installer run on a clean VM, tray/auto-update, daily yt-dlp update check. |
-| Tests | `pytest backend/tests` runs against a throwaway bundled `mongod.exe`. It includes the multi-video K1 pipeline test (real FFmpeg and MediaPipe) and resume idempotency. |
+| Tests | `pytest backend/tests` runs against a throwaway bundled `mongod.exe`. It includes a link-job pipeline test (real FFmpeg and MediaPipe) and resume idempotency. |
 | Packaging | `scripts/build-engine.ps1` → `backend/dist/metisclip-engine/` (onedir, about 320 MB, mostly cv2 and mediapipe), with a smoke test and self-test. `scripts/build-desktop.ps1 -Pack` → `desktop/dist/MetisClip-Setup-<version>.exe` (about 440 MB, unsigned). |
 
 ---
@@ -169,7 +171,7 @@ The tables above describe the web build. On this branch:
 └────────┬───────────────────────────┬─────────────────┘
          ▼                           ▼
  Local files on the user's drive     Network (only): LLM endpoint · Groq Whisper ·
- <DATA_ROOT>\library, cache,         YouTube Data API (search/metadata) ·
+ <DATA_ROOT>\library, cache,         YouTube via yt-dlp (metadata, sections) ·
  exports, backups                    update feed
 ```
 
@@ -268,7 +270,7 @@ metisclip/
 │   │   ├── state.py
 │   │   ├── static_pipeline.py
 │   │   ├── nodes/                # discovery.py, analyzer.py, processor.py
-│   │   └── tools/                # youtube_api.py, transcript.py, ffmpeg_ops.py, smart_crop.py
+│   │   └── tools/                # ytdlp.py, transcript.py, ffmpeg_ops.py, smart_crop.py
 │   ├── services/                 # render.py (render worker), backup.py (EJSON backups)
 │   ├── models/                   # NEW: Pydantic document models, one per collection
 │   ├── db/migrations/            # 001_init.py (collections, $jsonSchema validators, indexes), 002_…
@@ -300,7 +302,7 @@ metisclip/
 ### 5.0 Orchestration
 
 - **Static pipeline** (`agents/static_pipeline.py`) is the default, triggered by the UI "Generate" button. It is sequential and deterministic; the LLM is only used inside the Analyzer, which saves tokens.
-- **MCP server** (`backend/mcp_server.py`) exposes the pipeline as MCP tools (`list_agents`, `discover_videos`, `job_status`, `list_clips`, `render_clip`) for LLM-driven orchestration. It is optional and off by default on desktop. It talks to the running engine over HTTP (`METISCLIP_ENGINE_URL`, `METISCLIP_TOKEN`), so job state always lives in MongoDB.
+- **MCP server** (`backend/mcp_server.py`) exposes the pipeline as MCP tools (`list_agents`, `clip_youtube_video`, `job_status`, `list_clips`, `render_clip`) for LLM-driven orchestration. It is optional and off by default on desktop. It talks to the running engine over HTTP (`METISCLIP_ENGINE_URL`, `METISCLIP_TOKEN`), so job state always lives in MongoDB.
 - **LangGraph has been removed.** Nodes receive a `JobContext` (`agents/context.py`: progress, errors, checkpoint and cancel helpers) and the job state lives in the `discovery_jobs` document. Do not add a graph unless a node genuinely needs branching or loops.
 - **Clip count:** `max_clips` (UI "Jumlah Klip (Max)", 0 = unlimited) caps the whole job. It is also the per-video early-stop limit (`config.max_clips_per_video`).
 - **Checkpointing:** after every node, and after every finished clip inside the Processor, persist progress to `discovery_jobs.checkpoint`. `POST /api/jobs/{id}/resume` skips completed work.
@@ -318,17 +320,11 @@ run_job(job_id, cancel)                    claims pending → running atomically
 
 `agents/state.py` keeps a plain `PipelineState` TypedDict (no LangGraph `messages`) for reference only.
 
-### 5.1 Discovery Agent (`nodes/discovery.py`, `tools/youtube_api.py`)
+### 5.1 Discovery Agent (`nodes/discovery.py`, `tools/ytdlp.py`)
 
-- **Input modes:** keyword search, a direct YouTube URL, or (P2) importing a local video file (MP4/MKV, by drag-and-drop or file picker).
-- **Logic:** `search.list` per keyword × video type (`videoDuration=long`) → `videos.list` for duration and stats → drop videos under `min_duration_minutes` (default 30) → quality score → dedupe → save to `source_videos`.
-
-**Desktop changes**
-- URL mode must fetch real metadata, using `videos.list`, or `yt-dlp --dump-json` when no API key is set.
-- Cache search results in the `api_cache` collection (TTL index, 24 h). `search.list` costs 100 quota units per call.
-- Apply `min_views` from the job config (stored today but unused).
-
-**Backlog (from the original spec):** LLM classification of video type and rejection of clickbait.
+- **Input:** a YouTube link, or (P2) importing a local video file (MP4/MKV, by drag-and-drop or file picker). Keyword search was removed (D6); do not reintroduce the YouTube Data API.
+- **Logic:** extract the video ID → `yt-dlp -J --skip-download` for title, channel, duration and stats → save one `source_videos` document (deterministic `_id`, so a re-run never duplicates it). Without metadata the job fails with yt-dlp's Indonesian error; dev uses a placeholder.
+- Jobs whose source type is not `url` (keyword jobs from older databases) fail discovery with "Sumber job ini tidak didukung lagi"; resuming one still works when its videos were already found.
 
 ### 5.2 Analyzer Agent (`nodes/analyzer.py`, `tools/transcript.py`)
 
@@ -500,8 +496,7 @@ Database name: `metisclip`.
 // super_agents: one per niche workspace
 {
   _id: "uuid", name: "Podcast Bisnis", niche: "bisnis",
-  default_duration: "45-60", default_keywords: ["startup", "AI"], default_video_types: ["podcast"],
-  timezone: "Asia/Jakarta",
+  default_duration: "45-60", timezone: "Asia/Jakarta",
   default_brand_template_id: "uuid",        // template used by this agent's new clips
   created_at: ISODate()
 }
@@ -517,9 +512,8 @@ Database name: `metisclip`.
 // discovery_jobs
 {
   _id: "uuid", agent_id: "uuid",
-  source: { type: "keyword" | "url" | "local_file", keywords: ["AI"], youtube_url: null, local_file_path: null },
-  config: { video_types: ["podcast"], min_duration_minutes: 30, min_views: 10000,
-            clip_duration: "45-60", max_clips_per_video: 3 },
+  source: { type: "url" | "local_file", youtube_url: "https://www.youtube.com/watch?v=…", local_file_path: null },
+  config: { clip_duration: "45-60", max_clips: 3, max_clips_per_video: 3 },
   status: "pending" | "running" | "interrupted" | "cancelled" | "completed" | "failed",
   current_step: "discovery" | "analysis" | "processing",
   progress_pct: 0, total_scenes: 0, processed_scenes: 0,
@@ -530,7 +524,7 @@ Database name: `metisclip`.
 
 // source_videos
 { _id: "uuid", job_id: "uuid", agent_id: "uuid", youtube_id: "…", title: "…", channel_name: "…",
-  duration_seconds: 5400, view_count: 120000, like_count: 4000, video_type: "podcast", quality_score: 42.5,
+  duration_seconds: 5400, view_count: 120000, like_count: 4000,
   status: "pending" | "analyzing" | "completed" | "failed", created_at: ISODate() }
 
 // transcripts: cache keyed by video, reused across jobs and on resume
@@ -560,7 +554,6 @@ Database name: `metisclip`.
   progress_pct: 0, output_path: null, error: null, created_at: ISODate(), finished_at: null }
 
 // app_settings: a single document { _id: "settings", … } (§8.1)
-// api_cache:    { _id: "<request hash>", value: { … }, expires_at: ISODate() }  (TTL index)
 // meta:         { _id: "schema", version: 1, migrated_at: ISODate() }
 ```
 
@@ -573,7 +566,6 @@ Database name: `metisclip`.
 | `clips` | `{agent_id: 1, created_at: -1}`, `{job_id: 1}`, `{status: 1}`, `{brand_template_id: 1}` |
 | `brand_templates` | `{created_at: 1}` |
 | `render_jobs` | `{clip_id: 1, created_at: -1}`, `{status: 1}` |
-| `api_cache` | `{expires_at: 1}` with `expireAfterSeconds: 0` (expired entries are removed automatically) |
 
 **Write patterns** (standalone server, so no transactions)
 
@@ -613,7 +605,7 @@ Base URL: `http://127.0.0.1:{port}`. Every request carries `Authorization: Beare
 | GET / PUT | `/api/settings` | Non-secret settings (§8.1) |
 | GET | `/api/secrets` | Which secrets are set (booleans only) |
 | PUT / DELETE | `/api/secrets/{name}` | Write-only secret storage (keyring) |
-| POST | `/api/secrets/{name}/test` | Validate a key (cheap LLM call with that provider's model, Whisper ping, YouTube quota call) |
+| POST | `/api/secrets/{name}/test` | Validate a key (cheap LLM call with that provider's model, or a Whisper ping) |
 | POST | `/api/llm/models` | Text models a provider offers for a key (`{provider, value?, base_url?}`), for the model picker |
 | POST | `/internal/shutdown` | Graceful stop (main process only) |
 
@@ -631,7 +623,7 @@ Base URL: `http://127.0.0.1:{port}`. Every request carries `Authorization: Beare
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/api/jobs` | Create a job (`agent_id`, `source_type`, `keywords` / `youtube_url` / `local_file_path`, `video_types`, `clip_duration`, `max_clips`) |
+| POST | `/api/jobs` | Create a job from a YouTube link (`agent_id`, `youtube_url`, `clip_duration`, `max_clips`) |
 | GET | `/api/jobs?agent_id=` | List jobs |
 | GET | `/api/jobs/{id}` | Detail, progress and errors |
 | POST | `/api/jobs/{id}/cancel` | Cancel and kill children |
@@ -682,7 +674,7 @@ Base URL: `http://127.0.0.1:{port}`. Every request carries `Authorization: Beare
 
 ### 8.2 Secrets (Windows Credential Manager, service name `MetisClip`)
 
-One key per LLM provider: `openai_api_key`, `anthropic_api_key`, `gemini_api_key`, `xai_api_key`, `deepseek_api_key`, `qwen_api_key`, and `llm_api_key` for the OpenAI-compatible endpoint. Plus `groq_api_key` (Whisper) and `youtube_api_key` (YouTube Data API, used for discovery only). The dev engine uses the service name `MetisClip-Dev`, and in dev it falls back to the repo `.env` (`LLM_API_KEY`/`NINEROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`, `DEEPSEEK_API_KEY`, `DASHSCOPE_API_KEY`, `GROQ_API_KEY`, `YOUTUBE_API_KEY`). The MongoDB password is not stored here (see §6.2). They replace `super_agents.groq_api_key`, `.env` keys and Supabase-stored tokens.
+One key per LLM provider: `openai_api_key`, `anthropic_api_key`, `gemini_api_key`, `xai_api_key`, `deepseek_api_key`, `qwen_api_key`, and `llm_api_key` for the OpenAI-compatible endpoint. Plus `groq_api_key` (Whisper). The dev engine uses the service name `MetisClip-Dev`, and in dev it falls back to the repo `.env` (`LLM_API_KEY`/`NINEROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`, `DEEPSEEK_API_KEY`, `DASHSCOPE_API_KEY`, `GROQ_API_KEY`). The MongoDB password is not stored here (see §6.2). They replace `super_agents.groq_api_key`, `.env` keys and Supabase-stored tokens.
 
 ### 8.3 Development `.env` (dev only, never bundled)
 
@@ -695,7 +687,6 @@ OPENAI_API_KEY=                   # optional dev fallbacks for the other provide
 ANTHROPIC_API_KEY=                #   GEMINI_API_KEY, XAI_API_KEY, DEEPSEEK_API_KEY, DASHSCOPE_API_KEY work the same way
 GROQ_API_KEY=
 WHISPER_MODEL=whisper-large-v3-turbo
-YOUTUBE_API_KEY=
 ```
 
 **Removed for desktop:** `SUPABASE_*`, `JWT_SECRET`, `R2_*`, `REDIS_URL`, `COMPOSIO_API_KEY`, `HOST=0.0.0.0`, `PORT`, `TEMP_DIR`, `CLIP_STORAGE_BUCKET`, `YOUTUBE_OAUTH_CLIENT_ID`/`_SECRET`.
@@ -813,14 +804,14 @@ cd desktop; npx playwright test
 2. **All LLM calls go through `core/llm.py`** (the provider and model come from settings: OpenAI, Anthropic, Gemini, xAI, DeepSeek, Qwen or an OpenAI-compatible endpoint, default 9Router). No provider SDK calls or hard-coded endpoints inside nodes; endpoints live in `core/llm_providers.py`. Speech-to-text uses Groq Whisper (local Whisper is P2).
 3. **Subtitles are always editable data** (`subtitle_data` JSON). They are burned in only during export.
 4. **Preview == render.** Subtitle presets live in one place and are used by both the editor and Remotion.
-5. **Local-first.** No clip or video bytes go to cloud storage. The network is used only for AI APIs, the YouTube Data API (search and metadata), YouTube downloads via yt-dlp, and updates. The app never uploads or posts to social media.
+5. **Local-first.** No clip or video bytes go to cloud storage. The network is used only for AI APIs, YouTube metadata and downloads via yt-dlp, and updates. The app never uploads or posts to social media.
 6. **No server secrets in the bundle.** Assume everything shipped is public.
 7. **The engine binds 127.0.0.1 only** on a random port and requires the per-launch token on every route, including media and WS.
 8. **No CWD-relative paths.** Resolve everything through `core/paths.py` from the `METISCLIP_*` environment variables. User paths contain spaces and may contain non-ASCII characters (e.g. `C:\Users\ASUS VivoBook\…`), so always pass subprocess arguments as a list and never use `shell=True`.
 9. **Every subprocess** uses `creationflags=CREATE_NO_WINDOW` on Windows, is registered with its job, and is tree-killed on cancel or quit. Use `core/procs.py` only.
 10. **Jobs are idempotent and resumable.** Checkpoint after each node and each finished clip. On startup, `running` becomes `interrupted`.
 11. **Real-time progress uses WebSocket events.** No polling and no fake progress.
-12. **Respect the YouTube quota** (10,000 units/day): cache searches (100 units each).
+12. **Jobs start from a YouTube link.** Metadata and downloads go through yt-dlp; there is no keyword search and no YouTube Data API key (D6).
 13. **Mock or sandbox data only when `METISCLIP_ENV=dev`.** Production shows actionable errors in Bahasa Indonesia.
 14. **Smart crop uses face tracking** (MediaPipe) with a center-crop fallback, so a clip never fails just because tracking failed.
 15. **Never delete user media automatically.** Cache is purged automatically; library files only on explicit user action.
@@ -848,7 +839,7 @@ cd desktop; npx playwright test
 - Bundled MongoDB: mongod lifecycle, auth, and the collections and indexes from §6. All UI data access moves from Supabase to `lib/engine.ts`. Composio and the Next API routes are removed.
 - Local library storage, render worker via Electron-as-Node, bundled fonts, WS progress, Jobs panel with cancel and resume.
 - Settings with keyring secrets, and the Setup Wizard including the data-location step.
-- **Done when:** on a clean Windows 11 VM with no Python, Node, FFmpeg or MongoDB installed, the unpacked build runs discover → 3 clips → edit subtitles → export with the data folder on a second drive (e.g. `D:\MetisClip`), shows no console windows, and leaves no orphan processes (including `mongod.exe`) after quit.
+- **Done when:** on a clean Windows 11 VM with no Python, Node, FFmpeg or MongoDB installed, the unpacked build runs a YouTube link → 3 clips → edit subtitles → export with the data folder on a second drive (e.g. `D:\MetisClip`), shows no console windows, and leaves no orphan processes (including `mongod.exe`) after quit.
 
 ### Phase 2: Distribution-ready
 
@@ -904,3 +895,4 @@ The former "Publishing" phase (YouTube OAuth, scheduled uploads) was dropped on 
 | **D3** | Scheduling and publishing to social media (YouTube, TikTok, Instagram) | **Decided 2026-11-09: removed.** No account connections or uploads in the app; users post exported clips themselves. Revisit only with a server-side relay and API audits. |
 | **D4** | Migrate existing web users' data (Supabase/R2 → local MongoDB + files)? | No, unless real users exist |
 | **D5** | Keep the web version running in parallel? | Freeze the web version. The engine stays HTTP-based, so a web build could be revived later. |
+| **D6** | Keyword search for videos (YouTube Data API) | **Decided 2026-11-09: removed.** The Cari Video page takes a YouTube link only; metadata comes from yt-dlp, so there is no YouTube API key or quota. |

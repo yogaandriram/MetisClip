@@ -319,6 +319,7 @@ def _migrations():
         m002_remove_publishing,
         m003_brand_template_library,
         m004_llm_providers,
+        m005_remove_keyword_search,
     )
 
     return [
@@ -326,6 +327,7 @@ def _migrations():
         (2, "remove_publishing", m002_remove_publishing.up),
         (3, "brand_template_library", m003_brand_template_library.up),
         (4, "llm_providers", m004_llm_providers.up),
+        (5, "remove_keyword_search", m005_remove_keyword_search.up),
     ]
 
 

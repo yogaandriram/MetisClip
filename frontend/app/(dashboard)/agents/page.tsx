@@ -71,7 +71,7 @@ export default function AgentsPage() {
     <div style={{ maxWidth: '960px', margin: '0 auto' }}>
       <PageHeader
         title="Super Agent"
-        subtitle="Setiap agent adalah profil kerja terpisah (niche, keyword, brand template, dan clip sendiri)."
+        subtitle="Setiap agent adalah profil kerja terpisah (niche, brand template, dan clip sendiri)."
         actions={
           <Button variant={isCreating ? 'secondary' : 'primary'} icon={isCreating ? <X size={16} /> : <Plus size={16} />} onClick={() => setIsCreating(!isCreating)}>
             {isCreating ? 'Batal' : 'Buat agent baru'}
@@ -142,11 +142,6 @@ export default function AgentsPage() {
                     <Badge variant="muted" glow={false}>
                       {durationLabel(agent.default_duration)}
                     </Badge>
-                    {agent.default_keywords && (
-                      <Badge variant="muted" glow={false}>
-                        {agent.default_keywords.length > 28 ? `${agent.default_keywords.slice(0, 28)}…` : agent.default_keywords}
-                      </Badge>
-                    )}
                   </div>
                   <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '12px' }}>Dibuat {formatDate(agent.created_at)}</p>
                 </div>
@@ -194,8 +189,6 @@ export default function AgentsPage() {
               name: editing.name,
               niche: editing.niche || '',
               default_duration: editing.default_duration || '45-60',
-              default_keywords: editing.default_keywords || '',
-              default_video_type: editing.default_video_types?.[0] || 'podcast',
               default_brand_template_id: editing.default_brand_template_id || '',
             }}
             onSubmit={update}

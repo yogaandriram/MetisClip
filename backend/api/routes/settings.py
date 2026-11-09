@@ -74,12 +74,8 @@ def _test(name: str, value: str | None) -> dict:
         from backend.core.llm import test_connection
 
         ok, msg = test_connection(provider.id, key)
-    elif name == "groq_api_key":
-        from backend.agents.tools.whisper import test_key
-
-        ok, msg = test_key(key)
     else:
-        from backend.agents.tools.youtube_api import test_key
+        from backend.agents.tools.whisper import test_key
 
         ok, msg = test_key(key)
     return {"ok": ok, "message": msg}

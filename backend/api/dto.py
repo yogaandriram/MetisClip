@@ -13,14 +13,11 @@ def http_error(status: int, detail: str) -> HTTPException:
 
 
 def agent_dto(doc: dict[str, Any]) -> dict[str, Any]:
-    kw = doc.get("default_keywords") or []
     return {
         "id": doc["_id"],
         "name": doc.get("name", ""),
         "niche": doc.get("niche"),
         "default_duration": doc.get("default_duration", "45-60"),
-        "default_keywords": ", ".join(kw) if isinstance(kw, list) else (kw or None),
-        "default_video_types": doc.get("default_video_types") or [],
         "timezone": doc.get("timezone", "Asia/Jakarta"),
         "default_brand_template_id": doc.get("default_brand_template_id"),
         "created_at": iso(doc.get("created_at")),
@@ -57,8 +54,7 @@ def job_dto(doc: dict[str, Any]) -> dict[str, Any]:
     d.pop("checkpoint", None)
     src = d.get("source") or {}
     d["source"] = {
-        "type": src.get("type", "keyword"),
-        "keywords": src.get("keywords") or [],
+        "type": src.get("type", "url"),
         "youtube_url": src.get("youtube_url"),
         "local_file_path": src.get("local_file_path"),
     }

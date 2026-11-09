@@ -48,8 +48,6 @@ class AgentDoc(Doc):
     slug: str
     niche: Optional[str] = None
     default_duration: str = "45-60"
-    default_keywords: list[str] = Field(default_factory=list)
-    default_video_types: list[str] = Field(default_factory=lambda: ["podcast"])
     timezone: str = "Asia/Jakarta"
     # Template used by this agent's new clips (brand_templates._id)
     default_brand_template_id: Optional[str] = None
@@ -62,16 +60,12 @@ class AgentDoc(Doc):
 
 
 class JobSource(BaseModel):
-    type: Literal["keyword", "url", "local_file"]
-    keywords: list[str] = Field(default_factory=list)
+    type: Literal["url", "local_file"]
     youtube_url: Optional[str] = None
     local_file_path: Optional[str] = None
 
 
 class JobConfig(BaseModel):
-    video_types: list[str] = Field(default_factory=lambda: ["podcast"])
-    min_duration_minutes: int = 30
-    min_views: int = 0
     clip_duration: str = "45-60"
     # Total number of clips for the job (0 = unlimited); also the per-video early-stop limit
     max_clips: int = 3
@@ -110,8 +104,6 @@ class SourceVideoDoc(Doc):
     duration_seconds: float = 0
     view_count: int = 0
     like_count: int = 0
-    video_type: str = "podcast"
-    quality_score: float = 0
     status: Literal["pending", "analyzing", "completed", "failed"] = "pending"
     created_at: datetime = Field(default_factory=_now)
 

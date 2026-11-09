@@ -29,7 +29,6 @@ const ENCODER_LABELS: Record<EncoderSetting, string> = {
 
 const SECRETS: { name: SecretName; label: string; description: string }[] = [
   { name: 'groq_api_key', label: 'API key Groq (Whisper)', description: 'Untuk transkripsi subtitle per kata.' },
-  { name: 'youtube_api_key', label: 'API key YouTube Data v3', description: 'Untuk pencarian video berdasarkan keyword.' },
 ]
 
 function Card({ icon: Icon, color, title, subtitle, children }: { icon: React.ElementType; color: string; title: string; subtitle?: string; children: React.ReactNode }) {
@@ -178,7 +177,7 @@ export default function SettingsPage() {
       <PageHeader title="Pengaturan" subtitle="Preferensi agent, API key, pemrosesan video, dan penyimpanan lokal." />
 
       {/* Agent defaults */}
-      <Card icon={Bot} color="var(--primary)" title={activeAgent ? `Super Agent: ${activeAgent.name}` : 'Super Agent'} subtitle="Nilai default untuk pencarian video baru dari agent ini.">
+      <Card icon={Bot} color="var(--primary)" title={activeAgent ? `Super Agent: ${activeAgent.name}` : 'Super Agent'} subtitle="Nilai default untuk job baru dari agent ini.">
         {activeAgent ? (
           <AgentForm
             key={activeAgent.id}
@@ -187,8 +186,6 @@ export default function SettingsPage() {
               name: activeAgent.name,
               niche: activeAgent.niche || '',
               default_duration: activeAgent.default_duration || '45-60',
-              default_keywords: activeAgent.default_keywords || '',
-              default_video_type: activeAgent.default_video_types?.[0] || 'podcast',
               default_brand_template_id: activeAgent.default_brand_template_id || '',
             }}
             onSubmit={saveAgent}
@@ -224,7 +221,7 @@ export default function SettingsPage() {
               onSecretConfigured={(name, c) => setSecrets((prev) => (prev ? { ...prev, [name]: c } : prev))}
               persist={saveLlmOnly}
             />
-            <div style={{ borderTop: '1px solid var(--border-glass)', paddingTop: '18px', fontSize: '14px', fontWeight: 700 }}>Transkripsi & pencarian video</div>
+            <div style={{ borderTop: '1px solid var(--border-glass)', paddingTop: '18px', fontSize: '14px', fontWeight: 700 }}>Transkripsi</div>
             {SECRETS.map((s) => (
               <SecretField
                 key={s.name}

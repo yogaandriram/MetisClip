@@ -18,7 +18,6 @@ from backend.version import __version__
 logger = logging.getLogger(__name__)
 
 KEEP = 5
-SKIP = {"api_cache"}
 _lock = threading.Lock()
 
 
@@ -50,7 +49,7 @@ def write_backup(reason: str = "manual") -> dict[str, Any]:
         if path.exists():
             path = d / f"metisclip-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json.gz"
         tmp = path.with_suffix(".tmp")
-        names = sorted(n for n in db.list_collection_names() if n not in SKIP and not n.startswith("system."))
+        names = sorted(n for n in db.list_collection_names() if not n.startswith("system."))
         with gzip.open(tmp, "wt", encoding="utf-8") as f:
             header = {"app": "metisclip", "app_version": __version__, "schema_version": schema_version(db),
                       "reason": reason, "created_at": iso(datetime.now(timezone.utc))}

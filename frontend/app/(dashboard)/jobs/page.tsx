@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ListChecks, RotateCcw, Trash2, XCircle, Eye, Sparkles, Link as LinkIcon, Search } from 'lucide-react'
+import { ListChecks, RotateCcw, Trash2, XCircle, Eye, Sparkles, Link as LinkIcon } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
@@ -107,7 +107,7 @@ export default function JobsPage() {
     <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
       <PageHeader
         title="Antrian Job"
-        subtitle="Semua proses pencarian & pemotongan. Job yang terputus (misalnya karena aplikasi ditutup) bisa dilanjutkan dari checkpoint terakhir."
+        subtitle="Semua proses analisis & pemotongan. Job yang terputus (misalnya karena aplikasi ditutup) bisa dilanjutkan dari checkpoint terakhir."
         actions={
           <>
             <ToggleSwitch checked={allAgents} onChange={setAllAgents} label="Semua agent" />
@@ -136,21 +136,20 @@ export default function JobsPage() {
           ))}
         </div>
       ) : jobs.length === 0 ? (
-        <EmptyState icon={ListChecks} title="Antrian kosong" description="Belum ada job. Mulai pencarian video dari menu Cari Video." />
+        <EmptyState icon={ListChecks} title="Antrian kosong" description="Belum ada job. Tempel link YouTube di menu Cari Video." />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {jobs.map((job) => {
             const s = JOB_STATUS[job.status]
             const active = ACTIVE_JOB_STATUSES.includes(job.status)
-            const isUrl = job.source.type === 'url'
-            const source = isUrl ? job.source.youtube_url : job.source.keywords.join(', ')
+            const source = job.source.youtube_url
             const lastError = job.errors[job.errors.length - 1]
             return (
               <GlassCard key={job.id} hoverEffect={false} padding="20px">
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
                   <div style={{ flex: 1, minWidth: '260px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-                      {isUrl ? <LinkIcon size={16} color="var(--text-muted)" /> : <Search size={16} color="var(--text-muted)" />}
+                      <LinkIcon size={16} color="var(--text-muted)" />
                       <span style={{ fontWeight: 600, fontSize: '15px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '520px' }}>{source || '-'}</span>
                       <Badge variant={s.variant} glow={false}>
                         {s.label}

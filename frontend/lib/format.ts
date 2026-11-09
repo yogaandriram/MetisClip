@@ -97,20 +97,6 @@ export const CLIP_DURATION_OPTIONS = [
   { value: '75-90', label: '75 - 90 detik (Deep-dive)' },
 ]
 
-// Same values the web app sent; the engine uses video_types[0] for search + crop mode.
-export const VIDEO_TYPE_OPTIONS = [
-  { value: 'podcast', label: 'Podcast (fokus tengah)' },
-  { value: 'talking_head', label: 'Talking head (fokus tengah)' },
-]
-
-/** Splits "a, b ,c" into ['a','b','c'] */
-export function splitKeywords(value: string | null | undefined): string[] {
-  return (value || '')
-    .split(',')
-    .map((k) => k.trim())
-    .filter(Boolean)
-}
-
 export function isYoutubeUrl(value: string): boolean {
   return /^(https?:\/\/)?((www|m|music)\.)?(youtube\.com|youtu\.be)\/.+/i.test(value.trim())
 }

@@ -415,11 +415,6 @@ const SECRET_INFO: { name: SecretName; label: string; description: React.ReactNo
     label: 'API key Groq (Whisper)',
     description: 'Dipakai untuk transkripsi suara per kata (subtitle). Bisa dibuat gratis di console.groq.com.',
   },
-  {
-    name: 'youtube_api_key',
-    label: 'API key YouTube Data v3',
-    description: 'Dipakai untuk pencarian video berdasarkan keyword. Tidak wajib jika Anda hanya memakai link YouTube langsung.',
-  },
 ]
 
 function KeysStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
@@ -514,7 +509,7 @@ function KeysStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
           persist={saveLlm}
           allowRemove={false}
         />
-        <div style={{ borderTop: '1px solid var(--border-glass)', paddingTop: '18px', fontSize: '14px', fontWeight: 700 }}>Transkripsi & pencarian video</div>
+        <div style={{ borderTop: '1px solid var(--border-glass)', paddingTop: '18px', fontSize: '14px', fontWeight: 700 }}>Transkripsi</div>
         {SECRET_INFO.map((s) => (
           <SecretField
             key={s.name}
@@ -668,7 +663,7 @@ function AgentStep({ onBack, onDone }: { onBack: () => void; onDone: () => void 
     <>
       <StepTitle
         title="Buat Super Agent pertama"
-        subtitle="Super Agent adalah profil kerja untuk satu niche/channel: keyword default, durasi klip, dan brand template sendiri. Anda bisa membuat lebih dari satu nanti."
+        subtitle="Super Agent adalah profil kerja untuk satu niche/channel: durasi klip default dan brand template sendiri. Anda bisa membuat lebih dari satu nanti."
       />
       {error ? (
         <Notice tone="danger">{error}</Notice>

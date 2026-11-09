@@ -42,7 +42,7 @@ export function NoAgentState({ what = 'halaman ini' }: { what?: string }) {
       title={agents.length === 0 ? 'Belum ada Super Agent' : 'Pilih Super Agent'}
       description={
         agents.length === 0
-          ? `Buat Super Agent pertama Anda untuk mulai menggunakan ${what}. Setiap agent punya niche, keyword, dan brand template sendiri.`
+          ? `Buat Super Agent pertama Anda untuk mulai menggunakan ${what}. Setiap agent punya niche, durasi klip, dan brand template sendiri.`
           : `Pilih Super Agent aktif di menu samping untuk membuka ${what}.`
       }
       action={

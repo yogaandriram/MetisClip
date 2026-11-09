@@ -2,7 +2,7 @@
 
 import React, { Suspense, useCallback, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Sparkles, Search, CheckCircle, Loader2, Link as LinkIcon, Video, AlertCircle, RotateCcw, XCircle, ListChecks, ArrowLeft } from 'lucide-react'
+import { Sparkles, CheckCircle, Loader2, Video, AlertCircle, RotateCcw, XCircle, ListChecks, ArrowLeft } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
@@ -18,7 +18,7 @@ import { useAgent } from '@/contexts/AgentContext'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
 import { api, type Job } from '@/lib/engine'
-import { CLIP_DURATION_OPTIONS, JOB_STATUS, JOB_STEPS, RESUMABLE_JOB_STATUSES, VIDEO_TYPE_OPTIONS, errorMessage, formatDateTime, isYoutubeUrl, splitKeywords } from '@/lib/format'
+import { CLIP_DURATION_OPTIONS, JOB_STATUS, JOB_STEPS, RESUMABLE_JOB_STATUSES, errorMessage, formatDateTime, isYoutubeUrl } from '@/lib/format'
 
 export default function DiscoverPage() {
   return (
@@ -38,7 +38,7 @@ function Discover() {
     return (
       <div style={{ maxWidth: '900px', margin: '0 auto' }}>
         <PageHeader title="Cari & Ekstrak Konten" />
-        <NoAgentState what="pencarian video" />
+        <NoAgentState what="Cari Video" />
       </div>
     )
   }
@@ -47,7 +47,7 @@ function Discover() {
     <div style={{ maxWidth: '900px', margin: '0 auto' }}>
       <PageHeader
         title="Cari & Ekstrak Konten"
-        subtitle="Cari video YouTube (atau tempel link langsung) dan biarkan AI memotong klip terbaik untuk Anda."
+        subtitle="Tempel link video YouTube, lalu biarkan AI memotong klip terbaik untuk Anda."
         actions={
           jobId ? (
             <Button variant="secondary" size="sm" icon={<ArrowLeft size={14} />} onClick={() => router.push('/discover/')}>
@@ -65,10 +65,7 @@ function Discover() {
 
 function JobForm({ onCreated }: { onCreated: (jobId: string) => void }) {
   const { activeAgent } = useAgent()
-  const [inputType, setInputType] = useState<'keyword' | 'url'>('keyword')
-  const [keyword, setKeyword] = useState(activeAgent?.default_keywords || '')
   const [youtubeUrl, setYoutubeUrl] = useState('')
-  const [videoType, setVideoType] = useState(activeAgent?.default_video_types?.[0] || 'podcast')
   const [duration, setDuration] = useState(activeAgent?.default_duration || '45-60')
   const [maxClips, setMaxClips] = useState<number>(3)
   const [submitting, setSubmitting] = useState(false)
@@ -78,12 +75,7 @@ function JobForm({ onCreated }: { onCreated: (jobId: string) => void }) {
     e.preventDefault()
     if (!activeAgent) return
     setFormError(null)
-    const keywords = splitKeywords(keyword)
-    if (inputType === 'keyword' && keywords.length === 0) {
-      setFormError('Isi minimal satu kata kunci.')
-      return
-    }
-    if (inputType === 'url' && !isYoutubeUrl(youtubeUrl)) {
+    if (!isYoutubeUrl(youtubeUrl)) {
       setFormError('Format URL tidak valid. Masukkan link YouTube yang benar (youtube.com/watch?v=… atau youtu.be/…).')
       return
     }
@@ -91,10 +83,7 @@ function JobForm({ onCreated }: { onCreated: (jobId: string) => void }) {
     try {
       const { job } = await api.jobs.create({
         agent_id: activeAgent.id,
-        source_type: inputType,
-        keywords: inputType === 'keyword' ? keywords : [],
-        youtube_url: inputType === 'url' ? youtubeUrl.trim() : null,
-        video_types: [videoType],
+        youtube_url: youtubeUrl.trim(),
         clip_duration: duration,
         max_clips: maxClips,
       })
@@ -107,53 +96,20 @@ function JobForm({ onCreated }: { onCreated: (jobId: string) => void }) {
     }
   }
 
-  const tabStyle = (active: boolean): React.CSSProperties => ({
-    padding: '8px 16px',
-    borderRadius: '8px',
-    background: active ? 'var(--primary)' : 'transparent',
-    color: active ? '#fff' : 'var(--text-dim)',
-    border: 'none',
-    cursor: 'pointer',
-    fontWeight: 600,
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    transition: '0.3s',
-  })
-
   return (
     <form onSubmit={submit}>
       <GlassCard glow hoverEffect={false} padding="36px">
-        <div style={{ display: 'flex', gap: '10px', marginBottom: '28px', background: 'rgba(0,0,0,0.2)', padding: '5px', borderRadius: '12px', width: 'fit-content' }}>
-          <button type="button" onClick={() => setInputType('keyword')} style={tabStyle(inputType === 'keyword')}>
-            <Search size={16} /> Pencarian Pintar
-          </button>
-          <button type="button" onClick={() => setInputType('url')} style={tabStyle(inputType === 'url')}>
-            <LinkIcon size={16} /> Link YouTube
-          </button>
-        </div>
-
         <div style={{ display: 'flex', flexDirection: 'column', gap: '26px', marginBottom: '28px' }}>
-          {inputType === 'keyword' ? (
-            <InputField
-              label="Kata Kunci Pencarian"
-              placeholder="Pisahkan dengan koma: AI, bisnis, startup"
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              icon={<Search size={18} />}
-            />
-          ) : (
-            <InputField
-              label="Link YouTube"
-              placeholder="https://www.youtube.com/watch?v=…"
-              value={youtubeUrl}
-              onChange={(e) => setYoutubeUrl(e.target.value)}
-              icon={<Video size={18} />}
-            />
-          )}
+          <InputField
+            label="Link YouTube"
+            placeholder="https://www.youtube.com/watch?v=…"
+            value={youtubeUrl}
+            onChange={(e) => setYoutubeUrl(e.target.value)}
+            icon={<Video size={18} />}
+            autoFocus
+          />
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '24px' }}>
-            <SelectField label="Tipe Konten" value={videoType} onChange={(e) => setVideoType(e.target.value)} options={VIDEO_TYPE_OPTIONS} />
             <SelectField label="Durasi Clip" value={duration} onChange={(e) => setDuration(e.target.value)} options={CLIP_DURATION_OPTIONS} />
             <InputField
               label="Jumlah Klip (maks.)"
@@ -289,7 +245,6 @@ function JobProgress({ jobId }: { jobId: string }) {
   const status = JOB_STATUS[job.status]
   const active = job.status === 'running' || job.status === 'pending'
   const stepIndex = job.status === 'completed' ? JOB_STEPS.length : Math.max(0, JOB_STEPS.findIndex((s) => s.id === job.current_step))
-  const source = job.source.type === 'url' ? job.source.youtube_url : job.source.keywords.join(', ')
 
   return (
     <GlassCard glow hoverEffect={false} padding="36px">
@@ -304,7 +259,7 @@ function JobProgress({ jobId }: { jobId: string }) {
             </Badge>
           </div>
           <p style={{ color: 'var(--text-muted)', fontSize: '13px', wordBreak: 'break-all' }}>
-            {job.source.type === 'url' ? 'Link' : 'Keyword'}: {source || '-'} · dimulai {formatDateTime(job.started_at || job.created_at)}
+            Link: {job.source.youtube_url || '-'} · dimulai {formatDateTime(job.started_at || job.created_at)}
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
