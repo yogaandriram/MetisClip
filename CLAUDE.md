@@ -133,7 +133,7 @@ The tables above describe the web build. On this branch:
 | Engine (`backend/`) | FastAPI sidecar on MongoDB: `core/{paths,config,procs,db,llm,secrets,settings_store,events,auth,queue}.py`, routes per `frontend/lib/engine.ts`, `run.py` ready-line protocol, `--selftest`. Supabase, R2, JWT, Redis, LangGraph and `cleanup.py` are removed. |
 | Known issues fixed in the engine | K1 (each segment uses its own `youtube_id`), K2, K3 (per-launch token instead of JWT), K6 (jobs require `agent_id`), K7 (pinned `requirements.txt`), K9, K11 (127.0.0.1 only), K12, K15 (no auto-deletion), K16 (center-crop fallback) |
 | Desktop shell (`desktop/`) | Electron 45 main + preload: mongod lifecycle (auth, orphan-lock recovery), engine sidecar with restart, `app://` static UI, data-root wizard IPC and missing-drive recovery screen, path-checked shell IPC. Verification hooks (`METISCLIP_UI_DIR`, `METISCLIP_DATA_ROOT_OVERRIDE`, `METISCLIP_SCREENSHOT*`, `METISCLIP_AUTOQUIT_MS`) are documented in `desktop/README.md`. |
-| Frontend | Static export, no Supabase or Composio. All data goes through `lib/engine.ts` + WS events. New: setup wizard, Jobs, System (incl. "Update yt-dlp"), `clips/detail?id=` editor. Fonts are local woff2. |
+| Frontend | Static export, no Supabase or Composio. All data goes through `lib/engine.ts` + WS events. New: setup wizard, Jobs, System (incl. "Update yt-dlp"), `clips/detail?id=` editor. Fonts are local woff2. Brand Template: intro/outro, music and layout ratio/fit were removed (they never reached the render); `layout_settings` keeps only the safe zone, and the AI subtitle settings work (§5.4). |
 | Render (`render-engine/`) | `dist/render.js` worker (`@remotion/renderer`, run via Electron-as-Node), React 18.3.1 like the frontend (K14), local fonts (K10), Chrome Headless Shell bundled by `build-desktop.ps1`. |
 | yt-dlp | Bundled exe is copied to `%LOCALAPPDATA%\MetisClip\bin` and updated there (`POST /api/system/update-ytdlp`). Downloads prefer H.264 over HTTPS (HLS sections are very slow). Builds older than a few months get HTTP 403 from YouTube, so keep the pin fresh. |
 | Removed (D3, 2026-11-09) | Scheduling (`scheduler_ai`, `/api/schedule`, Jadwal Post page), social account connections (`/api/connections`, Settings card) and the `metisclip://` protocol. Migration `002_remove_publishing` drops `scheduled_posts` and `super_agents.social_connections` from existing databases after the usual pre-migration backup. |
@@ -373,7 +373,8 @@ This merges the original Clipper and Subtitler agents. Each segment goes through
 3. **Merge and scale:** tracked video plus the original audio → 1080×1920, CRF 18, AAC 128k.
 4. **Thumbnail:** currently the middle frame. Backlog: the highest-energy frame.
 5. **Whisper:** extract audio → Groq Whisper with `timestamp_granularities=["word","segment"]`. If only segment timing is returned, split the words evenly within each segment.
-6. **Persist:** insert a `ready` clip with editable `subtitle_data`. `subtitle_style = {}` so it inherits the Brand Template until overridden.
+6. **AI marks:** when the effective AI subtitle settings (§5.4) enable keywords or emojis, one LLM call (`agents/tools/caption_ai.py`) marks words with `keyword: true` and/or `emoji`. Non-fatal: on failure the clip is kept and a job error is recorded.
+7. **Persist:** insert a `ready` clip with editable `subtitle_data`. `subtitle_style = {}` so it inherits the Brand Template until overridden.
 
 **Desktop changes**
 - No upload. Write `raw.mp4` and `thumb.jpg` into `<DATA_ROOT>\library\…` (§6.1) and store paths relative to `<DATA_ROOT>` in the clip document.
@@ -389,10 +390,17 @@ This merges the original Clipper and Subtitler agents. Each segment goes through
 - **Composition:** `SubtitleOverlay`, 1080×1920 at 30 fps. Props:
   - `videoUrl` (the engine media URL with token)
   - `words`
-  - `style` = brand `caption_settings` ⊕ clip `subtitle_style`
+  - `style` = brand `caption_settings` ⊕ clip `subtitle_style` (without its `ai` key)
+  - `ai` = AI subtitle settings: defaults ⊕ brand `ai_settings` ⊕ clip `subtitle_style.ai`
   - `brandSettings`
-  - `durationInFrames`
-- **Presets:** the editor preview and Remotion import the same 13 presets from `frontend/lib/presets/`: auraglow, kineticbox, lumina, popshadow, typewriter, neonpulse, slideupfade, cinematicbar, hologram, glitch, staggerfade, elasticscale, velocityzoom. This keeps preview == render. Never fork them.
+  - `durationInFrames` (source length; `calculateMetadata` shortens it to the kept segments)
+- **Presets:** the editor preview, the Brand Template preview and Remotion import the same 13 presets from `frontend/lib/presets/`: auraglow, kineticbox, lumina, popshadow, typewriter, neonpulse, slideupfade, cinematicbar, hologram, glitch, staggerfade, elasticscale, velocityzoom. This keeps preview == render. Never fork them.
+  - All three render through the shared `CaptionLayer` (position, size in `cqw`, word pages, AI emoji) and `LogoOverlay`. The parent box must set `container-type: inline-size`.
+  - Presets are pure functions of caption time (`anim.ts` helpers): no CSS keyframes or transitions, sizes in `em`. A browser preview and a frame-by-frame Remotion render therefore show the same frame.
+  - Words are shown in pages of 1–4 words (`wordsPerPage`, capped by the characters that fit one line), not a moving window.
+- **AI subtitle settings** (`ai`: `fillerWords`, `pauses`, `keywords`, `emojis`; defaults `true/false/true/false`, kept in sync between `captions.ts` and `services/render.py`):
+  - Filler words (eh, hmm…) are hidden from the captions and, like silent pauses, cut from the export by `computeKeepSegments` (Remotion `<Series>` of trimmed `OffthreadVideo`s). The editor preview skips the same ranges.
+  - Keywords and emojis are word marks set by the LLM (`POST /api/clips/{id}/subtitles/enrich`, or automatically by the Processor) and editable per word in the clip editor.
 
 **Desktop flow**
 1. `POST /api/clips/{id}/render` creates a `render_jobs` document and returns its ID immediately. Progress arrives over WS, so closing the editor does not kill the render.
@@ -530,8 +538,9 @@ Database name: `metisclip`.
     final: null,
     thumbnail: "library/podcast-bisnis/<clip_id>/thumb.jpg"
   },
-  subtitle: { words: [ { word: "Nobody", start: 0.0, end: 0.35, confidence: 0.98 } ] },  // was subtitle_data
-  subtitle_style: {},                       // per-clip override of brand_template.caption_settings
+  subtitle: { words: [ { word: "Nobody", start: 0.0, end: 0.35, confidence: 0.98, keyword: true, emoji: "🔥" } ] },  // was subtitle_data; keyword/emoji optional
+  subtitle_style: {},                       // per-clip override of brand_template.caption_settings;
+                                            // optional `ai` key overrides brand_template.ai_settings
   status: "processing" | "ready" | "rendering" | "exported" | "failed",
   created_at: ISODate(), updated_at: ISODate()
 }
@@ -621,7 +630,8 @@ Base URL: `http://127.0.0.1:{port}`. Every request carries `Authorization: Beare
 |---|---|---|
 | GET | `/api/clips?agent_id=&status=` | List clips |
 | GET | `/api/clips/{id}` | Detail with subtitle data and the effective style |
-| PUT | `/api/clips/{id}/subtitles` | Save `words`, `style` or `reset_style` |
+| PUT | `/api/clips/{id}/subtitles` | Save `words` (with optional `keyword` / `emoji` marks), `style` (may include the per-clip `ai` override) or `reset_style` |
+| POST | `/api/clips/{id}/subtitles/enrich` | Let the LLM (re)mark keywords and/or emojis (`{keywords, emojis}`) |
 | GET | `/api/clips/{id}/media/{raw\|final\|thumb}` | Stream with HTTP Range support |
 | POST | `/api/clips/{id}/render` | Queue a render, returns `render_job_id` |
 | POST | `/api/render-jobs/{id}/cancel` | Cancel a render |

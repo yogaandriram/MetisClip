@@ -1,9 +1,13 @@
 import React from 'react';
-import { SubtitlePreset, generateRoundedStroke } from './types';
+import { SubtitlePreset } from './types';
+import { Ease, clamp, interpolate, r4 } from './anim';
+import { growRoom, highlight, keywordColor, rowStyle, shadows, sinceNext, stroke, textBase } from './style';
+import { LayeredText } from './parts';
 
 export const auraglowPreset: SubtitlePreset = {
   id: 'auraglow',
   name: 'AURA GLOW',
+  wordsPerPage: 3,
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Outfit',
     fontSize: 36,
@@ -67,99 +71,67 @@ export const auraglowPreset: SubtitlePreset = {
       </button>
     );
   },
-  renderPreview: ({ words, activeWordIndex, config }) => {
-    const activeColor = (config.highlightColor && config.highlightColor !== '#000000') ? config.highlightColor : '#00F0FF';
+  renderPreview: ({ words, activeWordIndex, time, config }) => {
     const fontColor = config.fontColor || '#ffffff';
+    const activeColor = highlight(config, '#00F0FF');
+    const kwColor = keywordColor(config, fontColor, '#00F0FF');
+    const base = textBase(config);
+    const outline = stroke(config);
+    const restShadow = shadows(outline, '0 0.111em 0.277em rgba(0,0,0,0.5)');
 
-    // Helper to map string weights to CSS numbers
-    const getWeight = (weight: string | number | undefined) => {
-      if (typeof weight === 'number') return weight;
-      const w = (weight || '').toLowerCase();
-      if (w.includes('thin')) return 100;
-      if (w.includes('extralight')) return 200;
-      if (w.includes('light')) return 300;
-      if (w.includes('medium')) return 500;
-      if (w.includes('semibold')) return 600;
-      if (w.includes('extrabold')) return 800;
-      if (w.includes('bold')) return 700;
-      if (w.includes('black')) return 900;
-      if (w.includes('regular')) return 400;
-      return 400;
-    };
-    const numericWeight = getWeight(config.fontWeight);
-    const baseFontSize = config.fontSize || 36;
-    const strokeWidth = config.strokeWidth || 0;
-    const strokeColor = config.strokeColor || '#000000';
-    const roundedStrokeShadow = generateRoundedStroke(strokeWidth, strokeColor, baseFontSize);
-    const letterSpacingEm = (config.letterSpacing !== undefined ? config.letterSpacing : 0) / baseFontSize;
-    
     return (
-      <>
-        <style>
-          {`
-            .aura-container {
-              display: inline-flex;
-              gap: 12px;
-              align-items: center;
-              flex-wrap: wrap;
-              justify-content: center;
-              max-width: 100%;
-              perspective: 800px;
-            }
-            .aura-word {
-              display: inline-block;
-              font-family: '${config.fontFamily}', var(--font-display);
-              font-weight: ${numericWeight};
-              text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
-              letter-spacing: ${letterSpacingEm}em;
-              line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
-              transform-style: preserve-3d;
-              transition: all 0.3s ease;
-              position: relative;
-              z-index: 1;
-            }
-            .aura-word::after {
-              content: attr(data-text);
-              position: absolute;
-              left: 0;
-              top: 0;
-              z-index: -1;
-              color: transparent;
-              -webkit-text-fill-color: transparent;
-              white-space: nowrap;
-            }
-            .aura-word.inactive {
-              color: ${fontColor};
-              opacity: 0.8;
-              transform: rotateX(40deg) scale(0.9);
-            }
-            .aura-word.inactive::after {
-              text-shadow: 0 0.111em 0.277em rgba(0,0,0,0.5)${strokeWidth > 0 ? `, ${roundedStrokeShadow}` : ''};
-            }
-            .aura-word.active {
-              animation: springPop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
-              background-image: linear-gradient(90deg, ${activeColor}, #00FFFF, ${activeColor});
-              background-size: 200% auto;
-              color: transparent;
-              -webkit-background-clip: text;
-              -webkit-text-fill-color: transparent;
-              filter: drop-shadow(0 0 0.416em ${activeColor}) drop-shadow(0 0.138em 0.277em rgba(0,0,0,0.8));
-            }
-            .aura-word.active::after {
-              text-shadow: ${strokeWidth > 0 ? roundedStrokeShadow : 'none'};
-            }
-            @keyframes springPop {
-              0% { transform: rotateX(-60deg) translateY(0.555em) scale(0.8); opacity: 0; background-position: 0% center; }
-              100% { transform: rotateX(0deg) translateY(0) scale(1.1); opacity: 1; background-position: 200% center; }
-            }
-          `}
-        </style>
-        <span className="aura-container">
-          <span key={`prev-${activeWordIndex}`} className="aura-word inactive" data-text={words[activeWordIndex - 1]?.word}>{words[activeWordIndex - 1]?.word}</span>
-          <span key={`active-${activeWordIndex}`} className="aura-word active" data-text={words[activeWordIndex].word}>{words[activeWordIndex].word}</span>
-          <span key={`next-${activeWordIndex}`} className="aura-word inactive" data-text={words[activeWordIndex + 1]?.word}>{words[activeWordIndex + 1]?.word}</span>
-        </span>
-      </>
+      <span style={{ ...rowStyle(0.3), perspective: '22em' }}>
+        {words.map((w, i) => {
+          const key = `${i}-${w.start}`;
+          if (i === activeWordIndex) {
+            // springPop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)
+            const t = time - w.start;
+            const rot = interpolate(t, [0, 0.5], [-60, 0], Ease.backOut);
+            const ty = interpolate(t, [0, 0.5], [0.555, 0], Ease.backOut);
+            const scale = interpolate(t, [0, 0.5], [0.8, w.keyword ? 1.18 : 1.1], Ease.backOut);
+            const opacity = clamp(interpolate(t, [0, 0.5], [0, 1], Ease.backOut));
+            const bgPos = clamp(interpolate(t, [0, 0.5], [0, 200], Ease.backOut), 0, 200);
+            return (
+              <LayeredText
+                key={key}
+                text={w.word}
+                base={base}
+                outer={{
+                  marginInline: growRoom(w.word, w.keyword ? 1.18 : 1.1, config),
+                  transform: `rotateX(${r4(rot)}deg) translateY(${r4(ty)}em) scale(${r4(scale)})`,
+                  transformStyle: 'preserve-3d',
+                  opacity: r4(opacity),
+                }}
+                back={{ textShadow: shadows(outline) }}
+                front={{
+                  backgroundImage: `linear-gradient(90deg, ${activeColor}, #00FFFF, ${activeColor})`,
+                  backgroundSize: '200% auto',
+                  backgroundPosition: `${r4(bgPos)}% center`,
+                  color: 'transparent',
+                  WebkitBackgroundClip: 'text',
+                  backgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  filter: `drop-shadow(0 0 0.416em ${activeColor}) drop-shadow(0 0.138em 0.277em rgba(0,0,0,0.8))`,
+                }}
+              />
+            );
+          }
+          // Past words tip back over 0.2 s after the next word starts; upcoming words wait tilted.
+          const t = i < activeWordIndex ? sinceNext(words, i, time) : Infinity;
+          const rot = interpolate(t, [0, 0.2], [0, 40], Ease.ease);
+          const scale = interpolate(t, [0, 0.2], [1.1, 0.9], Ease.ease);
+          return (
+            <LayeredText
+              key={key}
+              text={w.word}
+              base={base}
+              outer={{ marginInline: growRoom(w.word, w.keyword ? 1.18 : 1.1, config), transform: `rotateX(${r4(rot)}deg) scale(${r4(scale)})`, transformStyle: 'preserve-3d', opacity: 0.8 }}
+              back={{ textShadow: restShadow }}
+              front={{ color: w.keyword ? kwColor : fontColor }}
+            />
+          );
+        })}
+      </span>
     );
-  }
+  },
 };

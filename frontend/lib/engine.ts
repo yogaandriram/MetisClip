@@ -92,6 +92,18 @@ export interface SubtitleWord {
   start: number
   end: number
   confidence?: number
+  /** AI subtitle settings: highlighted keyword (editable per word) */
+  keyword?: boolean
+  /** AI subtitle settings: emoji shown above the caption from this word on */
+  emoji?: string | null
+}
+
+/** Brand template ai_settings (clip override in subtitle_style.ai) */
+export interface AiSubtitleSettings {
+  fillerWords: boolean
+  pauses: boolean
+  keywords: boolean
+  emojis: boolean
 }
 
 export type ClipStatus = 'processing' | 'ready' | 'rendering' | 'exported' | 'failed'
@@ -129,6 +141,8 @@ export interface ClipDetail {
   clip: Clip
   /** brand caption_settings merged with clip.subtitle_style */
   effective_style: Record<string, any>
+  /** brand ai_settings merged with clip.subtitle_style.ai */
+  effective_ai: AiSubtitleSettings
   brand_template: BrandTemplate | null
 }
 
@@ -518,6 +532,9 @@ export const api = {
     list: (query: { agent_id?: string; job_id?: string; status?: ClipStatus } = {}) => request<{ clips: Clip[] }>('GET', '/api/clips', { query }),
     get: (id: string) => request<ClipDetail>('GET', `/api/clips/${id}`),
     updateSubtitles: (id: string, update: SubtitleUpdate) => request<{ clip: Clip }>('PUT', `/api/clips/${id}/subtitles`, { body: update }),
+    /** One LLM call: mark keywords and/or pick emojis on the saved words (replaces earlier AI marks). */
+    enrichSubtitles: (id: string, opts: { keywords: boolean; emojis: boolean }) =>
+      request<{ clip: Clip; keywords: number; emojis: number }>('POST', `/api/clips/${id}/subtitles/enrich`, { body: opts }),
     remove: (id: string, deleteFiles = true) => request<{ ok: true }>('DELETE', `/api/clips/${id}`, { query: { delete_files: deleteFiles } }),
     render: (id: string) => request<{ render_job: RenderJob }>('POST', `/api/clips/${id}/render`),
     export: (clipIds: string[], destDir?: string) => request<ExportResult>('POST', '/api/clips/export', { body: { clip_ids: clipIds, dest_dir: destDir } }),

@@ -1,17 +1,48 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { presets } from '@/lib/presets';
+import React, { useState, useRef, useEffect } from 'react';
 import { assetUrl } from '@/lib/media';
-import { CaptionSettings, BrandSettings, LayoutSettings } from '../types';
+import { CaptionLayer } from '@/lib/presets/CaptionLayer';
+import { LOGO_BASE_SIZE, logoPosition, logoScale } from '@/lib/presets/BrandOverlay';
+import type { CaptionWord } from '@/lib/presets/types';
+import { AiSettings, CaptionSettings, BrandSettings, LayoutSettings } from '../types';
 
 interface TemplatePreviewCanvasProps {
   caption: CaptionSettings;
-  aiEmojis: boolean;
+  ai: AiSettings;
   brandSettings?: BrandSettings;
   layoutSettings: LayoutSettings;
   onUpdateBrand?: (updates: Partial<BrandSettings>) => void;
 }
 
-export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ caption, aiEmojis, brandSettings, layoutSettings, onUpdateBrand }) => {
+// Sample sentence for the preview loop. "eh" shows the filler-word setting; the marked words show
+// the keyword highlight and emoji settings (in real clips the AI marks them, editable per word).
+const SAMPLE_WORDS: CaptionWord[] = [
+  { word: 'Rahasia', start: 0.0, end: 0.42 },
+  { word: 'konten', start: 0.42, end: 0.8 },
+  { word: 'viral', start: 0.8, end: 1.25, keyword: true, emoji: '🔥' },
+  { word: 'eh', start: 1.3, end: 1.6 },
+  { word: 'ternyata', start: 1.65, end: 2.1 },
+  { word: 'sederhana', start: 2.1, end: 2.65, keyword: true },
+  { word: 'banget!', start: 2.65, end: 3.15, emoji: '💡' },
+];
+const SAMPLE_LOOP = 4.3; // seconds, includes a short silence so the fade-out is visible
+
+/** Seconds since mount, looping, on requestAnimationFrame (same time-based animation as the render). */
+function useLoopClock(period: number): number {
+  const [time, setTime] = useState(0);
+  useEffect(() => {
+    let raf = 0;
+    const t0 = performance.now();
+    const tick = (now: number) => {
+      setTime(((now - t0) / 1000) % period);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [period]);
+  return time;
+}
+
+export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ caption, ai, brandSettings, layoutSettings, onUpdateBrand }) => {
   // Brand assets are stored as asset://<path>; no remote sample video (the app must work offline)
   const videoUrl = assetUrl(brandSettings?.sampleVideoUrl);
   const overlaySrc = assetUrl(brandSettings?.overlayUrl);
@@ -19,34 +50,20 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
   // Canvas bounds
   const CANVAS_WIDTH = 300;
   const CANVAS_HEIGHT = 533;
-  const BASE_LOGO_SIZE = 60; // Max width/height of the logo base
-  const currentLogoSize = BASE_LOGO_SIZE * (brandSettings?.logoScale || 1);
+  const BASE_LOGO_SIZE = LOGO_BASE_SIZE; // logo width at scale 1 (same as the render)
+  const currentLogoSize = BASE_LOGO_SIZE * logoScale(brandSettings);
   const SNAP_THRESHOLD = 15;
 
   // Dragging & Resizing State
-  const initialPos = brandSettings?.logoPosition || { x: CANVAS_WIDTH - currentLogoSize - 15, y: 15 };
+  const initialPos = logoPosition(brandSettings);
   const [pos, setPos] = useState(initialPos);
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [snapGuides, setSnapGuides] = useState({ x: false, y: false });
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Animation State
-  const [activeWordIndex, setActiveWordIndex] = useState(0);
-  const previewWords = [
-    { word: 'PREMIUM', start: 0, end: 1 },
-    { word: 'CAPTIONS', start: 1, end: 2 },
-    { word: 'FOR', start: 2, end: 3 },
-    { word: 'VIRAL', start: 3, end: 4 },
-    { word: 'VIDEOS', start: 4, end: 5 }
-  ];
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setActiveWordIndex((prev) => (prev + 1) % previewWords.length);
-    }, 800);
-    return () => clearInterval(interval);
-  }, [previewWords.length]);
+  // Caption animation clock (the sample sentence loops)
+  const clock = useLoopClock(SAMPLE_LOOP);
 
   // Sync state with props if it changes externally
   useEffect(() => {
@@ -147,7 +164,7 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
         style={{ 
           width: `${CANVAS_WIDTH}px`, 
           height: `${CANVAS_HEIGHT}px`, 
-          background: '#1A1A2E', 
+          background: '#1A1A2E', containerType: 'inline-size', 
           borderRadius: '16px', 
           position: 'relative', 
           overflow: 'hidden', 
@@ -252,36 +269,12 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
           </div>
         )}
 
-        {/* Mock Caption */}
-        <div style={{ position: 'absolute', bottom: `${caption.positionY || 80}px`, left: '50%', transform: 'translateX(-50%)', width: '70%', textAlign: 'center' }}>
-          <div style={{ 
-            fontSize: `${caption.fontSize * 0.5}px`, 
-            lineHeight: 1.2,
-            display: 'flex',
-            flexWrap: 'wrap',
-            justifyContent: 'center',
-            alignItems: 'center',
-            gap: '8px'
-          }}>
-            {(() => {
-              const activePreset = presets.find(p => p.id === caption.mode);
-              if (!activePreset) return null;
-              
-              const isHighlightStyle = true; // Assuming future premium presets will be highlight-based
-              
-              return activePreset.renderPreview({
-                words: previewWords,
-                activeWordIndex: activeWordIndex,
-                config: caption
-              });
-            })()}
-          </div>
-          {aiEmojis && <div style={{ fontSize: '30px', marginTop: '10px' }}>🥰</div>}
-        </div>
+        {/* Caption: the same component and sizing as the clip editor and the exported video */}
+        <CaptionLayer words={SAMPLE_WORDS} time={clock} style={{ ...caption, offsetTime: 0 }} ai={ai} />
 
         {/* Mock Timeline */}
         <div style={{ position: 'absolute', bottom: '15px', width: '90%', height: '4px', background: 'rgba(255,255,255,0.3)', borderRadius: '2px' }}>
-          <div style={{ width: '30%', height: '100%', background: 'var(--primary)', borderRadius: '2px' }} />
+          <div style={{ width: `${(clock / SAMPLE_LOOP) * 100}%`, height: '100%', background: 'var(--primary)', borderRadius: '2px' }} />
         </div>
         <div style={{ position: 'absolute', bottom: '10px', left: '15px' }}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>

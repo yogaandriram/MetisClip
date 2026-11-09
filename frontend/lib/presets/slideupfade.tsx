@@ -1,9 +1,13 @@
 import React from 'react';
-import { SubtitlePreset, generateRoundedStroke } from './types';
+import { SubtitlePreset } from './types';
+import { Ease, interpolate, r4 } from './anim';
+import { dropShadow, highlight, shadows, stroke, textBase } from './style';
+import { LayeredText } from './parts';
 
 export const slideupfadePreset: SubtitlePreset = {
   id: 'slideupfade',
   name: 'SLIDE UP FADE',
+  wordsPerPage: 1,
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Poppins',
     fontSize: 36,
@@ -62,106 +66,30 @@ export const slideupfadePreset: SubtitlePreset = {
       </button>
     );
   },
-  renderPreview: ({ words, activeWordIndex, config }) => {
-    const activeColor = (config.highlightColor && config.highlightColor !== '#000000') ? config.highlightColor : '#FF6584';
-    const fontColor = config.fontColor || '#ffffff';
-    
-    // Helper to map string weights to CSS numbers
-    const getWeight = (weight: string | number | undefined) => {
-      if (typeof weight === 'number') return weight;
-      const w = (weight || '').toLowerCase();
-      if (w.includes('thin')) return 100;
-      if (w.includes('extralight')) return 200;
-      if (w.includes('light')) return 300;
-      if (w.includes('medium')) return 500;
-      if (w.includes('semibold')) return 600;
-      if (w.includes('extrabold')) return 800;
-      if (w.includes('bold')) return 700;
-      if (w.includes('black')) return 900;
-      if (w.includes('regular')) return 400;
-      return 400;
-    };
-    const numericWeight = getWeight(config.fontWeight);
-    const baseFontSize = config.fontSize || 36;
-    const strokeWidth = config.strokeWidth || 0;
-    const strokeColor = config.strokeColor || '#000000';
-    const roundedStrokeShadow = generateRoundedStroke(strokeWidth, strokeColor, baseFontSize);
-    const letterSpacingEm = (config.letterSpacing !== undefined ? config.letterSpacing : 0) / baseFontSize;
-    
-    // Add text shadow mapping for slideupfade
-    let combinedShadows = [];
-    if (config.hasShadow && config.shadowColor) {
-      const blur = config.shadowBlur ?? 0;
-      const xEm = (config.shadowX || 0) / baseFontSize;
-      const yEm = (config.shadowY || 0) / baseFontSize;
-      const blurEm = blur / baseFontSize;
-      combinedShadows.push(`${xEm}em ${yEm}em ${blurEm}em ${config.shadowColor}`);
-    }
-    const finalTextShadow = combinedShadows.length > 0 ? combinedShadows.join(', ') : 'none';
-
+  renderPreview: ({ words, activeWordIndex, time, config }) => {
+    const w = words[activeWordIndex];
+    if (!w) return null;
+    const activeColor = highlight(config, '#FF6584');
+    const base = textBase(config);
+    // slideUpFadeAnim: rises 1.111em and fades in over the first 0.3 s (ease-in-out)
+    const t = time - w.start;
+    const ty = interpolate(t, [0, 0.3], [1.111, 0], Ease.easeInOut);
+    const opacity = interpolate(t, [0, 0.3], [0, 1], Ease.easeInOut);
+    const scale = w.keyword ? 1.12 : 1;
     return (
-      <>
-        <style>
-          {`
-            .slideup-container {
-              display: inline-flex;
-              gap: 12px;
-              align-items: center;
-              flex-wrap: wrap;
-              justify-content: center;
-              max-width: 100%;
-              position: relative;
-              height: 2em;
-              overflow: visible;
-            }
-            .slideup-word {
-              display: inline-block;
-              font-family: '${config.fontFamily}', sans-serif;
-              font-weight: ${numericWeight};
-              text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
-              letter-spacing: ${letterSpacingEm}em;
-              line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
-              position: absolute;
-              opacity: 0;
-              left: 50%;
-              transform-origin: center center;
-              white-space: nowrap;
-              transform: translateX(-50%);
-              z-index: 1;
-            }
-            .slideup-word::after {
-              content: attr(data-text);
-              position: absolute;
-              left: 0;
-              top: 0;
-              z-index: -1;
-              color: transparent;
-              -webkit-text-fill-color: transparent;
-              white-space: nowrap;
-              text-shadow: ${strokeWidth > 0 ? roundedStrokeShadow : 'none'}${combinedShadows.length > 0 ? (strokeWidth > 0 ? ', ' : '') + finalTextShadow : ''};
-            }
-            .slideup-word.active {
-              animation: slideUpFadeAnim 1s ease-in-out forwards;
-              background: linear-gradient(135deg, #6C63FF, ${activeColor});
-              -webkit-background-clip: text;
-              -webkit-text-fill-color: transparent;
-              background-clip: text;
-              color: transparent; /* fallback */
-            }
-            @keyframes slideUpFadeAnim {
-              0% { transform: translateY(1.111em) translateX(-50%); opacity: 0; }
-              30% { transform: translateY(0) translateX(-50%); opacity: 1; }
-              70% { transform: translateY(0) translateX(-50%); opacity: 1; }
-              100% { transform: translateY(-0.277em) translateX(-50%); opacity: 0; }
-            }
-          `}
-        </style>
-        <span className="slideup-container">
-          <span key={`active-${activeWordIndex}`} className="slideup-word active" data-text={words[activeWordIndex]?.word || ''}>
-            {words[activeWordIndex]?.word || ''}
-          </span>
-        </span>
-      </>
+      <LayeredText
+        text={w.word}
+        base={base}
+        outer={{ transform: `translateY(${r4(ty)}em) scale(${scale})`, opacity: r4(opacity) }}
+        back={{ textShadow: shadows(stroke(config), dropShadow(config)) }}
+        front={{
+          backgroundImage: `linear-gradient(135deg, ${w.keyword ? activeColor : '#6C63FF'}, ${w.keyword ? '#FFD400' : activeColor})`,
+          WebkitBackgroundClip: 'text',
+          backgroundClip: 'text',
+          WebkitTextFillColor: 'transparent',
+          color: 'transparent',
+        }}
+      />
     );
-  }
+  },
 };

@@ -25,9 +25,16 @@ import {
   Keyboard,
   CheckCircle2,
   XCircle,
+  Sparkles,
+  Star,
+  Scissors,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { presets } from '@/lib/presets'
+import { CaptionLayer } from '@/lib/presets/CaptionLayer'
+import { LogoOverlay } from '@/lib/presets/BrandOverlay'
+import { type CaptionStyle, BASE_CAPTION_STYLE, resolveCaptionStyle } from '@/lib/presets/defaults'
+import { type AiCaptionSettings, DEFAULT_AI_SETTINGS, computeKeepSegments, isCut, isFiller, keptDuration, nextKeptTime, resolveAi } from '@/lib/presets/captions'
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch'
 import { Dropdown } from '@/components/ui/Dropdown'
 import { Button } from '@/components/ui/Button'
@@ -43,102 +50,9 @@ import { api, type ClipDetail, type RenderJob, type SubtitleWord } from '@/lib/e
 import { assetUrl, isDesktop, mediaUrl } from '@/lib/media'
 import { RENDER_STATUS, errorMessage, formatClock } from '@/lib/format'
 
-// ---------------------------------------------------------------------------
-// Style model (camelCase, same keys the brand template and render-engine use)
-// ---------------------------------------------------------------------------
-
-interface CaptionStyle {
-  mode: string
-  fontFamily: string
-  fontSize: number
-  fontWeight: string
-  fontColor: string
-  isItalic: boolean
-  isUnderline: boolean
-  isUppercase: boolean
-  strokeColor: string
-  strokeWidth: number
-  hasShadow: boolean
-  shadowColor: string
-  shadowX: number
-  shadowY: number
-  shadowBlur: number
-  highlightColor: string
-  letterSpacing: number
-  lineHeight: number
-  positionY: number
-  offsetTime: number
-}
-
-const BASE_STYLE: CaptionStyle = {
-  mode: 'popshadow',
-  fontFamily: 'Montserrat',
-  fontSize: 46,
-  fontWeight: 'Bold',
-  fontColor: '#FFFFFF',
-  isItalic: false,
-  isUnderline: false,
-  isUppercase: false,
-  strokeColor: '#000000',
-  strokeWidth: 0,
-  hasShadow: false,
-  shadowColor: '#000000',
-  shadowX: 0,
-  shadowY: 0,
-  shadowBlur: 0,
-  highlightColor: '#07CA6B',
-  letterSpacing: 0,
-  lineHeight: 1.2,
-  positionY: 80,
-  offsetTime: 0,
-}
-
-// Older clips stored some keys in snake_case
-const LEGACY_KEYS: Record<string, keyof CaptionStyle> = {
-  font_family: 'fontFamily',
-  font_size: 'fontSize',
-  font_weight: 'fontWeight',
-  font_color: 'fontColor',
-  is_italic: 'isItalic',
-  is_underline: 'isUnderline',
-  is_uppercase: 'isUppercase',
-  stroke_color: 'strokeColor',
-  stroke_width: 'strokeWidth',
-  has_shadow: 'hasShadow',
-  shadow_color: 'shadowColor',
-  shadow_x: 'shadowX',
-  shadow_y: 'shadowY',
-  highlight_color: 'highlightColor',
-  position_y: 'positionY',
-  offset_time: 'offsetTime',
-}
-
-function normalizeStyle(raw: Record<string, any> | null | undefined): Partial<CaptionStyle> {
-  const out: Record<string, any> = {}
-  if (!raw) return out
-  for (const [k, v] of Object.entries(raw)) {
-    if (v === undefined || v === null) continue
-    const camel = LEGACY_KEYS[k]
-    if (camel) {
-      if (raw[camel] === undefined) out[camel] = v
-    } else if (k in BASE_STYLE) {
-      out[k] = v
-    }
-  }
-  return out as Partial<CaptionStyle>
-}
-
-function buildStyle(effective: Record<string, any>): CaptionStyle {
-  const normalized = normalizeStyle(effective)
-  const preset = presets.find((p) => p.id === normalized.mode) || presets.find((p) => p.id === 'popshadow') || presets[0]
-  return { ...BASE_STYLE, ...(preset.getDefaultConfig() as Partial<CaptionStyle>), ...normalized, mode: preset.id }
-}
-
-function cssWeight(w: string): number {
-  return w === 'Bold' || w === 'Black' ? 900 : w === 'Medium' ? 500 : 400
-}
-
-type Snapshot = { words: SubtitleWord[]; style: CaptionStyle }
+// Style model: lib/presets/defaults.ts (shared with the Brand Template page and the render).
+// `ai` is the clip's AI subtitle settings (brand ai_settings unless overridden; saved in subtitle_style.ai).
+type Snapshot = { words: SubtitleWord[]; style: CaptionStyle; ai: AiCaptionSettings }
 
 const isTypingTarget = (t: EventTarget | null) => {
   const el = t as HTMLElement | null
@@ -204,7 +118,11 @@ function ClipEditor() {
   // ---- loading ------------------------------------------------------------
 
   const applyDetail = useCallback((d: ClipDetail) => {
-    const snap: Snapshot = { words: (d.clip.subtitle_data?.words || []).map((w) => ({ ...w })), style: buildStyle(d.effective_style || {}) }
+    const snap: Snapshot = {
+      words: (d.clip.subtitle_data?.words || []).map((w) => ({ ...w })),
+      style: resolveCaptionStyle(d.effective_style || {}),
+      ai: resolveAi(d.effective_ai),
+    }
     setDetail(d)
     setPresent(snap)
     setSavedJson(JSON.stringify(snap))
@@ -310,15 +228,42 @@ function ClipEditor() {
     if (present) update({ ...present, words }, key)
   }
 
+  const setAi = (patch: Partial<AiCaptionSettings>) => {
+    if (present) update({ ...present, ai: { ...present.ai, ...patch } })
+  }
+
   const dirty = present ? JSON.stringify(present) !== savedJson : false
 
   // ---- playback -----------------------------------------------------------
+
+  // Kept ranges when filler words / silent pauses are cut (same computation as the render)
+  const words = present?.words || []
+  const style = present?.style || BASE_CAPTION_STYLE
+  const ai = present?.ai || DEFAULT_AI_SETTINGS
+  const sourceDuration = duration || detail?.clip.duration_seconds || 0
+  const segments = useMemo(
+    () => computeKeepSegments(words, sourceDuration, ai, style.offsetTime / 1000),
+    [words, sourceDuration, ai, style.offsetTime],
+  )
+  const cutActive = isCut(segments, sourceDuration)
+  const segmentsRef = useRef(segments)
+  segmentsRef.current = cutActive ? segments : []
 
   useEffect(() => {
     if (!isPlaying) return
     let raf = 0
     const tick = () => {
-      if (videoRef.current) setCurrentTime(videoRef.current.currentTime)
+      const v = videoRef.current
+      if (v) {
+        const segs = segmentsRef.current
+        if (segs.length) {
+          // Preview the cut: jump over removed filler words and pauses
+          const next = nextKeptTime(segs, v.currentTime)
+          if (next === null) v.pause()
+          else if (next > v.currentTime + 0.01) v.currentTime = next
+        }
+        setCurrentTime(v.currentTime)
+      }
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
@@ -340,8 +285,6 @@ function ClipEditor() {
     setCurrentTime(clamped)
   }
 
-  const words = present?.words || []
-  const style = present?.style || BASE_STYLE
   const adjustedTime = currentTime - style.offsetTime / 1000
   const activeWordIndex = useMemo(() => words.findIndex((w) => adjustedTime >= w.start && adjustedTime <= w.end), [words, adjustedTime])
 
@@ -354,7 +297,7 @@ function ClipEditor() {
       const cleanWords = present.words
         .filter((w) => w.word.trim() !== '')
         .map((w) => ({ ...w, start: Number(w.start) || 0, end: Math.max(Number(w.end) || 0, Number(w.start) || 0) }))
-      const { clip } = await api.clips.updateSubtitles(clipId, { words: cleanWords, style: { ...present.style } })
+      const { clip } = await api.clips.updateSubtitles(clipId, { words: cleanWords, style: { ...present.style, ai: { ...present.ai } } })
       const snap = { ...present, words: cleanWords }
       setDetail((d) => (d ? { ...d, clip } : d))
       setPresent(snap)
@@ -384,6 +327,34 @@ function ClipEditor() {
       toast.error(errorMessage(err))
     } finally {
       setResetting(false)
+    }
+  }
+
+  const [enriching, setEnriching] = useState(false)
+  const enrich = async () => {
+    if (!present || !clipId || enriching) return
+    if (!present.ai.keywords && !present.ai.emojis) {
+      toast.error('Aktifkan "Sorot kata kunci" atau "Emoji otomatis" dulu')
+      return
+    }
+    // The engine works on the saved words: save pending edits first
+    if (dirty && !(await save(true))) return
+    setEnriching(true)
+    try {
+      const res = await api.clips.enrichSubtitles(clipId, { keywords: present.ai.keywords, emojis: present.ai.emojis })
+      const nextWords = (res.clip.subtitle_data?.words || []).map((w) => ({ ...w }))
+      setDetail((d) => (d ? { ...d, clip: res.clip } : d))
+      const snap = { ...present, words: nextWords }
+      update(snap)
+      setSavedJson(JSON.stringify(snap))
+      const parts = []
+      if (present.ai.keywords) parts.push(`${res.keywords} kata kunci`)
+      if (present.ai.emojis) parts.push(`${res.emojis} emoji`)
+      toast.success(`AI menandai ${parts.join(' dan ')}`)
+    } catch (err) {
+      toast.error(errorMessage(err, 'Gagal menjalankan AI subtitle'))
+    } finally {
+      setEnriching(false)
     }
   }
 
@@ -501,26 +472,9 @@ function ClipEditor() {
   const clip = detail.clip
   const brand = detail.brand_template?.brand_settings || null
   const overlaySrc = brand?.overlayUrl ? assetUrl(brand.overlayUrl) : ''
-  const activePreset = presets.find((p) => p.id === style.mode) || presets[0]
-  const presetConfig = {
-    fontFamily: style.fontFamily,
-    fontSize: style.fontSize,
-    fontWeight: style.fontWeight,
-    fontColor: style.fontColor,
-    isItalic: style.isItalic,
-    isUnderline: style.isUnderline,
-    isUppercase: style.isUppercase,
-    strokeColor: style.strokeColor,
-    strokeWidth: style.strokeWidth,
-    hasShadow: style.hasShadow,
-    shadowColor: style.shadowColor,
-    shadowX: style.shadowX,
-    shadowY: style.shadowY,
-    shadowBlur: style.shadowBlur,
-    highlightColor: style.highlightColor,
-    letterSpacing: style.letterSpacing,
-    lineHeight: style.lineHeight,
-  }
+  const keywordCount = words.filter((w) => w.keyword).length
+  const emojiCount = words.filter((w) => w.emoji).length
+  const cutSeconds = cutActive ? Math.max(0, sourceDuration - keptDuration(segments)) : 0
   const renderActive = !!render && (render.status === 'queued' || render.status === 'rendering')
   const canUndo = history.current.past.length > 0
   const canRedo = history.current.future.length > 0
@@ -603,6 +557,7 @@ function ClipEditor() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {words.map((item, index) => {
                   const active = activeWordIndex === index
+                  const filler = ai.fillerWords && isFiller(item.word)
                   return (
                     <div
                       key={index}
@@ -615,6 +570,7 @@ function ClipEditor() {
                         flexDirection: 'column',
                         gap: '8px',
                         background: active ? 'rgba(7, 202, 107, 0.08)' : 'rgba(255,255,255,0.02)',
+                        opacity: filler ? 0.55 : 1,
                         border: active ? '1px solid rgba(7, 202, 107, 0.35)' : '1px solid var(--border-glass)',
                         padding: '10px 12px',
                         borderRadius: '10px',
@@ -627,8 +583,32 @@ function ClipEditor() {
                           type="text"
                           value={item.word}
                           onChange={(e) => setWords(words.map((w, i) => (i === index ? { ...w, word: e.target.value } : w)), `word-${index}`)}
-                          style={{ background: 'transparent', border: 'none', color: active ? '#fff' : 'var(--text-primary)', fontSize: '14px', fontWeight: active ? 700 : 500, outline: 'none', width: '100%' }}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: item.keyword && ai.keywords ? style.highlightColor : active ? '#fff' : 'var(--text-primary)',
+                            fontSize: '14px',
+                            fontWeight: active || item.keyword ? 700 : 500,
+                            textDecoration: filler ? 'line-through' : 'none',
+                            outline: 'none',
+                            width: '100%',
+                          }}
                         />
+                        {filler && (
+                          <span title="Kata pengisi: disembunyikan dari subtitle dan dipotong dari video" style={{ fontSize: '9px', color: 'var(--warning)', border: '1px solid rgba(232,149,88,0.4)', borderRadius: '4px', padding: '1px 4px', whiteSpace: 'nowrap' }}>
+                            pengisi
+                          </span>
+                        )}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setWords(words.map((w, i) => (i === index ? { ...w, keyword: !w.keyword } : w)))
+                          }}
+                          title={item.keyword ? 'Kata kunci (klik untuk hapus sorotan)' : 'Jadikan kata kunci (disorot)'}
+                          style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px', display: 'flex', color: item.keyword ? 'var(--warning)' : 'var(--text-muted)', opacity: item.keyword ? 1 : 0.5 }}
+                        >
+                          <Star size={13} fill={item.keyword ? 'currentColor' : 'none'} />
+                        </button>
                         <button
                           onClick={() => setWords(words.filter((_, i) => i !== index))}
                           style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', padding: '2px', opacity: 0.75, display: 'flex' }}
@@ -641,6 +621,18 @@ function ClipEditor() {
                         <TimeInput value={item.start} style={smallInput} onCommit={(v) => setWords(words.map((w, i) => (i === index ? { ...w, start: v } : w)), `start-${index}`)} />
                         <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>–</span>
                         <TimeInput value={item.end} style={smallInput} onCommit={(v) => setWords(words.map((w, i) => (i === index ? { ...w, end: v } : w)), `end-${index}`)} />
+                        <input
+                          type="text"
+                          value={item.emoji || ''}
+                          placeholder="emoji"
+                          title="Emoji di atas subtitle mulai kata ini (kosongkan untuk menghapus)"
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => {
+                            const v = Array.from(e.target.value.trim()).slice(-2).join('')
+                            setWords(words.map((w, i) => (i === index ? { ...w, emoji: v || null } : w)), `emoji-${index}`)
+                          }}
+                          style={{ ...smallInput, width: '42px', opacity: item.emoji ? 1 : 0.5 }}
+                        />
                       </div>
                       <div style={{ position: 'absolute', bottom: '-14px', left: '50%', transform: 'translateX(-50%)', zIndex: 5 }}>
                         <button
@@ -715,43 +707,10 @@ function ClipEditor() {
                 </div>
               )}
 
-              {overlaySrc && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: `${((brand?.logoPosition?.y || 15) / 533) * 100}%`,
-                    left: `${((brand?.logoPosition?.x || 15) / 300) * 100}%`,
-                    width: `${((60 * (brand?.logoScale || 1)) / 300) * 100}%`,
-                    zIndex: 20,
-                    pointerEvents: 'none',
-                  }}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={overlaySrc} alt="" style={{ width: '100%', height: 'auto', display: 'block' }} />
-                </div>
-              )}
+              <LogoOverlay src={overlaySrc} brand={brand} />
 
-              <div style={{ position: 'absolute', bottom: `${(style.positionY / 533) * 100}%`, left: '50%', transform: 'translateX(-50%)', width: '80%', textAlign: 'center', zIndex: 10, pointerEvents: 'none' }}>
-                <div
-                  style={{
-                    fontSize: `calc(${style.fontSize}cqw / 6)`,
-                    fontFamily: `'${style.fontFamily}', var(--font-display)`,
-                    fontWeight: cssWeight(style.fontWeight),
-                    color: style.fontColor,
-                    fontStyle: style.isItalic ? 'italic' : 'normal',
-                    textDecoration: style.isUnderline ? 'underline' : 'none',
-                    textTransform: style.isUppercase ? 'uppercase' : 'none',
-                    lineHeight: style.lineHeight,
-                  }}
-                >
-                  {words.length > 0 &&
-                    (activeWordIndex !== -1 ? (
-                      activePreset.renderPreview({ words, activeWordIndex, config: presetConfig })
-                    ) : (
-                      <div style={{ opacity: 0.6 }}>{activePreset.renderPreview({ words, activeWordIndex: 0, config: presetConfig })}</div>
-                    ))}
-                </div>
-              </div>
+              {/* Same component as the Remotion render (lib/presets/CaptionLayer.tsx): preview == render */}
+              <CaptionLayer words={words} time={currentTime} style={style} ai={ai} />
             </div>
           </div>
 
@@ -766,6 +725,14 @@ function ClipEditor() {
             <span className="mc-mono" style={{ fontSize: '12px', color: 'var(--text-dim)', minWidth: '84px' }}>
               {formatClock(currentTime)} / {formatClock(duration || clip.duration_seconds)}
             </span>
+            {cutActive && (
+              <span
+                title="Bagian yang dipotong (kata pengisi / jeda hening) dilewati saat diputar dan tidak ada di hasil ekspor"
+                style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--warning)', whiteSpace: 'nowrap' }}
+              >
+                <Scissors size={12} /> −{cutSeconds.toFixed(1)} dtk
+              </span>
+            )}
             <input
               type="range"
               min={0}
@@ -799,6 +766,30 @@ function ClipEditor() {
                   </React.Fragment>
                 ))}
               </div>
+            </Section>
+
+            <Section title="AI SUBTITLE" divider>
+              <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '12px' }}>
+                Default dari Brand Template. Perubahan di sini hanya untuk clip ini dan ikut ke hasil ekspor.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <ToggleSwitch label="Hapus kata pengisi (eh, hmm)" checked={ai.fillerWords} onChange={(v) => setAi({ fillerWords: v })} />
+                <ToggleSwitch label="Hapus jeda hening" checked={ai.pauses} onChange={(v) => setAi({ pauses: v })} />
+                <ToggleSwitch label="Sorot kata kunci (AI)" checked={ai.keywords} onChange={(v) => setAi({ keywords: v })} />
+                <ToggleSwitch label="Emoji otomatis (AI)" checked={ai.emojis} onChange={(v) => setAi({ emojis: v })} />
+              </div>
+              {(ai.keywords || ai.emojis) && (
+                <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                    {ai.keywords && `${keywordCount} kata kunci`}
+                    {ai.keywords && ai.emojis && ' · '}
+                    {ai.emojis && `${emojiCount} emoji`} (bisa diubah per kata di daftar caption)
+                  </span>
+                  <Button variant="secondary" size="sm" loading={enriching} onClick={enrich} icon={<Sparkles size={14} />}>
+                    {keywordCount + emojiCount > 0 ? 'Analisis ulang dengan AI' : 'Analisis dengan AI'}
+                  </Button>
+                </div>
+              )}
             </Section>
 
             <Section title="TAMPILAN FONT" divider>

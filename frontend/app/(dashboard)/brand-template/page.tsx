@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Undo, Redo, RefreshCw, Layout, Type, Image as ImageIcon, Video, Music, RotateCcw, Save } from 'lucide-react'
+import { Undo, Redo, RefreshCw, Layout, Type, Image as ImageIcon, RotateCcw, Save } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAgent } from '@/contexts/AgentContext'
 import { useEngine } from '@/contexts/EngineContext'
@@ -14,6 +14,8 @@ import { NoAgentState } from '@/components/NoAgentState'
 import { api, type BrandTemplate } from '@/lib/engine'
 import { errorMessage, formatDateTime } from '@/lib/format'
 import { presets } from '@/lib/presets'
+import { resolveCaptionStyle } from '@/lib/presets/defaults'
+import { resolveAi } from '@/lib/presets/captions'
 
 import { TemplateConfig, DEFAULT_TEMPLATE_CONFIG } from './types'
 import { LayoutSettingsPanel } from './components/LayoutSettingsPanel'
@@ -28,12 +30,15 @@ function toConfig(tpl: BrandTemplate | null): TemplateConfig {
   const validModes = presets.map((p) => p.id)
   const caption = (tpl?.caption_settings || {}) as Partial<TemplateConfig['caption_settings']>
   const mode = caption.mode && validModes.includes(caption.mode) ? caption.mode : 'popshadow'
+  const layout = (tpl?.layout_settings || {}) as Partial<TemplateConfig['layout_settings']>
+  // Intro/outro, music and aspect/fit were removed (never applied to clips): drop them from old templates
+  const { introUrl: _intro, musicUrl: _music, ...brand } = (tpl?.brand_settings || {}) as Record<string, any>
   return {
-    layout_settings: { ...DEFAULT_TEMPLATE_CONFIG.layout_settings, ...(tpl?.layout_settings || {}) },
+    layout_settings: { safeZone: layout.safeZone || DEFAULT_TEMPLATE_CONFIG.layout_settings.safeZone },
     // Caption keeps only what the user set; preset defaults are merged at display time
     caption_settings: { ...(tpl ? caption : { mode: 'popshadow' }), mode } as TemplateConfig['caption_settings'],
-    ai_settings: { ...DEFAULT_TEMPLATE_CONFIG.ai_settings, ...(tpl?.ai_settings || {}) },
-    brand_settings: { ...DEFAULT_TEMPLATE_CONFIG.brand_settings, ...(tpl?.brand_settings || {}) },
+    ai_settings: resolveAi(tpl?.ai_settings as Partial<TemplateConfig['ai_settings']> | undefined),
+    brand_settings: { ...DEFAULT_TEMPLATE_CONFIG.brand_settings, ...brand },
   }
 }
 
@@ -156,8 +161,9 @@ export default function BrandTemplatePage() {
     )
   }
 
-  const activeCaptionPreset = presets.find((p) => p.id === config.caption_settings?.mode) || presets[0]
-  const mergedCaptionSettings = { ...activeCaptionPreset.getDefaultConfig(), ...config.caption_settings } as TemplateConfig['caption_settings']
+  // Same resolution as the clip editor and the render (base ⊕ preset defaults ⊕ saved settings)
+  const mergedCaptionSettings = resolveCaptionStyle(config.caption_settings)
+  const SAFE_ZONE_LABEL: Record<string, string> = { none: 'Tidak ada', tiktok: 'TikTok', reels: 'IG Reels', shorts: 'YT Shorts' }
 
   const renderActiveMenuContent = () => {
     if (activeMenu === 'layout') {
@@ -166,15 +172,8 @@ export default function BrandTemplatePage() {
     if (activeMenu === 'caption') {
       return <CaptionSettingsPanel caption={mergedCaptionSettings} updateCaption={(updates, replace) => updateConfig('caption_settings', updates, replace)} />
     }
-    if (activeMenu === 'overlay' || activeMenu === 'intro' || activeMenu === 'music') {
-      return (
-        <BrandSettingsPanel
-          agentId={activeAgent.id}
-          brand={config.brand_settings}
-          updateBrand={(updates) => updateConfig('brand_settings', updates)}
-          activeTab={activeMenu as 'overlay' | 'intro' | 'music'}
-        />
-      )
+    if (activeMenu === 'overlay') {
+      return <BrandSettingsPanel agentId={activeAgent.id} brand={config.brand_settings} updateBrand={(updates) => updateConfig('brand_settings', updates)} />
     }
     return null
   }
@@ -261,19 +260,17 @@ export default function BrandTemplatePage() {
 
             <div style={{ marginBottom: '24px' }}>
               <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px', paddingLeft: '8px' }}>Gaya</p>
-              <MenuItem id="layout" icon={Layout} label="Layout clip" value={config.layout_settings.aspect} />
+              <MenuItem id="layout" icon={Layout} label="Safe zone" value={SAFE_ZONE_LABEL[config.layout_settings.safeZone || 'none'] || ''} />
               <MenuItem id="caption" icon={Type} label="Caption" value={`${mergedCaptionSettings.fontFamily} ${mergedCaptionSettings.fontSize}`} />
             </div>
 
             <div style={{ marginBottom: '24px' }}>
               <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px', paddingLeft: '8px' }}>Brand</p>
               <MenuItem id="overlay" icon={ImageIcon} label="Overlay (logo, CTA)" value={config.brand_settings.overlayUrl ? '1 dipilih' : ''} />
-              <MenuItem id="intro" icon={Video} label="Intro / outro" value={config.brand_settings.introUrl ? '1 dipilih' : ''} />
-              <MenuItem id="music" icon={Music} label="Musik" value={config.brand_settings.musicUrl ? '1 dipilih' : ''} />
             </div>
 
             <div>
-              <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px', paddingLeft: '8px' }}>AI</p>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px', paddingLeft: '8px' }}>AI subtitle</p>
               <AiSettingsPanel ai={config.ai_settings} updateAi={(updates) => updateConfig('ai_settings', updates)} />
             </div>
           </GlassCard>
@@ -282,7 +279,7 @@ export default function BrandTemplatePage() {
 
           <TemplatePreviewCanvas
             caption={mergedCaptionSettings}
-            aiEmojis={config.ai_settings.emojis}
+            ai={config.ai_settings}
             brandSettings={config.brand_settings}
             layoutSettings={config.layout_settings}
             onUpdateBrand={(updates) => updateConfig('brand_settings', updates)}

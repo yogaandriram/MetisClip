@@ -1,9 +1,12 @@
 import React from 'react';
 import { SubtitlePreset } from './types';
+import { Ease, cycle, interpolate, lerp, r4 } from './anim';
+import { em, growRoom, highlight, keywordColor, rowStyle, shadows, sinceNext, stroke, textBase, withAlpha } from './style';
 
 export const neonpulsePreset: SubtitlePreset = {
   id: 'neonpulse',
   name: 'NEON PULSE',
+  wordsPerPage: 3,
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Orbitron',
     fontSize: 36,
@@ -68,89 +71,62 @@ export const neonpulsePreset: SubtitlePreset = {
       </button>
     );
   },
-  renderPreview: ({ words, activeWordIndex, config }) => {
-    const activeColor = (config.highlightColor && config.highlightColor !== '#000000') ? config.highlightColor : '#FF00FF';
+  renderPreview: ({ words, activeWordIndex, time, config }) => {
     const fontColor = config.fontColor || '#ffffff';
-    const shadowColor = config.hasShadow ? (config.shadowColor || '#000000') : 'transparent';
-    const shadowBlur = config.hasShadow ? (config.shadowBlur || 0) : 0;
+    const activeColor = highlight(config, '#FF00FF');
+    const kwColor = keywordColor(config, fontColor, '#FF00FF');
+    const base = textBase(config);
+    const outline = stroke(config);
+    const restGlow = config.hasShadow ? em(config.shadowBlur || 0, config) : 0;
+    const restColor = config.shadowColor || '#000000';
 
-    // Helper to map string weights to CSS numbers
-    const getWeight = (weight: string | number | undefined) => {
-      if (typeof weight === 'number') return weight;
-      const w = (weight || '').toLowerCase();
-      if (w.includes('thin')) return 100;
-      if (w.includes('extralight')) return 200;
-      if (w.includes('light')) return 300;
-      if (w.includes('medium')) return 500;
-      if (w.includes('semibold')) return 600;
-      if (w.includes('extrabold')) return 800;
-      if (w.includes('bold')) return 700;
-      if (w.includes('black')) return 900;
-      if (w.includes('regular')) return 400;
-      return 400;
-    };
-    const numericWeight = getWeight(config.fontWeight) || 900;
-    
     return (
-      <>
-        <style>
-          {`
-            .neonpulse-container {
-              display: inline-flex;
-              gap: 12px;
-              align-items: center;
-              padding: 20px;
-              flex-wrap: wrap;
-              justify-content: center;
-            }
-            .neonpulse-word {
-              display: inline-block;
-              font-family: '${config.fontFamily}', var(--font-display);
-              font-weight: ${numericWeight};
-              text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
-              letter-spacing: ${config.letterSpacing !== undefined ? config.letterSpacing : 0}px;
-              line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
-              transition: all 0.3s ease;
-            }
-            .neonpulse-word.inactive {
-              display: inline-block;
-              color: ${fontColor};
-              opacity: 0.5;
-              transform: scale(0.9);
-              text-shadow: 0 0 ${shadowBlur}px ${shadowColor};
-              transition: transform 0.3s ease, opacity 0.3s ease;
-            }
-            .neonpulse-word.active {
-              display: inline-block;
-              color: ${fontColor}; /* Hot white core for true neon effect */
-              transform: scale(1.15);
-              animation: neonPulseAnim 1.5s ease-in-out infinite;
-              z-index: 10;
-              position: relative;
-              transition: transform 0.3s ease;
-            }
-            @keyframes neonPulseAnim {
-              0%, 100% {
-                text-shadow: 0 0 5px ${activeColor}, 0 0 20px ${activeColor}, 0 0 40px ${activeColor};
-              }
-              50% {
-                text-shadow: 0 0 2px ${activeColor}, 0 0 8px ${activeColor};
-              }
-            }
-          `}
-        </style>
-        <span className="neonpulse-container">
-          <span key={`prev-${activeWordIndex}`} className="neonpulse-word inactive">
-            {words[activeWordIndex - 1]?.word}
-          </span>
-          <span key={`active-${activeWordIndex}`} className="neonpulse-word active">
-            {words[activeWordIndex].word}
-          </span>
-          <span key={`next-${activeWordIndex}`} className="neonpulse-word inactive">
-            {words[activeWordIndex + 1]?.word}
-          </span>
-        </span>
-      </>
+      <span style={{ ...rowStyle(0.3), padding: '0.55em' }}>
+        {words.map((w, i) => {
+          const key = `${i}-${w.start}`;
+          if (i === activeWordIndex) {
+            const t = time - w.start;
+            // Grows in over 0.3 s, then neonPulseAnim 1.5s ease-in-out infinite
+            const scale = interpolate(t, [0, 0.3], [0.9, w.keyword ? 1.2 : 1.15], Ease.ease);
+            const c = cycle(t, 1.5);
+            const s = c < 0.5 ? Ease.easeInOut(c / 0.5) : 1 - Ease.easeInOut((c - 0.5) / 0.5);
+            const glowColor = w.keyword ? kwColor : activeColor;
+            const glow = [
+              `0 0 ${r4(lerp(0.139, 0.056, s))}em ${glowColor}`,
+              `0 0 ${r4(lerp(0.556, 0.222, s))}em ${glowColor}`,
+              `0 0 ${r4(lerp(1.111, 0.222, s))}em ${withAlpha(glowColor, r4(1 - s))}`,
+            ];
+            return (
+              <span
+                key={key}
+                style={{ ...base, display: 'inline-block', marginInline: growRoom(w.word, w.keyword ? 1.2 : 1.15, config), position: 'relative', zIndex: 1, color: fontColor, transform: `scale(${r4(scale)})`, textShadow: shadows(outline, ...glow) }}
+              >
+                {w.word}
+              </span>
+            );
+          }
+          // Past words shrink back over 0.3 s after the next word starts.
+          const t = i < activeWordIndex ? sinceNext(words, i, time) : Infinity;
+          const scale = interpolate(t, [0, 0.3], [1.15, 0.9], Ease.ease);
+          const opacity = interpolate(t, [0, 0.3], [1, w.keyword ? 0.8 : 0.5], Ease.ease);
+          return (
+            <span
+              key={key}
+              style={{
+                ...base,
+                display: 'inline-block',
+                marginInline: growRoom(w.word, w.keyword ? 1.2 : 1.15, config),
+                color: w.keyword ? kwColor : fontColor,
+                opacity: r4(opacity),
+                transform: `scale(${r4(scale)})`,
+                textShadow: shadows(outline, restGlow > 0 && `0 0 ${r4(restGlow)}em ${restColor}`),
+              }}
+            >
+              {w.word}
+            </span>
+          );
+        })}
+      </span>
     );
-  }
+  },
 };

@@ -1,19 +1,17 @@
 import React, { useState } from 'react'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { BrandSettings } from '../types'
-import { UploadCloud, FileVideo, Music, Image as ImageIcon, Loader2 } from 'lucide-react'
+import { UploadCloud, FileVideo, Image as ImageIcon, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/engine'
 import { assetUrl } from '@/lib/media'
 import { errorMessage } from '@/lib/format'
 
-type AssetKey = 'overlayUrl' | 'introUrl' | 'musicUrl' | 'sampleVideoUrl'
+type AssetKey = 'overlayUrl' | 'sampleVideoUrl'
 
 // Upload kind sent to the engine (stored under library/<agent>/_assets/)
 const ASSET_KIND: Record<AssetKey, string> = {
   overlayUrl: 'overlay',
-  introUrl: 'intro',
-  musicUrl: 'music',
   sampleVideoUrl: 'sample_video',
 }
 
@@ -21,16 +19,9 @@ interface BrandSettingsPanelProps {
   agentId: string
   brand: BrandSettings
   updateBrand: (updates: Partial<BrandSettings>) => void
-  activeTab: 'overlay' | 'intro' | 'music'
 }
 
-const TAB_TITLE: Record<BrandSettingsPanelProps['activeTab'], string> = {
-  overlay: 'Overlay',
-  intro: 'Intro / outro',
-  music: 'Musik',
-}
-
-export const BrandSettingsPanel: React.FC<BrandSettingsPanelProps> = ({ agentId, brand, updateBrand, activeTab }) => {
+export const BrandSettingsPanel: React.FC<BrandSettingsPanelProps> = ({ agentId, brand, updateBrand }) => {
   const [uploading, setUploading] = useState<AssetKey | null>(null)
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, key: AssetKey) => {
@@ -38,7 +29,7 @@ export const BrandSettingsPanel: React.FC<BrandSettingsPanelProps> = ({ agentId,
     e.target.value = ''
     if (!file) return
 
-    const isVideo = key === 'sampleVideoUrl' || key === 'introUrl'
+    const isVideo = key === 'sampleVideoUrl'
     const maxSize = (isVideo ? 200 : 20) * 1024 * 1024
     if (file.size > maxSize) {
       toast.error(`File terlalu besar. Maksimal ${maxSize / (1024 * 1024)} MB`)
@@ -119,11 +110,9 @@ export const BrandSettingsPanel: React.FC<BrandSettingsPanelProps> = ({ agentId,
 
   return (
     <GlassCard padding="20px" style={{ width: '300px', height: '610px', overflowY: 'auto' }}>
-      <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px' }}>{TAB_TITLE[activeTab]}</h3>
+      <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px' }}>Overlay</h3>
 
-      {activeTab === 'overlay' && renderUploader('Watermark / logo', 'Logo PNG transparan yang ditempel di semua clip. Geser & ubah ukurannya di preview.', 'image/png,image/jpeg,image/webp', 'overlayUrl', ImageIcon, true)}
-      {activeTab === 'intro' && renderUploader('Intro / outro', 'Video pendek yang ditambahkan di awal/akhir clip.', 'video/mp4,video/quicktime', 'introUrl', FileVideo)}
-      {activeTab === 'music' && renderUploader('Musik latar', 'File audio untuk musik latar clip.', 'audio/mpeg,audio/wav,audio/aac,audio/mp4', 'musicUrl', Music)}
+      {renderUploader('Watermark / logo', 'Logo PNG transparan yang ditempel di semua clip. Geser & ubah ukurannya di preview.', 'image/png,image/jpeg,image/webp', 'overlayUrl', ImageIcon, true)}
 
       <div style={{ marginTop: '36px', paddingTop: '20px', borderTop: '1px solid var(--border-glass)' }}>
         {renderUploader('Video contoh', 'Video 3–10 detik sebagai latar preview di halaman ini (tidak ikut dirender).', 'video/mp4,video/webm', 'sampleVideoUrl', FileVideo)}

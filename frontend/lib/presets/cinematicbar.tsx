@@ -1,9 +1,12 @@
 import React from 'react';
 import { SubtitlePreset } from './types';
+import { Ease, interpolate, r4 } from './anim';
+import { dropShadow, keywordColor, shadows, stroke, textBase } from './style';
 
 export const cinematicbarPreset: SubtitlePreset = {
   id: 'cinematicbar',
   name: 'CINEMATIC BAR',
+  wordsPerPage: 1,
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Montserrat',
     fontSize: 36,
@@ -72,80 +75,37 @@ export const cinematicbarPreset: SubtitlePreset = {
       </button>
     );
   },
-  renderPreview: ({ words, activeWordIndex, config }) => {
+  renderPreview: ({ words, activeWordIndex, time, config }) => {
+    const w = words[activeWordIndex];
+    if (!w) return null;
     const fontColor = config.fontColor || '#ffffff';
-    
-    // Helper to map string weights to CSS numbers
-    const getWeight = (weight: string | number | undefined) => {
-      if (typeof weight === 'number') return weight;
-      const w = (weight || '').toLowerCase();
-      if (w.includes('thin')) return 100;
-      if (w.includes('extralight')) return 200;
-      if (w.includes('light')) return 300;
-      if (w.includes('medium')) return 500;
-      if (w.includes('semibold')) return 600;
-      if (w.includes('extrabold')) return 800;
-      if (w.includes('bold')) return 700;
-      if (w.includes('black')) return 900;
-      if (w.includes('regular')) return 400;
-      return 400; // Default fallback
+    const base = textBase(config, { letterSpacing: 8 });
+    // cinematicInAnim: slides up 0.83em and fades in over 0.2 s (ease-in-out)
+    const t = time - w.start;
+    const ty = interpolate(t, [0, 0.2], [0.83, 0], Ease.easeInOut);
+    const opacity = interpolate(t, [0, 0.2], [0, 1], Ease.easeInOut);
+    const bar: React.CSSProperties = {
+      width: '100%',
+      height: 'max(1px, 0.03em)',
+      background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent)',
     };
-    const numericWeight = getWeight(config.fontWeight);
-    
     return (
-      <>
-        <style>
-          {`
-            .cinematic-container {
-              display: flex;
-              align-items: center;
-              flex-wrap: wrap;
-              justify-content: center;
-              max-width: 100%;
-              justify-content: center;
-              width: 100%;
-            }
-            .cinematic-wrap {
-              text-align: center;
-              width: 100%;
-              min-width: 250px; /* Ensure lines are wide enough */
-            }
-            .cinematic-bar-top, .cinematic-bar-bot {
-              width: 100%;
-              margin: 0 auto;
-              height: 1px;
-              background: linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent);
-            }
-            .cinematic-word {
-              font-family: '${config.fontFamily}', sans-serif;
-              font-weight: ${numericWeight};
-              color: ${fontColor};
-              letter-spacing: ${config.letterSpacing !== undefined ? config.letterSpacing : 8}px;
-              line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
-              text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
-              padding: 8px 0;
-            }
-            .cinematic-word.active {
-              animation: cinematicInAnim 1s ease-in-out forwards;
-            }
-            @keyframes cinematicInAnim {
-              0% { transform: translateY(30px); opacity: 0; }
-              15% { transform: translateY(0); opacity: 1; }
-              85% { transform: translateY(0); opacity: 1; }
-              100% { transform: translateY(-10px); opacity: 0; }
-            }
-          `}
-        </style>
-        <div className="cinematic-container">
-          <div className="cinematic-wrap">
-            <div className="cinematic-bar-top"></div>
-            <div key={`active-${activeWordIndex}`} className="cinematic-word active">
-              {words[activeWordIndex]?.word || ''}
-            </div>
-            <div className="cinematic-bar-bot"></div>
-          </div>
+      <div style={{ width: '100%', textAlign: 'center' }}>
+        <div style={bar} />
+        <div
+          style={{
+            ...base,
+            color: w.keyword ? keywordColor(config, fontColor, '#FFD400') : fontColor,
+            textShadow: shadows(stroke(config), dropShadow(config)),
+            padding: '0.22em 0',
+            opacity: r4(opacity),
+            transform: `translateY(${r4(ty)}em)`,
+          }}
+        >
+          {w.word}
         </div>
-      </>
+        <div style={bar} />
+      </div>
     );
-  }
+  },
 };

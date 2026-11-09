@@ -1,9 +1,12 @@
 import React from 'react';
-import { SubtitlePreset, generateRoundedStroke } from './types';
+import { SubtitlePreset } from './types';
+import { Ease, clamp, interpolate, r4 } from './anim';
+import { dropShadow, highlight, shadows, stroke, textBase } from './style';
 
 export const velocityzoomPreset: SubtitlePreset = {
   id: 'velocityzoom',
   name: 'VELOCITY ZOOM',
+  wordsPerPage: 1,
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Montserrat',
     fontSize: 36,
@@ -65,108 +68,34 @@ export const velocityzoomPreset: SubtitlePreset = {
       </button>
     );
   },
-  renderPreview: ({ words, activeWordIndex, config }) => {
-    const activeColor = (config.highlightColor && config.highlightColor !== '#000000') ? config.highlightColor : '#FFD700';
-    const strokeWidth = config.strokeWidth !== undefined ? config.strokeWidth : 8;
-    const fontColor = config.fontColor || '#ffffff';
-    const strokeColor = config.strokeColor || '#000000';
-
-    // Helper to map string weights to CSS numbers
-    const getWeight = (weight: string | number | undefined) => {
-      if (typeof weight === 'number') return weight;
-      const w = (weight || '').toLowerCase();
-      if (w.includes('thin')) return 100;
-      if (w.includes('extralight')) return 200;
-      if (w.includes('light')) return 300;
-      if (w.includes('medium')) return 500;
-      if (w.includes('semibold')) return 600;
-      if (w.includes('extrabold')) return 800;
-      if (w.includes('bold')) return 700;
-      if (w.includes('black')) return 900;
-      if (w.includes('regular')) return 400;
-      return 900;
-    };
-    const numericWeight = getWeight(config.fontWeight);
-    
-    const baseFontSize = config.fontSize || 36;
-    const roundedStrokeShadow = generateRoundedStroke(strokeWidth, strokeColor, baseFontSize);
-
-    let combinedShadows = [];
-    if (config.hasShadow && config.shadowColor) {
-      const blur = config.shadowBlur ?? 0;
-      const xEm = (config.shadowX || 0) / baseFontSize;
-      const yEm = (config.shadowY || 0) / baseFontSize;
-      const blurEm = blur / baseFontSize;
-      combinedShadows.push(`${xEm}em ${yEm}em ${blurEm}em ${config.shadowColor}`);
-    }
-    if (strokeWidth > 0 && roundedStrokeShadow !== 'none') {
-      combinedShadows.push(roundedStrokeShadow);
-    }
-    const finalTextShadow = combinedShadows.length > 0 ? combinedShadows.join(', ') : 'none';
-    const letterSpacingEm = (config.letterSpacing !== undefined ? config.letterSpacing : 4) / baseFontSize;
-
+  renderPreview: ({ words, activeWordIndex, time, config }) => {
+    const w = words[activeWordIndex];
+    if (!w) return null;
+    const activeColor = highlight(config, '#FFD700');
+    const base = textBase(config, { letterSpacing: 2 });
+    // velocityImpact 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275): 0% → 50% → 100%
+    const t = time - w.start;
+    const k = [0, 0.15, 0.3];
+    const peak = w.keyword ? 1.45 : 1.3;
+    const scale = interpolate(t, k, [0.3, peak, w.keyword ? 1.12 : 1], Ease.backOut);
+    const rotate = interpolate(t, k, [5, -3, 0], Ease.backOut);
+    const opacity = clamp(interpolate(t, [0, 0.15], [0, 1], Ease.backOut));
     return (
-      <>
-        <style>
-          {`
-            .velocityzoom-container {
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              width: 100%;
-              text-align: center;
-            }
-
-            .velocityzoom-word {
-              display: inline-block;
-              font-family: ${config.fontFamily || 'Montserrat'}, sans-serif;
-              font-size: ${baseFontSize}px;
-              font-weight: ${numericWeight};
-              color: ${activeColor};
-              font-style: ${config.isItalic ? 'italic' : 'normal'};
-              text-decoration: ${config.isUnderline ? 'underline' : 'none'};
-              text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
-              
-              letter-spacing: ${letterSpacingEm}em;
-              line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
-              text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
-              text-shadow: ${finalTextShadow};
-              
-              /* Impact animation */
-              animation: velocityImpact 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-              transform-origin: center center;
-            }
-
-            @keyframes velocityImpact {
-              0% {
-                transform: scale(0.3) rotate(5deg);
-                opacity: 0;
-              }
-              50% {
-                transform: scale(1.3) rotate(-3deg);
-                opacity: 1;
-              }
-              100% {
-                transform: scale(1) rotate(0deg);
-                opacity: 1;
-              }
-            }
-          `}
-        </style>
-        <div className="velocityzoom-container">
-          {words.map((w, index) => {
-            const isActive = index === activeWordIndex;
-            // Strict Single Word Mode: Only render if it's the active word
-            if (!isActive) return null;
-            
-            return (
-              <span key={index} className="velocityzoom-word">
-                {w.word}
-              </span>
-            );
-          })}
-        </div>
-      </>
+      <div style={{ display: 'flex', justifyContent: 'center', width: '100%', textAlign: 'center' }}>
+        <span
+          style={{
+            ...base,
+            display: 'inline-block',
+            color: w.keyword ? '#FFFFFF' : activeColor,
+            textShadow: shadows(stroke(config, 8), dropShadow(config)),
+            transformOrigin: 'center center',
+            transform: `scale(${r4(scale)}) rotate(${r4(rotate)}deg)`,
+            opacity: r4(opacity),
+          }}
+        >
+          {w.word}
+        </span>
+      </div>
     );
-  }
+  },
 };

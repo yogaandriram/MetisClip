@@ -1,9 +1,12 @@
 import React from 'react';
-import { SubtitlePreset, generateRoundedStroke } from './types';
+import { SubtitlePreset } from './types';
+import { Ease, clamp, interpolate, r4 } from './anim';
+import { dropShadow, growRoom, highlight, keywordColor, rowStyle, shadows, sinceNext, stroke, textBase } from './style';
 
 export const popshadowPreset: SubtitlePreset = {
   id: 'popshadow',
   name: 'POP SHADOW',
+  wordsPerPage: 3,
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Montserrat',
     fontSize: 36,
@@ -65,88 +68,52 @@ export const popshadowPreset: SubtitlePreset = {
       </button>
     );
   },
-  renderPreview: ({ words, activeWordIndex, config }) => {
-    const activeColor = (config.highlightColor && config.highlightColor !== '#000000') ? config.highlightColor : '#A855F7';
-    const strokeWidth = config.strokeWidth !== undefined ? config.strokeWidth : 6;
+  renderPreview: ({ words, activeWordIndex, time, config }) => {
     const fontColor = config.fontColor || '#ffffff';
-    const strokeColor = config.strokeColor || '#000000';
+    const activeColor = highlight(config, '#A855F7');
+    const kwColor = keywordColor(config, fontColor, '#A855F7');
+    const base = textBase(config);
+    const textShadow = shadows(stroke(config), dropShadow(config));
 
-    // Helper to map string weights to CSS numbers
-    const getWeight = (weight: string | number | undefined) => {
-      if (typeof weight === 'number') return weight;
-      const w = (weight || '').toLowerCase();
-      if (w.includes('thin')) return 100;
-      if (w.includes('extralight')) return 200;
-      if (w.includes('light')) return 300;
-      if (w.includes('medium')) return 500;
-      if (w.includes('semibold')) return 600;
-      if (w.includes('extrabold')) return 800;
-      if (w.includes('bold')) return 700;
-      if (w.includes('black')) return 900;
-      if (w.includes('regular')) return 400;
-      return 400;
-    };
-    const numericWeight = getWeight(config.fontWeight);
-    const baseFontSize = config.fontSize || 36;
-    const roundedStrokeShadow = generateRoundedStroke(strokeWidth, strokeColor, baseFontSize);
-
-    let combinedShadows = [];
-    if (config.hasShadow && config.shadowColor) {
-      const blur = config.shadowBlur ?? 0;
-      const xEm = (config.shadowX || 0) / baseFontSize;
-      const yEm = (config.shadowY || 0) / baseFontSize;
-      const blurEm = blur / baseFontSize;
-      combinedShadows.push(`${xEm}em ${yEm}em ${blurEm}em ${config.shadowColor}`);
-    }
-    if (strokeWidth > 0 && roundedStrokeShadow !== 'none') {
-      combinedShadows.push(roundedStrokeShadow);
-    }
-    const finalTextShadow = combinedShadows.length > 0 ? combinedShadows.join(', ') : 'none';
-    const letterSpacingEm = (config.letterSpacing !== undefined ? config.letterSpacing : 2) / baseFontSize;
-    
     return (
-      <>
-        <style>
-          {`
-            .popshadow-container {
-              display: inline-flex;
-              gap: 12px;
-              align-items: center;
-              flex-wrap: wrap;
-              justify-content: center;
-              max-width: 100%;
-              padding: 10px; /* To prevent drop-shadow clipping */
-            }
-            .popshadow-word {
-              display: inline-block;
-              font-family: '${config.fontFamily}', var(--font-display);
-              font-weight: ${numericWeight};
-              text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
-              letter-spacing: ${letterSpacingEm}em;
-              line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
-              text-shadow: ${finalTextShadow};
-              color: ${fontColor};
-            }
-            .popshadow-word.inactive {
-              opacity: 0.9;
-            }
-            .popshadow-word.active {
-              color: ${activeColor};
-              transform-origin: center;
-              animation: popShadowAnim 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
-            }
-            @keyframes popShadowAnim {
-              0% { transform: scale(0.8) translateY(0.277em); opacity: 0; }
-              100% { transform: scale(1.15) translateY(-0.111em); opacity: 1; }
-            }
-          `}
-        </style>
-        <span className="popshadow-container">
-          <span key={`prev-${activeWordIndex}`} className="popshadow-word inactive">{words[activeWordIndex - 1]?.word}</span>
-          <span key={`active-${activeWordIndex}`} className="popshadow-word active">{words[activeWordIndex].word}</span>
-          <span key={`next-${activeWordIndex}`} className="popshadow-word inactive">{words[activeWordIndex + 1]?.word}</span>
-        </span>
-      </>
+      <span style={{ ...rowStyle(0.3), padding: '0.28em' }}>
+        {words.map((w, i) => {
+          let scale = 1;
+          let ty = 0;
+          let opacity = 0.9;
+          let color = w.keyword ? kwColor : fontColor;
+          if (i === activeWordIndex) {
+            // popShadowAnim 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)
+            const t = time - w.start;
+            const peak = w.keyword ? 1.2 : 1.15;
+            scale = interpolate(t, [0, 0.4], [0.8, peak], Ease.backOut);
+            ty = interpolate(t, [0, 0.4], [0.277, -0.111], Ease.backOut);
+            opacity = clamp(interpolate(t, [0, 0.4], [0, 1], Ease.backOut));
+            color = activeColor;
+          } else if (i < activeWordIndex) {
+            const t = sinceNext(words, i, time);
+            scale = interpolate(t, [0, 0.12], [w.keyword ? 1.2 : 1.15, 1], Ease.easeOut);
+            ty = interpolate(t, [0, 0.12], [-0.111, 0], Ease.easeOut);
+          }
+          return (
+            <span
+              key={`${i}-${w.start}`}
+              style={{
+                ...base,
+                display: 'inline-block',
+                marginInline: growRoom(w.word, w.keyword ? 1.2 : 1.15, config),
+                color,
+                textShadow,
+                opacity: r4(opacity),
+                transform: `translateY(${r4(ty)}em) scale(${r4(scale)})`,
+                transformOrigin: 'center',
+              }}
+            >
+              {w.word}
+            </span>
+          );
+        })}
+      </span>
     );
-  }
+  },
 };

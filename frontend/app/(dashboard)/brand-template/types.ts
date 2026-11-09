@@ -1,42 +1,20 @@
+import type { CaptionStyle } from '@/lib/presets/defaults';
+import { resolveCaptionStyle } from '@/lib/presets/defaults';
+import { type AiCaptionSettings, DEFAULT_AI_SETTINGS } from '@/lib/presets/captions';
+
 export interface LayoutSettings {
-  aspect: string;
-  fit: string;
+  /** Platform UI guide drawn on the preview only (never rendered into the clip). */
   safeZone?: 'none' | 'tiktok' | 'reels' | 'shorts';
 }
 
-export interface CaptionSettings {
-  mode: string;
-  fontFamily: string;
-  fontSize: number;
-  fontWeight: string;
-  fontColor: string;
-  isItalic: boolean;
-  isUnderline: boolean;
-  isUppercase: boolean;
-  strokeColor: string;
-  strokeWidth: number;
-  hasShadow: boolean;
-  shadowColor: string;
-  shadowX: number;
-  shadowY: number;
-  shadowBlur: number;
-  highlightColor: string;
-  positionY: number;
-  letterSpacing: number;
-  lineHeight: number;
-}
+/** Same model as the clip editor and the render (lib/presets/defaults.ts). */
+export type CaptionSettings = CaptionStyle;
 
-export interface AiSettings {
-  fillerWords: boolean;
-  pauses: boolean;
-  keywords: boolean;
-  emojis: boolean;
-}
+/** Applied when clips are processed and rendered; each clip can override them in the editor. */
+export type AiSettings = AiCaptionSettings;
 
 export interface BrandSettings {
   overlayUrl?: string;
-  introUrl?: string;
-  musicUrl?: string;
   sampleVideoUrl?: string;
   logoPosition?: { x: number, y: number };
   logoScale?: number;
@@ -55,41 +33,12 @@ export interface TemplateConfig {
 
 export const DEFAULT_TEMPLATE_CONFIG: TemplateConfig = {
   layout_settings: {
-    aspect: '9:16',
-    fit: 'Cover',
     safeZone: 'tiktok'
   },
-  caption_settings: {
-    mode: 'popshadow',
-    fontFamily: 'Montserrat',
-    fontSize: 36,
-    fontWeight: 'Regular',
-    fontColor: '#FFFFFF',
-    isItalic: false,
-    isUnderline: false,
-    isUppercase: false,
-    strokeColor: '#000000',
-    strokeWidth: 0,
-    hasShadow: true,
-    shadowColor: '#000000',
-    shadowX: 2,
-    shadowY: 2,
-    shadowBlur: 4,
-    highlightColor: '#FFFF00',
-    positionY: 240,
-    letterSpacing: 0,
-    lineHeight: 1.2
-  },
-  ai_settings: {
-    fillerWords: true,
-    pauses: true,
-    keywords: true,
-    emojis: false
-  },
+  caption_settings: resolveCaptionStyle({ mode: 'popshadow' }),
+  ai_settings: { ...DEFAULT_AI_SETTINGS },
   brand_settings: {
     overlayUrl: '',
-    introUrl: '',
-    musicUrl: '',
     sampleVideoUrl: ''
   }
 };

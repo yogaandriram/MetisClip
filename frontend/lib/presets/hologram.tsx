@@ -1,9 +1,12 @@
 import React from 'react';
-import { SubtitlePreset, generateRoundedStroke } from './types';
+import { SubtitlePreset } from './types';
+import { Ease, cycle, interpolate, r4 } from './anim';
+import { em, keywordColor, shadows, stroke, textBase } from './style';
 
 export const hologramPreset: SubtitlePreset = {
   id: 'hologram',
   name: 'HOLOGRAM',
+  wordsPerPage: 1,
   getDefaultConfig: (baseHighlightColor?: string) => ({
     fontFamily: 'Orbitron',
     fontSize: 36,
@@ -77,110 +80,53 @@ export const hologramPreset: SubtitlePreset = {
       </button>
     );
   },
-  renderPreview: ({ words, activeWordIndex, config }) => {
+  renderPreview: ({ words, activeWordIndex, time, config }) => {
+    const w = words[activeWordIndex];
+    if (!w) return null;
     const fontColor = config.fontColor || '#00ffff';
-    
-    // Helper to map string weights to CSS numbers
-    const getWeight = (weight: string | number | undefined) => {
-      if (typeof weight === 'number') return weight;
-      const w = (weight || '').toLowerCase();
-      if (w.includes('thin')) return 100;
-      if (w.includes('extralight')) return 200;
-      if (w.includes('light')) return 300;
-      if (w.includes('medium')) return 500;
-      if (w.includes('semibold')) return 600;
-      if (w.includes('extrabold')) return 800;
-      if (w.includes('bold')) return 700;
-      if (w.includes('black')) return 900;
-      if (w.includes('regular')) return 400;
-      return 400; // Default fallback
-    };
-    const numericWeight = getWeight(config.fontWeight);
-    
-    const baseFontSize = config.fontSize || 36;
-    const strokeWidth = config.strokeWidth || 0;
-    const strokeColor = config.strokeColor || '#000000';
-    const roundedStrokeShadow = generateRoundedStroke(strokeWidth, strokeColor, baseFontSize);
+    const color = w.keyword ? keywordColor(config, fontColor, '#FFD400') : fontColor;
+    const base = textBase(config, { letterSpacing: 5 });
+    const blur = em(config.shadowBlur ?? 12, config);
+    const glow = config.hasShadow && config.shadowColor ? `0 0 ${r4(blur)}em ${config.shadowColor}, 0 0 ${r4(blur * 2)}em ${config.shadowColor}` : null;
+    const chroma = '0.083em 0 0.083em rgba(255,0,0,0.5), -0.083em 0 0.083em rgba(0,0,255,0.5)';
 
-    let combinedShadows = [];
-    if (config.hasShadow && config.shadowColor) {
-      const blur = config.shadowBlur ?? 12;
-      const blurEm = blur / baseFontSize;
-      const blurEm2 = (blur * 2) / baseFontSize;
-      combinedShadows.push(`0 0 ${blurEm}em ${config.shadowColor}, 0 0 ${blurEm2}em ${config.shadowColor}, 0.083em 0 0.083em rgba(255,0,0,0.5), -0.083em 0 0.083em rgba(0,0,255,0.5)`);
-    } else {
-      combinedShadows.push(`0.083em 0 0.083em rgba(255,0,0,0.5), -0.083em 0 0.083em rgba(0,0,255,0.5)`);
-    }
-    
-    if (strokeWidth > 0 && roundedStrokeShadow !== 'none') {
-      combinedShadows.push(roundedStrokeShadow);
-    }
-    const finalTextShadow = combinedShadows.length > 0 ? combinedShadows.join(', ') : 'none';
-    const letterSpacingEm = (config.letterSpacing !== undefined ? config.letterSpacing : 5) / baseFontSize;
-    
+    // holoAnim 0.15s infinite (flicker) and holoScanAnim 1.5s linear infinite (scan line)
+    const f = cycle(time - w.start, 0.15);
+    const opacity = interpolate(f, [0, 0.25, 0.75, 1], [0.85, 1, 0.9, 0.85], Ease.easeInOut);
+    const skew = interpolate(f, [0, 0.25, 0.75, 1], [0, 0.5, -0.5, 0], Ease.easeInOut);
+    const scanTop = -25 + 135 * cycle(time, 1.5);
+
     return (
-      <>
-        <style>
-          {`
-            .holo-container {
-              display: flex;
-              align-items: center;
-              flex-wrap: wrap;
-              justify-content: center;
-              max-width: 100%;
-              justify-content: center;
-              width: 100%;
-              padding: 20px;
-            }
-            .holo-wrap {
-              position: relative;
-              overflow: hidden;
-              padding: 10px 20px;
-            }
-            .holo-scan {
-              position: absolute;
-              left: 0;
-              width: 100%;
-              height: 25%;
-              background: linear-gradient(transparent, rgba(0,255,255,0.4), transparent);
-              animation: holoScanAnim 1.5s linear infinite;
-              z-index: 1;
-              pointer-events: none;
-            }
-            .holo-word {
-              font-family: '${config.fontFamily}', sans-serif;
-              font-weight: ${numericWeight};
-              color: ${fontColor};
-              letter-spacing: ${letterSpacingEm}em;
-              line-height: ${config.lineHeight !== undefined ? config.lineHeight : 1.2};
-              text-transform: ${config.isUppercase ? 'uppercase' : 'none'};
-              text-shadow: ${finalTextShadow};
-              animation: holoAnim 0.15s ease-in-out infinite;
-              position: relative;
-              z-index: 2;
-            }
-            
-            @keyframes holoAnim {
-              0%,100% { opacity: 0.85; transform: skewX(0deg); }
-              25% { opacity: 1; transform: skewX(0.5deg); }
-              75% { opacity: 0.9; transform: skewX(-0.5deg); }
-            }
-            @keyframes holoScanAnim {
-              0% { top: -25%; }
-              100% { top: 110%; }
-            }
-          `}
-        </style>
-        <div className="holo-container">
-          <div className="holo-wrap">
-            <div className="holo-scan"></div>
-            {/* Hanya kata aktif (single word) tanpa sebelum/sesudah */}
-            <span key={`active-${activeWordIndex}`} className="holo-word">
-              {words[activeWordIndex]?.word || ''}
-            </span>
-          </div>
+      <div style={{ display: 'flex', justifyContent: 'center', width: '100%', padding: '0.28em 0' }}>
+        <div style={{ position: 'relative', overflow: 'hidden', padding: '0.28em 0.56em' }}>
+          <div
+            style={{
+              position: 'absolute',
+              left: 0,
+              width: '100%',
+              height: '25%',
+              top: `${r4(scanTop)}%`,
+              background: 'linear-gradient(transparent, rgba(0,255,255,0.4), transparent)',
+              zIndex: 1,
+              pointerEvents: 'none',
+            }}
+          />
+          <span
+            style={{
+              ...base,
+              display: 'inline-block',
+              position: 'relative',
+              zIndex: 2,
+              color,
+              textShadow: shadows(stroke(config), glow, chroma),
+              opacity: r4(opacity),
+              transform: `skewX(${r4(skew)}deg)${w.keyword ? ' scale(1.1)' : ''}`,
+            }}
+          >
+            {w.word}
+          </span>
         </div>
-      </>
+      </div>
     );
-  }
+  },
 };
