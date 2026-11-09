@@ -1,26 +1,48 @@
 {
-  "name": "render-engine",
-  "version": "1.0.0",
-  "main": "index.js",
+  "name": "metisclip-render-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MetisClip render worker: prebuilt Remotion bundle + programmatic renderMedia worker",
+  "license": "UNLICENSED",
+  "main": "dist/render.js",
   "scripts": {
-    "start": "remotion preview src/index.ts",
-    "build": "remotion bundle src/index.ts",
-    "render": "remotion render src/index.ts SubtitleOverlay out.mp4"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
-  "devDependencies": {
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "typescript": "^6.0.3"
+    "start": "remotion studio src/index.ts",
+    "bundle": "remotion bundle src/index.ts --out-dir build",
+    "build:worker": "tsc -p tsconfig.worker.json",
+    "build": "npm run bundle && npm run build:worker",
+    "browser:ensure": "remotion browser ensure",
+    "gen:fonts": "node scripts/gen-fonts.cjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.worker.json --noEmit",
+    "render": "node dist/render.js"
   },
   "dependencies": {
-    "@remotion/cli": "^4.0.476",
-    "@remotion/google-fonts": "^4.0.478",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
-    "remotion": "^4.0.476"
+    "@remotion/renderer": "4.0.476",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.476"
+  },
+  "devDependencies": {
+    "@fontsource/anton": "5.3.0",
+    "@fontsource/bangers": "5.3.0",
+    "@fontsource/bebas-neue": "5.3.0",
+    "@fontsource/exo-2": "5.3.0",
+    "@fontsource/fredoka": "5.3.0",
+    "@fontsource/inter": "5.3.0",
+    "@fontsource/lilita-one": "5.3.0",
+    "@fontsource/montserrat": "5.3.0",
+    "@fontsource/orbitron": "5.3.0",
+    "@fontsource/oswald": "5.3.0",
+    "@fontsource/outfit": "5.3.0",
+    "@fontsource/permanent-marker": "5.3.0",
+    "@fontsource/plus-jakarta-sans": "5.3.0",
+    "@fontsource/poppins": "5.3.0",
+    "@fontsource/righteous": "5.3.0",
+    "@fontsource/roboto": "5.3.0",
+    "@fontsource/russo-one": "5.3.0",
+    "@remotion/cli": "4.0.476",
+    "@types/node": "22.20.5",
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
+    "typescript": "6.0.3"
   }
 }
