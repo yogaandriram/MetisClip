@@ -11,22 +11,22 @@ export const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({ ai, updateAi }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', padding: '8px' }}>
       <ToggleSwitch 
-        label="Remove filler words" 
+        label="Hapus kata pengisi (eh, hmm)" 
         checked={ai.fillerWords} 
         onChange={(v) => updateAi({ fillerWords: v })} 
       />
       <ToggleSwitch 
-        label="Remove pauses" 
+        label="Hapus jeda hening" 
         checked={ai.pauses} 
         onChange={(v) => updateAi({ pauses: v })} 
       />
       <ToggleSwitch 
-        label="AI keywords highlighter" 
+        label="Sorot kata kunci (AI)" 
         checked={ai.keywords} 
         onChange={(v) => updateAi({ keywords: v })} 
       />
       <ToggleSwitch 
-        label="AI emojis" 
+        label="Emoji otomatis (AI)" 
         checked={ai.emojis} 
         onChange={(v) => updateAi({ emojis: v })} 
       />

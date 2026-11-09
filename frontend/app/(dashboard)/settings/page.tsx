@@ -1,360 +1,359 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
-import { Settings, Shield, Key, Sliders, Check, HelpCircle, Video, Bot, Instagram, Smartphone } from 'lucide-react'
-import { useAgent } from '@/contexts/AgentContext'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import React, { useCallback, useEffect, useState } from 'react'
+import { Bot, KeyRound, Cpu, HardDrive, FolderOpen, Save, AppWindow } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { GlassCard } from '../../../components/ui/GlassCard'
-import { Button } from '../../../components/ui/Button'
-import { InputField } from '../../../components/ui/InputField'
-import { SelectField } from '../../../components/ui/SelectField'
-import { Badge } from '../../../components/ui/Badge'
-import { Divider } from '../../../components/ui/Divider'
+import { GlassCard } from '@/components/ui/GlassCard'
+import { Button } from '@/components/ui/Button'
+import { InputField } from '@/components/ui/InputField'
+import { SelectField } from '@/components/ui/SelectField'
+import { ToggleSwitch } from '@/components/ui/ToggleSwitch'
+import { Skeleton } from '@/components/ui/Skeleton'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { SecretField } from '@/components/settings/SecretField'
+import { LlmFields } from '@/components/settings/LlmFields'
+import { AgentForm, toAgentInput, type AgentFormValue } from '@/components/agents/AgentForm'
+import { useAgent } from '@/contexts/AgentContext'
+import { useEngine } from '@/contexts/EngineContext'
+import { api, type EncoderSetting, type SecretName, type Settings } from '@/lib/engine'
+import { errorMessage } from '@/lib/format'
+import { isDesktop } from '@/lib/media'
+
+const ENCODER_LABELS: Record<EncoderSetting, string> = {
+  auto: 'Otomatis (pilih yang tercepat)',
+  libx264: 'CPU (libx264)',
+  h264_nvenc: 'NVIDIA (NVENC)',
+  h264_qsv: 'Intel Quick Sync',
+  h264_amf: 'AMD (AMF)',
+}
+
+const SECRETS: { name: SecretName; label: string; description: string }[] = [
+  { name: 'llm_api_key', label: 'API key LLM', description: 'Untuk analisis transkrip & pemilihan momen viral.' },
+  { name: 'groq_api_key', label: 'API key Groq (Whisper)', description: 'Untuk transkripsi subtitle per kata.' },
+  { name: 'youtube_api_key', label: 'API key YouTube Data v3', description: 'Untuk pencarian video berdasarkan keyword.' },
+]
+
+function Card({ icon: Icon, color, title, subtitle, children }: { icon: React.ElementType; color: string; title: string; subtitle?: string; children: React.ReactNode }) {
+  return (
+    <GlassCard glow hoverEffect={false} padding="28px">
+      <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: subtitle ? '6px' : '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <Icon size={20} color={color} /> {title}
+      </h3>
+      {subtitle && <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '20px', lineHeight: 1.5 }}>{subtitle}</p>}
+      {children}
+    </GlassCard>
+  )
+}
+
+function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px', padding: '12px 0', borderBottom: '1px solid var(--border-glass)' }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: '14px', fontWeight: 600 }}>{label}</div>
+        {hint && <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px', lineHeight: 1.5 }}>{hint}</div>}
+      </div>
+      <div style={{ flexShrink: 0 }}>{children}</div>
+    </div>
+  )
+}
+
+function PathRow({ label, hint, value, onPick, onOpen, placeholder }: { label: string; hint?: string; value: string | null; onPick?: () => void; onOpen?: () => void; placeholder?: string }) {
+  return (
+    <div style={{ padding: '12px 0', borderBottom: '1px solid var(--border-glass)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <div>
+        <div style={{ fontSize: '14px', fontWeight: 600 }}>{label}</div>
+        {hint && <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>{hint}</div>}
+      </div>
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <div className="mc-mono" style={{ flex: 1, fontSize: '12px', padding: '10px 12px', borderRadius: '8px', background: 'rgba(0,0,0,0.25)', border: '1px solid var(--border-glass)', wordBreak: 'break-all', color: value ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+          {value || placeholder || '-'}
+        </div>
+        {onPick && (
+          <Button type="button" variant="secondary" size="sm" onClick={onPick}>
+            Ubah…
+          </Button>
+        )}
+        {onOpen && (
+          <button type="button" className="mc-icon-button" onClick={onOpen} title="Buka di Explorer">
+            <FolderOpen size={15} />
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+const numberStyle: React.CSSProperties = { width: '110px' }
 
 export default function SettingsPage() {
   const { activeAgent, refreshAgents } = useAgent()
-  const supabase = createClientComponentClient()
-  const searchParams = useSearchParams()
-  const router = useRouter()
+  const { epoch, systemInfo, refreshSystemInfo } = useEngine()
+  const desktop = isDesktop()
 
-  const [channelId, setChannelId] = useState('')
-  const [isYoutubeConnected, setIsYoutubeConnected] = useState(false)
-  const [isConnectingYt, setIsConnectingYt] = useState(false)
+  const [settings, setSettings] = useState<Settings | null>(null)
+  const [savedSettings, setSavedSettings] = useState('')
+  const [encoders, setEncoders] = useState<string[]>([])
+  const [secrets, setSecrets] = useState<Record<SecretName, boolean> | null>(null)
+  const [secretValues, setSecretValues] = useState<Record<SecretName, string>>({ llm_api_key: '', groq_api_key: '', youtube_api_key: '' })
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
 
-  const [tiktokAccountId, setTiktokAccountId] = useState('')
-  const [isTiktokConnected, setIsTiktokConnected] = useState(false)
-  const [isConnectingTiktok, setIsConnectingTiktok] = useState(false)
+  const load = useCallback(async () => {
+    setLoadError(null)
+    try {
+      const [s, sec] = await Promise.all([api.settings.get(), api.secrets.status()])
+      setSettings(s.settings)
+      setSavedSettings(JSON.stringify(s.settings))
+      setSecrets(sec.secrets)
+    } catch (err) {
+      setLoadError(errorMessage(err, 'Gagal memuat pengaturan'))
+    }
+    api.system
+      .check()
+      .then((c) => setEncoders(c.encoders))
+      .catch(() => setEncoders([]))
+  }, [])
 
-  const [instagramAccountId, setInstagramAccountId] = useState('')
-  const [isInstagramConnected, setIsInstagramConnected] = useState(false)
-  const [isConnectingInstagram, setIsConnectingInstagram] = useState(false)
-
-  const [defaultDuration, setDefaultDuration] = useState('45-60')
-  const [defaultKeywords, setDefaultKeywords] = useState('')
-  const [isSaved, setIsSaved] = useState(false)
-
-  // Handle Composio connection callback
   useEffect(() => {
-    const connectedApp = searchParams.get('composio_connected')
-    if (connectedApp && activeAgent) {
-      toast.loading(`Menyinkronkan status ${connectedApp}...`, { id: 'sync' })
-      fetch('/api/composio/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: activeAgent.id, appName: connectedApp })
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (data.success) {
-            toast.success(`Berhasil menyambungkan ${connectedApp}!`, { id: 'sync' })
-            checkSocialConnections(activeAgent.id)
-          } else {
-            toast.error(data.error || 'Gagal menyinkronkan koneksi', { id: 'sync' })
-          }
-          router.replace('/settings', { scroll: false })
-        })
-        .catch(err => {
-          toast.error('Gagal menyinkronkan dengan server', { id: 'sync' })
-          router.replace('/settings', { scroll: false })
-        })
-    }
-  }, [searchParams, activeAgent, router])
+    load()
+  }, [load, epoch])
 
-  // Load active agent data
-  useEffect(() => {
-    if (activeAgent) {
-      setDefaultDuration(activeAgent.default_duration || '45-60')
-      setDefaultKeywords(activeAgent.default_keywords || '')
-      checkSocialConnections(activeAgent.id)
-    } else {
-      setIsYoutubeConnected(false)
-      setIsTiktokConnected(false)
-      setIsInstagramConnected(false)
-      setDefaultKeywords('')
-    }
-  }, [activeAgent])
+  const dirty = settings ? JSON.stringify(settings) !== savedSettings : false
 
-  const checkSocialConnections = async (agentId: string) => {
+  const patch = <K extends keyof Settings>(key: K, value: Settings[K]) => setSettings((s) => (s ? { ...s, [key]: value } : s))
+
+  const saveSettings = async () => {
+    if (!settings) return
+    setSaving(true)
     try {
-      const { data: connections, error } = await supabase
-        .from('agent_social_connections')
-        .select('*')
-        .eq('agent_id', agentId)
-
-      if (error) {
-        console.error("Gagal mengecek status dari Supabase", error)
-        setIsYoutubeConnected(false)
-        setIsTiktokConnected(false)
-        setIsInstagramConnected(false)
-        return
-      }
-
-      const yt = connections?.find(c => c.platform.toLowerCase() === 'youtube')
-      if (yt) {
-        setIsYoutubeConnected(true)
-        setChannelId(yt.platform_account_name || yt.platform_account_id || 'Terhubung via Supabase')
-      } else {
-        setIsYoutubeConnected(false)
-        setChannelId('')
-      }
-
-      const tt = connections?.find(c => c.platform.toLowerCase() === 'tiktok')
-      if (tt) {
-        setIsTiktokConnected(true)
-        setTiktokAccountId(tt.platform_account_name || tt.platform_account_id || 'Terhubung via Supabase')
-      } else {
-        setIsTiktokConnected(false)
-        setTiktokAccountId('')
-      }
-
-      const ig = connections?.find(c => c.platform.toLowerCase() === 'instagram')
-      if (ig) {
-        setIsInstagramConnected(true)
-        setInstagramAccountId(ig.platform_account_name || ig.platform_account_id || 'Terhubung via Supabase')
-      } else {
-        setIsInstagramConnected(false)
-        setInstagramAccountId('')
-      }
+      const { settings: next } = await api.settings.update(settings)
+      setSettings(next)
+      setSavedSettings(JSON.stringify(next))
+      refreshSystemInfo()
+      toast.success('Pengaturan disimpan')
     } catch (err) {
-      console.error("Gagal mengecek status", err)
-      setIsYoutubeConnected(false)
-      setIsTiktokConnected(false)
-      setIsInstagramConnected(false)
+      toast.error(errorMessage(err, 'Gagal menyimpan pengaturan'))
+    } finally {
+      setSaving(false)
     }
   }
 
-  const handleConnect = async (appName: string, setLoading: (b: boolean) => void) => {
-    if (!activeAgent) {
-      toast.error('Pilih Super Agent terlebih dahulu!')
-      return
-    }
-    
-    setLoading(true)
-    try {
-      const res = await fetch('/api/composio/connect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: activeAgent.id, appName })
-      })
-      
-      const data = await res.json()
-      
-      if (data.redirectUrl) {
-        window.location.href = data.redirectUrl
-      } else {
-        toast.error(data.error || `Gagal membuat sesi Composio untuk ${appName}`)
-        setLoading(false)
+  const saveLlmOnly = async () => {
+    if (!settings) return
+    const { settings: next } = await api.settings.update({ llm: settings.llm })
+    setSettings((s) => (s ? { ...s, llm: next.llm } : s))
+    setSavedSettings((prev) => {
+      try {
+        return JSON.stringify({ ...JSON.parse(prev), llm: next.llm })
+      } catch {
+        return prev
       }
-    } catch (err) {
-      toast.error('Terjadi kesalahan jaringan')
-      setLoading(false)
-    }
+    })
   }
 
-  const handleDisconnect = async (platform: string, setLoading: (b: boolean) => void) => {
-    if (!activeAgent) return;
-    
-    if (!window.confirm(`Apakah Anda yakin ingin memutus koneksi akun ${platform} ini?`)) return;
-    
-    setLoading(true);
-    try {
-      const res = await fetch('/api/composio/disconnect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: activeAgent.id, platform })
-      });
-      
-      const data = await res.json();
-      if (data.success) {
-        toast.success(`Koneksi ${platform} berhasil diputus`);
-        checkSocialConnections(activeAgent.id);
-      } else {
-        toast.error(data.error || `Gagal memutus koneksi ${platform}`);
-      }
-    } catch (err) {
-      toast.error('Terjadi kesalahan saat memutus koneksi');
-    }
-    setLoading(false);
-  }
-
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const saveAgent = async (value: AgentFormValue) => {
     if (!activeAgent) return
-
-    setIsSaved(true)
-    const { error } = await supabase
-      .from('super_agents')
-      .update({
-        default_duration: defaultDuration,
-        default_keywords: defaultKeywords
-      })
-      .eq('id', activeAgent.id)
-
-    if (error) {
-      toast.error('Gagal menyimpan pengaturan')
-    } else {
-      toast.success('Pengaturan Agent disimpan!')
-      refreshAgents()
+    try {
+      await api.agents.update(activeAgent.id, toAgentInput(value))
+      await refreshAgents()
+      toast.success('Pengaturan agent disimpan')
+    } catch (err) {
+      toast.error(errorMessage(err))
     }
-
-    setTimeout(() => {
-      setIsSaved(false)
-    }, 2000)
   }
+
+  const pickFolder = async (title: string, current: string | undefined) => (window.metis ? window.metis.selectFolder({ title, defaultPath: current }) : null)
+
+  const openFolder = async (path: string | undefined | null) => {
+    if (!window.metis || !path) return
+    const res = await window.metis.openPath(path)
+    if (!res.ok) toast.error(res.error || 'Folder tidak dapat dibuka')
+  }
+
+  const encoderOptions = (['auto', 'libx264', 'h264_nvenc', 'h264_qsv', 'h264_amf'] as EncoderSetting[])
+    .filter((e) => e === 'auto' || e === 'libx264' || encoders.includes(e) || settings?.processing.encoder === e)
+    .map((e) => ({ value: e, label: ENCODER_LABELS[e] }))
 
   return (
-    <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-      {/* Header title */}
-      <div style={{ marginBottom: '40px' }}>
-        <h1 style={{ fontSize: '32px', fontWeight: '800', marginBottom: '8px' }}>Pengaturan Agent</h1>
-        <p style={{ color: 'var(--text-muted)' }}>
-          {activeAgent 
-            ? <span>Mengatur preferensi untuk <strong>{activeAgent.name}</strong></span> 
-            : 'Silakan pilih atau buat Super Agent di menu atas untuk mengatur preferensinya.'}
-        </p>
-      </div>
+    <div style={{ maxWidth: '860px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '26px' }}>
+      <PageHeader title="Pengaturan" subtitle="Preferensi agent, API key, pemrosesan video, dan penyimpanan lokal." />
 
-      {!activeAgent ? (
-        <div style={{ textAlign: 'center', padding: '60px 20px', border: '1px dashed var(--border-glass)', borderRadius: '16px' }}>
-          <Bot size={48} color="var(--text-muted)" style={{ marginBottom: '16px', opacity: 0.5 }} />
-          <h3 style={{ fontSize: '18px', color: 'var(--text-primary)', marginBottom: '8px' }}>Pilih Super Agent</h3>
-          <p style={{ fontSize: '14px', color: 'var(--text-muted)' }}>Anda harus memilih Super Agent aktif di menu samping untuk mengubah pengaturan integrasi.</p>
-        </div>
-      ) : (
-      <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
-        
-        {/* YouTube OAuth block */}
-        <GlassCard glow={true} padding="30px">
-          <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Video size={20} color="#FF0000" /> Otorisasi YouTube Channel
-          </h3>
-          
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-glass)' }}>
-            <div>
-              <p style={{ fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>Status Akun YouTube</p>
-              <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                {isYoutubeConnected ? `Kanal Terhubung untuk ${activeAgent.name}` : 'Belum terhubung ke channel mana pun.'}
-              </p>
-            </div>
-            
-            {isYoutubeConnected ? (
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <Badge variant="accent" glow={true} icon={<Check size={14} />}>
-                  Terhubung
-                </Badge>
-                <Button variant="danger" size="sm" onClick={() => handleDisconnect('YOUTUBE', setIsConnectingYt)} loading={isConnectingYt}>
-                  Putuskan
-                </Button>
-              </div>
-            ) : (
-              <Button variant="primary" size="sm" onClick={() => handleConnect('YOUTUBE', setIsConnectingYt)} loading={isConnectingYt}>
-                Hubungkan YouTube
-              </Button>
-            )}
-          </div>
+      {/* Agent defaults */}
+      <Card icon={Bot} color="var(--primary)" title={activeAgent ? `Super Agent: ${activeAgent.name}` : 'Super Agent'} subtitle="Nilai default untuk pencarian video baru dari agent ini.">
+        {activeAgent ? (
+          <AgentForm
+            key={activeAgent.id}
+            submitLabel="Simpan agent"
+            initial={{
+              name: activeAgent.name,
+              niche: activeAgent.niche || '',
+              default_duration: activeAgent.default_duration || '45-60',
+              default_keywords: activeAgent.default_keywords || '',
+              default_video_type: activeAgent.default_video_types?.[0] || 'podcast',
+            }}
+            onSubmit={saveAgent}
+          />
+        ) : (
+          <p style={{ fontSize: '14px', color: 'var(--text-muted)' }}>Pilih atau buat Super Agent di menu samping.</p>
+        )}
+      </Card>
+
+      {loadError && (
+        <GlassCard hoverEffect={false} padding="16px 20px" style={{ border: '1px solid var(--danger)', display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <span style={{ flex: 1 }}>{loadError}</span>
+          <button className="mc-link-button" onClick={load}>
+            Coba lagi
+          </button>
         </GlassCard>
+      )}
 
-        {/* TikTok OAuth block */}
-        <GlassCard glow={true} padding="30px">
-          <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Smartphone size={20} color="#00f2fe" /> Otorisasi TikTok Account
-          </h3>
-          
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-glass)' }}>
-            <div>
-              <p style={{ fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>Status Akun TikTok</p>
-              <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                {isTiktokConnected ? `Akun Terhubung untuk ${activeAgent.name}` : 'Belum terhubung ke akun mana pun.'}
-              </p>
-            </div>
-            
-            {isTiktokConnected ? (
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <Badge variant="accent" glow={true} icon={<Check size={14} />}>
-                  Terhubung
-                </Badge>
-                <Button variant="danger" size="sm" onClick={() => handleDisconnect('TIKTOK', setIsConnectingTiktok)} loading={isConnectingTiktok}>
-                  Putuskan
-                </Button>
-              </div>
-            ) : (
-              <Button variant="primary" size="sm" onClick={() => handleConnect('TIKTOK', setIsConnectingTiktok)} loading={isConnectingTiktok}>
-                Hubungkan TikTok
-              </Button>
-            )}
+      {/* AI keys */}
+      <Card icon={KeyRound} color="var(--warning)" title="Layanan AI & API key" subtitle="API key disimpan di Windows Credential Manager dan tidak pernah ditampilkan kembali.">
+        {!settings || !secrets ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <Skeleton height={64} />
+            <Skeleton height={64} />
+            <Skeleton height={64} />
           </div>
-        </GlassCard>
-
-        {/* Instagram OAuth block */}
-        <GlassCard glow={true} padding="30px">
-          <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Instagram size={20} color="#E1306C" /> Otorisasi Instagram Account
-          </h3>
-          
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-glass)' }}>
-            <div>
-              <p style={{ fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>Status Akun Instagram</p>
-              <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                {isInstagramConnected ? `Akun Terhubung untuk ${activeAgent.name}` : 'Belum terhubung ke akun mana pun.'}
-              </p>
-            </div>
-            
-            {isInstagramConnected ? (
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <Badge variant="accent" glow={true} icon={<Check size={14} />}>
-                  Terhubung
-                </Badge>
-                <Button variant="danger" size="sm" onClick={() => handleDisconnect('INSTAGRAM', setIsConnectingInstagram)} loading={isConnectingInstagram}>
-                  Putuskan
-                </Button>
-              </div>
-            ) : (
-              <Button variant="primary" size="sm" onClick={() => handleConnect('INSTAGRAM', setIsConnectingInstagram)} loading={isConnectingInstagram}>
-                Hubungkan Instagram
-              </Button>
-            )}
-          </div>
-        </GlassCard>
-
-        {/* Global AI defaults config */}
-        <GlassCard glow={true} padding="30px">
-          <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Sliders size={20} color="var(--accent)" /> Parameter Default AI
-          </h3>
-          
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-            <SelectField
-              label="Default Durasi Clip"
-              value={defaultDuration}
-              onChange={(e) => setDefaultDuration(e.target.value)}
-              options={[
-                { value: '30-45', label: '30 - 45 Detik (TikTok)' },
-                { value: '45-60', label: '45 - 60 Detik (Instagram/Shorts)' },
-                { value: '60-75', label: '60 - 75 Detik (Medium)' }
-              ]}
-            />
-
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
+            <LlmFields value={settings.llm} onChange={(llm) => patch('llm', llm)} />
+            {SECRETS.map((s) => (
+              <SecretField
+                key={s.name}
+                name={s.name}
+                label={s.label}
+                description={s.description}
+                configured={secrets[s.name]}
+                value={secretValues[s.name]}
+                onChange={(v) => setSecretValues((prev) => ({ ...prev, [s.name]: v }))}
+                onConfiguredChange={(c) => setSecrets((prev) => (prev ? { ...prev, [s.name]: c } : prev))}
+                beforeTest={s.name === 'llm_api_key' ? saveLlmOnly : undefined}
+              />
+            ))}
             <InputField
-              label="Default Keyword"
-              value={defaultKeywords}
-              onChange={(e) => setDefaultKeywords(e.target.value)}
+              label="Model Whisper (Groq)"
+              value={settings.whisper.model}
+              onChange={(e) => patch('whisper', { ...settings.whisper, model: e.target.value })}
+              placeholder="whisper-large-v3-turbo"
             />
           </div>
-        </GlassCard>
+        )}
+      </Card>
 
+      {/* Processing */}
+      <Card icon={Cpu} color="var(--accent)" title="Pemrosesan video" subtitle="Atur seberapa banyak sumber daya komputer yang dipakai.">
+        {!settings ? (
+          <Skeleton height={160} />
+        ) : (
+          <div>
+            <Row label="Worker pemrosesan paralel" hint="Jumlah clip yang dipotong bersamaan. Naikkan jika CPU kuat.">
+              <InputField type="number" min={1} max={16} value={settings.processing.max_workers} style={numberStyle} onChange={(e) => patch('processing', { ...settings.processing, max_workers: Math.max(1, parseInt(e.target.value) || 1) })} />
+            </Row>
+            <Row label="Encoder video" hint={encoders.length ? `Terdeteksi: ${encoders.join(', ')}` : 'Encoder hardware dipakai jika tersedia.'}>
+              <SelectField value={settings.processing.encoder} options={encoderOptions} onChange={(e) => patch('processing', { ...settings.processing, encoder: e.target.value as EncoderSetting })} containerStyle={{ width: '240px' }} />
+            </Row>
+            <Row label="Render paralel" hint="Jumlah render subtitle (Remotion) yang berjalan bersamaan.">
+              <InputField type="number" min={1} max={4} value={settings.render.concurrency} style={numberStyle} onChange={(e) => patch('render', { concurrency: Math.max(1, parseInt(e.target.value) || 1) })} />
+            </Row>
+            <PathRow
+              label="File cookies YouTube (opsional)"
+              hint="Dipakai yt-dlp jika YouTube meminta verifikasi. Format cookies.txt (Netscape)."
+              value={settings.ytdlp.cookies_file}
+              placeholder="Tidak dipakai"
+              onPick={
+                desktop
+                  ? async () => {
+                      const f = await window.metis!.selectFile({ title: 'Pilih file cookies.txt', filters: [{ name: 'Cookies', extensions: ['txt'] }] })
+                      if (f) patch('ytdlp', { ...settings.ytdlp, cookies_file: f })
+                    }
+                  : undefined
+              }
+            />
+            {settings.ytdlp.cookies_file && (
+              <div style={{ paddingTop: '8px' }}>
+                <button type="button" className="mc-link-button" style={{ color: 'var(--danger)' }} onClick={() => patch('ytdlp', { ...settings.ytdlp, cookies_file: null })}>
+                  Jangan pakai file cookies
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
 
+      {/* Storage */}
+      <Card icon={HardDrive} color="var(--primary)" title="Penyimpanan lokal">
+        {!settings ? (
+          <Skeleton height={200} />
+        ) : (
+          <div>
+            <PathRow label="Folder data" hint="Database, video sumber, cache, dan clip. Pindahkan lewat menu Sistem." value={systemInfo?.data_root || null} onOpen={desktop ? () => openFolder(systemInfo?.data_root) : undefined} />
+            <PathRow
+              label="Folder ekspor"
+              hint="Tujuan default saat mengekspor clip."
+              value={settings.export_dir}
+              onPick={
+                desktop
+                  ? async () => {
+                      const dir = await pickFolder('Pilih folder ekspor', settings.export_dir)
+                      if (dir) patch('export_dir', dir)
+                    }
+                  : undefined
+              }
+              onOpen={desktop ? () => openFolder(settings.export_dir) : undefined}
+            />
+            <Row label="Batas cache (GB)" hint="Video sumber sementara dihapus otomatis jika melebihi batas ini.">
+              <InputField type="number" min={1} max={500} value={settings.cache_limit_gb} style={numberStyle} onChange={(e) => patch('cache_limit_gb', Math.max(1, Number(e.target.value) || 1))} />
+            </Row>
+            <Row label="Cache MongoDB (GB)" hint="Memori untuk database. Berlaku setelah aplikasi dimulai ulang.">
+              <InputField
+                type="number"
+                min={0.25}
+                max={8}
+                step={0.25}
+                value={settings.db.wiredtiger_cache_gb}
+                style={numberStyle}
+                onChange={(e) => patch('db', { wiredtiger_cache_gb: Math.max(0.25, Number(e.target.value) || 0.25) })}
+              />
+            </Row>
+          </div>
+        )}
+      </Card>
 
-        {/* Action button */}
-        <Divider />
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Button type="submit" variant="primary" loading={isSaved} icon={isSaved ? <Check size={18} /> : undefined}>
-            {isSaved ? 'Tersimpan' : 'Simpan Kredensial'}
+      {/* App */}
+      <Card icon={AppWindow} color="var(--text-dim)" title="Aplikasi">
+        {!settings ? (
+          <Skeleton height={120} />
+        ) : (
+          <div>
+            <Row label="Tetap berjalan di tray saat ditutup" hint="Job yang berjalan tidak terhenti ketika jendela ditutup.">
+              <ToggleSwitch checked={settings.app.close_to_tray} onChange={(v) => patch('app', { ...settings.app, close_to_tray: v })} />
+            </Row>
+            <Row label="Pembaruan otomatis">
+              <ToggleSwitch checked={settings.app.auto_update} onChange={(v) => patch('app', { ...settings.app, auto_update: v })} />
+            </Row>
+          </div>
+        )}
+      </Card>
+
+      {settings && (
+        <div
+          style={{
+            position: 'sticky',
+            bottom: '0',
+            display: 'flex',
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            gap: '14px',
+            padding: '14px 0',
+            background: 'linear-gradient(to top, var(--bg-deep) 70%, transparent)',
+          }}
+        >
+          {dirty && <span style={{ fontSize: '13px', color: 'var(--warning)' }}>Ada perubahan yang belum disimpan</span>}
+          <Button variant="primary" onClick={saveSettings} loading={saving} disabled={!dirty} icon={<Save size={16} />}>
+            Simpan pengaturan
           </Button>
         </div>
-
-      </form>
       )}
     </div>
   )

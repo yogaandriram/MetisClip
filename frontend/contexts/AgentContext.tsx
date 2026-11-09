@@ -1,93 +1,80 @@
 'use client'
 
-import React, { createContext, useContext, useState, useEffect } from 'react'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { api, type Agent } from '@/lib/engine'
+import { errorMessage } from '@/lib/format'
+import { useEngine } from './EngineContext'
 
-type Agent = {
-  id: string
-  user_id: string
-  name: string
-  niche: string | null
-  default_duration: string
-  default_keywords: string | null
-}
+const STORAGE_KEY = 'activeAgentId'
 
 type AgentContextType = {
   activeAgent: Agent | null
   setActiveAgent: (agent: Agent | null) => void
   agents: Agent[]
   setAgents: (agents: Agent[]) => void
-  refreshAgents: () => void
+  refreshAgents: () => Promise<Agent[]>
   isAgentLoading: boolean
+  agentError: string | null
 }
 
 const AgentContext = createContext<AgentContextType | undefined>(undefined)
 
+function readStoredId(): string | null {
+  try {
+    return window.localStorage.getItem(STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
+function writeStoredId(id: string | null) {
+  try {
+    if (id) window.localStorage.setItem(STORAGE_KEY, id)
+    else window.localStorage.removeItem(STORAGE_KEY)
+  } catch {
+    /* storage unavailable: selection is simply not remembered */
+  }
+}
+
 export function AgentProvider({ children }: { children: React.ReactNode }) {
+  const { epoch } = useEngine()
   const [activeAgent, setActiveAgentState] = useState<Agent | null>(null)
   const [agents, setAgents] = useState<Agent[]>([])
-  const [isAgentLoading, setIsAgentLoading] = useState<boolean>(true)
+  const [isAgentLoading, setIsAgentLoading] = useState(true)
+  const [agentError, setAgentError] = useState<string | null>(null)
 
-  const supabase = createClientComponentClient()
-
-  const fetchAgents = async () => {
+  const refreshAgents = useCallback(async () => {
     setIsAgentLoading(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    try {
+      const { agents: list } = await api.agents.list()
+      setAgents(list)
+      setAgentError(null)
+      setActiveAgentState((current) => {
+        const wanted = current?.id || readStoredId()
+        const found = (wanted && list.find((a) => a.id === wanted)) || list[0] || null
+        writeStoredId(found?.id || null)
+        return found
+      })
+      return list
+    } catch (err) {
+      setAgentError(errorMessage(err, 'Gagal memuat daftar Super Agent'))
+      return []
+    } finally {
       setIsAgentLoading(false)
-      return
     }
-
-    const { data, error } = await supabase
-      .from('super_agents')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: true })
-
-    if (error) {
-      console.error('Error fetching agents:', error)
-      setIsAgentLoading(false)
-      return
-    }
-
-    if (data) {
-      setAgents(data)
-      const stored = localStorage.getItem('activeAgentId')
-      if (stored && data.length > 0) {
-        const found = data.find(a => a.id === stored)
-        if (found) {
-          setActiveAgentState(found)
-        } else {
-          setActiveAgentState(data[0])
-        }
-      } else if (data.length > 0) {
-        setActiveAgentState(data[0])
-      } else {
-        setActiveAgentState(null)
-      }
-    }
-    setIsAgentLoading(false)
-  }
-
-  useEffect(() => {
-    fetchAgents()
   }, [])
 
-  const refreshAgents = () => {
-    fetchAgents()
-  }
+  useEffect(() => {
+    refreshAgents()
+  }, [refreshAgents, epoch])
 
-  const setActiveAgent = (agent: Agent | null) => {
+  const setActiveAgent = useCallback((agent: Agent | null) => {
     setActiveAgentState(agent)
-    if (agent) {
-      localStorage.setItem('activeAgentId', agent.id)
-    } else {
-      localStorage.removeItem('activeAgentId')
-    }
-  }
+    writeStoredId(agent?.id || null)
+  }, [])
 
   return (
-    <AgentContext.Provider value={{ activeAgent, setActiveAgent, agents, setAgents, refreshAgents, isAgentLoading }}>
+    <AgentContext.Provider value={{ activeAgent, setActiveAgent, agents, setAgents, refreshAgents, isAgentLoading, agentError }}>
       {children}
     </AgentContext.Provider>
   )

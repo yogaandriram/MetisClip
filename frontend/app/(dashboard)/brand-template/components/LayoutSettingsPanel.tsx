@@ -16,7 +16,7 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({ layout
       <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px' }}>Layout</h3>
       
       <div style={{ marginBottom: '20px' }}>
-        <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '10px' }}>Aspect ratio:</p>
+        <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '10px' }}>Rasio aspek:</p>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
           {ASPECT_RATIOS.map(ar => (
             <button
@@ -62,7 +62,7 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({ layout
       </div>
 
       <div style={{ marginTop: '20px' }}>
-        <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '10px' }}>Platform Safe Zone</p>
+        <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '10px' }}>Safe zone platform</p>
         <Dropdown 
           width="100%"
           trigger={
@@ -77,7 +77,7 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({ layout
             </div>
           }
           items={[
-            { id: 'none', label: 'None', onClick: () => updateLayout({ safeZone: 'none' }) },
+            { id: 'none', label: 'Tidak ada', onClick: () => updateLayout({ safeZone: 'none' }) },
             { id: 'tiktok', label: 'TikTok', onClick: () => updateLayout({ safeZone: 'tiktok' }) },
             { id: 'reels', label: 'IG Reels', onClick: () => updateLayout({ safeZone: 'reels' }) },
             { id: 'shorts', label: 'YT Shorts', onClick: () => updateLayout({ safeZone: 'shorts' }) }

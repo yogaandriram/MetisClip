@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { presets } from '@/lib/presets';
+import { assetUrl } from '@/lib/media';
 import { CaptionSettings, BrandSettings, LayoutSettings } from '../types';
 
 interface TemplatePreviewCanvasProps {
@@ -11,8 +12,9 @@ interface TemplatePreviewCanvasProps {
 }
 
 export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ caption, aiEmojis, brandSettings, layoutSettings, onUpdateBrand }) => {
-  const defaultVideoUrl = "https://www.w3schools.com/html/mov_bbb.mp4";
-  const videoUrl = brandSettings?.sampleVideoUrl || defaultVideoUrl;
+  // Brand assets are stored as asset://<path>; no remote sample video (the app must work offline)
+  const videoUrl = assetUrl(brandSettings?.sampleVideoUrl);
+  const overlaySrc = assetUrl(brandSettings?.overlayUrl);
 
   // Canvas bounds
   const CANVAS_WIDTH = 300;
@@ -153,14 +155,20 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
           border: '1px solid var(--border-glass)'
         }}
       >
-        <video 
-          src={videoUrl}
-          autoPlay 
-          loop 
-          muted 
-          playsInline
-          style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.8 }}
-        />
+        {videoUrl ? (
+          <video 
+            src={videoUrl}
+            autoPlay 
+            loop 
+            muted 
+            playsInline
+            style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.8 }}
+          />
+        ) : (
+          <div style={{ width: '100%', height: '100%', background: 'linear-gradient(160deg, #1b2440 0%, #0d0d18 55%, #10261c 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '12px', textAlign: 'center', padding: '0 30px' }}>
+            Unggah &quot;Video contoh&quot; di menu Brand untuk melihat preview di atas video Anda.
+          </div>
+        )}
         
         {/* Safe Zone Overlays */}
         {layoutSettings.safeZone === 'tiktok' && (
@@ -191,7 +199,7 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
         )}
 
         {/* Overlay Image (Logo/CTA) */}
-        {brandSettings?.overlayUrl && (
+        {overlaySrc && (
           <div
             style={{
               position: 'absolute',
@@ -203,7 +211,7 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
             }}
           >
             <img 
-              src={brandSettings.overlayUrl} 
+              src={overlaySrc} 
               alt="Brand Overlay"
               onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}

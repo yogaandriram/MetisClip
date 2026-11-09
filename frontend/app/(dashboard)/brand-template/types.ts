@@ -76,7 +76,9 @@ export const DEFAULT_TEMPLATE_CONFIG: TemplateConfig = {
     shadowY: 2,
     shadowBlur: 4,
     highlightColor: '#FFFF00',
-    positionY: 240
+    positionY: 240,
+    letterSpacing: 0,
+    lineHeight: 1.2
   },
   ai_settings: {
     fillerWords: true,

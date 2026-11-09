@@ -1,11 +1,12 @@
 'use client'
 
 import React, { useState, useRef, useEffect } from 'react'
-import { ChevronDown, Plus, Bot, Settings } from 'lucide-react'
+import Link from 'next/link'
+import { ChevronDown, Bot, Settings } from 'lucide-react'
 import { useAgent } from '@/contexts/AgentContext'
 
 export function AgentSwitcher() {
-  const { activeAgent, agents } = useAgent()
+  const { activeAgent, agents, setActiveAgent, isAgentLoading } = useAgent()
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
@@ -57,7 +58,7 @@ export function AgentSwitcher() {
               Super Agent
             </span>
             <span style={{ fontSize: '14px', fontWeight: 600 }}>
-              {activeAgent ? activeAgent.name : 'Pilih Agent'}
+              {activeAgent ? activeAgent.name : isAgentLoading ? 'Memuat…' : 'Pilih Agent'}
             </span>
           </div>
         </div>
@@ -84,6 +85,10 @@ export function AgentSwitcher() {
               {agents.map(agent => (
                 <button
                   key={agent.id}
+                  onClick={() => {
+                    setActiveAgent(agent)
+                    setIsOpen(false)
+                  }}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -119,8 +124,9 @@ export function AgentSwitcher() {
           
           <div style={{ height: '1px', background: 'var(--border-glass)', margin: '4px 0 8px 0' }} />
           
-          <a
-            href="/agents"
+          <Link
+            href="/agents/"
+            onClick={() => setIsOpen(false)}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -128,7 +134,7 @@ export function AgentSwitcher() {
               gap: '6px',
               padding: '10px',
               borderRadius: '8px',
-              background: 'rgba(113, 59, 237, 0.1)',
+              background: 'rgba(24, 86, 255, 0.1)',
               color: 'var(--primary)',
               textDecoration: 'none',
               fontSize: '13px',
@@ -136,8 +142,8 @@ export function AgentSwitcher() {
             }}
           >
             <Settings size={14} />
-            Kelola Super Agents
-          </a>
+            Kelola Super Agent
+          </Link>
         </div>
       )}
     </div>

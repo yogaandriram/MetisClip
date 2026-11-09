@@ -1,212 +1,227 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Plus, Bot, Trash2, Edit2 } from 'lucide-react'
+import { Plus, Bot, Trash2, Edit2, X } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { useAgent } from '@/contexts/AgentContext'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
-import { InputField } from '@/components/ui/InputField'
-import { SelectField } from '@/components/ui/SelectField'
 import { Badge } from '@/components/ui/Badge'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
-import toast from 'react-hot-toast'
+import { Skeleton } from '@/components/ui/Skeleton'
+import { Modal } from '@/components/ui/Modal'
+import { ConfirmModal } from '@/components/ui/ConfirmModal'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { AgentForm, toAgentInput, type AgentFormValue } from '@/components/agents/AgentForm'
+import { api, type Agent } from '@/lib/engine'
+import { CLIP_DURATION_OPTIONS, errorMessage, formatDate } from '@/lib/format'
 
 export default function AgentsPage() {
-  const { agents, refreshAgents, activeAgent, setActiveAgent } = useAgent()
-  const supabase = createClientComponentClient()
-  
+  const { agents, refreshAgents, activeAgent, setActiveAgent, isAgentLoading } = useAgent()
   const [isCreating, setIsCreating] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [newAgent, setNewAgent] = useState({ name: '', niche: '', defaultDuration: '45-60', defaultKeywords: '' })
+  const [editing, setEditing] = useState<Agent | null>(null)
+  const [toDelete, setToDelete] = useState<Agent | null>(null)
+  const [deleteFiles, setDeleteFiles] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
-  const handleCreateAgent = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-
+  const create = async (value: AgentFormValue) => {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error("Tidak ada sesi user aktif")
-
-      const { data, error } = await supabase
-        .from('super_agents')
-        .insert([
-          {
-            user_id: user.id,
-            name: newAgent.name,
-            niche: newAgent.niche,
-            default_duration: newAgent.defaultDuration,
-            default_keywords: newAgent.defaultKeywords
-          }
-        ])
-        .select()
-        .single()
-
-      if (error) throw error
-
-      toast.success('Super Agent berhasil dibuat!')
+      const { agent } = await api.agents.create(toAgentInput(value))
+      toast.success(`Super Agent "${agent.name}" dibuat`)
       setIsCreating(false)
-      setNewAgent({ name: '', niche: '', defaultDuration: '45-60', defaultKeywords: '' })
-      refreshAgents()
-      
-      // Automatically switch to the newly created agent if it's the first one
-      if (agents.length === 0 && data) {
-        setActiveAgent(data)
-      }
-    } catch (error: any) {
-      toast.error(`Gagal membuat agent: ${error.message}`)
-    } finally {
-      setLoading(false)
+      const list = await refreshAgents()
+      const fresh = list.find((a) => a.id === agent.id)
+      if (fresh && (!activeAgent || agents.length === 0)) setActiveAgent(fresh)
+    } catch (err) {
+      toast.error(errorMessage(err, 'Gagal membuat agent'))
     }
   }
 
-  const handleDeleteAgent = async (agentId: string) => {
-    if (!window.confirm('Apakah Anda yakin ingin menghapus Super Agent ini secara permanen? Semua data yang terhubung akan hilang.')) return
-
+  const update = async (value: AgentFormValue) => {
+    if (!editing) return
     try {
-      const { error } = await supabase
-        .from('super_agents')
-        .delete()
-        .eq('id', agentId)
-
-      if (error) throw error
-      
-      toast.success('Super Agent berhasil dihapus')
-      if (activeAgent?.id === agentId) {
-        setActiveAgent(null)
-      }
-      refreshAgents()
-    } catch (error: any) {
-      toast.error(`Gagal menghapus agent: ${error.message}`)
+      await api.agents.update(editing.id, toAgentInput(value))
+      toast.success('Agent diperbarui')
+      setEditing(null)
+      await refreshAgents()
+    } catch (err) {
+      toast.error(errorMessage(err))
     }
   }
+
+  const remove = async () => {
+    if (!toDelete) return
+    setDeleting(true)
+    try {
+      await api.agents.remove(toDelete.id, deleteFiles)
+      toast.success('Super Agent dihapus')
+      if (activeAgent?.id === toDelete.id) setActiveAgent(null)
+      setToDelete(null)
+      await refreshAgents()
+    } catch (err) {
+      toast.error(errorMessage(err))
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const durationLabel = (v: string) => CLIP_DURATION_OPTIONS.find((o) => o.value === v)?.label.split(' (')[0] || v
 
   return (
-    <div style={{ maxWidth: '900px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px' }}>
-        <div>
-          <h1 style={{ fontSize: '32px', fontWeight: '800', marginBottom: '8px' }}>Manajemen Super Agent</h1>
-          <p style={{ color: 'var(--text-muted)' }}>Kelola berbagai profil (niche) yang masing-masing beroperasi secara independen.</p>
-        </div>
-        <Button 
-          variant="primary" 
-          icon={<Plus size={18} />}
-          onClick={() => setIsCreating(!isCreating)}
-        >
-          {isCreating ? 'Batal' : 'Buat Agent Baru'}
-        </Button>
-      </div>
+    <div style={{ maxWidth: '960px', margin: '0 auto' }}>
+      <PageHeader
+        title="Super Agent"
+        subtitle="Setiap agent adalah profil kerja terpisah (niche, keyword, brand template, dan clip sendiri)."
+        actions={
+          <Button variant={isCreating ? 'secondary' : 'primary'} icon={isCreating ? <X size={16} /> : <Plus size={16} />} onClick={() => setIsCreating(!isCreating)}>
+            {isCreating ? 'Batal' : 'Buat agent baru'}
+          </Button>
+        }
+      />
 
       {isCreating && (
-        <GlassCard glow style={{ marginBottom: '40px', padding: '30px' }}>
+        <GlassCard glow hoverEffect={false} padding="28px" style={{ marginBottom: '32px' }}>
           <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Bot size={20} color="var(--primary)" /> Konfigurasi Agent Baru
+            <Bot size={20} color="var(--primary)" /> Konfigurasi agent baru
           </h3>
-          <form onSubmit={handleCreateAgent} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-              <InputField
-                label="Nama Agent"
-                placeholder="Misal: AI Tech Bot"
-                value={newAgent.name}
-                onChange={(e) => setNewAgent({ ...newAgent, name: e.target.value })}
-                required
-              />
-              <InputField
-                label="Fokus Niche"
-                placeholder="Misal: Berita AI, Motivasi Bisnis"
-                value={newAgent.niche}
-                onChange={(e) => setNewAgent({ ...newAgent, niche: e.target.value })}
-              />
-            </div>
-            
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-              <SelectField
-                label="Default Durasi (Detik)"
-                value={newAgent.defaultDuration}
-                onChange={(e) => setNewAgent({ ...newAgent, defaultDuration: e.target.value })}
-                options={[
-                  { value: '30-45', label: '30 - 45 Detik' },
-                  { value: '45-60', label: '45 - 60 Detik (Disarankan)' },
-                  { value: '60-75', label: '60 - 75 Detik' }
-                ]}
-              />
-              <InputField
-                label="Default Keyword Pencarian"
-                placeholder="Misal: AI startup, ChatGPT tips"
-                value={newAgent.defaultKeywords}
-                onChange={(e) => setNewAgent({ ...newAgent, defaultKeywords: e.target.value })}
-              />
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
-              <Button type="submit" variant="primary" loading={loading}>
-                Simpan Agent
-              </Button>
-            </div>
-          </form>
+          <AgentForm submitLabel="Simpan agent" onSubmit={create} onCancel={() => setIsCreating(false)} />
         </GlassCard>
       )}
 
-      {/* Agents List */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
-        {agents.map((agent) => (
-          <GlassCard key={agent.id} style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '16px' }}>
-                <div style={{
-                  background: 'rgba(113, 59, 237, 0.1)',
-                  width: '40px',
-                  height: '40px',
-                  borderRadius: '10px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'var(--primary)',
-                  border: '1px solid rgba(113, 59, 237, 0.2)'
-                }}>
-                  <Bot size={20} />
+      {isAgentLoading && agents.length === 0 ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} height={200} />
+          ))}
+        </div>
+      ) : agents.length === 0 ? (
+        !isCreating && (
+          <EmptyState
+            icon={Bot}
+            title="Belum ada Super Agent"
+            description="Buat agent pertama Anda untuk mulai mencari video dan menghasilkan clip."
+            action={
+              <Button size="sm" icon={<Plus size={14} />} onClick={() => setIsCreating(true)}>
+                Buat agent
+              </Button>
+            }
+          />
+        )
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
+          {agents.map((agent) => {
+            const isActive = activeAgent?.id === agent.id
+            return (
+              <GlassCard key={agent.id} hoverEffect={false} padding="24px" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '16px' }}>
+                    <div
+                      style={{
+                        background: 'rgba(24, 86, 255, 0.1)',
+                        width: '40px',
+                        height: '40px',
+                        borderRadius: '10px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'var(--primary)',
+                        border: '1px solid rgba(24, 86, 255, 0.25)',
+                      }}
+                    >
+                      <Bot size={20} />
+                    </div>
+                    {isActive && (
+                      <Badge variant="primary" glow>
+                        Aktif
+                      </Badge>
+                    )}
+                  </div>
+                  <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '6px' }}>{agent.name}</h3>
+                  <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '12px', lineHeight: 1.5 }}>{agent.niche || 'Tanpa deskripsi niche'}</p>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <Badge variant="muted" glow={false}>
+                      {durationLabel(agent.default_duration)}
+                    </Badge>
+                    {agent.default_keywords && (
+                      <Badge variant="muted" glow={false}>
+                        {agent.default_keywords.length > 28 ? `${agent.default_keywords.slice(0, 28)}…` : agent.default_keywords}
+                      </Badge>
+                    )}
+                  </div>
+                  <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '12px' }}>Dibuat {formatDate(agent.created_at)}</p>
                 </div>
-                {activeAgent?.id === agent.id && (
-                  <Badge variant="primary" glow={true}>
-                    Aktif
-                  </Badge>
-                )}
-              </div>
-              <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '6px' }}>{agent.name}</h3>
-              <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: 1.5 }}>
-                {agent.niche || 'Tidak ada deskripsi niche'}
-              </p>
-            </div>
-            
-            <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
-              <Button
-                variant={activeAgent?.id === agent.id ? "primary" : "secondary"}
-                style={{ flex: 1, justifyContent: 'center' }}
-                onClick={() => {
-                  setActiveAgent(agent)
-                  toast.success(`Beralih ke ${agent.name}`)
-                }}
-              >
-                Pilih Agent
-              </Button>
-              <Button
-                variant="danger"
-                style={{ padding: '0 15px' }}
-                onClick={() => handleDeleteAgent(agent.id)}
-              >
-                <Trash2 size={16} />
-              </Button>
-            </div>
-          </GlassCard>
-        ))}
-      </div>
-      
-      {agents.length === 0 && !isCreating && (
-        <div style={{ textAlign: 'center', padding: '60px 20px', border: '1px dashed var(--border-glass)', borderRadius: '16px' }}>
-          <Bot size={48} color="var(--text-muted)" style={{ marginBottom: '16px', opacity: 0.5 }} />
-          <h3 style={{ fontSize: '18px', color: 'var(--text-primary)', marginBottom: '8px' }}>Belum Ada Super Agent</h3>
-          <p style={{ fontSize: '14px', color: 'var(--text-muted)' }}>Buat agen pertama Anda untuk mulai mengatur jadwal dan mengunggah video.</p>
+
+                <div style={{ display: 'flex', gap: '8px', marginTop: '20px' }}>
+                  <Button
+                    variant={isActive ? 'primary' : 'secondary'}
+                    size="sm"
+                    style={{ flex: 1, justifyContent: 'center' }}
+                    disabled={isActive}
+                    onClick={() => {
+                      setActiveAgent(agent)
+                      toast.success(`Beralih ke ${agent.name}`)
+                    }}
+                  >
+                    {isActive ? 'Sedang aktif' : 'Pilih agent'}
+                  </Button>
+                  <button className="mc-icon-button" title="Ubah agent" onClick={() => setEditing(agent)}>
+                    <Edit2 size={15} />
+                  </button>
+                  <button
+                    className="mc-icon-button"
+                    title="Hapus agent"
+                    style={{ color: 'var(--danger)' }}
+                    onClick={() => {
+                      setDeleteFiles(false)
+                      setToDelete(agent)
+                    }}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              </GlassCard>
+            )
+          })}
         </div>
       )}
+
+      <Modal isOpen={!!editing} onClose={() => setEditing(null)} title="Ubah Super Agent">
+        {editing && (
+          <AgentForm
+            key={editing.id}
+            submitLabel="Simpan perubahan"
+            initial={{
+              name: editing.name,
+              niche: editing.niche || '',
+              default_duration: editing.default_duration || '45-60',
+              default_keywords: editing.default_keywords || '',
+              default_video_type: editing.default_video_types?.[0] || 'podcast',
+            }}
+            onSubmit={update}
+            onCancel={() => setEditing(null)}
+          />
+        )}
+      </Modal>
+
+      <ConfirmModal
+        isOpen={!!toDelete}
+        title={`Hapus "${toDelete?.name || ''}"?`}
+        message="Agent beserta job, clip, dan brand template-nya akan dihapus dari database. Tindakan ini tidak bisa dibatalkan."
+        confirmLabel="Hapus agent"
+        danger
+        loading={deleting}
+        onConfirm={remove}
+        onClose={() => setToDelete(null)}
+      >
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '14px', cursor: 'pointer', lineHeight: 1.5 }}>
+          <input type="checkbox" checked={deleteFiles} onChange={(e) => setDeleteFiles(e.target.checked)} style={{ marginTop: '3px', accentColor: 'var(--danger)' }} />
+          <span>
+            Hapus juga file video agent ini dari folder data
+            <br />
+            <small style={{ color: 'var(--text-muted)' }}>Jika tidak dicentang, file video tetap ada di folder library.</small>
+          </span>
+        </label>
+      </ConfirmModal>
     </div>
   )
 }
