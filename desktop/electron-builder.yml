@@ -1,0 +1,67 @@
+# electron-builder config for MetisClip Desktop (Windows x64).
+# Build everything first with ..\scripts\build-desktop.ps1 (it fills the extraResources inputs below).
+appId: com.metisclip.desktop
+productName: MetisClip
+copyright: Copyright © 2026 MetisClip
+artifactName: MetisClip-Setup-${version}.${ext}
+
+directories:
+  output: dist
+  buildResources: build-resources
+
+# Main + preload only (no runtime npm dependencies); packed into app.asar.
+asar: true
+files:
+  - dist-main/**/*
+  - "!dist-main/**/*.map"
+  - package.json
+# Use the Electron already installed by npm (no re-download of the zip / SHASUMS from GitHub on every build)
+electronDist: node_modules/electron/dist
+npmRebuild: false
+nodeGypRebuild: false
+
+extraResources:
+  # Next.js static export → served on app://metisclip/
+  - from: ../frontend/out
+    to: ui
+    filter: ["**/*"]
+  # PyInstaller onedir engine (scripts\build-engine.ps1)
+  - from: ../backend/dist/metisclip-engine
+    to: engine
+    filter: ["**/*"]
+  # Render worker runtime staged by build-desktop.ps1: dist/render.js, build/ (Remotion bundle),
+  # production node_modules (incl. @remotion/compositor-win32-x64-msvc) and browser/ (Chrome Headless Shell).
+  # Copied from the parent folder on purpose: electron-builder always drops a node_modules folder at the
+  # ROOT of an extraResources source, but keeps nested ones (render-engine/node_modules).
+  - from: .stage
+    to: .
+    filter: ["render-engine/**/*"]
+  # Pinned binaries (scripts\fetch-binaries.ps1): mongod.exe + licenses, yt-dlp.exe, deno.exe
+  - from: resources/bin
+    to: bin
+    # mongod writes *.mdmp crash dumps next to its exe; never ship them
+    filter: ["**/*", "!**/*.mdmp"]
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  executableName: MetisClip
+  requestedExecutionLevel: asInvoker
+  # Code signing (Phase 2): configure certificateFile/certificatePassword or Azure Trusted Signing here.
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  selectPerMachineByDefault: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: MetisClip
+  uninstallDisplayName: MetisClip
+  # Never delete user data on uninstall: %APPDATA%\MetisClip (bootstrap.json, logs) is kept, and the
+  # data folder (database + library, chosen by the user, e.g. D:\MetisClip) is never touched.
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+
+publish: null

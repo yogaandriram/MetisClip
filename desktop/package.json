@@ -1,0 +1,28 @@
+{
+  "name": "metisclip-desktop",
+  "productName": "MetisClip",
+  "version": "0.1.0",
+  "description": "MetisClip Desktop: agentic AI video clipping (Windows)",
+  "author": "MetisClip",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "dist-main/main/index.js",
+  "scripts": {
+    "build:main": "tsc -p tsconfig.json",
+    "watch:main": "tsc -p tsconfig.json -w --preserveWatchOutput",
+    "dev:ui": "npm --prefix ../frontend run dev -- --port 3000",
+    "dev:electron": "wait-on -t 180000 http-get://localhost:3000 file:dist-main/main/index.js && electron .",
+    "dev": "tsc -p tsconfig.json && concurrently -k -s first -n main,ui,app -c blue,magenta,green \"npm:watch:main\" \"npm:dev:ui\" \"npm:dev:electron\"",
+    "start": "npm run build:main && electron .",
+    "pack": "npm run build:main && electron-builder --win dir --config electron-builder.yml",
+    "dist": "npm run build:main && electron-builder --win nsis --config electron-builder.yml"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "concurrently": "9.2.5",
+    "electron": "45.2.3",
+    "electron-builder": "26.18.0",
+    "typescript": "5.9.3",
+    "wait-on": "8.0.5"
+  }
+}
