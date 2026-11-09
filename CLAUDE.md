@@ -211,7 +211,7 @@ The tables above describe the web build. On this branch:
 - CORS allows only the `app://metisclip` origin.
 - **mongod** listens on 127.0.0.1 only, on a random free port (never the default 27017, so it cannot clash with a MongoDB the user already runs), with `--auth`. The app's database user and its random password are created on first run, and the password is kept in Credential Manager. The `db\` folder is restricted to the current Windows user.
 - Renderer settings: `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`. A strict CSP allows `connect-src` only to the engine. The preload API is a small, explicit allow-list.
-- **Nothing shipped is secret.** The installer must not contain a Supabase service-role key, R2 keys, a Composio key or any server credential.
+- **Nothing shipped is secret.** The installer must not contain a Supabase service-role key, R2 keys or any other server credential.
 - File paths received from the renderer are resolved and checked to stay inside the library, cache or user-chosen export folders (no path traversal). `shell.openPath` and `showItemInFolder` go through IPC with the same check.
 - Secrets never appear in the DB, logs, crash reports or API responses. The API only answers `{ "is_set": true }`.
 
@@ -287,7 +287,7 @@ metisclip/
 
 **To remove or replace during migration:**
 - `frontend/middleware.ts`, `frontend/app/api/*`: their logic moves to the engine.
-- `@supabase/auth-helpers-nextjs`, and the Composio packages.
+- `@supabase/auth-helpers-nextjs` and the Composio packages. Done: MetisClip no longer uses Composio anywhere (code, dependencies or config); do not reintroduce it.
 - `backend/core/storage.py` (R2), the R2 parts of `/render`, `/api/clips/proxy-media`, and the auto-copy to `~/Downloads`.
 - `backend/core/cleanup.py` (see K15).
 - Docker, Vercel and Railway deployment.
