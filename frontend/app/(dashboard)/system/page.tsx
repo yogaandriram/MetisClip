@@ -104,7 +104,7 @@ export default function SystemPage() {
 
   const driveUsed = storage ? storage.drive_total_bytes - storage.drive_free_bytes : 0
   const usedPct = storage && storage.drive_total_bytes > 0 ? (driveUsed / storage.drive_total_bytes) * 100 : 0
-  const appTotal = storage ? storage.db_bytes + storage.library_bytes + storage.cache_bytes + storage.backups_bytes : 0
+  const appTotal = storage ? storage.db_bytes + storage.library_bytes + storage.cache_bytes + storage.backups_bytes + (storage.models_bytes || 0) : 0
 
   return (
     <>
@@ -299,6 +299,7 @@ export default function SystemPage() {
                   <ProgressRow label="Library (clip & sumber)" value={formatBytes(storage.library_bytes)} percent={pct(storage.library_bytes, appTotal)} />
                   <ProgressRow label="Cache" value={formatBytes(storage.cache_bytes)} percent={pct(storage.cache_bytes, appTotal)} />
                   <ProgressRow label="Backup" value={formatBytes(storage.backups_bytes)} percent={pct(storage.backups_bytes, appTotal)} />
+                  <ProgressRow label="Model Whisper lokal" value={formatBytes(storage.models_bytes)} percent={pct(storage.models_bytes, appTotal)} />
                 </div>
 
                 {storage.per_agent.length > 0 && (

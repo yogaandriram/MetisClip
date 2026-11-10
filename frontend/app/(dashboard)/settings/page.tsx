@@ -4,8 +4,8 @@ import React, { useCallback, useEffect, useId, useState } from 'react'
 import { AppWindow, Cpu, Download, FolderOpen, HardDrive, KeyRound, Mic, Save, Users } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Alert, Button, Card, CardHeader, Field, IconButton, InputField, PageHeader, SelectField, Skeleton, ToggleSwitch } from '@/components/ui'
-import { SecretField } from '@/components/settings/SecretField'
 import { LlmSection } from '@/components/settings/LlmFields'
+import { WhisperSection } from '@/components/settings/WhisperFields'
 import { AgentForm, toAgentInput, type AgentFormValue } from '@/components/agents/AgentForm'
 import { useAgent } from '@/contexts/AgentContext'
 import { useEngine } from '@/contexts/EngineContext'
@@ -20,10 +20,6 @@ const ENCODER_LABELS: Record<EncoderSetting, string> = {
   h264_qsv: 'Intel Quick Sync',
   h264_amf: 'AMD (AMF)',
 }
-
-const SECRETS: { name: SecretName; label: string; description: string }[] = [
-  { name: 'groq_api_key', label: 'API key Groq (Whisper)', description: 'Untuk subtitle per kata dan transkrip video yang di-upload.' },
-]
 
 /** A folder or file path shown read-only, with "Ubah…" and "Buka di Explorer" next to it. */
 function PathField({
@@ -229,33 +225,24 @@ export default function SettingsPage() {
           )}
         </Card>
 
-        <Card>
-          <CardHeader size="sm" icon={headerIcon(Mic)} title="Transkripsi (Whisper)" />
+        <Card id="transkripsi">
+          <CardHeader
+            size="sm"
+            icon={headerIcon(Mic)}
+            title="Transkripsi (Whisper)"
+            subtitle="Teks video untuk analisis AI dan subtitle per kata. Bisa lewat Groq (online) atau Whisper lokal di komputer ini."
+          />
           {!settings || !secrets ? (
-            <SettingsSkeleton />
+            <SettingsSkeleton rows={3} />
           ) : (
-            <div className="mc-stack mc-gap-20">
-              {SECRETS.map((s) => (
-                <SecretField
-                  key={s.name}
-                  name={s.name}
-                  label={s.label}
-                  description={s.description}
-                  configured={secrets[s.name]}
-                  value={secretValues[s.name] || ''}
-                  onChange={(v) => setSecretValues((prev) => ({ ...prev, [s.name]: v }))}
-                  onConfiguredChange={(c) => setSecrets((prev) => (prev ? { ...prev, [s.name]: c } : prev))}
-                />
-              ))}
-              <InputField
-                label="Model Whisper (Groq)"
-                value={settings.whisper.model}
-                onChange={(e) => patch('whisper', { ...settings.whisper, model: e.target.value })}
-                placeholder="whisper-large-v3-turbo"
-                spellCheck={false}
-                mono
-              />
-            </div>
+            <WhisperSection
+              value={settings.whisper}
+              onChange={(whisper) => patch('whisper', whisper)}
+              groqConfigured={secrets.groq_api_key}
+              groqValue={secretValues.groq_api_key || ''}
+              onGroqValue={(v) => setSecretValues((prev) => ({ ...prev, groq_api_key: v }))}
+              onGroqConfigured={(c) => setSecrets((prev) => (prev ? { ...prev, groq_api_key: c } : prev))}
+            />
           )}
         </Card>
 

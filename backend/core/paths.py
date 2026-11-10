@@ -70,6 +70,11 @@ class Paths:
         return self.data_root / "cache"
 
     @property
+    def models_dir(self) -> Path:
+        """Downloaded AI models (local Whisper), kept on the drive the user chose for the data."""
+        return self.data_root / "models"
+
+    @property
     def backups_dir(self) -> Path:
         return self.data_root / "backups"
 

@@ -19,13 +19,13 @@
 | **Name** | MetisClip |
 | **Type** | Agentic AI desktop app for automated video clipping. Posting the finished clips is done by the user, outside the app. |
 | **Platform** | Windows 10 (22H2+) / Windows 11, x64. macOS and Linux come later and are out of scope for v1. |
-| **Model** | Local-first: download, face tracking, encoding and rendering run on the user's PC, and the database and all media files are stored on the user's own drive. Only AI inference and YouTube APIs go over the network. |
+| **Model** | Local-first: download, face tracking, encoding and rendering run on the user's PC, and the database and all media files are stored on the user's own drive. Only AI inference (the LLM, and Groq Whisper when a key is set), YouTube and one-time model downloads go over the network; speech-to-text can also run locally. |
 | **Shell** | Electron (electron-builder, NSIS installer) |
 | **UI** | Next.js 14 App Router, **static export** loaded inside Electron |
 | **Engine** | Python FastAPI as a sidecar process, frozen with PyInstaller |
 | **Render** | Remotion: prebuilt bundle plus bundled Chrome Headless Shell |
 | **Data** | **MongoDB** (Community Server, bundled `mongod.exe` run locally by the app) for metadata, plus local files for media. Both live in one data folder the user picks on their own drive (§6). |
-| **AI core** | LLM from one of seven providers chosen in Pengaturan: OpenAI, Anthropic (Claude), Google Gemini, xAI (Grok), DeepSeek, Alibaba Qwen, or any OpenAI-compatible endpoint (default: 9Router). Groq Whisper (STT), MediaPipe (face tracking) |
+| **AI core** | LLM from one of seven providers chosen in Pengaturan: OpenAI, Anthropic (Claude), Google Gemini, xAI (Grok), DeepSeek, Alibaba Qwen, or any OpenAI-compatible endpoint (default: 9Router). Speech-to-text with Groq Whisper (online) or the bundled whisper.cpp (local), switched automatically (§5.2). MediaPipe (face tracking) |
 | **UI language** | Bahasa Indonesia (default timezone `Asia/Jakarta`) |
 
 ### 1.2 What it does
@@ -61,8 +61,12 @@
 ### 1.5 Target user and hardware
 
 - Content creators and clippers in Indonesia, often working on mid-range laptops.
-- **Minimum:** Windows 10 22H2 x64, 4-core CPU with AVX (required by MongoDB 5.0+), 8 GB RAM, 15 GB free on the drive chosen for MetisClip data, broadband internet.
+- **Minimum:** Windows 10 22H2 x64, 4-core CPU with AVX (required by MongoDB 5.0+), 8 GB RAM, 15 GB free on the drive chosen for MetisClip data (local Whisper models add 0.2–0.8 GB), broadband internet.
 - **Recommended:** 8 cores, 16 GB RAM, SSD. A GPU is optional; NVENC, QSV or AMF is used when present.
+- **Local transcription speed** (whisper.cpp CPU build, 8 threads at below-normal priority). Measured 2026-11-10 on the owner's laptop: i5-13500H (12 cores, 16 threads), 23.6 GB RAM, on AC power in the Windows Balanced mode, where the CPU ran at about half its base clock under load. Audio: an Indonesian podcast.
+  - Small: 10 min of audio in 5.6 min (0.56× its length), peak RAM 0.7 GB. A 1-hour upload takes about 34 min.
+  - Large v3 Turbo: a 60 s clip in 2.6 min, peak RAM 0.9 GB. It runs about 2.6× slower than the audio, so "auto" uses it only for clip subtitles (§5.2).
+  - With a Groq key the same work takes seconds and no local CPU.
 
 ---
 
@@ -139,8 +143,9 @@ The tables above describe the web build. On this branch:
 | yt-dlp | Bundled exe is copied to `%LOCALAPPDATA%\MetisClip\bin` and updated there (`POST /api/system/update-ytdlp`). Downloads prefer H.264 over HTTPS (HLS sections are very slow). Builds older than a few months get HTTP 403 from YouTube, so keep the pin fresh. |
 | Removed (D3, 2026-11-09) | Scheduling (`scheduler_ai`, `/api/schedule`, Jadwal Post page), social account connections (`/api/connections`, Settings card) and the `metisclip://` protocol. Migration `002_remove_publishing` drops `scheduled_posts` and `super_agents.social_connections` from existing databases after the usual pre-migration backup. |
 | Removed (D6, 2026-11-09) | Keyword search ("Pencarian Pintar"): `tools/youtube_api.py`, the YouTube Data API key, the `api_cache` collection, the agents' default keywords and video types, and the job filters (`video_types`, `min_duration_minutes`, `min_views`) and quality score. Jobs take a YouTube link only. Migration `005_remove_keyword_search` cleans existing databases (after the pre-migration backup) and deletes the stored YouTube key. |
-| Video upload (2026-11-09) | Cari Video has two tabs, "Link YouTube" and "Upload Video" (drag & drop via `window.metis.pathForFile`, or the file dialog). The file is used in place, never copied; jobs store `source.local_file_path`. Its transcript always comes from Whisper, so outside dev the job is refused without the Groq key. Migration `006_local_video_upload` lets `source_videos` hold a file instead of a `youtube_id`. |
+| Video upload (2026-11-09) | Cari Video has two tabs, "Link YouTube" and "Upload Video" (drag & drop via `window.metis.pathForFile`, or the file dialog). The file is used in place, never copied; jobs store `source.local_file_path`. Its transcript always comes from Whisper (Groq or local, see the Local Whisper row). Migration `006_local_video_upload` lets `source_videos` hold a file instead of a `youtube_id`. |
 | Design system (2026-11-10) | `DESIGN.md` defines a light, green-only, soft-organic UI (§9.1). The frontend is rebuilt on it: tokens/base/components CSS in `frontend/styles/`, the component library in `frontend/components/ui`, the shell (logo, nav rail with the liquid active indicator, top bar) in `frontend/components/shell` and `app/(dashboard)/layout.tsx`. Electron's window background and startup-error page use the same greens. |
+| Local Whisper (2026-11-10) | Speech-to-text no longer needs Groq. `whisper.provider` is `auto` (default), `local` or `groq` (§5.2): `agents/tools/whisper.py` picks the engine and falls back from Groq to the bundled whisper.cpp; `whisper_local.py` runs `bin\whisper\whisper-cli.exe` (1.9.5, CPU x64) with GGML models downloaded once into `<DATA_ROOT>\models\whisper`. Transcript chunks are checkpointed in `partial:<key>` documents. Pengaturan → Transkripsi manages the engine and the models, uploads no longer need a Groq key, and migration `007_local_whisper` turns the stored `groq` into `auto`. |
 | Still open | K4: the Composio key in `frontend/.env.local` is untracked but **must still be rotated**. Phase 1 items not done: signing, installer run on a clean VM, tray/auto-update, daily yt-dlp update check. |
 | Tests | `pytest backend/tests` runs against a throwaway bundled `mongod.exe`. It includes a link-job pipeline test (real FFmpeg and MediaPipe) and resume idempotency. |
 | Packaging | `scripts/build-engine.ps1` → `backend/dist/metisclip-engine/` (onedir, about 320 MB, mostly cv2 and mediapipe), with a smoke test and self-test. `scripts/build-desktop.ps1 -Pack` → `desktop/dist/MetisClip-Setup-<version>.exe` (about 440 MB, unsigned). |
@@ -169,12 +174,12 @@ The tables above describe the web build. On this branch:
 │ Pipeline: Discovery → Analyzer (+Critic) →           │──▶│ 127.0.0.1:{dbPort} · --auth  │
 │           Processor → Render (export)                │   │ dbPath <DATA_ROOT>\db        │
 │ Child processes (CREATE_NO_WINDOW, tracked):         │   └──────────────────────────────┘
-│   yt-dlp.exe · ffmpeg / ffprobe · render worker      │
+│   yt-dlp · ffmpeg / ffprobe · whisper-cli · render   │
 └────────┬───────────────────────────┬─────────────────┘
          ▼                           ▼
- Local files on the user's drive     Network (only): LLM endpoint · Groq Whisper ·
+ Local files on the user's drive     Network (only): LLM endpoint · Groq Whisper (optional) ·
  <DATA_ROOT>\library, cache,         YouTube via yt-dlp (metadata, sections) ·
- exports, backups                    update feed
+ exports, backups, models            Whisper model download (once) · update feed
 ```
 
 ### 3.2 Key technology decisions
@@ -189,7 +194,8 @@ The tables above describe the web build. On this branch:
 | Queue | In-process worker pool plus `discovery_jobs` / `render_jobs` collections | No extra daemons besides the bundled mongod | Redis + Celery |
 | Real-time | WebSocket `/ws/events` from the engine | Replaces Supabase polling and fake progress | — |
 | Render | Prebuilt Remotion bundle plus a `render.js` worker using `@remotion/renderer`, run with `ELECTRON_RUN_AS_NODE=1` through the app's own exe and a bundled Chrome Headless Shell | No Node or npm install needed | `npx remotion render` |
-| Binaries | `ffmpeg.exe`, `ffprobe.exe`, standalone `yt-dlp.exe`, `deno.exe` (the JS runtime recent yt-dlp needs for YouTube; verify against the pinned version) | The standalone yt-dlp can self-update without an app release | yt-dlp as a frozen Python module, which cannot be updated |
+| Binaries | `ffmpeg.exe`, `ffprobe.exe`, standalone `yt-dlp.exe`, `deno.exe` (the JS runtime recent yt-dlp needs for YouTube; verify against the pinned version), `whisper\whisper-cli.exe` with its ggml DLLs (whisper.cpp CPU build) | The standalone yt-dlp can self-update without an app release | yt-dlp as a frozen Python module, which cannot be updated |
+| Speech-to-text | Groq Whisper while a key is set and Groq answers; otherwise the bundled **whisper.cpp** CLI (CPU) with a GGML model downloaded on first use (§5.2) | Works offline and without any key, while Groq stays the fast path. The CLI is about 11 MB and runs as a tracked, tree-killable child process like the other tools | faster-whisper (adds CTranslate2 and its runtime to the frozen engine); models inside the installer (190–574 MB each, over the size cap); a Vulkan GPU build (none is published for Windows; it would have to be built in CI) |
 | Secrets | Windows Credential Manager via Python `keyring` (the engine is the only owner) | DPAPI-backed per Windows user | Plain `.env`, or keys stored in DB rows (`super_agents.groq_api_key` today) |
 | Account | None required in v1 (see D1) | Works fully offline after setup | — |
 
@@ -238,7 +244,7 @@ metisclip/
 │   │   ├── updater.ts            # electron-updater
 │   │   └── ipc.ts                # dialogs, shell, notifications (path-checked)
 │   ├── src/preload/index.ts      # contextBridge → window.metis
-│   ├── resources/                # icons; bin/ (mongod, ffmpeg, yt-dlp, deno) filled by scripts/fetch-binaries.ps1 (gitignored)
+│   ├── resources/                # icons; bin/ (mongod, ffmpeg, yt-dlp, deno, whisper/) filled by scripts/fetch-binaries.ps1 (gitignored)
 │   ├── electron-builder.yml
 │   └── package.json
 ├── frontend/                     # Next.js 14 → static export (output: 'export')
@@ -265,14 +271,16 @@ metisclip/
 │   │   ├── secrets.py            # NEW: keyring (Windows Credential Manager)
 │   │   ├── procs.py              # NEW: subprocess helper (CREATE_NO_WINDOW, cancel, tree-kill)
 │   │   ├── events.py             # NEW: WS event bus
-│   │   └── queue.py              # NEW: persistent job queue and workers
+│   │   ├── queue.py              # NEW: persistent job queue and workers
+│   │   └── workload.py           # NEW: local Whisper waits while an export render runs
 │   ├── api/routes/               # jobs, clips, agents (+ brand template), settings,
-│   │                             # system, files, dashboard, ws
+│   │                             # system, files, dashboard, whisper, ws
 │   ├── agents/
 │   │   ├── state.py
 │   │   ├── static_pipeline.py
 │   │   ├── nodes/                # discovery.py, analyzer.py, processor.py
-│   │   └── tools/                # ytdlp.py, transcript.py, ffmpeg_ops.py, smart_crop.py
+│   │   └── tools/                # ytdlp.py, transcript.py, whisper.py (engine choice), whisper_local.py,
+│   │                             # ffmpeg_ops.py, smart_crop.py, caption_ai.py
 │   ├── services/                 # render.py (render worker), backup.py (EJSON backups)
 │   ├── models/                   # NEW: Pydantic document models, one per collection
 │   ├── db/migrations/            # 001_init.py (collections, $jsonSchema validators, indexes), 002_…
@@ -331,7 +339,16 @@ run_job(job_id, cancel)                    claims pending → running atomically
 
 ### 5.2 Analyzer Agent (`nodes/analyzer.py`, `tools/transcript.py`)
 
-- **Transcript chain:** youtube-transcript-api (`en`, `id`) → download audio (yt-dlp) → 20-min chunks → Groq Whisper `verbose_json`. Uploaded files skip YouTube subtitles: their audio track goes straight to the 20-min chunks and Whisper. Mock data is allowed in dev only. Transcripts are cached in the `transcripts` collection (`yt:<youtube_id>` or `file:<fingerprint>`), so resumes and re-analysis never refetch them.
+- **Transcript chain:** youtube-transcript-api (`en`, `id`) → download audio (yt-dlp) → 20-min chunks → Whisper (Groq `verbose_json` or the local engine, see below). Uploaded files skip YouTube subtitles: their audio track goes straight to the 20-min chunks and Whisper. Mock data is allowed in dev only. Transcripts are cached in the `transcripts` collection (`yt:<youtube_id>` or `file:<fingerprint>`), so resumes and re-analysis never refetch them. Each finished chunk is stored in a `partial:<key>` document, so an interrupted job continues with the next chunk; it is deleted once the transcript is saved.
+- **Speech-to-text engines** (`tools/whisper.py`, `tools/whisper_local.py`). `whisper.provider`:
+  - `auto` (default): Groq while a key is set and Groq answers, with one quick retry. Without a key, or when Groq fails (offline, quota, rejected key, server error), the local engine takes over, and Groq is skipped for a while: 15 min after a quota error, 2 min after a network or server error, 1 h after a rejected key. Saving a new Groq key resumes it at once.
+  - `local`: always the local engine; no network once the model is downloaded.
+  - `groq`: always Groq; fails without a key or network.
+- **Local engine:** `bin\whisper\whisper-cli.exe` (whisper.cpp 1.9.5, CPU x64 build; ggml loads the `ggml-cpu-*.dll` that fits the CPU, from SSE4.2 to Alder Lake). Models, from the Hugging Face repo `ggerganov/whisper.cpp` at a pinned revision and SHA256-checked: `small` (`ggml-small-q5_1.bin`, 190 MB) and `large-v3-turbo` (`ggml-large-v3-turbo-q5_0.bin`, 574 MB). They are not in the installer: each is downloaded once into `<DATA_ROOT>\models\whisper` (resumable `.part` file), on first use or from Pengaturan.
+  - **Model choice** (`whisper.local_model`): `auto` uses `small` for full-video transcripts (often an hour or more), and for clip subtitles `large-v3-turbo` when the PC has ≥ 16 GB RAM and ≥ 8 physical cores, else `small`. A fixed model applies to both. Measured speeds are in §1.5; Turbo is much more accurate for Indonesian (e.g. "perencanaan keuangan" where Small heard "french anak uangan").
+  - **Resources:** one transcription at a time; threads = half the logical CPUs (2–8); below-normal priority; it does not start while an export render runs (`core/workload.py`). Beam search (whisper.cpp default) and flash attention stay on: greedy decoding was 25 % faster but split sentences, and turning flash attention off was slower.
+  - **Paths:** whisper-cli opens files with narrow (ANSI) strings, so it runs with `<DATA_ROOT>` as its working directory and gets only ASCII paths relative to it: the model and a 16 kHz WAV copy of the input in `cache\`. Verified with a data folder and an install folder containing "ü".
+  - **Output:** `-ojf` JSON → segments and words (sub-word tokens merged on a leading space, zero-length words widened up to 0.3 s, times kept monotonic), the same shape as Groq's `verbose_json`.
 - **Scoring prompt:** hook strength (first 3 s), emotional intensity, standalone clarity and shareability, in JSON mode at temperature 0.2.
 - **Guards:**
   - intro ban (`start < 90 s` is rejected in code)
@@ -373,7 +390,7 @@ This merges the original Clipper and Subtitler agents. Each segment goes through
    - **Fallback:** a static center crop when no face is found or tracking fails (K16).
 3. **Merge and scale:** tracked video plus the original audio → 1080×1920, CRF 18, AAC 128k.
 4. **Thumbnail:** currently the middle frame. Backlog: the highest-energy frame.
-5. **Whisper:** extract audio → Groq Whisper with `timestamp_granularities=["word","segment"]`. If only segment timing is returned, split the words evenly within each segment.
+5. **Whisper:** extract audio → word timings from the engine chosen in §5.2 (Groq with `timestamp_granularities=["word","segment"]`, or the local engine's token timestamps). If only segment timing is returned, split the words evenly within each segment. With no engine available ("Selalu Groq" without a key), words are split from the cached transcript.
 6. **AI marks:** when the effective AI subtitle settings (§5.4) enable keywords or emojis, one LLM call (`agents/tools/caption_ai.py`) marks words with `keyword: true` and/or `emoji`. Non-fatal: on failure the clip is kept and a job error is recorded.
 7. **Persist:** insert a `ready` clip with editable `subtitle_data`. `subtitle_style = {}` so it inherits the Brand Template until overridden.
 
@@ -443,6 +460,7 @@ The user picks the data folder in the Setup Wizard. The default is `%USERPROFILE
 ├── cache\                         segment downloads, audio chunks, render props, intermediates;
 │                                  purged per job, capped (default 10 GB)
 ├── backups\                       compressed EJSON database backups (§6.4)
+├── models\                        downloaded AI models: whisper\ggml-*.bin (local Whisper, §5.2)
 └── .metisclip\                    engine-private: db-credentials.json (ACL: current user only, §6.2)
 ```
 
@@ -532,6 +550,7 @@ Database name: `metisclip`.
   status: "pending" | "analyzing" | "completed" | "failed", created_at: ISODate() }
 
 // transcripts: cache keyed by video, reused across jobs and on resume
+// (while Whisper runs, `partial:<key>` holds the finished 20-min chunks: { chunk_seconds, chunks: { "0": [segments] } })
 { _id: "yt:<youtube_id>" | "file:<fingerprint>", source: "youtube" | "whisper", language: "id",
   segments: [ { text: "…", start: 13.6, duration: 4.5 } ], fetched_at: ISODate() }
 
@@ -601,9 +620,9 @@ Base URL: `http://127.0.0.1:{port}`. Every request carries `Authorization: Beare
 | Method | Path | Description |
 |---|---|---|
 | GET | `/health` | Status, version, MongoDB ping |
-| GET | `/api/system/check` | ffmpeg, ffprobe, yt-dlp and deno versions; GPU encoders; free disk; RAM; library writable |
+| GET | `/api/system/check` | ffmpeg, ffprobe, yt-dlp, deno and whisper.cpp versions; GPU encoders; free disk; RAM; library writable |
 | POST | `/api/system/update-ytdlp` | Self-update yt-dlp |
-| GET | `/api/system/storage` | Data folder path, free space on its drive, size of `db\`, `library\` and `cache\` (library per agent) |
+| GET | `/api/system/storage` | Data folder path, free space on its drive, size of `db\`, `library\`, `cache\`, `backups\` and `models\` (library per agent) |
 | POST | `/api/system/backup` | Write an EJSON database backup now (§6.4) |
 | GET | `/api/system/backups` | List existing backups |
 | GET / PUT | `/api/settings` | Non-secret settings (§8.1) |
@@ -612,6 +631,10 @@ Base URL: `http://127.0.0.1:{port}`. Every request carries `Authorization: Beare
 | POST | `/api/secrets/{name}/reveal` | The stored value, for the eye icon in Pengaturan and the Setup Wizard |
 | POST | `/api/secrets/{name}/test` | Validate a key (cheap LLM call with that provider's model, or a Whisper ping) |
 | POST | `/api/llm/models` | Text models a provider offers for a key (`{provider, value?, base_url?}`), for the model picker |
+| GET | `/api/whisper/status` | Transcription mode, whether a Groq key is set, the local engine (version, threads, the model each task uses, what `auto` picks on this PC) and the local models (installed, download progress), CPU cores and RAM |
+| POST | `/api/whisper/models/{id}/download` | Download a local model in the background (progress as `whisper.download` events) |
+| POST | `/api/whisper/models/{id}/cancel` | Cancel that download (the `.part` file is kept for a resume) |
+| DELETE | `/api/whisper/models/{id}` | Delete a model file (refused while it downloads or transcribes) |
 | POST | `/internal/shutdown` | Graceful stop (main process only) |
 
 ### Agents and brand
@@ -658,7 +681,7 @@ Base URL: `http://127.0.0.1:{port}`. Every request carries `Authorization: Beare
 ### Events
 
 `WS /ws/events?token=` pushes JSON messages:
-`{ "type": "job.progress" | "job.status" | "clip.created" | "render.progress" | "render.status" | "system.notice", "id": "...", "progress": 0-100, "step": "...", "message": "..." }`
+`{ "type": "job.progress" | "job.status" | "clip.created" | "render.progress" | "render.status" | "system.notice" | "whisper.download", "id": "...", "progress": 0-100, "step": "...", "message": "..." }`
 
 ---
 
@@ -672,14 +695,14 @@ Base URL: `http://127.0.0.1:{port}`. Every request carries `Authorization: Beare
 - `llm.provider`: `openai` | `anthropic` | `gemini` | `xai` | `deepseek` | `qwen` | `openai_compatible` (default; 9Router). The six hosted providers have fixed endpoints in `core/llm_providers.py`.
 - `llm.models`: the chosen model per provider, so switching back keeps the earlier choice. Defaults (Nov 2026): `gpt-6.1-terra`, `claude-haiku-5-5`, `gemini-3.6-flash`, `grok-4.3`, `deepseek-flash`, `qwen-plus`, `metisclip` (9Router). Model names change often; the UI loads the live list from the provider ("Muat daftar model").
 - `llm.base_url`: only for `openai_compatible` (quick fills: 9Router, Groq, OpenRouter, Together AI, Fireworks AI). Migration 004 turned the old presets (9router, Groq, Custom) into this provider.
-- `whisper.provider` (`groq` | `local` in P2), `whisper.model` (default `whisper-large-v3-turbo`)
+- `whisper.provider`: `auto` (default) | `local` | `groq` (§5.2); `whisper.model`: the Groq model (default `whisper-large-v3-turbo`); `whisper.local_model`: `auto` (default) | `small` | `large-v3-turbo`
 - `processing.max_workers`, `processing.encoder` (`auto` | `libx264` | `h264_nvenc` | `h264_qsv` | `h264_amf`), `render.concurrency`
 - `ytdlp.player_client`, `ytdlp.cookies_file`
 - `app.close_to_tray`, `app.auto_update`, `app.language` (`id`)
 
 ### 8.2 Secrets (Windows Credential Manager, service name `MetisClip`)
 
-One key per LLM provider: `openai_api_key`, `anthropic_api_key`, `gemini_api_key`, `xai_api_key`, `deepseek_api_key`, `qwen_api_key`, and `llm_api_key` for the OpenAI-compatible endpoint. Plus `groq_api_key` (Whisper). The user enters every key in Pengaturan or the Setup Wizard. **Keys are never read from `.env` or environment variables, not even in dev** (owner decision, 2026-11-09); the dev engine stores them under the service name `MetisClip-Dev`. The MongoDB password is not stored here (see §6.2). They replace `super_agents.groq_api_key`, `.env` keys and Supabase-stored tokens.
+One key per LLM provider: `openai_api_key`, `anthropic_api_key`, `gemini_api_key`, `xai_api_key`, `deepseek_api_key`, `qwen_api_key`, and `llm_api_key` for the OpenAI-compatible endpoint. Plus `groq_api_key` (Groq Whisper; optional, since the local engine transcribes without it). The user enters every key in Pengaturan or the Setup Wizard. **Keys are never read from `.env` or environment variables, not even in dev** (owner decision, 2026-11-09); the dev engine stores them under the service name `MetisClip-Dev`. The MongoDB password is not stored here (see §6.2). They replace `super_agents.groq_api_key`, `.env` keys and Supabase-stored tokens.
 
 ### 8.3 Development `.env` (dev only, never bundled)
 
@@ -716,7 +739,7 @@ The earlier glassmorphism system (Liquid Blue `#1856FF`, deep-space backgrounds,
 - **New: Setup Wizard** (first run):
   1. Welcome and disclaimer
   2. Choose the **data location**: drive and folder for the database and library, validated per §6.1, with free space shown per drive. Choosing an existing MetisClip data folder reuses it (after a reinstall or on a new PC).
-  3. Enter the LLM, Groq and YouTube keys, each with a "Tes" button
+  3. Enter the LLM key and, optionally, the Groq key (without it, transcription runs on local Whisper), each with a "Tes" button
   4. System check
   5. Create the first Super Agent
 - **New: Jobs panel:** running, queued and interrupted jobs (with Resume), and Cancel. Reachable from anywhere through a status-bar indicator.
@@ -748,13 +771,13 @@ The earlier glassmorphism system (Liquid Blue `#1856FF`, deep-space backgrounds,
 1. **frontend:** `next build` with `output: 'export'` → `frontend/out/`
 2. **render-engine:** `remotion bundle` → `render-engine/build/`; compile `render.ts` → `render.js`; download and pin Chrome Headless Shell.
 3. **backend:** `pyinstaller metisclip-engine.spec` (onedir; collect mediapipe models and cv2 data; `--noconsole`) → `backend/dist/metisclip-engine/`
-4. **binaries:** `scripts/fetch-binaries.ps1` downloads pinned mongod (only `mongod.exe` and its license files from the MongoDB Community Server zip), ffmpeg/ffprobe, yt-dlp and deno, verifies SHA256, and places them in `desktop/resources/bin/`.
+4. **binaries:** `scripts/fetch-binaries.ps1` downloads pinned mongod (only `mongod.exe` and its license files from the MongoDB Community Server zip), ffmpeg/ffprobe, yt-dlp, deno and the whisper.cpp CPU build (`whisper\`: `whisper-cli.exe`, its ggml DLLs and the MIT license), verifies SHA256, and places them in `desktop/resources/bin/`.
 5. **desktop:** `electron-builder --win nsis` → `MetisClip-Setup-{version}.exe` (the artifacts above go in as `extraResources`).
 
 ### 10.2 Installer
 
 - NSIS, per-user install to `%LOCALAPPDATA%\Programs\MetisClip`, no admin rights. Creates a Start Menu entry, and an optional desktop shortcut.
-- The uninstaller removes the app and logs and empties `<DATA_ROOT>\cache`, then **asks** whether to also delete the data folder (database, library, backups). The default is to keep it; reinstalling and choosing the same folder picks everything up again.
+- The uninstaller removes the app and logs and empties `<DATA_ROOT>\cache`, then **asks** whether to also delete the data folder (database, library, backups, Whisper models). The default is to keep it; reinstalling and choosing the same folder picks everything up again.
 - Target size: installer ≤ 500 MB. Measure it in Phase 1; mediapipe, opencv, Chromium and mongod dominate.
 
 ### 10.3 Code signing and SmartScreen
@@ -811,10 +834,10 @@ cd desktop; npx playwright test
 ## 12. Critical Implementation Rules
 
 1. **Never download full videos for clipping.** Use yt-dlp `--download-sections`. A full audio download is allowed only for the Whisper transcript fallback.
-2. **All LLM calls go through `core/llm.py`** (the provider and model come from settings: OpenAI, Anthropic, Gemini, xAI, DeepSeek, Qwen or an OpenAI-compatible endpoint, default 9Router). No provider SDK calls or hard-coded endpoints inside nodes; endpoints live in `core/llm_providers.py`. Speech-to-text uses Groq Whisper (local Whisper is P2).
+2. **All LLM calls go through `core/llm.py`** (the provider and model come from settings: OpenAI, Anthropic, Gemini, xAI, DeepSeek, Qwen or an OpenAI-compatible endpoint, default 9Router). No provider SDK calls or hard-coded endpoints inside nodes; endpoints live in `core/llm_providers.py`. Speech-to-text goes through `agents/tools/whisper.py` (Groq Whisper or the bundled whisper.cpp, §5.2); nodes never call Groq or whisper-cli directly.
 3. **Subtitles are always editable data** (`subtitle_data` JSON). They are burned in only during export.
 4. **Preview == render.** Subtitle presets live in one place and are used by both the editor and Remotion.
-5. **Local-first.** No clip or video bytes go to cloud storage. The network is used only for AI APIs, YouTube metadata and downloads via yt-dlp, and updates. The app never uploads or posts to social media.
+5. **Local-first.** No clip or video bytes go to cloud storage. The network is used only for AI APIs, YouTube metadata and downloads via yt-dlp, one-time model downloads, and updates. The app never uploads or posts to social media.
 6. **No server secrets in the bundle.** Assume everything shipped is public.
 7. **The engine binds 127.0.0.1 only** on a random port and requires the per-launch token on every route, including media and WS.
 8. **No CWD-relative paths.** Resolve everything through `core/paths.py` from the `METISCLIP_*` environment variables. User paths contain spaces and may contain non-ASCII characters (e.g. `C:\Users\ASUS VivoBook\…`), so always pass subprocess arguments as a list and never use `shell=True`.
@@ -826,7 +849,7 @@ cd desktop; npx playwright test
 14. **Smart crop uses face tracking** (MediaPipe) with a center-crop fallback, so a clip never fails just because tracking failed.
 15. **Never delete user media automatically.** Cache is purged automatically; library files only on explicit user action.
 16. **Desktop window minimum 1280×720, HiDPI-correct.** This replaces the old "tablet-responsive editor" rule.
-17. **Bundled binaries are pinned and checksum-verified** (mongod, ffmpeg, yt-dlp, deno, Chrome Headless Shell).
+17. **Bundled binaries are pinned and checksum-verified** (mongod, ffmpeg, yt-dlp, deno, whisper.cpp, Chrome Headless Shell), and so are downloaded models (SHA256 per file, pinned repo revision).
 18. **All database access goes through `core/db.py`** and the Pydantic models in `backend/models/`. `_id` is a UUID4 string, timestamps are UTC BSON dates, and documents are validated before they are written.
 19. **No multi-document transactions** (mongod runs standalone). Every state change is a single-document atomic update (`$set`, `$inc`, `$push` with `$slice`), and documents stay well under the 16 MB limit: never append unbounded logs or events to a document.
 20. **Videos and images never go into MongoDB** (no GridFS). Media lives as files under `<DATA_ROOT>`, and documents hold paths relative to it.
@@ -858,7 +881,7 @@ cd desktop; npx playwright test
 
 ### Phase 3: Extended (P2)
 
-- Local Whisper (faster-whisper on CPU or CUDA), drag-out of clips, tray/background mode and toasts for long jobs, opt-in crash reporting, optional MCP server toggle.
+- GPU builds of whisper.cpp for local transcription (CUDA for NVIDIA; Vulkan for Intel and AMD has no published Windows build, so it would be built in CI), drag-out of clips, tray/background mode and toasts for long jobs, opt-in crash reporting, optional MCP server toggle.
 - Then the open-decision items: account and license, macOS.
 
 The former "Publishing" phase (YouTube OAuth, scheduled uploads) was dropped on 2026-11-09; see D3.
@@ -867,7 +890,7 @@ The former "Publishing" phase (YouTube OAuth, scheduled uploads) was dropped on 
 
 ## 14. Testing Strategy
 
-- **Unit (pytest):** nodes with mocked LLM, YouTube and Groq responses; analyzer guards (intro ban, critic acceptance window, expand/trim); `paths.py` with spaces and Unicode; `procs.py` cancel and tree-kill.
+- **Unit (pytest):** nodes with mocked LLM, YouTube and Groq responses; Whisper engine choice and Groq fallback, whisper.cpp JSON parsing, model download resume and checksum; analyzer guards (intro ban, critic acceptance window, expand/trim); `paths.py` with spaces and Unicode; `procs.py` cancel and tree-kill.
 - **Database (pytest):** a session fixture starts a throwaway `mongod.exe` (the same pinned binary) with a temporary dbPath on a random port. Tests run real queries, indexes and validators instead of a Mongo mock. Migration tests apply every migration to an empty database and to fixtures of the previous schema version.
 - **Integration:** full pipeline on a fixed public sample video ID with recorded transcript and LLM fixtures; a render snapshot (frame hash at fixed timestamps for each preset, checking preview == render).
 - **E2E (Playwright `_electron`):** first-run wizard → create agent → create job → gallery → edit subtitle → export → file exists → open in Explorer (IPC stubbed).
@@ -894,6 +917,8 @@ The former "Publishing" phase (YouTube OAuth, scheduled uploads) was dropped on 
 | **Unclean shutdown** (power loss, killed process) or an orphan mongod holding `mongod.lock` | Journal recovery on the next start; main detects and terminates orphans (§3.3); EJSON backups (§6.4) |
 | **Data folder** on a cloud-synced, removable or network drive | Rejected by validation (§6.1); recovery screen when the drive is missing |
 | **Weak laptops** (8 GB RAM, integrated GPU) with MediaPipe and Chromium render | Hardware-aware worker defaults; one render at a time; RAM warning |
+| **Local transcription is slow on laptop CPUs** (§1.5: a 1-hour upload takes about 34 min with Small on the reference laptop) | `auto` uses Groq whenever it can, Small for full transcripts and Turbo only for short clip subtitles; finished transcript chunks are checkpointed; below-normal priority on half the threads |
+| **Model download host** (Hugging Face) blocked or slow on some networks | Resumable, SHA256-checked download; Groq keeps working meanwhile. Backlog: import a model file from disk, or mirror the models on the update domain |
 | **Copyright:** clipping third-party YouTube content | Onboarding disclaimer (the user is responsible for rights and fair use). Backlog: show the source video link in the clip editor so the user can credit it when posting |
 
 ### Open decisions (owner: product)

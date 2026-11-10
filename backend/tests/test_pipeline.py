@@ -6,7 +6,7 @@ import pytest
 
 from backend.agents import static_pipeline
 from backend.agents.nodes import analyzer, discovery, processor
-from backend.agents.tools import ffmpeg_ops
+from backend.agents.tools import ffmpeg_ops, whisper_local
 from backend.agents.tools import transcript as transcript_mod
 from backend.core import procs
 from backend.core.config import ffmpeg_path
@@ -53,6 +53,8 @@ def fake_world(monkeypatch, db, secrets):
     monkeypatch.setattr(analyzer, "get_transcript", fake_transcript)
     monkeypatch.setattr(analyzer.llm, "chat_json", fake_chat)
     monkeypatch.setattr(processor.ytdlp, "download_section", fake_download)
+    # No Groq key and no local engine: clip words come from the transcript
+    monkeypatch.setattr(whisper_local, "binary", lambda: None)
     return downloads
 
 
@@ -112,7 +114,7 @@ def test_upload_job_clips_the_local_file(db, secrets, monkeypatch, tmp_path):
     video_path = _make_video(tmp_path / "Video Saya ü" / "podcast lokal.mp4", 400)
     calls: list[bool] = []
 
-    def fake_transcribe(audio, *, words, retries=3):
+    def fake_transcribe(audio, *, words, cancel=None, on_status=None):
         calls.append(words)
         if words:  # per clip: word timings
             return {"words": [{"word": "halo", "start": 0.0, "end": 0.4}, {"word": "semua", "start": 0.5, "end": 0.9}]}

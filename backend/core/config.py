@@ -177,6 +177,12 @@ def deno_path() -> str | None:
     return shutil.which("deno")
 
 
+def whisper_cli_path() -> Path | None:
+    """Bundled whisper.cpp CLI (bin\\whisper\\whisper-cli.exe with its ggml DLLs)."""
+    exe = get_paths().bin_dir / "whisper" / ("whisper-cli.exe" if os.name == "nt" else "whisper-cli")
+    return exe if exe.exists() else None
+
+
 def mongod_path() -> str | None:
     exe = get_paths().bin_dir / "mongod.exe"
     return str(exe) if exe.exists() else None

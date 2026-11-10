@@ -19,6 +19,8 @@ import psutil
 logger = logging.getLogger(__name__)
 
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+# Background work that must not slow down the UI, the render or the user's other apps (local Whisper)
+BELOW_NORMAL_PRIORITY_CLASS = 0x00004000 if os.name == "nt" else 0
 
 
 class Cancelled(Exception):
@@ -97,6 +99,7 @@ def popen(
     cwd: str | os.PathLike | None = None,
     env: dict[str, str] | None = None,
     text: bool = False,
+    low_priority: bool = False,
 ) -> subprocess.Popen:
     """Start a child process (list args only, never shell=True)."""
     if isinstance(cmd, (str, bytes)):
@@ -114,7 +117,7 @@ def popen(
         stderr=stderr,
         cwd=str(cwd) if cwd else None,
         env=full_env,
-        creationflags=CREATE_NO_WINDOW,
+        creationflags=CREATE_NO_WINDOW | (BELOW_NORMAL_PRIORITY_CLASS if low_priority else 0),
         text=text,
         encoding="utf-8" if text else None,
         errors="replace" if text else None,

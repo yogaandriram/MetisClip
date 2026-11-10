@@ -66,7 +66,7 @@ export function VideoFilePicker({ value, onChange, onError }: VideoFilePickerPro
   return (
     <Field
       label="Video dari komputer"
-      hint="Video dipakai langsung dari lokasinya (tidak disalin), jadi jangan dipindah atau dihapus sampai job selesai. Transkripnya dibuat dengan Whisper, jadi API key Groq wajib diisi di Pengaturan."
+      hint="Video dipakai langsung dari lokasinya (tidak disalin), jadi jangan dipindah atau dihapus sampai job selesai. Transkripnya dibuat dengan Whisper: lewat Groq bila key-nya diisi, atau Whisper lokal di komputer ini (lebih lambat untuk video panjang)."
     >
       {value ? (
         <Card tone="dew" padding="sm" className={over ? 'mc-row mc-drop--over' : 'mc-row'} {...drag}>

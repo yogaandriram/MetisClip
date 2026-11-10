@@ -82,7 +82,9 @@ export default function DashboardOverview() {
       .then(([{ secrets }, { settings }]) => {
         const llmKey = providerInfo(settings.llm.provider).secret
         setLlmLabel(providerInfo(settings.llm.provider).label)
-        setMissingKeys(([llmKey, 'groq_api_key'] as SecretName[]).filter((k) => !secrets[k]))
+        // Groq is only required when transcription is set to "Selalu Groq"; otherwise local Whisper covers it
+        const required: SecretName[] = settings.whisper.provider === 'groq' ? [llmKey, 'groq_api_key'] : [llmKey]
+        setMissingKeys(required.filter((k) => !secrets[k]))
       })
       .catch(() => setMissingKeys([]))
   }, [epoch])

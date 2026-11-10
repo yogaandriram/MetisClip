@@ -30,7 +30,9 @@ def defaults() -> dict[str, Any]:
             "base_url": DEFAULT_COMPATIBLE_BASE_URL,
             "models": {pid: p.default_model for pid, p in PROVIDERS.items()},
         },
-        "whisper": {"provider": "groq", "model": "whisper-large-v3-turbo"},
+        # provider: "auto" (Groq while a key is set and Groq answers, else local), "local" or "groq";
+        # model: the Groq model; local_model: "auto" (chosen from RAM and CPU) or a whisper_local model id
+        "whisper": {"provider": "auto", "model": "whisper-large-v3-turbo", "local_model": "auto"},
         "processing": {"max_workers": _default_workers(), "encoder": "auto"},
         "render": {"concurrency": 1},
         "ytdlp": {"player_client": "default", "cookies_file": None},
@@ -79,6 +81,14 @@ def _validate(s: dict) -> None:
     llm["base_url"] = str(llm.get("base_url") or "").strip()
     if llm["provider"] == "openai_compatible" and not llm["base_url"].startswith(("http://", "https://")):
         raise SettingsError("Base URL LLM harus diawali http:// atau https://")
+    from backend.agents.tools.whisper_local import MODELS as LOCAL_MODELS
+
+    whisper = s["whisper"]
+    if whisper.get("provider") not in ("auto", "local", "groq"):
+        raise SettingsError("Mesin transkripsi tidak dikenal")
+    if whisper.get("local_model") not in ("auto", *LOCAL_MODELS):
+        raise SettingsError("Model Whisper lokal tidak dikenal")
+    whisper["model"] = str(whisper.get("model") or "").strip()[:100] or "whisper-large-v3-turbo"
     if s["processing"]["encoder"] not in ("auto", "libx264", "h264_nvenc", "h264_qsv", "h264_amf"):
         raise SettingsError("Encoder tidak dikenal")
     try:

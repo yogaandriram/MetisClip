@@ -356,8 +356,9 @@ function DataStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
 const SECRET_INFO: { name: SecretName; label: string; description: React.ReactNode }[] = [
   {
     name: 'groq_api_key',
-    label: 'API key Groq (Whisper)',
-    description: 'Dipakai untuk subtitle per kata dan transkrip video yang Anda upload. Bisa dibuat gratis di console.groq.com.',
+    label: 'API key Groq (opsional)',
+    description:
+      'Tanpa key ini, transkripsi berjalan dengan Whisper lokal di komputer ini (modelnya diunduh sekali saat pertama dipakai). Dengan key Groq, yang bisa dibuat gratis di console.groq.com, transkripsi jauh lebih cepat saat online, dan Whisper lokal tetap menjadi cadangan saat offline.',
   },
 ]
 

@@ -182,13 +182,18 @@ export interface ExportResult {
 /** LLM providers (backend/core/llm_providers.py); labels and key links live in lib/llmProviders.ts */
 export type LlmProvider = 'openai' | 'anthropic' | 'gemini' | 'xai' | 'deepseek' | 'qwen' | 'openai_compatible'
 export type EncoderSetting = 'auto' | 'libx264' | 'h264_nvenc' | 'h264_qsv' | 'h264_amf'
+export type WhisperProvider = 'auto' | 'local' | 'groq'
+/** Local Whisper models (backend/agents/tools/whisper_local.py MODELS) */
+export type WhisperModelId = 'small' | 'large-v3-turbo'
+export type WhisperLocalModelSetting = 'auto' | WhisperModelId
 
 export interface Settings {
   export_dir: string
   cache_limit_gb: number
   /** base_url is only used by the OpenAI-compatible provider; models holds the chosen model per provider */
   llm: { provider: LlmProvider; base_url: string; models: Record<LlmProvider, string> }
-  whisper: { provider: 'groq'; model: string }
+  /** provider: auto = Groq while a key is set and Groq answers, else local; model = the Groq model */
+  whisper: { provider: WhisperProvider; model: string; local_model: WhisperLocalModelSetting }
   processing: { max_workers: number; encoder: EncoderSetting }
   render: { concurrency: number }
   ytdlp: { player_client: string; cookies_file: string | null }
@@ -198,7 +203,7 @@ export interface Settings {
 
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
 
-/** One key per LLM provider (llm_api_key = OpenAI-compatible endpoint), plus Groq Whisper and YouTube */
+/** One key per LLM provider (llm_api_key = OpenAI-compatible endpoint), plus Groq Whisper */
 export type LlmSecretName = 'openai_api_key' | 'anthropic_api_key' | 'gemini_api_key' | 'xai_api_key' | 'deepseek_api_key' | 'qwen_api_key' | 'llm_api_key'
 export type SecretName = LlmSecretName | 'groq_api_key'
 
@@ -244,7 +249,48 @@ export interface StorageInfo {
   library_bytes: number
   cache_bytes: number
   backups_bytes: number
+  /** <DATA_ROOT>\models (local Whisper models) */
+  models_bytes: number
   per_agent: { agent_id: string; name: string; bytes: number }[]
+}
+
+export interface WhisperModelDownload {
+  status: 'downloading' | 'failed' | 'cancelled'
+  progress: number
+  error: string | null
+}
+
+export interface WhisperModelInfo {
+  id: WhisperModelId
+  label: string
+  description: string
+  size_bytes: number
+  installed: boolean
+  download: WhisperModelDownload | null
+}
+
+/** GET /api/whisper/status */
+export interface WhisperStatus {
+  provider: WhisperProvider
+  groq_key_set: boolean
+  local: {
+    /** whisper-cli.exe is bundled */
+    available: boolean
+    version: string | null
+    busy: boolean
+    threads: number
+    model_setting: WhisperLocalModelSetting
+    /** The model each task uses with the current setting */
+    transcript_model: WhisperModelId
+    subtitle_model: WhisperModelId
+    /** What the "auto" setting picks on this PC */
+    auto_models: { transcript: WhisperModelId; subtitle: WhisperModelId }
+    models_dir: string
+  }
+  models: WhisperModelInfo[]
+  cpu_cores: number
+  cpu_threads: number
+  ram_gb: number
 }
 
 export interface BackupInfo {
@@ -282,6 +328,7 @@ export type EngineEvent =
   | { type: 'render.progress'; id: string; clip_id: string; status: RenderStatus; progress_pct: number }
   | { type: 'render.status'; id: string; clip_id: string; status: RenderStatus; output_path?: string | null; error?: string | null }
   | { type: 'system.notice'; level: 'info' | 'warning' | 'error'; message: string }
+  | { type: 'whisper.download'; id: WhisperModelId; status: 'downloading' | 'completed' | 'failed' | 'cancelled'; progress: number; message: string | null }
 
 // ---------------------------------------------------------------------------
 // Connection
@@ -515,6 +562,14 @@ export const api = {
     reveal: (name: SecretName) => request<{ value: string }>('POST', `/api/secrets/${name}/reveal`),
     /** Tests `value` if given, otherwise the stored secret */
     test: (name: SecretName, value?: string) => request<{ ok: boolean; message: string }>('POST', `/api/secrets/${name}/test`, { body: value ? { value } : {} }),
+  },
+
+  whisper: {
+    status: () => request<WhisperStatus>('GET', '/api/whisper/status'),
+    /** Starts a background download; progress arrives as whisper.download events */
+    download: (id: WhisperModelId) => request<{ ok: true; started: boolean }>('POST', `/api/whisper/models/${id}/download`),
+    cancelDownload: (id: WhisperModelId) => request<{ ok: boolean }>('POST', `/api/whisper/models/${id}/cancel`),
+    remove: (id: WhisperModelId) => request<{ ok: true }>('DELETE', `/api/whisper/models/${id}`),
   },
 
   llm: {

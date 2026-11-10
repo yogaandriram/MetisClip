@@ -186,6 +186,11 @@ function setupVerificationHooks(win: BrowserWindow): void {
             await win.loadURL(entryUrl(route))
           }
           await new Promise((r) => setTimeout(r, delay))
+          const scrollTo = process.env.METISCLIP_SCREENSHOT_SCROLL
+          if (scrollTo) {
+            await win.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(scrollTo)})?.scrollIntoView({ block: 'start' })`)
+            await new Promise((r) => setTimeout(r, 500))
+          }
           if (!win.isVisible()) win.show()
           let img: Electron.NativeImage | null = null
           for (let attempt = 1; attempt <= 4 && !img; attempt++) {

@@ -61,7 +61,7 @@ def _subtitles(ctx: JobContext, seg: dict[str, Any], raw: Path, work: Path) -> l
     if whisper.available():
         try:
             audio = ffmpeg_ops.extract_audio_mp3(raw, work / "audio.mp3", ctx.cancel)
-            words = whisper.words_from_payload(whisper.transcribe(audio, words=True))
+            words = whisper.words_from_payload(whisper.transcribe(audio, words=True, cancel=ctx.cancel))
             if words:
                 return words
         except Cancelled:
