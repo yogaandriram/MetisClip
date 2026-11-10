@@ -380,7 +380,10 @@ run_job(job_id, cancel)                    claims pending → running atomically
 - All LLM calls go through `core/llm.py`: the provider, model and (for OpenAI-compatible) base URL come from settings, the key from that provider's secret. Clients are cached; do not create a new `OpenAI(...)` client per call, and do not spoof a browser User-Agent per call.
 - Providers accept different request parameters (reasoning models refuse `temperature` or `max_tokens`, some lack JSON mode). `core/llm.py` retries a refused request without the named parameter and remembers it per endpoint and model; Anthropic goes through its Messages API with a JSON-only instruction.
 - Outside dev, a missing or invalid key shows an actionable Indonesian error (e.g. "API key LLM belum diisi di Pengaturan") instead of producing mock clips.
-- Handle HTTP 429 and timeouts with retry and backoff, and report them as job events.
+- **Retries and quotas** (`core/llm.py`):
+  - 5xx errors, timeouts and short rate limits (429) are retried and reported as job events. A 429 waits as long as the provider asks (`Retry-After`, or "try again in …" in the message, at most 65 s).
+  - A used-up quota raises `LLMQuotaExhausted` at once, without retries: a daily limit (e.g. Groq's tokens per day), no credit left, or a wait over 65 s. The Analyzer then stops the job instead of trying every chunk; the job can be resumed once the quota is back or the model is changed.
+  - Errors name the real cause ("Kuota harian LLM habis (host · model). Kuota pulih sekitar 28 menit lagi.", "terus terkena batas rate", "Server LLM sedang bermasalah", "tidak dapat dihubungi") and add the provider's own text. Routers that wrap the upstream JSON error in their message (9Router) are unwrapped, and organization ids are dropped.
 
 ### 5.3 Processor Agent (`nodes/processor.py`, `tools/ffmpeg_ops.py`, `tools/smart_crop.py`)
 

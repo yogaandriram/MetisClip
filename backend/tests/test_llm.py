@@ -185,3 +185,157 @@ def test_migration_004_converts_presets(db):
     assert s["provider"] == "openai_compatible" and s["base_url"] == "https://api.groq.com/openai/v1"
     assert s["models"]["openai_compatible"] == "llama-3.3-70b-versatile"
     assert "preset" not in s and "model" not in s
+
+
+# ---------------------------------------------------------------- rate limits and quotas
+
+GROQ_TPD = ("Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01abc` service tier `on_demand` "
+            "on tokens per day (TPD): Limit 200000, Used 199323, Requested 4523. Please try again in 27m41.0s. "
+            "Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing")
+# 9Router wraps the upstream error in its own message; while it cools down it sends a cut-off copy
+ROUTER_TPD = '[groq/openai/gpt-oss-120b] [429]: {"error":{"message":' + json.dumps(GROQ_TPD) + ',"type":"tokens"}}'
+ROUTER_COOLDOWN = ('[groq/openai/gpt-oss-120b] [429]: {"error":{"message":"Rate limit reached for model '
+                   '`openai/gpt-oss-120b` in organization `org_ (reset after 30s)')
+
+
+def test_clean_detail_unwraps_router_messages():
+    full = llm._clean_detail(ROUTER_TPD)
+    assert full.startswith("[groq/openai/gpt-oss-120b] Rate limit reached")
+    assert "tokens per day" in full and "org_" not in full and "on_demand" not in full and '{"error"' not in full
+    cut = llm._clean_detail(ROUTER_COOLDOWN)
+    assert cut == "[groq/openai/gpt-oss-120b] Rate limit reached for model `openai/gpt-oss-120b` (reset after 30s)"
+    assert llm._clean_detail("Incorrect API key provided") == "Incorrect API key provided"
+
+
+@pytest.mark.parametrize("status,message,headers,kind,wait", [
+    # Groq's daily token limit behind 9Router: the provider's wait (27 min) wins over the router's 30 s
+    (429, ROUTER_TPD + " (reset after 30s)", None, "daily", 1661.0),
+    (429, "Rate limit reached on tokens per day (TPD): Limit 200000, Used 200000", None, "daily", None),
+    # The router's cut-off copy names no limit, only its own short cooldown: wait it out once
+    (429, ROUTER_COOLDOWN, None, "rate", 30.0),
+    # A rolling daily window that frees up within seconds: worth one wait
+    (429, "Rate limit reached on requests per day (RPD). Please try again in 7.5s.", None, "rate", 7.5),
+    (429, "Rate limit reached on tokens per minute (TPM). Please try again in 2.2s.", None, "rate", 2.2),
+    (429, "Rate limit exceeded", {"retry-after": "3"}, "rate", 3.0),
+    (429, "Rate limit exceeded", {"retry-after-ms": "450"}, "rate", 0.45),
+    (429, "Too many requests", {"retry-after": "300"}, "wait", 300.0),
+    (429, "Too many requests", None, "rate", None),
+    # OpenAI: the account has no credit left
+    (429, "You exceeded your current quota, please check your plan and billing details.", None, "billing", None),
+    # Gemini's per-minute limit uses the same words but names a wait
+    (429, "You exceeded your current quota, please check your plan and billing details. Please retry in 41.2s.",
+     None, "rate", 41.2),
+    (429, "Quota exceeded for metric: GenerateRequestsPerDayPerProjectPerModel-FreeTier", None, "daily", None),
+    (402, "Insufficient Balance", None, "billing", None),
+])
+def test_limit_error_classification(status, message, headers, kind, wait):
+    err = llm._limit_error(status, message, headers)
+    if kind == "rate":
+        assert isinstance(err, llm._Retryable) and err.kind == "rate"
+    else:
+        assert isinstance(err, llm._Quota) and err.kind == kind
+    if wait is None:
+        assert err.retry_after is None
+    else:
+        assert err.retry_after == pytest.approx(wait, abs=0.01)
+
+
+def test_wait_formatting():
+    assert llm._fmt_wait(0.2) == "1 detik"
+    assert llm._fmt_wait(45) == "45 detik"
+    assert llm._fmt_wait(1661) == "28 menit"
+    assert llm._fmt_wait(3 * 3600 + 5 * 60) == "3 jam 5 menit"
+
+
+class _LimitedModel(BaseHTTPRequestHandler):
+    """OpenAI-format endpoint that answers from a script of (status, headers, payload); the last one repeats."""
+
+    script: list[tuple[int, dict, dict]] = []
+    hits = 0
+
+    def log_message(self, *args):
+        pass
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers["Content-Length"]))
+        cls = type(self)
+        status, headers, payload = cls.script[min(cls.hits, len(cls.script) - 1)]
+        cls.hits += 1
+        data = json.dumps(payload).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        for k, v in headers.items():
+            self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(data)
+
+
+OK_REPLY = {"id": "x", "object": "chat.completion", "created": 1, "model": "m",
+            "choices": [{"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": '{"ok": true}'}}]}
+
+
+@pytest.fixture()
+def limited(db, secrets, monkeypatch):
+    """Point the OpenAI-compatible provider at _LimitedModel; waits are recorded instead of slept."""
+    llm._quirks.clear()
+    _LimitedModel.script, _LimitedModel.hits = [], 0
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _LimitedModel)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    update_settings({"llm": {"provider": "openai_compatible", "base_url": f"http://127.0.0.1:{server.server_address[1]}/v1",
+                             "models": {"openai_compatible": "metisclip"}}})
+    secrets.set_secret("llm_api_key", "sk-fake")
+    waits: list[float] = []
+    monkeypatch.setattr(llm, "_sleep", lambda seconds, should_stop: waits.append(seconds) or False)
+    yield waits
+    server.shutdown()
+
+
+def test_daily_quota_stops_without_retrying(limited):
+    _LimitedModel.script = [(429, {}, {"error": {"message": ROUTER_TPD, "type": "rate_limit_error"}})]
+    with pytest.raises(llm.LLMQuotaExhausted) as info:
+        llm.chat_json("s", "u")
+    assert _LimitedModel.hits == 1 and limited == []
+    msg = str(info.value)
+    assert msg.startswith("Kuota harian LLM habis (127.0.0.1 · metisclip). Kuota pulih sekitar 28 menit lagi.")
+    assert "pilih model atau penyedia lain di Pengaturan" in msg and "tokens per day" in msg
+    assert "tidak dapat dihubungi" not in msg
+    in_job = info.value.message("Lalu klik Lanjutkan pada job ini.")
+    assert in_job.index("Lanjutkan") < in_job.index("Pesan penyedia")
+
+
+def test_rate_limit_waits_as_long_as_the_provider_asks(limited):
+    _LimitedModel.script = [(429, {"retry-after": "3"}, {"error": {"message": "Rate limit exceeded"}}), (200, {}, OK_REPLY)]
+    assert llm.chat_json("s", "u") == {"ok": True}
+    assert _LimitedModel.hits == 2 and limited == [3.5]
+
+
+def test_daily_limit_with_a_short_wait_is_waited_once(limited):
+    _LimitedModel.script = [(429, {}, {"error": {"message": "Limit on tokens per day (TPD). Please try again in 5s."}})]
+    with pytest.raises(llm.LLMQuotaExhausted, match="Kuota harian"):
+        llm.chat_json("s", "u")
+    assert _LimitedModel.hits == 2 and limited == [5.5]
+
+
+def test_repeated_rate_limit_says_so(limited):
+    _LimitedModel.script = [(429, {}, {"error": {"message": "Too many requests"}})]
+    with pytest.raises(llm.LLMError) as info:
+        llm.chat_json("s", "u", retries=2)
+    assert not isinstance(info.value, llm.LLMQuotaExhausted)
+    assert "batas rate (HTTP 429)" in str(info.value) and "3 percobaan" in str(info.value)
+    assert limited == [2.0, 4.0]
+
+
+def test_server_errors_and_unreachable_endpoints_are_named(limited):
+    _LimitedModel.script = [(503, {}, {"error": {"message": "upstream overloaded"}})]
+    with pytest.raises(llm.LLMError, match=r"Server LLM sedang bermasalah \(HTTP 503"):
+        llm.chat_json("s", "u", retries=1)
+    update_settings({"llm": {"base_url": "http://127.0.0.1:9/v1"}})  # nothing listens on port 9
+    with pytest.raises(llm.LLMError, match="tidak dapat dihubungi .*Base URL"):
+        llm.chat_json("s", "u", retries=0)
+
+
+def test_connection_check_reports_a_used_up_quota(limited):
+    _LimitedModel.script = [(429, {}, {"error": {"message": ROUTER_TPD}})]
+    ok, message = llm.test_connection()
+    assert not ok and message.startswith("Kuota harian LLM habis")

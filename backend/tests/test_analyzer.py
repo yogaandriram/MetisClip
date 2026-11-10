@@ -107,3 +107,42 @@ def test_early_stop_per_video(monkeypatch):
     long_transcript = [{"text": "x.", "start": float(i * 5), "duration": 5.0} for i in range(1000)]
     out = an._analyze_video(FakeCtx(), video, 45, 60, 2, long_transcript, use_llm=True)
     assert calls["main"] == 2 and len(out) == 2
+
+
+def _quota():
+    from backend.core import llm
+
+    return llm.LLMQuotaExhausted("Kuota harian LLM habis (host · m).", "tokens per day (TPD)", retry_after=1800)
+
+
+def test_quota_stops_the_analysis_at_once(monkeypatch):
+    """A used-up quota fails every next chunk the same way: stop instead of trying them all."""
+    calls = {"n": 0}
+
+    def fake_chat(system, user, **kw):
+        calls["n"] += 1
+        raise _quota()
+
+    monkeypatch.setattr(an.llm, "chat_json", fake_chat)
+    video = {"_id": "sv1", "youtube_id": "AAAAAAAAAAA", "title": "t", "duration_seconds": 5000}
+    long_transcript = [{"text": "x.", "start": float(i * 5), "duration": 5.0} for i in range(1000)]
+    with pytest.raises(an.llm.LLMQuotaExhausted):
+        an._analyze_video(FakeCtx(), video, 45, 60, 0, long_transcript, use_llm=True)
+    assert calls["n"] == 1
+
+
+def test_quota_during_critic_keeps_the_segments(monkeypatch):
+    calls = {"critic": 0}
+
+    def fake_chat(system, user, **kw):
+        if "Critic" in system:
+            calls["critic"] += 1
+            raise _quota()
+        return {"segments": [{"start_time": "02:00", "end_time": "02:50", "viral_score": 90, "hook_text": "a"},
+                             {"start_time": "05:00", "end_time": "05:50", "viral_score": 70, "hook_text": "b"}]}
+
+    monkeypatch.setattr(an.llm, "chat_json", fake_chat)
+    video = {"_id": "sv1", "youtube_id": "AAAAAAAAAAA", "title": "t", "duration_seconds": 1000}
+    out = an._analyze_video(FakeCtx(), video, 45, 60, 0, TRANSCRIPT, use_llm=True)
+    assert [s["hook_text"] for s in out] == ["a", "b"]
+    assert calls["critic"] == 1  # the remaining critic calls are skipped
