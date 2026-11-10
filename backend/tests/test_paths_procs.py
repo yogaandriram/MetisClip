@@ -32,7 +32,7 @@ def test_to_relative_rejects_outside(paths, tmp_path):
 def test_slugify():
     assert slugify("Podcast Bisnis & Startup") == "podcast-bisnis-startup"
     assert slugify("Kesehatan Ibu ü") == "kesehatan-ibu-u"
-    assert slugify("!!!") == "agent"
+    assert slugify("!!!") == "workspace"
 
 
 def test_run_captures_and_raises():

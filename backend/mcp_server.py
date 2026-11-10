@@ -34,7 +34,7 @@ def _call(method: str, path: str, **kw: Any) -> Any:
 
 @mcp.tool()
 def list_agents() -> list:
-    """List Super Agents (niche workspaces)."""
+    """List workspaces (called agents in the engine API)."""
     return _call("GET", "/api/agents")["agents"]
 
 

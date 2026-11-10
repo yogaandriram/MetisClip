@@ -48,7 +48,7 @@
 **Goals**
 - **G1:** One installer. No Python, Node, npm or FFmpeg needs to be installed beforehand.
 - **G2:** The full pipeline (discover → analyze → clip → subtitle → render) runs locally with only user-supplied API keys (BYOK).
-- **G3:** Parity with the current web UI: Super Agents, Discover, Clips gallery, subtitle editor with 13 presets, Brand Template.
+- **G3:** Parity with the current web UI: Workspaces, Discover, Clips gallery, subtitle editor with 13 presets, Brand Template.
 - **G5:** Jobs survive app restarts and crashes and resume from their last checkpoint.
 
 **Non-goals (v1)**
@@ -100,7 +100,7 @@ backend/mcp_server.py: the same nodes exposed as MCP tools for LLM-driven orches
 | Subtitle editor and presets | `frontend/app/(dashboard)/clips/[id]`, `frontend/lib/presets/*` | ✅ Works | 13 presets are shared by the editor preview **and** the Remotion composition (`render-engine/src/SubtitleOverlay.tsx` imports `../../frontend/lib/presets`). |
 | Export render | `backend/api/routes/clips.py` (`/render`), `render-engine/` | ✅ Works (web-only design) | Requires Node and npm on the machine (`npx.cmd`). Loads Google Fonts at render time. Uses an R2 round-trip. |
 | Brand Template | `frontend/app/(dashboard)/brand-template/*` | ✅ Works | `brand_settings`, `caption_settings`, `layout_settings` and `ai_settings` per agent. Assets go to the Supabase Storage bucket `brand_assets`. **Desktop: a shared library of named templates (§6.3).** |
-| Super Agents (niche workspaces) | `frontend/app/(dashboard)/agents`, `contexts/AgentContext.tsx` | ✅ Works | The active agent is stored in `localStorage`. |
+| Super Agents (niche workspaces; called Workspaces on desktop) | `frontend/app/(dashboard)/agents`, `contexts/AgentContext.tsx` | ✅ Works | The active agent is stored in `localStorage`. |
 | Scheduler | `agents/nodes/scheduler_ai.py` | ⚠️ Heuristic | Fixed slots at 17:30 and 19:45 WIB, 2 per day starting tomorrow, with template titles. No LLM and no analytics. **Removed on desktop (D3).** |
 | YouTube upload | `services/youtube_upload.py`, `api/routes/scheduler.py` | ❌ Mock | Returns a fake video ID. The OAuth refresh code exists but is unused. **Removed on desktop (D3).** |
 | Social connections | Composio via Next API routes | ⚠️ Partial | Stores connection status in `agent_social_connections`. Not used for uploading. **Removed on desktop (D3).** |
@@ -138,7 +138,8 @@ The tables above describe the web build. On this branch:
 | Engine (`backend/`) | FastAPI sidecar on MongoDB: `core/{paths,config,procs,db,llm,secrets,settings_store,events,auth,queue}.py`, routes per `frontend/lib/engine.ts`, `run.py` ready-line protocol, `--selftest`. Supabase, R2, JWT, Redis, LangGraph and `cleanup.py` are removed. |
 | Known issues fixed in the engine | K1 (each segment uses its own `youtube_id`), K2, K3 (per-launch token instead of JWT), K6 (jobs require `agent_id`), K7 (pinned `requirements.txt`), K9, K11 (127.0.0.1 only), K12, K15 (no auto-deletion), K16 (center-crop fallback) |
 | Desktop shell (`desktop/`) | Electron 45 main + preload: mongod lifecycle (auth, orphan-lock recovery), engine sidecar with restart, `app://` static UI, data-root wizard IPC and missing-drive recovery screen, path-checked shell IPC. Verification hooks (`METISCLIP_UI_DIR`, `METISCLIP_DATA_ROOT_OVERRIDE`, `METISCLIP_SCREENSHOT*`, `METISCLIP_AUTOQUIT_MS`) are documented in `desktop/README.md`. |
-| Frontend | Static export, no Supabase or Composio. All data goes through `lib/engine.ts` + WS events. New: setup wizard, Jobs, System (incl. "Update yt-dlp"), `clips/detail?id=` editor. Fonts are local woff2. Brand Template: intro/outro, music and layout ratio/fit were removed (they never reached the render); `layout_settings` keeps only the safe zone, and the AI subtitle settings work (§5.4). Brand templates are a named, shared library (migration 003); agents pick a default and the clip editor can switch a clip's template. |
+| Frontend | Static export, no Supabase or Composio. All data goes through `lib/engine.ts` + WS events. New: setup wizard, Jobs, System (incl. "Update yt-dlp"), `clips/detail?id=` editor. Fonts are local woff2. Brand Template: intro/outro, music and layout ratio/fit were removed (they never reached the render); `layout_settings` keeps only the safe zone, and the AI subtitle settings work (§5.4). Brand templates are a named, shared library (migration 003); workspaces pick a default and the clip editor can switch a clip's template. |
+| Terminology (2026-11-10) | The UI calls a niche workspace a **Workspace** (owner decision; it was "Super Agent"). Code, API and data keep the old names (`agent_id`, `/api/agents`, `super_agents`, `AgentContext`), so no migration was needed. Library folders of clips without a workspace are now `_tanpa-workspace`. |
 | Render (`render-engine/`) | `dist/render.js` worker (`@remotion/renderer`, run via Electron-as-Node), React 18.3.1 like the frontend (K14), local fonts (K10), Chrome Headless Shell bundled by `build-desktop.ps1`. |
 | yt-dlp | Bundled exe is copied to `%LOCALAPPDATA%\MetisClip\bin` and updated there (`POST /api/system/update-ytdlp`). Downloads prefer H.264 over HTTPS (HLS sections are very slow). Builds older than a few months get HTTP 403 from YouTube, so keep the pin fresh. |
 | Removed (D3, 2026-11-09) | Scheduling (`scheduler_ai`, `/api/schedule`, Jadwal Post page), social account connections (`/api/connections`, Settings card) and the `metisclip://` protocol. Migration `002_remove_publishing` drops `scheduled_posts` and `super_agents.social_connections` from existing databases after the usual pre-migration backup. |
@@ -440,7 +441,7 @@ This merges the original Clipper and Subtitler agents. Each segment goes through
 
 All data stays on the user's own computer, in two kinds of storage inside one **data folder** that the user chooses:
 
-- **MongoDB** (the bundled `mongod.exe`) holds the metadata: Super Agents with their brand templates, jobs, source videos, transcripts, clips (including editable subtitles) and settings.
+- **MongoDB** (the bundled `mongod.exe`) holds the metadata: workspaces, brand templates, jobs, source videos, transcripts, clips (including editable subtitles) and settings.
 - **Local files** hold the media: raw clips, final renders, thumbnails and brand assets. MongoDB only stores their paths, relative to the data folder.
 
 ### 6.1 Storage locations
@@ -511,10 +512,10 @@ Database name: `metisclip`.
 - Dates are BSON `Date` in UTC.
 - Each collection has a Pydantic model in `backend/models/`, and a `$jsonSchema` validator (`validationLevel: "moderate"`) created by migrations.
 - Collection names follow the current Supabase tables, to keep the refactor small. There is no `user_id` or RLS (single local user); data is scoped per `agent_id`.
-- Brand templates are a **shared library** of named templates (`brand_templates`), usable by any Super Agent. Each agent has a default template (`default_brand_template_id`) that new clips copy into `clips.brand_template_id`; the clip editor can switch a clip's template. A clip whose template was deleted falls back to its agent's default. There is always at least one template. (Until migration 003 the template was embedded 1:1 in its agent.)
+- Brand templates are a **shared library** of named templates (`brand_templates`), usable by any workspace. Each workspace has a default template (`default_brand_template_id`) that new clips copy into `clips.brand_template_id`; the clip editor can switch a clip's template. A clip whose template was deleted falls back to its workspace's default. There is always at least one template. (Until migration 003 the template was embedded 1:1 in its workspace document.)
 
 ```js
-// super_agents: one per niche workspace
+// super_agents: one per workspace (the UI term since 2026-11-10; the collection keeps its old name)
 {
   _id: "uuid", name: "Podcast Bisnis", niche: "bisnis",
   default_duration: "45-60", timezone: "Asia/Jakarta",
@@ -641,7 +642,7 @@ Base URL: `http://127.0.0.1:{port}`. Every request carries `Authorization: Beare
 
 | Method | Path | Description |
 |---|---|---|
-| GET / POST | `/api/agents` | List / create Super Agents |
+| GET / POST | `/api/agents` | List / create workspaces |
 | PUT / DELETE | `/api/agents/{id}` | Update / delete (confirm in UI; asks whether library files are deleted too) |
 | GET / POST | `/api/brand-templates` | List the template library (with usage) / create one (`{name, copy_from?}` duplicates) |
 | GET / PUT / DELETE | `/api/brand-templates/{id}` | Name, brand, caption, layout and AI settings; delete (refused for the last template) |
@@ -734,14 +735,15 @@ The earlier glassmorphism system (Liquid Blue `#1856FF`, deep-space backgrounds,
 
 ### 9.2 Screens
 
-- **Kept from the web build:** Beranda (dashboard), Cari Video (discover), Hasil Clip (gallery), Clip editor (`/clips/detail?id=`), Brand Template, Pengaturan, Super Agents.
+- **Kept from the web build:** Beranda (dashboard), Cari Video (discover), Hasil Clip (gallery), Clip editor (`/clips/detail?id=`), Brand Template, Pengaturan, Workspace (the former Super Agents page, reached from the workspace switcher).
+- **Terminology:** a niche workspace is always called **Workspace** in the UI (lowercase "workspace" inside sentences). Never show "Super Agent" or "agent" in UI text, toasts, errors or the setup wizard (owner decision, 2026-11-10). Internal names (`agent_id`, `/api/agents`, `super_agents`) stay.
 - **Login, register, forgot and reset password:** hidden in v1 unless D1 = account.
 - **New: Setup Wizard** (first run):
   1. Welcome and disclaimer
   2. Choose the **data location**: drive and folder for the database and library, validated per §6.1, with free space shown per drive. Choosing an existing MetisClip data folder reuses it (after a reinstall or on a new PC).
   3. Enter the LLM key and, optionally, the Groq key (without it, transcription runs on local Whisper), each with a "Tes" button
   4. System check
-  5. Create the first Super Agent
+  5. Create the first workspace
 - **New: Jobs panel:** running, queued and interrupted jobs (with Resume), and Cancel. Reachable from anywhere through a status-bar indicator.
 - **New: System:** dependency versions, MongoDB status, "Update yt-dlp", data folder location and free space, disk usage per agent, cache purge, "Backup sekarang", "Pindahkan Lokasi Data", "Buka folder log".
 - **New: About and Update:** version, changelog, update status.

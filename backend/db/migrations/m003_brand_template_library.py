@@ -1,6 +1,6 @@
 """003_brand_template_library: brand templates become a shared library of named templates.
 
-Before: one template embedded in each Super Agent (`super_agents.brand_template`), brand assets in
+Before: one template embedded in each workspace (`super_agents.brand_template`), brand assets in
 library/<agent-slug>/_assets/. After: collection `brand_templates`; each agent points at its default
 (`default_brand_template_id`) and each clip at its template (`clips.brand_template_id`).
 

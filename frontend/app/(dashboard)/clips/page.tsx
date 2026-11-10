@@ -209,7 +209,7 @@ export default function ClipsPage() {
             <EmptyState
               icon={Film}
               title="Tidak ada clip dengan status ini"
-              description={`Belum ada clip berstatus "${activeFilter.label}" untuk agent ini.`}
+              description={`Belum ada clip berstatus "${activeFilter.label}" untuk workspace ini.`}
               action={
                 <Button variant="secondary" size="sm" onClick={() => setFilter('all')}>
                   Tampilkan semua

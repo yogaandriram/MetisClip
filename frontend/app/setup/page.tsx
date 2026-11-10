@@ -16,7 +16,7 @@ const STEPS = [
   { id: 'data', label: 'Lokasi data' },
   { id: 'keys', label: 'API key' },
   { id: 'check', label: 'Cek sistem' },
-  { id: 'agent', label: 'Super Agent' },
+  { id: 'agent', label: 'Workspace' },
 ] as const
 
 type StepId = (typeof STEPS)[number]['id']
@@ -602,7 +602,7 @@ function AgentStep({ onBack, onDone }: { onBack: () => void; onDone: () => void 
       } catch {
         /* not remembered */
       }
-      toast.success(`Super Agent "${agent.name}" dibuat`)
+      toast.success(`Workspace "${agent.name}" dibuat`)
       onDone()
     } catch (err) {
       toast.error(errorMessage(err))
@@ -612,8 +612,8 @@ function AgentStep({ onBack, onDone }: { onBack: () => void; onDone: () => void 
   return (
     <>
       <StepTitle
-        title="Buat Super Agent pertama"
-        subtitle="Super Agent adalah profil kerja untuk satu niche/channel: durasi klip default dan brand template sendiri. Anda bisa membuat lebih dari satu nanti."
+        title="Buat workspace pertama"
+        subtitle="Workspace adalah ruang kerja untuk satu niche/channel: durasi klip default dan brand template sendiri. Anda bisa membuat lebih dari satu nanti."
       />
       {error ? (
         <Alert tone="error">{error}</Alert>
@@ -621,13 +621,13 @@ function AgentStep({ onBack, onDone }: { onBack: () => void; onDone: () => void 
         <Skeleton height={160} radius="md" />
       ) : (
         <>
-          {existing > 0 && <Alert tone="success">Anda sudah punya {existing} Super Agent di folder data ini.</Alert>}
+          {existing > 0 && <Alert tone="success">Anda sudah punya {existing} workspace di folder data ini.</Alert>}
           {showForm ? (
             <AgentForm submitLabel="Buat & mulai" onSubmit={create} onCancel={existing > 0 ? () => setShowForm(false) : undefined} />
           ) : (
             <div>
               <Button variant="secondary" onClick={() => setShowForm(true)} icon={<Plus size={16} aria-hidden="true" />}>
-                Buat Super Agent baru
+                Buat workspace baru
               </Button>
             </div>
           )}

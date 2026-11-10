@@ -5,7 +5,7 @@ import { AlertTriangle, Plus, Users } from 'lucide-react'
 import { useAgent } from '@/contexts/AgentContext'
 import { Button, ButtonLink, EmptyState, Skeleton } from '@/components/ui'
 
-/** Shown by pages that need an active Super Agent. */
+/** Shown by pages that need an active workspace. */
 export function NoAgentState({ what = 'halaman ini' }: { what?: string }) {
   const { isAgentLoading, agents, agentError, refreshAgents } = useAgent()
 
@@ -22,7 +22,7 @@ export function NoAgentState({ what = 'halaman ini' }: { what?: string }) {
     return (
       <EmptyState
         icon={AlertTriangle}
-        title="Gagal memuat Super Agent"
+        title="Gagal memuat workspace"
         description={agentError}
         action={
           <Button variant="secondary" onClick={() => refreshAgents()}>
@@ -37,11 +37,11 @@ export function NoAgentState({ what = 'halaman ini' }: { what?: string }) {
     return (
       <EmptyState
         icon={Users}
-        title="Belum ada Super Agent"
-        description={`Buat Super Agent pertama Anda untuk mulai menggunakan ${what}. Setiap agent punya niche, durasi klip, dan brand template sendiri.`}
+        title="Belum ada workspace"
+        description={`Buat workspace pertama Anda untuk mulai menggunakan ${what}. Setiap workspace punya niche, durasi klip, dan brand template sendiri.`}
         action={
           <ButtonLink href="/agents/" variant="accent" icon={<Plus size={16} />}>
-            Buat Super Agent
+            Buat workspace
           </ButtonLink>
         }
       />
@@ -51,11 +51,11 @@ export function NoAgentState({ what = 'halaman ini' }: { what?: string }) {
   return (
     <EmptyState
       icon={Users}
-      title="Pilih Super Agent"
-      description={`Pilih Super Agent aktif lewat pemilih agent di kanan atas untuk membuka ${what}.`}
+      title="Pilih workspace"
+      description={`Pilih workspace aktif lewat pemilih workspace di kanan atas untuk membuka ${what}.`}
       action={
         <ButtonLink href="/agents/" variant="primary">
-          Kelola Super Agent
+          Kelola workspace
         </ButtonLink>
       }
     />

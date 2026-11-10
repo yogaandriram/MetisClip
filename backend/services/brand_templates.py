@@ -1,6 +1,6 @@
 """Brand templates: a shared library of named templates (collection `brand_templates`).
 
-Every Super Agent points at one default template (`super_agents.default_brand_template_id`); new
+Every workspace points at one default template (`super_agents.default_brand_template_id`); new
 clips copy that id into `clips.brand_template_id`, and the clip editor can switch it. A clip whose
 template is gone falls back to its agent's default, then to the built-in defaults ({}).
 

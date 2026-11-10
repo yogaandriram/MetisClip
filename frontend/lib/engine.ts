@@ -27,7 +27,7 @@ export interface AgentInput {
   default_brand_template_id?: string | null
 }
 
-/** A named template in the shared brand template library (used by any Super Agent). */
+/** A named template in the shared brand template library (used by any workspace). */
 export interface BrandTemplate {
   id: string
   name: string

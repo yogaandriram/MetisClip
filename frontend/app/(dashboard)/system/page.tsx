@@ -304,7 +304,7 @@ export default function SystemPage() {
 
                 {storage.per_agent.length > 0 && (
                   <div className="mc-stack mc-gap-8">
-                    <span className="mc-label">Library per Super Agent</span>
+                    <span className="mc-label">Library per workspace</span>
                     {[...storage.per_agent]
                       .sort((a, b) => b.bytes - a.bytes)
                       .map((a) => (

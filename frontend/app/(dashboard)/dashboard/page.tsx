@@ -175,7 +175,7 @@ export default function DashboardOverview() {
           <Card className="mc-col-8">
             <CardHeader
               title="Klip terbaru"
-              subtitle={stats ? `${formatCompactNumber(stats.clipsGenerated)} klip dibuat oleh agent ini` : undefined}
+              subtitle={stats ? `${formatCompactNumber(stats.clipsGenerated)} klip dibuat di workspace ini` : undefined}
               action={
                 <ButtonLink href="/clips/" variant="ghost" size="sm" iconRight={<ArrowRight size={16} aria-hidden="true" />}>
                   Lihat semua

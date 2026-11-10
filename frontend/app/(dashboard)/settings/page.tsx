@@ -144,7 +144,7 @@ export default function SettingsPage() {
     try {
       await api.agents.update(activeAgent.id, toAgentInput(value))
       await refreshAgents()
-      toast.success('Pengaturan agent disimpan')
+      toast.success('Pengaturan workspace disimpan')
     } catch (err) {
       toast.error(errorMessage(err))
     }
@@ -164,20 +164,20 @@ export default function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="Pengaturan" subtitle="Preferensi agent, API key, pemrosesan video, dan penyimpanan lokal." />
+      <PageHeader title="Pengaturan" subtitle="Preferensi workspace, API key, pemrosesan video, dan penyimpanan lokal." />
 
       <div className="mc-stack mc-gap-20" style={{ maxWidth: 760 }}>
         <Card>
           <CardHeader
             size="sm"
             icon={headerIcon(Users)}
-            title={activeAgent ? `Super Agent: ${activeAgent.name}` : 'Super Agent'}
-            subtitle="Nilai default untuk job baru dari agent ini."
+            title={activeAgent ? `Workspace: ${activeAgent.name}` : 'Workspace'}
+            subtitle="Nilai default untuk job baru di workspace ini."
           />
           {activeAgent ? (
             <AgentForm
               key={activeAgent.id}
-              submitLabel="Simpan agent"
+              submitLabel="Simpan workspace"
               initial={{
                 name: activeAgent.name,
                 niche: activeAgent.niche || '',
@@ -187,7 +187,7 @@ export default function SettingsPage() {
               onSubmit={saveAgent}
             />
           ) : (
-            <p className="mc-muted">Pilih atau buat Super Agent lewat pemilih agent di kanan atas.</p>
+            <p className="mc-muted">Pilih atau buat workspace lewat pemilih workspace di kanan atas.</p>
           )}
         </Card>
 

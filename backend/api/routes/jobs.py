@@ -59,7 +59,7 @@ def create_job(body: JobCreate):
     _check_disk()
     db = get_db()
     if not db.super_agents.find_one({"_id": body.agent_id}, {"_id": 1}):
-        raise http_error(400, "Super Agent tidak ditemukan. Pilih agent terlebih dahulu.")
+        raise http_error(400, "Workspace tidak ditemukan. Pilih workspace terlebih dahulu.")
     if body.clip_duration not in DURATIONS:
         raise http_error(400, "Durasi klip tidak valid")
     url = (body.youtube_url or "").strip()

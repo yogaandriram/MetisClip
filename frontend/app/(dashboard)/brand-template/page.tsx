@@ -353,7 +353,7 @@ export default function BrandTemplatePage() {
     <>
       <PageHeader
         title="Brand Template"
-        subtitle="Simpan beberapa gaya clip dan pakai di Super Agent mana pun"
+        subtitle="Simpan beberapa gaya clip dan pakai di workspace mana pun"
         actions={
           <>
             <IconButton label="Urungkan" tooltip="bottom" icon={<Undo size={18} aria-hidden="true" />} onClick={handleUndo} disabled={historyIndex <= 0} />
@@ -541,11 +541,11 @@ export default function BrandTemplatePage() {
           <div className="mc-stack mc-gap-8">
             {(selected?.used_by_agents || []).length > 0 && (
               <p>
-                Template ini default untuk {(selected?.used_by_agents || []).map((a) => a.name).join(', ')}. Agent tersebut akan memakai template paling lama.
+                Template ini default untuk {(selected?.used_by_agents || []).map((a) => a.name).join(', ')}. Workspace tersebut akan memakai template paling lama.
               </p>
             )}
             <p>
-              {selected?.clip_count || 0} clip yang memakai template ini akan kembali ke template default agent-nya. Logo dan file brand yang hanya dipakai template ini
+              {selected?.clip_count || 0} clip yang memakai template ini akan kembali ke template default workspace-nya. Logo dan file brand yang hanya dipakai template ini
               ikut dihapus. Tindakan ini tidak bisa dibatalkan.
             </p>
           </div>

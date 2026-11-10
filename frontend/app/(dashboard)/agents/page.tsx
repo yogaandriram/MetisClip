@@ -37,13 +37,13 @@ export default function AgentsPage() {
   const create = async (value: AgentFormValue) => {
     try {
       const { agent } = await api.agents.create(toAgentInput(value))
-      toast.success(`Super Agent "${agent.name}" dibuat`)
+      toast.success(`Workspace "${agent.name}" dibuat`)
       setIsCreating(false)
       const list = await refreshAgents()
       const fresh = list.find((a) => a.id === agent.id)
       if (fresh && (!activeAgent || agents.length === 0)) setActiveAgent(fresh)
     } catch (err) {
-      toast.error(errorMessage(err, 'Gagal membuat agent'))
+      toast.error(errorMessage(err, 'Gagal membuat workspace'))
     }
   }
 
@@ -51,7 +51,7 @@ export default function AgentsPage() {
     if (!editing) return
     try {
       await api.agents.update(editing.id, toAgentInput(value))
-      toast.success('Agent diperbarui')
+      toast.success('Workspace diperbarui')
       setEditing(null)
       await refreshAgents()
     } catch (err) {
@@ -64,7 +64,7 @@ export default function AgentsPage() {
     setDeleting(true)
     try {
       await api.agents.remove(toDelete.id, deleteFiles)
-      toast.success('Super Agent dihapus')
+      toast.success('Workspace dihapus')
       if (activeAgent?.id === toDelete.id) setActiveAgent(null)
       setToDelete(null)
       await refreshAgents()
@@ -82,11 +82,11 @@ export default function AgentsPage() {
   return (
     <>
       <PageHeader
-        title="Super Agent"
-        subtitle="Setiap agent adalah profil kerja terpisah (niche, brand template, dan clip sendiri)."
+        title="Workspace"
+        subtitle="Setiap workspace adalah ruang kerja terpisah dengan niche, brand template, dan clip sendiri."
         actions={
           <Button variant={isCreating ? 'secondary' : 'accent'} icon={isCreating ? <X size={16} /> : <Plus size={16} />} onClick={() => setIsCreating(!isCreating)}>
-            {isCreating ? 'Batal' : 'Buat agent baru'}
+            {isCreating ? 'Batal' : 'Buat workspace baru'}
           </Button>
         }
       />
@@ -94,8 +94,8 @@ export default function AgentsPage() {
       <div className="mc-stack mc-gap-32">
         {isCreating && (
           <Card style={{ maxWidth: 760 }}>
-            <CardHeader title="Konfigurasi agent baru" icon={<Users size={18} />} />
-            <AgentForm submitLabel="Simpan agent" onSubmit={create} onCancel={() => setIsCreating(false)} />
+            <CardHeader title="Workspace baru" icon={<Users size={18} />} />
+            <AgentForm submitLabel="Simpan workspace" onSubmit={create} onCancel={() => setIsCreating(false)} />
           </Card>
         )}
 
@@ -109,11 +109,11 @@ export default function AgentsPage() {
           !isCreating && (
             <EmptyState
               icon={Users}
-              title="Belum ada Super Agent"
-              description="Buat agent pertama Anda untuk mulai mencari video dan menghasilkan clip."
+              title="Belum ada workspace"
+              description="Buat workspace pertama Anda untuk mulai mencari video dan menghasilkan clip."
               action={
                 <Button variant="primary" icon={<Plus size={16} />} onClick={() => setIsCreating(true)}>
-                  Buat agent
+                  Buat workspace
                 </Button>
               }
             />
@@ -158,11 +158,11 @@ export default function AgentsPage() {
                         toast.success(`Beralih ke ${agent.name}`)
                       }}
                     >
-                      {isActive ? 'Sedang aktif' : 'Pilih agent'}
+                      {isActive ? 'Sedang aktif' : 'Pilih workspace'}
                     </Button>
-                    <IconButton label="Ubah agent" icon={<Pencil size={16} />} variant="outline" size="sm" onClick={() => setEditing(agent)} />
+                    <IconButton label="Ubah workspace" icon={<Pencil size={16} />} variant="outline" size="sm" onClick={() => setEditing(agent)} />
                     <IconButton
-                      label="Hapus agent"
+                      label="Hapus workspace"
                       icon={<Trash2 size={16} />}
                       variant="outline"
                       size="sm"
@@ -180,7 +180,7 @@ export default function AgentsPage() {
         )}
       </div>
 
-      <Modal isOpen={!!editing} onClose={() => setEditing(null)} title="Ubah Super Agent" size="md">
+      <Modal isOpen={!!editing} onClose={() => setEditing(null)} title="Ubah workspace" size="md">
         {editing && (
           <AgentForm
             key={editing.id}
@@ -200,8 +200,8 @@ export default function AgentsPage() {
       <ConfirmModal
         isOpen={!!toDelete}
         title={`Hapus "${toDelete?.name || ''}"?`}
-        message="Agent beserta job dan clip-nya akan dihapus dari database. Brand template tetap tersimpan di library. Tindakan ini tidak bisa dibatalkan."
-        confirmLabel="Hapus agent"
+        message="Workspace beserta job dan clip-nya akan dihapus dari database. Brand template tetap tersimpan di library. Tindakan ini tidak bisa dibatalkan."
+        confirmLabel="Hapus workspace"
         confirmIcon={<Trash2 size={16} />}
         danger
         loading={deleting}
@@ -211,7 +211,7 @@ export default function AgentsPage() {
         <label className="mc-row mc-row--top mc-gap-12" style={{ cursor: 'pointer' }}>
           <input type="checkbox" checked={deleteFiles} onChange={(e) => setDeleteFiles(e.target.checked)} style={{ marginTop: 1 }} />
           <span>
-            Hapus juga file video agent ini dari folder data
+            Hapus juga file video workspace ini dari folder data
             <span className="mc-caption mc-muted" style={{ display: 'block', marginTop: 2 }}>
               Jika tidak dicentang, file video tetap ada di folder library.
             </span>

@@ -896,7 +896,7 @@ function ClipEditor() {
                   ...(present.templateId ? [] : [{ value: '', label: 'Bawaan MetisClip' }]),
                   ...(templates.length ? templates : activeTemplate ? [activeTemplate] : []).map((t) => ({
                     value: t.id,
-                    label: t.id === agentDefaultId ? `${t.name} (default agent)` : t.name,
+                    label: t.id === agentDefaultId ? `${t.name} (default workspace)` : t.name,
                   })),
                 ]}
                 onChange={(e) => e.target.value && chooseTemplate(e.target.value)}

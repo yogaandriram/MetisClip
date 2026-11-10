@@ -457,7 +457,7 @@ Use the 4 px based tokens `--s-1` through `--s-16` (4, 8, 12, 16, 20, 24, 32, 40
 ```
 ┌ window: --canvas ──────────────────────────────────────────────────────────────┐
 │ 16                                                                              │
-│ (●) logo 64        h1 Page title                  [ Agent ▾ │ + Klip baru ]  (◌ 2 proses) │
+│ (●) logo 64        h1 Page title                  [ Workspace ▾ │ + Klip baru ]  (◌ 2 proses) │
 │                    body-lg subtitle                                              │
 │ ┌──┐                                                                            │
 │ │▦ │    ┌ content: 12 columns, gap 20, max-width 1600 ─────────────────────────┐ │
@@ -478,7 +478,7 @@ Use the 4 px based tokens `--s-1` through `--s-16` (4, 8, 12, 16, 20, 24, 32, 40
   - Each item has an `aria-label` and a tooltip to its right (§8.10).
 - **Top bar:** 64 px tall, aligned with the logo, and scrolls with the page (the clip editor is the exception, where it stays fixed).
   - Left: `h1` and one subtitle line.
-  - Right: a pill group with the agent switcher (agent name + chevron, opens a popover with the agent list and "Kelola Super Agents") and a soft inner pill "+ Klip baru" (goes to Cari Video).
+  - Right: a pill group with the workspace switcher (workspace name + chevron, opens a popover with the workspace list and "Kelola workspace") and a soft inner pill "+ Klip baru" (goes to Cari Video).
   - Next to it, a jobs pill ("2 proses berjalan" with a spinner, links to Antrian), shown only while jobs run.
 - **Content:** left offset 16 + 64 + 24 = 104 px, right padding 24 px. A 12-column grid with 20 px gaps, max-width 1600 px. On wider windows it is left-aligned, next to the rail.
 - **Window:** minimum 1280 × 720 (CLAUDE.md §9.3). At 1280 the content is about 1150 px wide, which fits a 4-column bento (span 3 each) or an 8 + 4 split.
@@ -646,7 +646,7 @@ A card with a notch badge (§4.2.2), an optional corner blob, a `display` number
 - **Progress row** (the reference's month rows): a 44 px pill with an inset `1.5px` outline track (surface at 70 % on leaf cards, `--line-input` on surface).
   - Fill is `--surface`; one highlighted row may use an `--ink` fill with `--on-ink` label.
   - Label on the left (`label`), value on the right (`mono`).
-  - Used for storage per category and per agent on Sistem.
+  - Used for storage per category and per workspace on Sistem.
 - **Pipeline steps** (job card: Discovery → Analisis → Proses): three pills joined by a 2 px connector.
   - Done: `--dew` with a moss check.
   - Active: `--ink` with a spinner.
@@ -745,8 +745,8 @@ A card with a notch badge (§4.2.2), an optional corner blob, a `display` number
 
 ### 8.20 Avatar (`Avatar.tsx`)
 
-- An agent avatar is a circle: 44 px in popovers, 32 px in lists. It shows the initials in Jakarta 600, ink.
-- Its fill is picked by a hash of the agent ID from mist, dew, sage and leaf. All four keep ink text at 10.4:1 or more.
+- A workspace avatar is a circle: 44 px in popovers, 32 px in lists. It shows the initials in Jakarta 600, ink.
+- Its fill is picked by a hash of the workspace ID from mist, dew, sage and leaf. All four keep ink text at 10.4:1 or more.
 
 ### 8.21 Wizard stepper (`app/setup`)
 
@@ -764,7 +764,7 @@ A card with a notch badge (§4.2.2), an optional corner blob, a `display` number
   - On ink: `--ink-line` track with a `--leaf` arc.
   - It spins only while something real is running.
 - **Empty state:** a dashed or mist card with an `h3` title, one sentence giving the cause, and one action.
-  - Example: "Belum ada klip untuk agent ini. Tempel link YouTube di Cari Video untuk membuat yang pertama." + accent button "+ Klip baru".
+  - Example: "Belum ada klip untuk workspace ini. Tempel link YouTube di Cari Video untuk membuat yang pertama." + accent button "+ Klip baru".
   - A filtered-to-nothing list, a first run and an error each get different copy.
 
 ### 8.23 Scrollbar
@@ -815,15 +815,15 @@ Each screen is built around the decision the user makes there. Decoration follow
 
 | Screen | The user's question | Composition | Decoration |
 |---|---|---|---|
-| **Beranda** (`/dashboard`) | "What is ready, and what is still running?" | `h1` = agent name, subtitle summarizing ready clips and running jobs. Bento row: tilted stat card "Klip siap ekspor", stat card "Job selesai", create-card "Buat klip baru", ink hero "Proses berjalan" (live %, compound chip for step and clip count; it becomes "Tempel link YouTube" when nothing runs). Below: an 8-col chart card (clips per day) and a 4-col leaf card with active jobs as progress rows. Then the latest clips as a thumbnail strip. | Expressive |
+| **Beranda** (`/dashboard`) | "What is ready, and what is still running?" | `h1` = workspace name, subtitle summarizing ready clips and running jobs. Bento row: tilted stat card "Klip siap ekspor", stat card "Job selesai", create-card "Buat klip baru", ink hero "Proses berjalan" (live %, compound chip for step and clip count; it becomes "Tempel link YouTube" when nothing runs). Below: an 8-col chart card (clips per day) and a 4-col leaf card with active jobs as progress rows. Then the latest clips as a thumbnail strip. | Expressive |
 | **Cari Video** (`/discover`) | "Which video, and how many clips?" | One centered card, max 760: segmented "Link YouTube / Upload Video"; a large pill input with paste, or the drop zone; duration choice chips; clip-count stepper; `lg primary` "Mulai proses". | Quiet; the drop zone is the only dashed element |
 | **Antrian** (`/jobs`) | "Which job needs me?" | Failed and interrupted jobs first, as cards with pipeline steps and "Lanjutkan" / "Batalkan"; running jobs next, with live bars; finished jobs last, as a table. | Quiet |
 | **Hasil Clip** (`/clips`) | "Which clip should I edit or export?" | Status segmented filter. A grid of 9:16 thumbnail cards (radius `--r-md`) with a score badge as a top-left notch, duration `mono` pill bottom-right and status badge; hover lifts the card and shows "Edit" / "Ekspor". | Quiet |
 | **Clip editor** (`/clips/detail?id=`) | "Are the words and style right?" | Fixed top bar with title, save state, "Ekspor" (primary). Three columns: word editor (surface, 360) · ink stage · style panel (surface, 360: preset picker, font, AI subtitle settings). | None |
 | **Brand Template** | "What will my clips look like?" | Template list (left, 300) · settings in collapsible card sections · ink stage preview. | None |
 | **Pengaturan** | "Are my keys and settings correct?" | Single column, max 760; one surface card per group (LLM, Whisper, processing, export folder, yt-dlp); secret fields with "Tes". | None |
-| **Sistem** | "Is everything healthy, and where is my space going?" | Health checks as rows with badges; a leaf storage card with progress rows (db, library, cache, per agent); actions (Update yt-dlp, Backup sekarang, Pindahkan Lokasi Data, Buka folder log) as secondary buttons. | Quiet |
-| **Super Agents** | "Which workspace, with which template?" | Cards per agent: avatar, name, niche, default template chip, clip count, actions. | Quiet |
+| **Sistem** | "Is everything healthy, and where is my space going?" | Health checks as rows with badges; a leaf storage card with progress rows (db, library, cache, per workspace); actions (Update yt-dlp, Backup sekarang, Pindahkan Lokasi Data, Buka folder log) as secondary buttons. | Quiet |
+| **Workspace** | "Which workspace, with which template?" | Cards per workspace: avatar, name, niche, default template chip, clip count, actions. | Quiet |
 | **Setup Wizard** (`/setup`) | "What do I need before the first clip?" | Centered card (radius `--r-xl`, max 720) with the stepper on top. The welcome step may use a corner blob and the logo. | Expressive on step 1, quiet after |
 | **Startup error and recovery** (Electron main, inline HTML) | "Why didn't it start, and what now?" | The same tokens: canvas, one surface card (radius 28), ink pill primary button, secondary button, `mono` path. | None |
 
@@ -875,7 +875,7 @@ Each screen is built around the decision the user makes there. Decoration follow
 | Need | Component |
 |---|---|
 | Container | `Card` (tones surface, dew, leaf, ink, dashed), `CardHeader`, `SectionBar`, `Stage` |
-| Page top bar | `PageHeader` (title, subtitle, actions, back link; adds the agent switcher, "+ Klip baru" and the jobs pill) |
+| Page top bar | `PageHeader` (title, subtitle, actions, back link; adds the workspace switcher, "+ Klip baru" and the jobs pill) |
 | Actions | `Button`, `ButtonLink`, `IconButton`, `IconLink`, `Dropdown` |
 | Inputs | `InputField`, `SelectField`, `TextAreaField`, `ToggleSwitch`, `Slider`, `NumberStepper`, `ColorPicker`, `ChoiceChips`, `Chip`, `Tabs`, `DropZone`, `Field` |
 | Status | `Badge`, `StatusBadge` (job, clip, render), `ScoreBadge`, `Tag`, `Alert`, `ProgressBar`, `ProgressRow`, `PipelineSteps`, `WizardSteps`, `Spinner`, `Skeleton`, `EmptyState` |

@@ -74,7 +74,7 @@ export function AgentForm({ initial = EMPTY_AGENT_FORM, submitLabel, onSubmit, o
   return (
     <form onSubmit={submit} className="mc-stack mc-gap-24">
       <div style={FIELD_GRID}>
-        <InputField label="Nama agent" placeholder="Misal: AI Tech Clipper" value={value.name} onChange={(e) => setValue({ ...value, name: e.target.value })} required maxLength={80} />
+        <InputField label="Nama workspace" placeholder="Misal: AI Tech Clipper" value={value.name} onChange={(e) => setValue({ ...value, name: e.target.value })} required maxLength={80} />
         <InputField label="Fokus niche" placeholder="Misal: Teknologi & AI, Bisnis" value={value.niche} onChange={(e) => setValue({ ...value, niche: e.target.value })} />
       </div>
       <div style={FIELD_GRID}>
@@ -82,7 +82,7 @@ export function AgentForm({ initial = EMPTY_AGENT_FORM, submitLabel, onSubmit, o
         {templates && templates.length > 0 && (
           <SelectField
             label="Brand template default"
-            hint="Dipakai oleh clip baru dari agent ini. Tiap clip tetap bisa diganti template-nya di editor."
+            hint="Dipakai oleh clip baru di workspace ini. Tiap clip tetap bisa diganti template-nya di editor."
             value={value.default_brand_template_id}
             options={templates.map((t) => ({ value: t.id, label: t.name }))}
             onChange={(e) => setValue({ ...value, default_brand_template_id: e.target.value })}

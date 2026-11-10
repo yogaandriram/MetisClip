@@ -110,7 +110,7 @@ def _clip_out_dir(clip: dict[str, Any]) -> Path:
     if raw:
         return paths.from_relative(raw).parent
     agent = get_db().super_agents.find_one({"_id": clip.get("agent_id")}, {"slug": 1, "name": 1}) if clip.get("agent_id") else None
-    slug = (agent or {}).get("slug") or slugify((agent or {}).get("name") or "") if agent else "_tanpa-agent"
+    slug = (agent or {}).get("slug") or slugify((agent or {}).get("name") or "") if agent else "_tanpa-workspace"
     return paths.clip_dir(slug, clip["_id"])
 
 

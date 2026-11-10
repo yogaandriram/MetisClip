@@ -1,4 +1,4 @@
-"""Super Agents (niche workspaces). Brand templates live in routes/brand_templates.py."""
+"""Workspaces (called agents in the API and `super_agents` in the database). Brand templates live in routes/brand_templates.py."""
 from __future__ import annotations
 
 import shutil
@@ -44,7 +44,7 @@ def _template_id(value: str | None) -> str | None:
 def _get_agent(agent_id: str) -> dict:
     agent = get_db().super_agents.find_one({"_id": agent_id})
     if not agent:
-        raise http_error(404, "Super Agent tidak ditemukan")
+        raise http_error(404, "Workspace tidak ditemukan")
     return agent
 
 
@@ -58,7 +58,7 @@ def list_agents():
 def create_agent(body: AgentIn):
     name = (body.name or "").strip()
     if not name:
-        raise http_error(400, "Nama agent wajib diisi")
+        raise http_error(400, "Nama workspace wajib diisi")
     doc = AgentDoc(
         _id=new_id(),
         name=name,
@@ -81,7 +81,7 @@ def update_agent(agent_id: str, body: AgentIn):
     if "name" in data:
         name = (data["name"] or "").strip()
         if not name:
-            raise http_error(400, "Nama agent wajib diisi")
+            raise http_error(400, "Nama workspace wajib diisi")
         sets["name"] = name  # the slug (library folder) is kept stable
     if "niche" in data:
         sets["niche"] = data["niche"] or None

@@ -129,7 +129,7 @@ export default function JobsPage() {
     }
   }
 
-  const agentName = (id: string | null) => agents.find((a) => a.id === id)?.name || 'Agent terhapus'
+  const agentName = (id: string | null) => agents.find((a) => a.id === id)?.name || 'Workspace terhapus'
   const openDetail = (job: Job) => router.push(`/discover/?job=${encodeURIComponent(job.id)}`)
 
   const meta = (job: Job) => (
@@ -161,7 +161,7 @@ export default function JobsPage() {
       <PageHeader
         title="Antrian Job"
         subtitle="Semua proses analisis dan pemotongan. Job yang terputus (misalnya karena aplikasi ditutup) bisa dilanjutkan dari checkpoint terakhir."
-        actions={<ToggleSwitch checked={allAgents} onChange={setAllAgents} label="Semua agent" />}
+        actions={<ToggleSwitch checked={allAgents} onChange={setAllAgents} label="Semua workspace" />}
       />
 
       <div className="mc-stack mc-gap-32">
@@ -283,7 +283,7 @@ export default function JobsPage() {
                         <tr>
                           <th>Status</th>
                           <th>Sumber</th>
-                          {allAgents && <th>Agent</th>}
+                          {allAgents && <th>Workspace</th>}
                           <th>Pengaturan</th>
                           <th>Dibuat</th>
                           <th className="mc-num">Aksi</th>
