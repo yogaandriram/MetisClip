@@ -6,7 +6,7 @@
 > - §3 onward describe the **target** desktop product.
 >
 > When the two conflict, build toward the target and fix the known issues in §2.3 as you touch the code.
-> Last revised: 2026-11-09
+> Last revised: 2026-11-10
 
 ---
 
@@ -140,6 +140,7 @@ The tables above describe the web build. On this branch:
 | Removed (D3, 2026-11-09) | Scheduling (`scheduler_ai`, `/api/schedule`, Jadwal Post page), social account connections (`/api/connections`, Settings card) and the `metisclip://` protocol. Migration `002_remove_publishing` drops `scheduled_posts` and `super_agents.social_connections` from existing databases after the usual pre-migration backup. |
 | Removed (D6, 2026-11-09) | Keyword search ("Pencarian Pintar"): `tools/youtube_api.py`, the YouTube Data API key, the `api_cache` collection, the agents' default keywords and video types, and the job filters (`video_types`, `min_duration_minutes`, `min_views`) and quality score. Jobs take a YouTube link only. Migration `005_remove_keyword_search` cleans existing databases (after the pre-migration backup) and deletes the stored YouTube key. |
 | Video upload (2026-11-09) | Cari Video has two tabs, "Link YouTube" and "Upload Video" (drag & drop via `window.metis.pathForFile`, or the file dialog). The file is used in place, never copied; jobs store `source.local_file_path`. Its transcript always comes from Whisper, so outside dev the job is refused without the Groq key. Migration `006_local_video_upload` lets `source_videos` hold a file instead of a `youtube_id`. |
+| Design system (2026-11-10) | `DESIGN.md` was rewritten for a light, soft-organic UI (§9.1). The frontend code still uses the old glassmorphism tokens until it is migrated per DESIGN.md §13. |
 | Still open | K4: the Composio key in `frontend/.env.local` is untracked but **must still be rotated**. Phase 1 items not done: signing, installer run on a clean VM, tray/auto-update, daily yt-dlp update check. |
 | Tests | `pytest backend/tests` runs against a throwaway bundled `mongod.exe`. It includes a link-job pipeline test (real FFmpeg and MediaPipe) and resume idempotency. |
 | Packaging | `scripts/build-engine.ps1` → `backend/dist/metisclip-engine/` (onedir, about 320 MB, mostly cv2 and mediapipe), with a smoke test and self-test. `scripts/build-desktop.ps1 -Pack` → `desktop/dist/MetisClip-Setup-<version>.exe` (about 440 MB, unsigned). |
@@ -698,7 +699,14 @@ No credentials go in `.env`: API keys are entered in the app (§8.2), and the LL
 
 ### 9.1 Design system
 
-**`DESIGN.md` is the source of truth.** It defines the glassmorphism style, Liquid Blue `#1856FF` primary, Success Green `#07CA6B` accent, Warm Amber `#E89558`, Crimson `#EA2143`, Plus Jakarta Sans plus JetBrains Mono, and deep-space backgrounds `#030307` / `#07070F`. The violet, mint and Inter palette in older versions of this file is obsolete. Note that `backdrop-filter` blur is GPU-heavy: limit nested blurred layers so the editor stays smooth on integrated GPUs.
+**`DESIGN.md` is the source of truth.** Since 2026-11-10 it defines a light, soft-organic style:
+
+- Off-white canvas `#F4F6F2`, white cards, and ink `#121412` for the nav rail, primary buttons and the video stage.
+- The owner's greens `#ECFAE5`, `#DDF6D2`, `#CAE8BD` and `#B0DB9C` as accents, with `#345625` for green text.
+- Outfit for display, Plus Jakarta Sans for text, JetBrains Mono for timecodes.
+- Pill-shaped controls and 28 px cards.
+
+The earlier glassmorphism system (Liquid Blue `#1856FF`, deep-space backgrounds, frosted panels) is obsolete. Migrate screens to the new tokens as you touch them (DESIGN.md §13). `backdrop-filter` is allowed only on the video overlay controls.
 
 ### 9.2 Screens
 
