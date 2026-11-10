@@ -116,7 +116,7 @@ backend/mcp_server.py: the same nodes exposed as MCP tools for LLM-driven orches
 | K2 | `list_clips` has no `@router.get("")` decorator | `clips.py:120` | `GET /api/clips` is not registered. It was unnoticed because the UI reads Supabase directly. |
 | K3 | JWT signature is never verified | `security.py:21,33` | Anyone can forge a user ID. |
 | K4 | `frontend/.env.local` (with a Composio API key) has been tracked in git since the first commit and is pushed to `origin` | repo | **Rotate the key**, untrack the file and add it to `.gitignore`. |
-| K5 | Schema drift: the migration lacks `super_agents`, `brand_templates`, `agent_social_connections` and the columns `discovery_jobs.youtube_url`, `total_scenes`, `processed_scenes`, `agent_id` | `supabase/migrations/` | The DB cannot be recreated from the repo. |
+| K5 | Schema drift: the migration lacks `super_agents`, `brand_templates`, `agent_social_connections` and the columns `discovery_jobs.youtube_url`, `total_scenes`, `processed_scenes`, `agent_id` | `supabase/migrations/` | The DB cannot be recreated from the repo. Moot on desktop: the `supabase/` folder was deleted on 2026-11-10. |
 | K6 | Jobs are saved without `agent_id`, and clips are not scoped to an agent | `jobs.py:62` | Dashboard stats (filtered by `agent_id`) are always empty. |
 | K7 | `requirements.txt` is incomplete: opencv-python, mediapipe, numpy, imageio-ffmpeg, openai, youtube-transcript-api, pytz, requests and mcp are missing | `backend/requirements.txt` | Builds cannot be reproduced, and PyInstaller will miss modules. |
 | K8 | Port mismatch: the frontend defaults to `:8002`, the backend to `:8000`, and CORS only allows `:3000` | frontend pages, `main.py` | Fragile local setup. |
@@ -135,7 +135,7 @@ The tables above describe the web build. On this branch:
 
 | Area | State |
 |---|---|
-| Engine (`backend/`) | FastAPI sidecar on MongoDB: `core/{paths,config,procs,db,llm,secrets,settings_store,events,auth,queue}.py`, routes per `frontend/lib/engine.ts`, `run.py` ready-line protocol, `--selftest`. Supabase, R2, JWT, Redis, LangGraph and `cleanup.py` are removed. |
+| Engine (`backend/`) | FastAPI sidecar on MongoDB: `core/{paths,config,procs,db,llm,secrets,settings_store,events,auth,queue}.py`, routes per `frontend/lib/engine.ts`, `run.py` ready-line protocol, `--selftest`. Supabase (including the legacy `supabase/` schema and its Python packages), R2, JWT, Redis, LangGraph and `cleanup.py` are removed. |
 | Known issues fixed in the engine | K1 (each segment uses its own `youtube_id`), K2, K3 (per-launch token instead of JWT), K6 (jobs require `agent_id`), K7 (pinned `requirements.txt`), K9, K11 (127.0.0.1 only), K12, K15 (no auto-deletion), K16 (center-crop fallback) |
 | Desktop shell (`desktop/`) | Electron 45 main + preload: mongod lifecycle (auth, orphan-lock recovery), engine sidecar with restart, `app://` static UI, data-root wizard IPC and missing-drive recovery screen, path-checked shell IPC. Verification hooks (`METISCLIP_UI_DIR`, `METISCLIP_DATA_ROOT_OVERRIDE`, `METISCLIP_SCREENSHOT*`, `METISCLIP_AUTOQUIT_MS`) are documented in `desktop/README.md`. |
 | Frontend | Static export, no Supabase or Composio. All data goes through `lib/engine.ts` + WS events. New: setup wizard, Jobs, System (incl. "Update yt-dlp"), `clips/detail?id=` editor. Fonts are local woff2. Brand Template: intro/outro, music and layout ratio/fit were removed (they never reached the render); `layout_settings` keeps only the safe zone, and the AI subtitle settings work (§5.4). Brand templates are a named, shared library (migration 003); workspaces pick a default and the clip editor can switch a clip's template. |
@@ -292,16 +292,15 @@ metisclip/
 │   ├── src/                      # index.ts, Root.tsx, SubtitleOverlay.tsx
 │   ├── render.ts                 # NEW: programmatic renderMedia worker, JSON-line progress
 │   └── build/                    # prebuilt bundle (generated)
-├── scripts/                      # NEW PowerShell build scripts
-│   ├── fetch-binaries.ps1        # pinned mongod / ffmpeg / yt-dlp / deno + SHA256 check
-│   ├── build-engine.ps1
-│   └── build-desktop.ps1
-└── supabase/                     # legacy web schema; only kept if D1 = account
+└── scripts/                      # NEW PowerShell build scripts
+    ├── fetch-binaries.ps1        # pinned mongod / ffmpeg / yt-dlp / deno + SHA256 check
+    ├── build-engine.ps1
+    └── build-desktop.ps1
 ```
 
 **To remove or replace during migration:**
 - `frontend/middleware.ts`, `frontend/app/api/*`: their logic moves to the engine.
-- `@supabase/auth-helpers-nextjs` and the Composio packages. Done: MetisClip no longer uses Composio anywhere (code, dependencies or config); do not reintroduce it.
+- Supabase and Composio. Done: MetisClip no longer uses either anywhere (code, dependencies, schema or config; the legacy `supabase/` schema was deleted on 2026-11-10); do not reintroduce them.
 - `backend/core/storage.py` (R2), the R2 parts of `/render`, `/api/clips/proxy-media`, and the auto-copy to `~/Downloads`.
 - `backend/core/cleanup.py` (see K15).
 - Docker, Vercel and Railway deployment.

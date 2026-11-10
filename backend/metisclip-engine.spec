@@ -37,7 +37,7 @@ a = Analysis(
         # dev-only: packaged builds use the standalone yt-dlp.exe and bin\ffmpeg.exe
         "yt_dlp", "imageio_ffmpeg",
         # unused leftovers from the web build
-        "supabase", "boto3", "botocore", "langgraph", "langchain", "langchain_core", "langchain_groq",
+        "boto3", "botocore", "langgraph", "langchain", "langchain_core", "langchain_groq",
         "langchain_openai", "redis", "jwt", "torch", "tensorflow", "sounddevice",
     ],
     noarchive=False,
