@@ -1,13 +1,11 @@
 'use client'
 
-import React, { useEffect, useRef, useState } from 'react'
-import { CheckCircle2, XCircle, KeyRound } from 'lucide-react'
+import React, { useEffect, useId, useRef, useState } from 'react'
+import { AlertTriangle, Check, KeyRound, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api, type SecretName } from '@/lib/engine'
 import { errorMessage } from '@/lib/format'
-import { Button } from '@/components/ui/Button'
-import { Badge } from '@/components/ui/Badge'
-import { InputField } from '@/components/ui/InputField'
+import { Badge, Button, ConfirmModal, InputField } from '@/components/ui'
 
 interface SecretFieldProps {
   name: SecretName
@@ -27,9 +25,12 @@ interface SecretFieldProps {
 
 /** API key input. The stored key stays hidden until the user clicks the eye icon. */
 export function SecretField({ name, label, description, configured, value, onChange, onConfiguredChange, beforeTest, allowRemove = true }: SecretFieldProps) {
+  const inputId = useId()
+  const descriptionId = `${inputId}-description`
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [removing, setRemoving] = useState(false)
+  const [confirmRemove, setConfirmRemove] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [visible, setVisible] = useState(false)
   // The stored key fetched for the eye icon (null while hidden)
@@ -119,37 +120,46 @@ export function SecretField({ name, label, description, configured, value, onCha
       toast.error(errorMessage(err))
     } finally {
       setRemoving(false)
+      setConfirmRemove(false)
     }
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
-        <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-dim)' }}>{label}</span>
+    <div className="mc-stack mc-gap-8">
+      <div className="mc-row mc-row--between">
+        <label htmlFor={inputId} className="mc-label">
+          {label}
+        </label>
         {configured ? (
-          <Badge variant="accent" glow={false}>
+          <Badge tone="success" size="sm" icon={<Check size={14} aria-hidden="true" />}>
             Tersimpan
           </Badge>
         ) : (
-          <Badge variant="muted" glow={false}>
+          <Badge tone="quiet" size="sm">
             Belum diisi
           </Badge>
         )}
       </div>
-      {description && <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5, marginTop: '-4px' }}>{description}</p>}
-      <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
+      {description && (
+        <p id={descriptionId} className="mc-caption mc-muted">
+          {description}
+        </p>
+      )}
+      <div className="mc-row mc-gap-8">
         <InputField
+          id={inputId}
           type="password"
           autoComplete="off"
           spellCheck={false}
           placeholder={configured ? '•••••••• (klik ikon mata untuk melihat, atau isi untuk mengganti)' : 'Tempel API key di sini'}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          icon={<KeyRound size={16} />}
-          containerStyle={{ flex: 1 }}
-          className={visible ? 'mc-mono' : undefined}
+          icon={<KeyRound size={18} aria-hidden="true" />}
+          containerClassName="mc-grow"
+          mono={visible}
           revealed={visible}
           onRevealToggle={toggleVisible}
+          aria-describedby={description ? descriptionId : undefined}
         />
         <Button type="button" variant="secondary" size="sm" onClick={test} loading={testing} disabled={!configured && !value.trim()}>
           Tes
@@ -158,17 +168,38 @@ export function SecretField({ name, label, description, configured, value, onCha
           Simpan
         </Button>
         {allowRemove && configured && (
-          <Button type="button" variant="danger" size="sm" onClick={remove} loading={removing}>
-            Hapus
+          <Button type="button" variant="danger" size="sm" icon={<Trash2 size={16} aria-hidden="true" />} onClick={() => setConfirmRemove(true)} disabled={removing}>
+            Hapus key
           </Button>
         )}
       </div>
       {result && (
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '13px', color: result.ok ? 'var(--accent)' : 'var(--danger)' }}>
-          {result.ok ? <CheckCircle2 size={16} style={{ flexShrink: 0 }} /> : <XCircle size={16} style={{ flexShrink: 0 }} />}
-          <span style={{ wordBreak: 'break-word' }}>{result.message || (result.ok ? 'Berhasil' : 'Gagal')}</span>
+        <div className="mc-row mc-row--top mc-gap-8" role="status">
+          <Badge
+            tone={result.ok ? 'success' : 'error'}
+            size="sm"
+            icon={result.ok ? <Check size={14} aria-hidden="true" /> : <AlertTriangle size={14} aria-hidden="true" />}
+          >
+            {result.ok ? 'Berhasil' : 'Gagal'}
+          </Badge>
+          {result.message && (
+            <span className="mc-caption" style={{ paddingTop: 4, overflowWrap: 'anywhere' }}>
+              {result.message}
+            </span>
+          )}
         </div>
       )}
+      <ConfirmModal
+        isOpen={confirmRemove}
+        danger
+        title={`Hapus ${label}?`}
+        message="Key dihapus dari Windows Credential Manager. Fitur yang memakainya berhenti bekerja sampai Anda mengisi key baru."
+        confirmLabel="Hapus key"
+        confirmIcon={<Trash2 size={16} aria-hidden="true" />}
+        loading={removing}
+        onConfirm={remove}
+        onClose={() => setConfirmRemove(false)}
+      />
     </div>
   )
 }

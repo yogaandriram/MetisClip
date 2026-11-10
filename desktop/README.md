@@ -54,7 +54,7 @@ Packaged layout (`<resources>` = `MetisClip\resources`):
 | `render-engine\build\` | prebuilt Remotion bundle |
 | `render-engine\node_modules\` | production deps (`@remotion/renderer`, compositor-win32-x64-msvc, react) |
 | `render-engine\browser\chrome-headless-shell.exe` | Chrome Headless Shell (passed as `METISCLIP_BROWSER_PATH`) |
-| `bin\` | `mongod.exe` (+ licenses), `yt-dlp.exe`, `deno.exe`, `ffmpeg.exe` |
+| `bin\` | `mongod.exe` (+ licenses), `yt-dlp.exe`, `deno.exe`, `ffmpeg.exe`, `whisper\` (whisper.cpp `whisper-cli.exe`, its ggml DLLs, `LICENSE`) |
 
 The NSIS installer is per-user by default (no admin), never deletes `%APPDATA%\MetisClip` or the data folder.
 
@@ -67,6 +67,7 @@ All are read by the main process and logged to `main.log` when used.
 | `METISCLIP_SCREENSHOT=<file.png>` | After the first page load (+ delay) saves a PNG of the window |
 | `METISCLIP_SCREENSHOT_DELAY_MS` | Delay before the screenshot (default 5000) |
 | `METISCLIP_SCREENSHOT_ROUTE=/dashboard/` | Navigate to this route before taking the screenshot |
+| `METISCLIP_SCREENSHOT_SCROLL=#transkripsi` | Scroll this CSS selector into view before taking the screenshot |
 | `METISCLIP_AUTOQUIT_MS=<ms>` | Graceful quit after N ms (waits for a pending screenshot) |
 | `METISCLIP_DATA_ROOT_OVERRIDE=<dir>` | Use this data folder; `bootstrap.json` is neither read nor written |
 | `METISCLIP_UI_DIR=<dir>` | Serve this static folder on `app://metisclip/` (e.g. `..\frontend\out` in dev) |

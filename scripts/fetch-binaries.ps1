@@ -7,8 +7,11 @@
   - mongod.exe (MongoDB Community Server, only the server binary + license files)
   - yt-dlp.exe (standalone build, self-updatable at runtime)
   - deno.exe   (JavaScript runtime used by recent yt-dlp for YouTube)
+  - whisper\   (whisper.cpp CPU build: whisper-cli.exe, its ggml DLLs and the MIT license) for
+                local speech-to-text. The GGML models are not bundled; the engine downloads one
+                on first use into <DATA_ROOT>\models\whisper.
 
-  Every archive is verified against a pinned SHA256 before extraction.
+  Every download is verified against a pinned SHA256 before extraction.
   FFmpeg is not downloaded here: the engine uses the ffmpeg binary that ships
   with the imageio-ffmpeg Python package (collected by PyInstaller), and
   Remotion bundles its own compositor.
@@ -58,6 +61,27 @@ $Pins = @(
     Kind    = 'zip'
     Take    = @('deno.exe')
     Target  = 'deno.exe'
+  },
+  @{
+    # Release tag b5454 = whisper.cpp 1.9.5. CPU x64 build: ggml picks the best ggml-cpu-*.dll for the
+    # CPU at runtime (sse42 .. alderlake). The BLAS and CUDA builds were measured or judged not worth
+    # their size (BLAS: no faster end to end; CUDA: 285-685 MB, NVIDIA only).
+    Name    = 'whisper'
+    Version = '1.9.5'
+    Url     = 'https://github.com/ggml-org/whisper.cpp/releases/download/b5454/whisper-bin-x64.zip'
+    Sha256  = '6ba69e3482d7826214f90a6a9c84ca07782aec1e1d0c6a7c30c994fd5d816ccb'
+    Kind    = 'zip'
+    Take    = @('whisper-cli.exe', 'whisper.dll', 'ggml.dll', 'ggml-base.dll',
+                'ggml-cpu-x64.dll', 'ggml-cpu-sse42.dll', 'ggml-cpu-sandybridge.dll', 'ggml-cpu-haswell.dll',
+                'ggml-cpu-skylakex.dll', 'ggml-cpu-cannonlake.dll', 'ggml-cpu-cascadelake.dll',
+                'ggml-cpu-icelake.dll', 'ggml-cpu-alderlake.dll')
+    Subdir  = 'whisper'          # files keep their names inside bin\whisper
+    Target  = 'whisper\whisper-cli.exe'
+    Extra   = @(
+      @{ Url = 'https://raw.githubusercontent.com/ggml-org/whisper.cpp/b5454/LICENSE'
+         Sha256 = '94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d'
+         Dest = 'whisper\LICENSE' }
+    )
   }
 )
 
@@ -100,6 +124,12 @@ try {
     else {
       $extract = Join-Path $TmpDir ($p.Name + '-x')
       Expand-Archive -LiteralPath $download -DestinationPath $extract -Force
+      $destDir = $BinDir
+      if ($p.Subdir) {
+        $destDir = Join-Path $BinDir $p.Subdir
+        if (Test-Path $destDir) { Remove-Item -LiteralPath $destDir -Recurse -Force }
+        New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+      }
       foreach ($want in $p.Take) {
         $found = Get-ChildItem -LiteralPath $extract -Recurse -File | Where-Object { $_.Name -eq $want } | Select-Object -First 1
         if (-not $found) {
@@ -108,9 +138,20 @@ try {
           continue
         }
         $dest = $want
-        if ($want -notlike '*.exe') { $dest = ('{0}-{1}' -f $p.Name, $want) }   # e.g. mongod-LICENSE-Community.txt
-        Copy-Item -LiteralPath $found.FullName -Destination (Join-Path $BinDir $dest) -Force
+        if (-not $p.Subdir -and $want -notlike '*.exe') { $dest = ('{0}-{1}' -f $p.Name, $want) }   # e.g. mongod-LICENSE-Community.txt
+        Copy-Item -LiteralPath $found.FullName -Destination (Join-Path $destDir $dest) -Force
       }
+    }
+
+    foreach ($x in @($p.Extra)) {
+      if (-not $x) { continue }
+      $xFile = Join-Path $TmpDir ([guid]::NewGuid().ToString('N'))
+      Invoke-WebRequest -Uri $x.Url -OutFile $xFile -UseBasicParsing
+      $xHash = Get-Sha256 $xFile
+      if ($xHash -ne $x.Sha256.ToLowerInvariant()) {
+        throw ("SHA256 mismatch for {0}: expected {1}, got {2}" -f $x.Url, $x.Sha256, $xHash)
+      }
+      Copy-Item -LiteralPath $xFile -Destination (Join-Path $BinDir $x.Dest) -Force
     }
 
     $manifest[$p.Name] = $p.Version

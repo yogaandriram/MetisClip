@@ -1,4 +1,4 @@
-"""Brand template library: named templates shared by every Super Agent, plus their brand assets."""
+"""Brand template library: named templates shared by every workspace, plus their brand assets."""
 from __future__ import annotations
 
 import re

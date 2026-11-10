@@ -321,6 +321,7 @@ def _migrations():
         m004_llm_providers,
         m005_remove_keyword_search,
         m006_local_video_upload,
+        m007_local_whisper,
     )
 
     return [
@@ -330,6 +331,7 @@ def _migrations():
         (4, "llm_providers", m004_llm_providers.up),
         (5, "remove_keyword_search", m005_remove_keyword_search.up),
         (6, "local_video_upload", m006_local_video_upload.up),
+        (7, "local_whisper", m007_local_whisper.up),
     ]
 
 

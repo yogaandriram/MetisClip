@@ -16,7 +16,7 @@ def client(db, secrets):
 
 
 def test_migration_creates_indexes_and_version(db):
-    assert db.meta.find_one({"_id": "schema"})["version"] == 6
+    assert db.meta.find_one({"_id": "schema"})["version"] == 7
     assert not {"scheduled_posts", "api_cache"} & set(db.list_collection_names())
     names = {ix["name"] for ix in db.clips.list_indexes()}
     assert "agent_id_1_created_at_-1" in names
@@ -31,7 +31,7 @@ def test_validator_rejects_bad_status(db):
 def test_migration_is_idempotent(db):
     from backend.core.db import migrate
 
-    assert migrate(db) == 6
+    assert migrate(db) == 7
 
 
 def test_migration_002_removes_publishing_data(mongo):
@@ -55,7 +55,7 @@ def test_migration_002_removes_publishing_data(mongo):
                                        "checkpoint": {"analysis_done": True, "scheduling_done": True}})
         old.meta.insert_one({"_id": "schema", "version": 1})
 
-        assert dbm.migrate(old) == 6
+        assert dbm.migrate(old) == 7
         assert "scheduled_posts" not in old.list_collection_names()
         assert "social_connections" not in old.super_agents.find_one({"_id": "a1"})
         job = old.discovery_jobs.find_one({"_id": "j1"})
@@ -92,14 +92,14 @@ def test_migration_005_removes_keyword_search(mongo, secrets):
         old.meta.insert_one({"_id": "schema", "version": 4})
         secrets.set_secret("youtube_api_key", "AIza-test-key")
 
-        assert dbm.migrate(old) == 6
+        assert dbm.migrate(old) == 7
         assert "api_cache" not in old.list_collection_names()
         assert old.super_agents.find_one({"_id": "a1"}, {"_id": 0, "created_at": 0}) == {"name": "Agen", "niche": "bisnis"}
         job = old.discovery_jobs.find_one({"_id": "j1"})
         assert job["source"] == {"type": "keyword", "youtube_url": None} and job["config"] == {"clip_duration": "45-60"}
         assert set(old.source_videos.find_one({"_id": "v1"})) == {"_id", "job_id", "youtube_id", "created_at"}
         assert secrets.get_secret("youtube_api_key") is None
-        assert dbm.migrate(old) == 6  # idempotent
+        assert dbm.migrate(old) == 7  # idempotent
     finally:
         mongo.drop_database(name)
         dbm.set_db(None, None)  # type: ignore[arg-type]
@@ -125,7 +125,7 @@ def test_migration_006_accepts_uploaded_source_videos(mongo):
         with pytest.raises(WriteError):
             old.source_videos.insert_one(dict(upload))
         old.meta.insert_one({"_id": "schema", "version": 5})
-        assert dbm.migrate(old) == 6
+        assert dbm.migrate(old) == 7
         old.source_videos.insert_one(upload)
     finally:
         mongo.drop_database(name)
@@ -169,7 +169,7 @@ def _video(path, *, audio=True):
     return str(path)
 
 
-def test_job_sources_are_validated(client, tmp_path, monkeypatch):
+def test_job_sources_are_validated(client, tmp_path):
     agent = client.post("/api/agents", json={"name": "Agen Sumber"}).json()["agent"]
 
     def post(**body):
@@ -189,10 +189,7 @@ def test_job_sources_are_validated(client, tmp_path, monkeypatch):
     assert post(local_file_path=str(tmp_path / "rusak.mp4"))[1].startswith("File ini tidak bisa dibaca")
     silent = _video(tmp_path / "bisu.mp4", audio=False)
     assert "tidak punya suara" in post(local_file_path=silent)[1]
-    # Outside dev, uploads need the Groq key: their transcript always comes from Whisper
-    monkeypatch.setattr(config, "env", "production")
-    status, detail = post(local_file_path=_video(tmp_path / "Klip Saya ü.mp4"))
-    assert status == 400 and "API key Groq" in detail
+    # Without a transcription engine outside dev: see test_whisper.test_upload_jobs_need_a_transcription_engine
 
 
 def test_files_route_blocks_private_dirs(client, paths):

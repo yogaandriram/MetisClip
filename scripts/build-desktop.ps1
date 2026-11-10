@@ -8,7 +8,7 @@
                      then stages the runtime (production node_modules + Chrome Headless Shell)
                                                                        -> desktop\.stage\render-engine
   3. engine        : scripts\build-engine.ps1 (PyInstaller onedir)     -> backend\dist\metisclip-engine
-  4. binaries      : scripts\fetch-binaries.ps1 when mongod.exe is missing -> desktop\resources\bin
+  4. binaries      : scripts\fetch-binaries.ps1 when a pinned binary is missing -> desktop\resources\bin
   5. desktop       : npm ci + tsc + electron-builder (NSIS, or --dir with -Pack)
 
   Fails fast on the first error.
@@ -123,11 +123,12 @@ Assert-Path $EngineExe 'Engine executable'
 
 # ---- 4. binaries ----------------------------------------------------------------------------------------
 Step 'Binaries'
-if (-not (Test-Path (Join-Path $Desktop 'resources\bin\mongod.exe'))) {
+$Bins = 'mongod.exe', 'yt-dlp.exe', 'deno.exe', 'whisper\whisper-cli.exe'
+if (@($Bins | Where-Object { -not (Test-Path (Join-Path $Desktop "resources\bin\$_")) }).Count -gt 0) {
   & (Join-Path $PSScriptRoot 'fetch-binaries.ps1')
 }
-foreach ($b in 'mongod.exe', 'yt-dlp.exe', 'deno.exe') { Assert-Path (Join-Path $Desktop "resources\bin\$b") $b }
-Write-Host '   mongod.exe, yt-dlp.exe, deno.exe present'
+foreach ($b in $Bins) { Assert-Path (Join-Path $Desktop "resources\bin\$b") $b }
+Write-Host ('   {0} present' -f ($Bins -join ', '))
 
 # ---- 5. desktop -------------------------------------------------------------------------------------------
 Step 'Desktop: Electron main + electron-builder'

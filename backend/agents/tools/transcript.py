@@ -1,9 +1,10 @@
 """Transcript chain with a MongoDB cache (`transcripts`).
 
 YouTube video (_id "yt:<youtube_id>"): youtube-transcript-api (en, id) -> full audio download
-+ 20-min chunks + Groq Whisper -> mock transcript (dev only).
-Uploaded video file (_id "file:<fingerprint>"): its audio track in 20-min chunks + Groq Whisper
++ 20-min chunks + Whisper -> mock transcript (dev only).
+Uploaded video file (_id "file:<fingerprint>"): its audio track in 20-min chunks + Whisper
 -> mock transcript (dev only). The fingerprint changes when the file changes.
+Whisper is Groq or the local engine, as chosen in Pengaturan (`tools/whisper.py`).
 """
 from __future__ import annotations
 
@@ -58,27 +59,62 @@ def _from_youtube(youtube_id: str) -> tuple[list[dict[str, Any]], str | None]:
     return segs, getattr(fetched, "language_code", None)
 
 
-def _whisper_chunks(chunks: list[Path], cancel: CancelToken, on_status: Callable[[str], None] | None) -> list[dict[str, Any]]:
+def _partial_id(key: str) -> str:
+    return f"partial:{key}"
+
+
+def _whisper_chunks(
+    key: str, chunks: list[Path], cancel: CancelToken, on_status: Callable[[str], None] | None
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Transcribe the chunks in order. Each finished chunk is stored in a `partial:<key>` document, so
+    a resumed job (or a retry after a crash) continues with the next chunk instead of starting over.
+    """
     if not chunks:
         raise PipelineError("Gagal memecah audio untuk transkripsi")
+    db = get_db()
+    partial = db.transcripts.find_one({"_id": _partial_id(key)}) or {}
+    done: dict[str, Any] = partial.get("chunks") if partial.get("chunk_seconds") == CHUNK_SECONDS else None
+    if done is None:
+        done = {}
+        db.transcripts.replace_one(
+            {"_id": _partial_id(key)},
+            {"_id": _partial_id(key), "source": "whisper", "segments": [], "chunk_seconds": CHUNK_SECONDS,
+             "chunks": {}, "fetched_at": utcnow()},
+            upsert=True,
+        )
     segments: list[dict[str, Any]] = []
+    language: str | None = partial.get("language")
     for i, chunk in enumerate(chunks):
         cancel.check()
+        if str(i) in done:
+            segments.extend(done[str(i)])
+            continue
+        label = f"bagian {i + 1}/{len(chunks)}"
         if on_status:
-            on_status(f"Transkripsi Whisper bagian {i + 1}/{len(chunks)}…")
-        payload = whisper.transcribe(chunk, words=False)
+            on_status(f"Transkripsi Whisper {label}…")
+        status = (lambda msg, label=label: on_status(f"{msg} ({label})")) if on_status else None
+        payload = whisper.transcribe(chunk, words=False, cancel=cancel, on_status=status)
         offset = i * CHUNK_SECONDS
+        part: list[dict[str, Any]] = []
         for seg in payload.get("segments") or []:
             text = str(seg.get("text", "")).strip()
             if not text:
                 continue
             start = float(seg.get("start", 0))
             end = float(seg.get("end", start))
-            segments.append({"text": text, "start": round(start + offset, 3), "duration": round(max(0.0, end - start), 3)})
-    return segments
+            part.append({"text": text, "start": round(start + offset, 3), "duration": round(max(0.0, end - start), 3)})
+        segments.extend(part)
+        language = language or payload.get("language")
+        db.transcripts.update_one(
+            {"_id": _partial_id(key)},
+            {"$set": {f"chunks.{i}": part, "language": language, "fetched_at": utcnow()}},
+        )
+    return segments, language
 
 
-def _from_whisper(video: dict[str, Any], cancel: CancelToken, on_status: Callable[[str], None] | None) -> list[dict[str, Any]]:
+def _from_whisper(
+    video: dict[str, Any], cancel: CancelToken, on_status: Callable[[str], None] | None
+) -> tuple[list[dict[str, Any]], str | None]:
     work = get_paths().cache_dir / f"transcript-{cache_key(video).replace(':', '-')}"
     try:
         if video.get("file_path"):
@@ -89,7 +125,8 @@ def _from_whisper(video: dict[str, Any], cancel: CancelToken, on_status: Callabl
             if on_status:
                 on_status("Subtitle YouTube tidak tersedia, mengunduh audio untuk Whisper…")
             audio = ytdlp.download_audio(video["youtube_id"], work, cancel)
-        return _whisper_chunks(ffmpeg_ops.chunk_audio(audio, work / "chunks", CHUNK_SECONDS, cancel), cancel, on_status)
+        chunks = ffmpeg_ops.chunk_audio(audio, work / "chunks", CHUNK_SECONDS, cancel)
+        return _whisper_chunks(cache_key(video), chunks, cancel, on_status)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -114,9 +151,10 @@ def get_transcript(
 
     if whisper.available():
         try:
-            segs = _from_whisper(video, cancel, on_status)
+            segs, lang = _from_whisper(video, cancel, on_status)
             if segs:
-                _save(key, segs, "whisper", None)
+                _save(key, segs, "whisper", lang)
+                get_db().transcripts.delete_one({"_id": _partial_id(key)})
                 return segs
         except Cancelled:
             raise
@@ -128,11 +166,7 @@ def get_transcript(
     if config.is_dev:
         logger.warning("Using dev mock transcript for %s", _label(video))
         return MOCK_TRANSCRIPT
-    if video.get("file_path"):
-        raise PipelineError("Video upload ditranskripsi dengan Whisper. Isi API key Groq di Pengaturan, lalu lanjutkan job ini.")
-    raise PipelineError(
-        f"Transkrip video {_label(video)} tidak tersedia. Isi API key Groq di Pengaturan agar audio bisa ditranskripsi dengan Whisper."
-    )
+    raise PipelineError(f"Transkrip video {_label(video)} tidak tersedia. {whisper.unavailable_reason()} Lalu lanjutkan job ini.")
 
 
 MOCK_TRANSCRIPT: list[dict[str, Any]] = [

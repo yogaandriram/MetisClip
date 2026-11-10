@@ -1,7 +1,7 @@
 // Small formatting helpers shared by the desktop UI (Bahasa Indonesia).
 import { EngineError, type ClipStatus, type Job, type JobStatus, type JobStep, type RenderStatus } from './engine'
 
-type BadgeVariant = 'primary' | 'accent' | 'warning' | 'danger' | 'muted'
+import type { BadgeTone } from '@/components/ui/Badge'
 
 export function errorMessage(err: unknown, fallback = 'Terjadi kesalahan yang tidak terduga'): string {
   if (err instanceof EngineError) return err.message
@@ -62,24 +62,24 @@ export function jobStepLabel(step: JobStep | null | undefined): string {
   return JOB_STEPS.find((s) => s.id === step)?.label || 'Menunggu antrian'
 }
 
-export const JOB_STATUS: Record<JobStatus, { label: string; variant: BadgeVariant }> = {
-  pending: { label: 'Menunggu', variant: 'muted' },
-  running: { label: 'Berjalan', variant: 'primary' },
-  interrupted: { label: 'Terputus', variant: 'warning' },
-  cancelled: { label: 'Dibatalkan', variant: 'muted' },
-  completed: { label: 'Selesai', variant: 'accent' },
-  failed: { label: 'Gagal', variant: 'danger' },
+export const JOB_STATUS: Record<JobStatus, { label: string; tone: BadgeTone }> = {
+  pending: { label: 'Menunggu', tone: 'neutral' },
+  running: { label: 'Berjalan', tone: 'ink' },
+  interrupted: { label: 'Terputus', tone: 'warning' },
+  cancelled: { label: 'Dibatalkan', tone: 'quiet' },
+  completed: { label: 'Selesai', tone: 'success' },
+  failed: { label: 'Gagal', tone: 'error' },
 }
 
 export const ACTIVE_JOB_STATUSES: JobStatus[] = ['pending', 'running']
 export const RESUMABLE_JOB_STATUSES: JobStatus[] = ['interrupted', 'failed', 'cancelled']
 
-export const CLIP_STATUS: Record<ClipStatus, { label: string; variant: BadgeVariant }> = {
-  processing: { label: 'Diproses', variant: 'warning' },
-  ready: { label: 'Siap', variant: 'accent' },
-  rendering: { label: 'Dirender', variant: 'primary' },
-  exported: { label: 'Diekspor', variant: 'accent' },
-  failed: { label: 'Gagal', variant: 'danger' },
+export const CLIP_STATUS: Record<ClipStatus, { label: string; tone: BadgeTone }> = {
+  processing: { label: 'Diproses', tone: 'ink' },
+  ready: { label: 'Siap', tone: 'accent' },
+  rendering: { label: 'Dirender', tone: 'ink' },
+  exported: { label: 'Diekspor', tone: 'success' },
+  failed: { label: 'Gagal', tone: 'error' },
 }
 
 export const RENDER_STATUS: Record<RenderStatus, string> = {

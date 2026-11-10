@@ -2,9 +2,22 @@ import type { CaptionStyle } from '@/lib/presets/defaults';
 import { resolveCaptionStyle } from '@/lib/presets/defaults';
 import { type AiCaptionSettings, DEFAULT_AI_SETTINGS } from '@/lib/presets/captions';
 
+export type SafeZone = 'none' | 'tiktok' | 'reels' | 'shorts';
+
 export interface LayoutSettings {
   /** Platform UI guide drawn on the preview only (never rendered into the clip). */
-  safeZone?: 'none' | 'tiktok' | 'reels' | 'shorts';
+  safeZone?: SafeZone;
+}
+
+export const SAFE_ZONE_OPTIONS: { value: SafeZone; label: string }[] = [
+  { value: 'none', label: 'Tidak ada' },
+  { value: 'tiktok', label: 'TikTok' },
+  { value: 'reels', label: 'IG Reels' },
+  { value: 'shorts', label: 'YT Shorts' },
+];
+
+export function safeZoneLabel(zone: SafeZone | undefined): string {
+  return SAFE_ZONE_OPTIONS.find((o) => o.value === (zone || 'none'))?.label || '';
 }
 
 /** Same model as the clip editor and the render (lib/presets/defaults.ts). */

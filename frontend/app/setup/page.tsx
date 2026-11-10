@@ -1,26 +1,22 @@
 'use client'
 
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useId, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2, FolderOpen, HardDrive, Info, KeyRound, Bot, ShieldCheck, Cpu, RefreshCw, Video, XCircle } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, FolderOpen, Plus, RefreshCw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api, getEngineInfo, type SecretName, type SystemCheck } from '@/lib/engine'
 import { errorMessage, formatBytes } from '@/lib/format'
-import { Button } from '@/components/ui/Button'
-import { GlassCard } from '@/components/ui/GlassCard'
-import { Skeleton } from '@/components/ui/Skeleton'
-import { Spinner } from '@/components/ui/Spinner'
-import { Badge } from '@/components/ui/Badge'
+import { Alert, Badge, Blob, Button, Card, Divider, Field, InputField, Logo, Skeleton, Spinner, WizardSteps } from '@/components/ui'
 import { SecretField } from '@/components/settings/SecretField'
 import { LlmSection, type LlmValue } from '@/components/settings/LlmFields'
 import { AgentForm, toAgentInput } from '@/components/agents/AgentForm'
 
 const STEPS = [
-  { id: 'welcome', label: 'Selamat datang', icon: Video },
-  { id: 'data', label: 'Lokasi data', icon: HardDrive },
-  { id: 'keys', label: 'API key', icon: KeyRound },
-  { id: 'check', label: 'Cek sistem', icon: Cpu },
-  { id: 'agent', label: 'Super Agent', icon: Bot },
+  { id: 'welcome', label: 'Selamat datang' },
+  { id: 'data', label: 'Lokasi data' },
+  { id: 'keys', label: 'API key' },
+  { id: 'check', label: 'Cek sistem' },
+  { id: 'agent', label: 'Workspace' },
 ] as const
 
 type StepId = (typeof STEPS)[number]['id']
@@ -33,101 +29,68 @@ export default function SetupPage() {
   const back = () => setStep(STEPS[Math.max(index - 1, 0)].id)
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-deep)', padding: '40px 20px', display: 'flex', justifyContent: 'center' }}>
-      <div style={{ width: '100%', maxWidth: '820px', display: 'flex', flexDirection: 'column', gap: '28px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div
-            style={{
-              background: 'linear-gradient(135deg, var(--primary), var(--accent))',
-              width: '36px',
-              height: '36px',
-              borderRadius: '10px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: '0 0 15px var(--primary-glow)',
-            }}
-          >
-            <Video size={18} color="#fff" />
-          </div>
-          <div>
-            <div style={{ fontSize: '20px', fontWeight: 800 }}>MetisClip</div>
-            <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Pengaturan awal</div>
+    <main style={{ minHeight: '100vh', padding: '48px 16px', display: 'flex', justifyContent: 'center', alignItems: 'flex-start' }}>
+      <Card padding="lg" style={{ width: '100%', maxWidth: 720, borderRadius: 'var(--r-xl)' }}>
+        <div className="mc-stack mc-gap-32">
+          <WizardSteps steps={STEPS.map((s) => s.label)} current={index} />
+          <div className="mc-stack mc-gap-24">
+            {step === 'welcome' && <WelcomeStep onNext={next} />}
+            {step === 'data' && <DataStep onNext={next} onBack={back} />}
+            {step === 'keys' && <KeysStep onNext={next} onBack={back} />}
+            {step === 'check' && <CheckStep onNext={next} onBack={back} />}
+            {step === 'agent' && <AgentStep onBack={back} onDone={() => router.replace('/dashboard/')} />}
           </div>
         </div>
-
-        <ol style={{ display: 'flex', gap: '8px', listStyle: 'none', flexWrap: 'wrap' }}>
-          {STEPS.map((s, i) => {
-            const Icon = s.icon
-            const done = i < index
-            const current = i === index
-            return (
-              <li
-                key={s.id}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '8px 12px',
-                  borderRadius: '10px',
-                  fontSize: '13px',
-                  fontWeight: current ? 700 : 500,
-                  color: current ? 'var(--text-primary)' : done ? 'var(--accent)' : 'var(--text-muted)',
-                  background: current ? 'var(--bg-glass-active)' : 'transparent',
-                  border: `1px solid ${current ? 'var(--border-glass)' : 'transparent'}`,
-                }}
-              >
-                {done ? <CheckCircle2 size={15} /> : <Icon size={15} />}
-                {i + 1}. {s.label}
-              </li>
-            )
-          })}
-        </ol>
-
-        <GlassCard glow hoverEffect={false} padding="32px">
-          {step === 'welcome' && <WelcomeStep onNext={next} />}
-          {step === 'data' && <DataStep onNext={next} onBack={back} />}
-          {step === 'keys' && <KeysStep onNext={next} onBack={back} />}
-          {step === 'check' && <CheckStep onNext={next} onBack={back} />}
-          {step === 'agent' && <AgentStep onBack={back} onDone={() => router.replace('/dashboard/')} />}
-        </GlassCard>
-      </div>
-    </div>
+      </Card>
+    </main>
   )
 }
 
 function StepTitle({ title, subtitle }: { title: string; subtitle?: React.ReactNode }) {
   return (
-    <div style={{ marginBottom: '24px' }}>
-      <h1 style={{ fontSize: '24px', fontWeight: 800, marginBottom: '8px' }}>{title}</h1>
-      {subtitle && <p style={{ color: 'var(--text-dim)', lineHeight: 1.6, fontSize: '14px' }}>{subtitle}</p>}
+    <div className="mc-stack mc-gap-8">
+      <h1 className="mc-h1">{title}</h1>
+      {subtitle && <p className="mc-body-lg mc-muted">{subtitle}</p>}
     </div>
   )
 }
 
 function StepActions({ onBack, children }: { onBack?: () => void; children: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginTop: '28px', paddingTop: '20px', borderTop: '1px solid var(--border-glass)', flexWrap: 'wrap' }}>
-      <div>
-        {onBack && (
-          <Button variant="secondary" size="sm" onClick={onBack} icon={<ArrowLeft size={14} />}>
-            Kembali
-          </Button>
-        )}
+    <div className="mc-stack mc-gap-20">
+      <Divider />
+      <div className="mc-row mc-row--between mc-row--wrap">
+        <div>
+          {onBack && (
+            <Button variant="ghost" size="lg" onClick={onBack} icon={<ArrowLeft size={16} aria-hidden="true" />}>
+              Kembali
+            </Button>
+          )}
+        </div>
+        <div className="mc-row mc-row--wrap">{children}</div>
       </div>
-      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>{children}</div>
     </div>
   )
 }
 
-function Notice({ tone, children }: { tone: 'info' | 'warning' | 'danger' | 'success'; children: React.ReactNode }) {
-  const color = tone === 'danger' ? 'var(--danger)' : tone === 'warning' ? 'var(--warning)' : tone === 'success' ? 'var(--accent)' : 'var(--primary)'
-  const Icon = tone === 'danger' ? XCircle : tone === 'warning' ? AlertTriangle : tone === 'success' ? CheckCircle2 : Info
+function StatusLine({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', gap: '10px', padding: '12px 14px', borderRadius: '10px', border: `1px solid ${color}`, background: 'rgba(255,255,255,0.02)', fontSize: '13px', lineHeight: 1.6 }}>
-      <Icon size={16} color={color} style={{ flexShrink: 0, marginTop: '2px' }} />
-      <div style={{ color: 'var(--text-primary)' }}>{children}</div>
+    <div className="mc-row mc-gap-8 mc-muted" role="status">
+      <Spinner size="sm" />
+      {children}
     </div>
+  )
+}
+
+function HealthBadge({ ok }: { ok: boolean }) {
+  return ok ? (
+    <Badge tone="success" size="sm" icon={<Check size={14} aria-hidden="true" />}>
+      Siap
+    </Badge>
+  ) : (
+    <Badge tone="error" size="sm" icon={<AlertTriangle size={14} aria-hidden="true" />}>
+      Bermasalah
+    </Badge>
   )
 }
 
@@ -137,23 +100,31 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
   const [accepted, setAccepted] = useState(false)
   return (
     <>
-      <StepTitle
-        title="Selamat datang di MetisClip"
-        subtitle="MetisClip mencari video panjang (podcast, interview) di YouTube, memilih momen yang berpotensi viral dengan AI, lalu memotongnya menjadi klip vertikal 9:16 dengan subtitle yang bisa diedit. Semua data dan video disimpan di komputer Anda sendiri."
-      />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <Notice tone="warning">
-          <strong>Hak cipta adalah tanggung jawab Anda.</strong> Video sumber di YouTube dimiliki kreatornya. Sebelum mengunggah klip, pastikan Anda punya izin dari pemilik
-          konten atau penggunaan Anda termasuk penggunaan wajar (fair use) — misalnya dengan atribusi dan transformasi yang jelas — serta mematuhi Ketentuan Layanan YouTube dan
-          platform tujuan. MetisClip tidak memberikan hak apa pun atas konten pihak ketiga.
-        </Notice>
-        <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '14px', cursor: 'pointer', lineHeight: 1.5 }}>
-          <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} style={{ marginTop: '3px', accentColor: 'var(--primary)' }} />
-          Saya memahami dan bertanggung jawab atas konten yang saya klip dan unggah menggunakan MetisClip.
-        </label>
-      </div>
+      <Card tone="dew" style={{ minHeight: 220, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 24 }}>
+        <Blob />
+        <div className="mc-card__body">
+          <Logo />
+        </div>
+        <div className="mc-card__body mc-stack mc-gap-4" style={{ maxWidth: '60%' }}>
+          <span className="mc-label mc-moss">Pengaturan awal</span>
+          <h1 className="mc-h1">Selamat datang di MetisClip</h1>
+        </div>
+      </Card>
+      <p className="mc-body-lg mc-muted">
+        MetisClip mencari video panjang (podcast, interview) di YouTube, memilih momen yang berpotensi viral dengan AI, lalu memotongnya menjadi klip vertikal 9:16 dengan
+        subtitle yang bisa diedit. Semua data dan video disimpan di komputer Anda sendiri.
+      </p>
+      <Alert tone="warning" title="Hak cipta adalah tanggung jawab Anda">
+        Video sumber di YouTube dimiliki kreatornya. Sebelum mengunggah klip, pastikan Anda punya izin dari pemilik konten atau penggunaan Anda termasuk penggunaan wajar (fair
+        use) — misalnya dengan atribusi dan transformasi yang jelas — serta mematuhi Ketentuan Layanan YouTube dan platform tujuan. MetisClip tidak memberikan hak apa pun atas
+        konten pihak ketiga.
+      </Alert>
+      <label className="mc-row mc-row--top mc-gap-12" style={{ cursor: 'pointer' }}>
+        <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} style={{ marginTop: 1 }} />
+        <span>Saya memahami dan bertanggung jawab atas konten yang saya klip dan unggah menggunakan MetisClip.</span>
+      </label>
       <StepActions>
-        <Button variant="primary" onClick={onNext} disabled={!accepted} icon={<ArrowRight size={16} />}>
+        <Button variant="primary" size="lg" onClick={onNext} disabled={!accepted} iconRight={<ArrowRight size={16} aria-hidden="true" />}>
           Mulai pengaturan
         </Button>
       </StepActions>
@@ -165,6 +136,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
 
 function DataStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
   const desktop = typeof window !== 'undefined' && !!window.metis
+  const pathId = useId()
   const [loading, setLoading] = useState(true)
   const [currentRoot, setCurrentRoot] = useState<string | null>(null)
   const [path, setPath] = useState('')
@@ -278,9 +250,9 @@ function DataStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
     return (
       <>
         <StepTitle title="Lokasi data" />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <Skeleton height={48} />
-          <Skeleton height={80} />
+        <div className="mc-stack mc-gap-12">
+          <Skeleton height={44} radius="full" />
+          <Skeleton height={80} radius="md" />
         </div>
       </>
     )
@@ -290,17 +262,13 @@ function DataStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
     return (
       <>
         <StepTitle title="Lokasi data" subtitle="Database, video sumber, dan klip disimpan di satu folder di komputer Anda." />
-        <Notice tone="info">
-          Pemilihan folder data hanya tersedia di aplikasi desktop MetisClip. Halaman ini sedang dibuka di browser biasa (mode pengembang): engine memakai folder dari
-          variabel <code className="mc-mono">METISCLIP_DATA_ROOT</code> saat dijalankan manual.
-        </Notice>
-        {error && (
-          <div style={{ marginTop: '14px' }}>
-            <Notice tone="danger">{error}</Notice>
-          </div>
-        )}
+        <Alert tone="info">
+          Pemilihan folder data hanya tersedia di aplikasi desktop MetisClip. Halaman ini sedang dibuka di browser biasa (mode pengembang): engine memakai folder dari variabel{' '}
+          <code className="mc-mono">METISCLIP_DATA_ROOT</code> saat dijalankan manual.
+        </Alert>
+        {error && <Alert tone="error">{error}</Alert>}
         <StepActions onBack={onBack}>
-          <Button variant="primary" onClick={continueExisting} loading={applying} icon={<ArrowRight size={16} />}>
+          <Button variant="primary" size="lg" onClick={continueExisting} loading={applying} iconRight={<ArrowRight size={16} aria-hidden="true" />}>
             Lanjut (mode pengembang)
           </Button>
         </StepActions>
@@ -312,25 +280,18 @@ function DataStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
     return (
       <>
         <StepTitle title="Lokasi data" subtitle="Folder data sudah diatur sebelumnya." />
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-glass)', background: 'rgba(255,255,255,0.02)' }}>
-          <FolderOpen size={18} color="var(--accent)" />
-          <span className="mc-mono" style={{ fontSize: '13px', wordBreak: 'break-all' }}>
-            {currentRoot}
-          </span>
-        </div>
-        <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '10px' }}>Memindahkan folder data dapat dilakukan nanti dari menu Sistem.</p>
-        {status && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '14px', fontSize: '13px', color: 'var(--text-dim)' }}>
-            <Spinner size="sm" /> {status}
-          </div>
-        )}
-        {error && (
-          <div style={{ marginTop: '14px' }}>
-            <Notice tone="danger">{error}</Notice>
-          </div>
-        )}
+        <InputField
+          label="Folder data"
+          hint="Memindahkan folder data dapat dilakukan nanti dari menu Sistem."
+          readOnly
+          mono
+          value={currentRoot}
+          icon={<FolderOpen size={18} aria-hidden="true" />}
+        />
+        {status && <StatusLine>{status}</StatusLine>}
+        {error && <Alert tone="error">{error}</Alert>}
         <StepActions onBack={onBack}>
-          <Button variant="primary" onClick={continueExisting} loading={applying} icon={<ArrowRight size={16} />}>
+          <Button variant="primary" size="lg" onClick={continueExisting} loading={applying} iconRight={<ArrowRight size={16} aria-hidden="true" />}>
             Lanjut
           </Button>
         </StepActions>
@@ -344,62 +305,45 @@ function DataStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
         title="Di mana MetisClip menyimpan data?"
         subtitle="Database, video sumber, cache, dan semua klip akan disimpan di folder ini. Pilih drive dengan ruang kosong yang cukup — satu video podcast bisa memakan beberapa GB."
       />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'stretch' }}>
-          <div
-            className="mc-mono"
-            style={{
-              flex: 1,
-              padding: '12px 14px',
-              borderRadius: '12px',
-              border: '1px solid var(--border-glass)',
-              background: 'rgba(0,0,0,0.25)',
-              fontSize: '13px',
-              wordBreak: 'break-all',
-              display: 'flex',
-              alignItems: 'center',
-            }}
-          >
-            {path || '-'}
-          </div>
-          <Button variant="secondary" onClick={choose} disabled={applying} icon={<FolderOpen size={16} />}>
+      <Field label="Folder data" htmlFor={pathId}>
+        <div className="mc-row mc-gap-8">
+          <InputField id={pathId} readOnly mono value={path} placeholder="-" containerClassName="mc-grow" />
+          <Button variant="secondary" onClick={choose} disabled={applying} icon={<FolderOpen size={16} aria-hidden="true" />}>
             Pilih folder…
           </Button>
         </div>
+      </Field>
 
-        {validating ? (
-          <Skeleton height={60} />
-        ) : (
-          check && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div style={{ fontSize: '13px', color: 'var(--text-dim)' }}>
-                Ruang kosong: <strong style={{ color: 'var(--text-primary)' }}>{formatBytes(check.freeBytes)}</strong> dari {formatBytes(check.totalBytes)}
-              </div>
-              {check.problems.map((p) => (
-                <Notice key={p} tone="danger">
-                  {p}
-                </Notice>
-              ))}
-              {check.warnings.map((w) => (
-                <Notice key={w} tone="warning">
-                  {w}
-                </Notice>
-              ))}
-              {check.existingData && <Notice tone="success">Folder ini sudah berisi data MetisClip — folder data yang sudah ada akan dipakai (tidak ada yang dihapus).</Notice>}
-              {check.ok && !check.existingData && check.problems.length === 0 && <Notice tone="info">Folder akan dibuat (atau dipakai) dan diisi struktur data MetisClip.</Notice>}
-            </div>
-          )
-        )}
-
-        {status && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', color: 'var(--text-dim)' }}>
-            <Spinner size="sm" /> {status}
+      {validating ? (
+        <Skeleton height={60} radius="md" />
+      ) : (
+        check && (
+          <div className="mc-stack mc-gap-12">
+            <p>
+              <span className="mc-muted">Ruang kosong: </span>
+              <span className="mc-label">{formatBytes(check.freeBytes)}</span>
+              <span className="mc-muted"> dari {formatBytes(check.totalBytes)}</span>
+            </p>
+            {check.problems.map((p) => (
+              <Alert key={p} tone="error">
+                {p}
+              </Alert>
+            ))}
+            {check.warnings.map((w) => (
+              <Alert key={w} tone="warning">
+                {w}
+              </Alert>
+            ))}
+            {check.existingData && <Alert tone="success">Folder ini sudah berisi data MetisClip — folder data yang sudah ada akan dipakai (tidak ada yang dihapus).</Alert>}
+            {check.ok && !check.existingData && check.problems.length === 0 && <Alert tone="info">Folder akan dibuat (atau dipakai) dan diisi struktur data MetisClip.</Alert>}
           </div>
-        )}
-        {error && <Notice tone="danger">{error}</Notice>}
-      </div>
+        )
+      )}
+
+      {status && <StatusLine>{status}</StatusLine>}
+      {error && <Alert tone="error">{error}</Alert>}
       <StepActions onBack={applying ? undefined : onBack}>
-        <Button variant="primary" onClick={apply} loading={applying} disabled={!check?.ok || validating} icon={<ArrowRight size={16} />}>
+        <Button variant="primary" size="lg" onClick={apply} loading={applying} disabled={!check?.ok || validating} iconRight={<ArrowRight size={16} aria-hidden="true" />}>
           Gunakan folder ini
         </Button>
       </StepActions>
@@ -412,8 +356,9 @@ function DataStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
 const SECRET_INFO: { name: SecretName; label: string; description: React.ReactNode }[] = [
   {
     name: 'groq_api_key',
-    label: 'API key Groq (Whisper)',
-    description: 'Dipakai untuk subtitle per kata dan transkrip video yang Anda upload. Bisa dibuat gratis di console.groq.com.',
+    label: 'API key Groq (opsional)',
+    description:
+      'Tanpa key ini, transkripsi berjalan dengan Whisper lokal di komputer ini (modelnya diunduh sekali saat pertama dipakai). Dengan key Groq, yang bisa dibuat gratis di console.groq.com, transkripsi jauh lebih cepat saat online, dan Whisper lokal tetap menjadi cadangan saat offline.',
   },
 ]
 
@@ -471,10 +416,10 @@ function KeysStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
     return (
       <>
         <StepTitle title="API key" />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <Skeleton height={70} />
-          <Skeleton height={70} />
-          <Skeleton height={70} />
+        <div className="mc-stack">
+          <Skeleton height={70} radius="md" />
+          <Skeleton height={70} radius="md" />
+          <Skeleton height={70} radius="md" />
         </div>
       </>
     )
@@ -484,9 +429,9 @@ function KeysStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
     return (
       <>
         <StepTitle title="API key" />
-        <Notice tone="danger">{error}</Notice>
+        <Alert tone="error">{error}</Alert>
         <StepActions onBack={onBack}>
-          <Button variant="secondary" onClick={load} icon={<RefreshCw size={16} />}>
+          <Button variant="secondary" size="lg" onClick={load} icon={<RefreshCw size={16} aria-hidden="true" />}>
             Coba lagi
           </Button>
         </StepActions>
@@ -498,37 +443,36 @@ function KeysStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
     <>
       <StepTitle
         title="Hubungkan layanan AI"
-        subtitle="API key disimpan aman di Windows Credential Manager, bukan di file biasa, dan tidak pernah ditampilkan kembali. Anda bisa melewati langkah ini dan mengisinya nanti di Pengaturan."
+        subtitle="API key disimpan aman di Windows Credential Manager, bukan di file biasa, dan bisa dilihat lagi lewat ikon mata. Anda bisa melewati langkah ini dan mengisinya nanti di Pengaturan."
       />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-        <LlmSection
-          value={llm!}
-          onChange={setLlm}
-          secrets={configured!}
-          onSecretConfigured={(name, c) => setConfigured((prev) => (prev ? { ...prev, [name]: c } : prev))}
-          persist={saveLlm}
+      <LlmSection
+        value={llm!}
+        onChange={setLlm}
+        secrets={configured!}
+        onSecretConfigured={(name, c) => setConfigured((prev) => (prev ? { ...prev, [name]: c } : prev))}
+        persist={saveLlm}
+        allowRemove={false}
+      />
+      <Divider />
+      <h2 className="mc-h3">Transkripsi</h2>
+      {SECRET_INFO.map((s) => (
+        <SecretField
+          key={s.name}
+          name={s.name}
+          label={s.label}
+          description={s.description}
+          configured={configured![s.name]}
+          value={values[s.name] || ''}
+          onChange={(v) => setValues((prev) => ({ ...prev, [s.name]: v }))}
+          onConfiguredChange={(c) => setConfigured((prev) => (prev ? { ...prev, [s.name]: c } : prev))}
           allowRemove={false}
         />
-        <div style={{ borderTop: '1px solid var(--border-glass)', paddingTop: '18px', fontSize: '14px', fontWeight: 700 }}>Transkripsi</div>
-        {SECRET_INFO.map((s) => (
-          <SecretField
-            key={s.name}
-            name={s.name}
-            label={s.label}
-            description={s.description}
-            configured={configured![s.name]}
-            value={values[s.name] || ''}
-            onChange={(v) => setValues((prev) => ({ ...prev, [s.name]: v }))}
-            onConfiguredChange={(c) => setConfigured((prev) => (prev ? { ...prev, [s.name]: c } : prev))}
-            allowRemove={false}
-          />
-        ))}
-      </div>
+      ))}
       <StepActions onBack={onBack}>
-        <Button variant="secondary" onClick={onNext} disabled={saving}>
+        <Button variant="secondary" size="lg" onClick={onNext} disabled={saving}>
           Lewati untuk sekarang
         </Button>
-        <Button variant="primary" onClick={saveAndNext} loading={saving} icon={<ArrowRight size={16} />}>
+        <Button variant="primary" size="lg" onClick={saveAndNext} loading={saving} iconRight={<ArrowRight size={16} aria-hidden="true" />}>
           Simpan & lanjut
         </Button>
       </StepActions>
@@ -565,61 +509,67 @@ function CheckStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
     <>
       <StepTitle title="Pemeriksaan sistem" subtitle="Memastikan semua komponen (database, FFmpeg, yt-dlp, renderer) siap dipakai di komputer ini." />
       {loading ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <div className="mc-stack mc-gap-8">
           {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} height={44} />
+            <Skeleton key={i} height={48} radius="md" />
           ))}
         </div>
       ) : error ? (
-        <Notice tone="danger">{error}</Notice>
+        <Alert tone="error">{error}</Alert>
       ) : (
         check && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {check.items.map((item) => (
-              <div
-                key={item.key}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  padding: '12px 14px',
-                  borderRadius: '10px',
-                  border: '1px solid var(--border-glass)',
-                  background: 'rgba(255,255,255,0.02)',
-                }}
-              >
-                {item.ok ? <CheckCircle2 size={18} color="var(--accent)" /> : <XCircle size={18} color="var(--danger)" />}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '14px', fontWeight: 600 }}>{item.label}</div>
-                  {item.detail && <div style={{ fontSize: '12px', color: 'var(--text-muted)', wordBreak: 'break-word' }}>{item.detail}</div>}
-                </div>
-                {item.version && (
-                  <span className="mc-mono" style={{ fontSize: '12px', color: 'var(--text-dim)' }}>
-                    {item.version}
-                  </span>
-                )}
-              </div>
-            ))}
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px', fontSize: '12px', color: 'var(--text-dim)' }}>
-              <Badge variant="muted" glow={false}>
+          <div className="mc-stack mc-gap-20">
+            <div className="mc-table-wrap">
+              <table className="mc-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Komponen</th>
+                    <th scope="col">Versi</th>
+                    <th scope="col">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {check.items.map((item) => (
+                    <tr key={item.key}>
+                      <td>
+                        <div className="mc-label">{item.label}</div>
+                        {item.detail && (
+                          <div className="mc-caption mc-muted" style={{ overflowWrap: 'anywhere' }}>
+                            {item.detail}
+                          </div>
+                        )}
+                      </td>
+                      <td className="mc-mono mc-caption">{item.version || '-'}</td>
+                      <td>
+                        <HealthBadge ok={item.ok} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="mc-row mc-row--wrap mc-gap-8">
+              <Badge tone="neutral" size="sm">
                 {check.cpu_count} core CPU
               </Badge>
-              <Badge variant="muted" glow={false}>
+              <Badge tone="neutral" size="sm">
                 RAM {check.ram_gb.toLocaleString('id-ID', { maximumFractionDigits: 1 })} GB
               </Badge>
-              <Badge variant="muted" glow={false}>
+              <Badge tone="neutral" size="sm">
                 Encoder: {check.encoders.length ? check.encoders.join(', ') : 'libx264'}
               </Badge>
             </div>
-            {failed > 0 && <Notice tone="warning">{failed} komponen bermasalah. Anda tetap bisa melanjutkan, tetapi sebagian fitur mungkin gagal sampai masalahnya diperbaiki.</Notice>}
+            {failed > 0 && (
+              <Alert tone="warning">{failed} komponen bermasalah. Anda tetap bisa melanjutkan, tetapi sebagian fitur mungkin gagal sampai masalahnya diperbaiki.</Alert>
+            )}
           </div>
         )
       )}
       <StepActions onBack={onBack}>
-        <Button variant="secondary" onClick={run} loading={loading} icon={<RefreshCw size={16} />}>
+        <Button variant="secondary" size="lg" onClick={run} loading={loading} icon={<RefreshCw size={16} aria-hidden="true" />}>
           Periksa ulang
         </Button>
-        <Button variant="primary" onClick={onNext} disabled={loading} icon={<ArrowRight size={16} />}>
+        <Button variant="primary" size="lg" onClick={onNext} disabled={loading} iconRight={<ArrowRight size={16} aria-hidden="true" />}>
           Lanjut
         </Button>
       </StepActions>
@@ -652,7 +602,7 @@ function AgentStep({ onBack, onDone }: { onBack: () => void; onDone: () => void 
       } catch {
         /* not remembered */
       }
-      toast.success(`Super Agent "${agent.name}" dibuat`)
+      toast.success(`Workspace "${agent.name}" dibuat`)
       onDone()
     } catch (err) {
       toast.error(errorMessage(err))
@@ -662,32 +612,30 @@ function AgentStep({ onBack, onDone }: { onBack: () => void; onDone: () => void 
   return (
     <>
       <StepTitle
-        title="Buat Super Agent pertama"
-        subtitle="Super Agent adalah profil kerja untuk satu niche/channel: durasi klip default dan brand template sendiri. Anda bisa membuat lebih dari satu nanti."
+        title="Buat workspace pertama"
+        subtitle="Workspace adalah ruang kerja untuk satu niche/channel: durasi klip default dan brand template sendiri. Anda bisa membuat lebih dari satu nanti."
       />
       {error ? (
-        <Notice tone="danger">{error}</Notice>
+        <Alert tone="error">{error}</Alert>
       ) : existing === null ? (
-        <Skeleton height={160} />
+        <Skeleton height={160} radius="md" />
       ) : (
         <>
-          {existing > 0 && (
-            <div style={{ marginBottom: '18px' }}>
-              <Notice tone="success">Anda sudah punya {existing} Super Agent di folder data ini.</Notice>
-            </div>
-          )}
+          {existing > 0 && <Alert tone="success">Anda sudah punya {existing} workspace di folder data ini.</Alert>}
           {showForm ? (
             <AgentForm submitLabel="Buat & mulai" onSubmit={create} onCancel={existing > 0 ? () => setShowForm(false) : undefined} />
           ) : (
-            <Button variant="secondary" size="sm" onClick={() => setShowForm(true)} icon={<Bot size={14} />}>
-              Buat Super Agent baru
-            </Button>
+            <div>
+              <Button variant="secondary" onClick={() => setShowForm(true)} icon={<Plus size={16} aria-hidden="true" />}>
+                Buat workspace baru
+              </Button>
+            </div>
           )}
         </>
       )}
       <StepActions onBack={onBack}>
         {existing !== null && existing > 0 && (
-          <Button variant="primary" onClick={onDone} icon={<ShieldCheck size={16} />}>
+          <Button variant="primary" size="lg" onClick={onDone} iconRight={<ArrowRight size={16} aria-hidden="true" />}>
             Masuk ke Beranda
           </Button>
         )}

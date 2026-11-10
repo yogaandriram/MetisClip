@@ -59,7 +59,7 @@ def create_job(body: JobCreate):
     _check_disk()
     db = get_db()
     if not db.super_agents.find_one({"_id": body.agent_id}, {"_id": 1}):
-        raise http_error(400, "Super Agent tidak ditemukan. Pilih agent terlebih dahulu.")
+        raise http_error(400, "Workspace tidak ditemukan. Pilih workspace terlebih dahulu.")
     if body.clip_duration not in DURATIONS:
         raise http_error(400, "Durasi klip tidak valid")
     url = (body.youtube_url or "").strip()
@@ -75,9 +75,9 @@ def create_job(body: JobCreate):
             path, _ = check_local_video(file_path)
         except PipelineError as exc:
             raise http_error(400, str(exc)) from exc
-        # Uploads have no YouTube subtitles: the transcript always comes from Whisper
+        # Uploads have no YouTube subtitles: the transcript always comes from Whisper (Groq or local)
         if not whisper.available() and not config.is_dev:
-            raise http_error(400, "Video upload ditranskripsi dengan Whisper. Isi API key Groq di Pengaturan dulu.")
+            raise http_error(400, f"Video upload ditranskripsi dengan Whisper. {whisper.unavailable_reason()}")
         source = JobSource(type="local_file", local_file_path=str(path))
     doc = JobDoc(
         _id=new_id(),

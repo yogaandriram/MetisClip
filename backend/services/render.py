@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from backend.core import events, procs
+from backend.core import events, procs, workload
 from backend.core.config import config, node_command
 from backend.core.db import get_db, utcnow
 from backend.core.logging_setup import redactor
@@ -110,7 +110,7 @@ def _clip_out_dir(clip: dict[str, Any]) -> Path:
     if raw:
         return paths.from_relative(raw).parent
     agent = get_db().super_agents.find_one({"_id": clip.get("agent_id")}, {"slug": 1, "name": 1}) if clip.get("agent_id") else None
-    slug = (agent or {}).get("slug") or slugify((agent or {}).get("name") or "") if agent else "_tanpa-agent"
+    slug = (agent or {}).get("slug") or slugify((agent or {}).get("name") or "") if agent else "_tanpa-workspace"
     return paths.clip_dir(slug, clip["_id"])
 
 
@@ -156,7 +156,8 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
             cmd += ["--bundle", str(bundle)]
         if config.browser_path and Path(config.browser_path).exists():
             cmd += ["--browser", config.browser_path]
-        error, ok = _run_worker(cmd, extra_env, render_id, clip_id, cancel)
+        with workload.rendering():  # local Whisper waits until the export is done
+            error, ok = _run_worker(cmd, extra_env, render_id, clip_id, cancel)
         cancel.check()
         if ok and tmp_out.exists() and tmp_out.stat().st_size > 0:
             out_dir = _clip_out_dir(clip)

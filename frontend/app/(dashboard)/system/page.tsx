@@ -1,41 +1,29 @@
 'use client'
 
 import React, { useCallback, useEffect, useState } from 'react'
-import { CheckCircle2, XCircle, RefreshCw, FolderOpen, Database, HardDrive, Archive, Info, Cpu } from 'lucide-react'
+import { AlertTriangle, Archive, Check, Cpu, Database, FolderOpen, HardDrive, Info, RefreshCw } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { GlassCard } from '@/components/ui/GlassCard'
-import { Button } from '@/components/ui/Button'
-import { Badge } from '@/components/ui/Badge'
-import { Skeleton } from '@/components/ui/Skeleton'
-import { ProgressBar } from '@/components/ui/ProgressBar'
-import { PageHeader } from '@/components/ui/PageHeader'
+import { Alert, Badge, Button, Card, CardHeader, EmptyState, IconButton, KeyValueList, PageHeader, ProgressRow, Skeleton } from '@/components/ui'
 import { useEngine } from '@/contexts/EngineContext'
 import { api, type BackupInfo, type StorageInfo, type SystemCheck } from '@/lib/engine'
 import { errorMessage, formatBytes, formatDateTime } from '@/lib/format'
 import { isDesktop } from '@/lib/media'
 
-function Section({ icon: Icon, title, actions, children }: { icon: React.ElementType; title: string; actions?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <GlassCard glow hoverEffect={false} padding="26px">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '18px', flexWrap: 'wrap' }}>
-        <h2 style={{ fontSize: '18px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <Icon size={20} color="var(--primary)" /> {title}
-        </h2>
-        {actions && <div style={{ display: 'flex', gap: '8px' }}>{actions}</div>}
-      </div>
-      {children}
-    </GlassCard>
+const headerIcon = (Icon: React.ElementType) => <Icon size={18} aria-hidden="true" />
+
+function HealthBadge({ ok }: { ok: boolean }) {
+  return ok ? (
+    <Badge tone="success" size="sm" icon={<Check size={14} aria-hidden="true" />}>
+      Siap
+    </Badge>
+  ) : (
+    <Badge tone="error" size="sm" icon={<AlertTriangle size={14} aria-hidden="true" />}>
+      Bermasalah
+    </Badge>
   )
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={{ padding: '14px', borderRadius: '12px', border: '1px solid var(--border-glass)', background: 'rgba(255,255,255,0.02)' }}>
-      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>{label}</div>
-      <div style={{ fontSize: '18px', fontWeight: 700 }}>{value}</div>
-    </div>
-  )
-}
+const pct = (part: number, whole: number) => (whole > 0 ? (part / whole) * 100 : 0)
 
 export default function SystemPage() {
   const { epoch, systemInfo, refreshSystemInfo } = useEngine()
@@ -114,171 +102,255 @@ export default function SystemPage() {
     if (!res.ok) toast.error(res.error || 'Folder tidak dapat dibuka')
   }
 
-  const usedPct = storage && storage.drive_total_bytes > 0 ? ((storage.drive_total_bytes - storage.drive_free_bytes) / storage.drive_total_bytes) * 100 : 0
+  const driveUsed = storage ? storage.drive_total_bytes - storage.drive_free_bytes : 0
+  const usedPct = storage && storage.drive_total_bytes > 0 ? (driveUsed / storage.drive_total_bytes) * 100 : 0
+  const appTotal = storage ? storage.db_bytes + storage.library_bytes + storage.cache_bytes + storage.backups_bytes + (storage.models_bytes || 0) : 0
 
   return (
-    <div style={{ maxWidth: '960px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+    <>
       <PageHeader
         title="Sistem"
         subtitle="Status komponen, penggunaan disk, dan backup database lokal."
         actions={
           desktop && systemInfo ? (
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <Button variant="secondary" size="sm" icon={<FolderOpen size={14} />} onClick={() => open(systemInfo.logs_dir)}>
+            <>
+              <Button variant="secondary" size="sm" icon={<FolderOpen size={16} aria-hidden="true" />} onClick={() => open(systemInfo.logs_dir)}>
                 Buka folder log
               </Button>
-              <Button variant="secondary" size="sm" icon={<FolderOpen size={14} />} onClick={() => open(systemInfo.data_root)}>
+              <Button variant="secondary" size="sm" icon={<FolderOpen size={16} aria-hidden="true" />} onClick={() => open(systemInfo.data_root)}>
                 Buka folder data
               </Button>
-            </div>
+            </>
           ) : undefined
         }
       />
 
-      <Section icon={Info} title="Informasi">
-        {!systemInfo ? (
-          <Skeleton height={80} />
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
-            <Stat label="Versi aplikasi" value={desktop ? `v${window.metis!.appVersion}` : '-'} />
-            <Stat label="Versi engine" value={`v${systemInfo.version}${systemInfo.env === 'dev' ? ' (dev)' : ''}`} />
-            <Stat label="MongoDB" value={systemInfo.mongo.ok ? `OK${systemInfo.mongo.version ? ` · ${systemInfo.mongo.version}` : ''}` : 'Bermasalah'} />
-            <Stat label="Folder library" value={systemInfo.library_dir.split(/[\\/]/).slice(-2).join('\\') || '-'} />
-          </div>
-        )}
-      </Section>
-
-      <Section
-        icon={Cpu}
-        title="Pemeriksaan komponen"
-        actions={
-          <Button variant="secondary" size="sm" icon={<RefreshCw size={14} />} onClick={runCheck} loading={checking}>
-            Periksa ulang
-          </Button>
-        }
-      >
-        {checkError ? (
-          <p style={{ color: 'var(--danger)', fontSize: '14px' }}>{checkError}</p>
-        ) : !check ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton key={i} height={42} />
-            ))}
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {check.items.map((item) => (
-              <div key={item.key} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-glass)' }}>
-                {item.ok ? <CheckCircle2 size={18} color="var(--accent)" /> : <XCircle size={18} color="var(--danger)" />}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '14px', fontWeight: 600 }}>{item.label}</div>
-                  {item.detail && <div style={{ fontSize: '12px', color: 'var(--text-muted)', wordBreak: 'break-word' }}>{item.detail}</div>}
+      <div className="mc-grid" style={{ alignItems: 'start' }}>
+        <div className="mc-col-7 mc-stack mc-gap-20">
+          <Card>
+            <CardHeader
+              size="sm"
+              icon={headerIcon(Cpu)}
+              title="Pemeriksaan komponen"
+              action={
+                <Button variant="secondary" size="sm" icon={<RefreshCw size={16} aria-hidden="true" />} onClick={runCheck} loading={checking}>
+                  Periksa ulang
+                </Button>
+              }
+            />
+            {checkError ? (
+              <Alert tone="error" title="Pemeriksaan gagal">
+                {checkError}
+              </Alert>
+            ) : !check ? (
+              <div className="mc-stack mc-gap-8">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <Skeleton key={i} height={48} radius="md" />
+                ))}
+              </div>
+            ) : (
+              <div className="mc-stack mc-gap-20">
+                <div className="mc-table-wrap">
+                  <table className="mc-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Komponen</th>
+                        <th scope="col">Versi</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">
+                          <span className="mc-sr-only">Aksi</span>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {check.items.map((item) => (
+                        <tr key={item.key}>
+                          <td>
+                            <div className="mc-label">{item.label}</div>
+                            {item.detail && (
+                              <div className="mc-caption mc-muted" style={{ overflowWrap: 'anywhere' }}>
+                                {item.detail}
+                              </div>
+                            )}
+                          </td>
+                          <td className="mc-mono mc-caption">{item.version || '-'}</td>
+                          <td>
+                            <HealthBadge ok={item.ok} />
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            {item.key === 'ytdlp' && (
+                              <Button variant="secondary" size="sm" icon={<RefreshCw size={16} aria-hidden="true" />} onClick={updateYtdlp} loading={updatingYtdlp}>
+                                Update yt-dlp
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-                {item.version && (
-                  <span className="mc-mono" style={{ fontSize: '12px', color: 'var(--text-dim)' }}>
-                    {item.version}
-                  </span>
-                )}
-                {item.key === 'ytdlp' && (
-                  <Button variant="secondary" size="sm" icon={<RefreshCw size={14} />} onClick={updateYtdlp} loading={updatingYtdlp}>
-                    Update yt-dlp
-                  </Button>
-                )}
-              </div>
-            ))}
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
-              <Badge variant="muted" glow={false}>
-                {check.cpu_count} core CPU
-              </Badge>
-              <Badge variant="muted" glow={false}>
-                RAM {check.ram_gb.toLocaleString('id-ID', { maximumFractionDigits: 1 })} GB
-              </Badge>
-              <Badge variant="muted" glow={false}>
-                Encoder: {check.encoders.length ? check.encoders.join(', ') : 'libx264'}
-              </Badge>
-            </div>
-          </div>
-        )}
-      </Section>
-
-      <Section icon={HardDrive} title="Penyimpanan">
-        {storageError ? (
-          <p style={{ color: 'var(--danger)', fontSize: '14px' }}>{storageError}</p>
-        ) : !storage ? (
-          <Skeleton height={180} />
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-            <div>
-              <div className="mc-mono" style={{ fontSize: '12px', color: 'var(--text-dim)', marginBottom: '10px', wordBreak: 'break-all' }}>
-                {storage.data_root}
-              </div>
-              <ProgressBar progress={usedPct} animated={false} />
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-muted)', marginTop: '6px' }}>
-                <span>Ruang kosong drive: {formatBytes(storage.drive_free_bytes)}</span>
-                <span>Total: {formatBytes(storage.drive_total_bytes)}</span>
-              </div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
-              <Stat label="Database" value={formatBytes(storage.db_bytes)} />
-              <Stat label="Library (clip & sumber)" value={formatBytes(storage.library_bytes)} />
-              <Stat label="Cache" value={formatBytes(storage.cache_bytes)} />
-              <Stat label="Backup" value={formatBytes(storage.backups_bytes)} />
-            </div>
-            {storage.per_agent.length > 0 && (
-              <div>
-                <h3 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-dim)', marginBottom: '10px' }}>PER SUPER AGENT</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {[...storage.per_agent]
-                    .sort((a, b) => b.bytes - a.bytes)
-                    .map((a) => (
-                      <div key={a.agent_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', padding: '8px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.02)' }}>
-                        <span>{a.name}</span>
-                        <span className="mc-mono" style={{ color: 'var(--text-dim)' }}>
-                          {formatBytes(a.bytes)}
-                        </span>
-                      </div>
-                    ))}
+                <div className="mc-row mc-row--wrap mc-gap-8">
+                  <Badge tone="neutral" size="sm">
+                    {check.cpu_count} core CPU
+                  </Badge>
+                  <Badge tone="neutral" size="sm">
+                    RAM {check.ram_gb.toLocaleString('id-ID', { maximumFractionDigits: 1 })} GB
+                  </Badge>
+                  <Badge tone="neutral" size="sm">
+                    Encoder: {check.encoders.length ? check.encoders.join(', ') : 'libx264'}
+                  </Badge>
                 </div>
               </div>
             )}
-          </div>
-        )}
-      </Section>
+          </Card>
 
-      <Section
-        icon={Database}
-        title="Backup database"
-        actions={
-          <Button variant="primary" size="sm" icon={<Archive size={14} />} onClick={backupNow} loading={backingUp}>
-            Backup sekarang
-          </Button>
-        }
-      >
-        {backups === null ? (
-          <Skeleton height={90} />
-        ) : backups.length === 0 ? (
-          <p style={{ fontSize: '14px', color: 'var(--text-muted)' }}>Belum ada backup. Backup menyimpan salinan database (bukan file video) di folder data.</p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {backups.map((b) => (
-              <div key={b.path} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-glass)' }}>
-                <Archive size={16} color="var(--text-muted)" />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '14px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.name}</div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                    {formatDateTime(b.created_at)} · {formatBytes(b.size_bytes)}
+          <Card>
+            <CardHeader
+              size="sm"
+              icon={headerIcon(Database)}
+              title="Backup database"
+              action={
+                <Button variant="secondary" size="sm" icon={<Archive size={16} aria-hidden="true" />} onClick={backupNow} loading={backingUp}>
+                  Backup sekarang
+                </Button>
+              }
+            />
+            {backups === null ? (
+              <Skeleton height={96} radius="md" />
+            ) : backups.length === 0 ? (
+              <EmptyState icon={Archive} title="Belum ada backup" description="Backup menyimpan salinan database (bukan file video) di folder data." />
+            ) : (
+              <div className="mc-table-wrap">
+                <table className="mc-table mc-table--dense">
+                  <thead>
+                    <tr>
+                      <th scope="col">File</th>
+                      <th scope="col">Dibuat</th>
+                      <th scope="col" className="mc-num">
+                        Ukuran
+                      </th>
+                      {desktop && (
+                        <th scope="col">
+                          <span className="mc-sr-only">Aksi</span>
+                        </th>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {backups.map((b) => (
+                      <tr key={b.path}>
+                        <td className="mc-mono mc-caption" style={{ overflowWrap: 'anywhere' }}>
+                          {b.name}
+                        </td>
+                        <td className="mc-muted" style={{ whiteSpace: 'nowrap' }}>
+                          {formatDateTime(b.created_at)}
+                        </td>
+                        <td className="mc-num">{formatBytes(b.size_bytes)}</td>
+                        {desktop && (
+                          <td style={{ textAlign: 'right' }}>
+                            <IconButton
+                              variant="ghost"
+                              size="sm"
+                              label="Tampilkan di Explorer"
+                              tooltip="end"
+                              icon={<FolderOpen size={16} />}
+                              onClick={() => window.metis!.showItemInFolder(b.path)}
+                            />
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </div>
+
+        <div className="mc-col-5 mc-stack mc-gap-20">
+          <Card tone="leaf">
+            <CardHeader size="sm" icon={headerIcon(HardDrive)} title="Penyimpanan" />
+            {storageError ? (
+              <Alert tone="error" title="Data penyimpanan tidak dapat dimuat">
+                {storageError}
+              </Alert>
+            ) : !storage ? (
+              <div className="mc-stack mc-gap-8">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <Skeleton key={i} height={44} radius="full" />
+                ))}
+              </div>
+            ) : (
+              <div className="mc-stack mc-gap-20">
+                <div className="mc-stack mc-gap-8">
+                  <div className="mc-mono mc-caption" style={{ overflowWrap: 'anywhere' }}>
+                    {storage.data_root}
                   </div>
+                  <ProgressRow label="Drive terpakai" value={`${formatBytes(driveUsed)} / ${formatBytes(storage.drive_total_bytes)}`} percent={usedPct} highlight />
+                  <div className="mc-caption">Ruang kosong drive: {formatBytes(storage.drive_free_bytes)}</div>
                 </div>
-                {desktop && (
-                  <button className="mc-icon-button" title="Tampilkan di Explorer" onClick={() => window.metis!.showItemInFolder(b.path)}>
-                    <FolderOpen size={15} />
-                  </button>
+
+                <div className="mc-stack mc-gap-8">
+                  <div className="mc-row mc-row--between">
+                    <span className="mc-label">Dipakai MetisClip</span>
+                    <span className="mc-mono mc-caption">{formatBytes(appTotal)}</span>
+                  </div>
+                  <ProgressRow label="Database" value={formatBytes(storage.db_bytes)} percent={pct(storage.db_bytes, appTotal)} />
+                  <ProgressRow label="Library (clip & sumber)" value={formatBytes(storage.library_bytes)} percent={pct(storage.library_bytes, appTotal)} />
+                  <ProgressRow label="Cache" value={formatBytes(storage.cache_bytes)} percent={pct(storage.cache_bytes, appTotal)} />
+                  <ProgressRow label="Backup" value={formatBytes(storage.backups_bytes)} percent={pct(storage.backups_bytes, appTotal)} />
+                  <ProgressRow label="Model Whisper lokal" value={formatBytes(storage.models_bytes)} percent={pct(storage.models_bytes, appTotal)} />
+                </div>
+
+                {storage.per_agent.length > 0 && (
+                  <div className="mc-stack mc-gap-8">
+                    <span className="mc-label">Library per workspace</span>
+                    {[...storage.per_agent]
+                      .sort((a, b) => b.bytes - a.bytes)
+                      .map((a) => (
+                        <ProgressRow key={a.agent_id} label={a.name} value={formatBytes(a.bytes)} percent={pct(a.bytes, storage.library_bytes)} />
+                      ))}
+                  </div>
                 )}
               </div>
-            ))}
-          </div>
-        )}
-      </Section>
-    </div>
+            )}
+          </Card>
+
+          <Card>
+            <CardHeader size="sm" icon={headerIcon(Info)} title="Informasi" />
+            {!systemInfo ? (
+              <Skeleton height={160} radius="md" />
+            ) : (
+              <KeyValueList
+                items={[
+                  { id: 'app', key: 'Versi aplikasi', value: <span className="mc-mono">{desktop ? `v${window.metis!.appVersion}` : '-'}</span> },
+                  {
+                    id: 'engine',
+                    key: 'Versi engine',
+                    value: (
+                      <span className="mc-mono">
+                        v{systemInfo.version}
+                        {systemInfo.env === 'dev' ? ' (dev)' : ''}
+                      </span>
+                    ),
+                  },
+                  {
+                    id: 'mongo',
+                    key: 'MongoDB',
+                    value: (
+                      <span className="mc-row mc-gap-8" style={{ justifyContent: 'flex-end' }}>
+                        {systemInfo.mongo.ok && systemInfo.mongo.version && <span className="mc-mono">{systemInfo.mongo.version}</span>}
+                        <HealthBadge ok={systemInfo.mongo.ok} />
+                      </span>
+                    ),
+                  },
+                  { id: 'library', key: 'Folder library', value: <span className="mc-mono mc-caption">{systemInfo.library_dir || '-'}</span> },
+                ]}
+              />
+            )}
+          </Card>
+        </div>
+      </div>
+    </>
   )
 }

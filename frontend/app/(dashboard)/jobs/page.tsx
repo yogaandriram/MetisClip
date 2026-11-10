@@ -1,26 +1,54 @@
 'use client'
 
 import React, { useCallback, useEffect, useState } from 'react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ListChecks, RotateCcw, Trash2, XCircle, Eye, Sparkles, Link as LinkIcon, FileVideo } from 'lucide-react'
+import { Eye, FileVideo, Link as LinkIcon, ListChecks, RotateCcw, Trash2, XCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { GlassCard } from '@/components/ui/GlassCard'
-import { Button } from '@/components/ui/Button'
-import { Badge } from '@/components/ui/Badge'
-import { ProgressBar } from '@/components/ui/ProgressBar'
-import { Skeleton } from '@/components/ui/Skeleton'
-import { PageHeader } from '@/components/ui/PageHeader'
-import { EmptyState } from '@/components/ui/EmptyState'
-import { ConfirmModal } from '@/components/ui/ConfirmModal'
-import { ToggleSwitch } from '@/components/ui/ToggleSwitch'
+import {
+  Alert,
+  Button,
+  Card,
+  ConfirmModal,
+  EmptyState,
+  IconButton,
+  PageHeader,
+  PipelineSteps,
+  ProgressBar,
+  Skeleton,
+  StatusBadge,
+  ToggleSwitch,
+  type StepState,
+} from '@/components/ui'
 import { useAgent } from '@/contexts/AgentContext'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
-import { api, type Job } from '@/lib/engine'
-import { ACTIVE_JOB_STATUSES, JOB_STATUS, RESUMABLE_JOB_STATUSES, errorMessage, formatDateTime, jobSource, jobStepLabel } from '@/lib/format'
+import { api, type Job, type JobStatus, type JobStep } from '@/lib/engine'
+import { ACTIVE_JOB_STATUSES, RESUMABLE_JOB_STATUSES, errorMessage, formatDateTime, jobSource, jobStepLabel } from '@/lib/format'
 
 type PendingAction = { kind: 'cancel' | 'delete'; job: Job } | null
+
+/** Discovery → Analisis → Proses (DESIGN.md §8.9). */
+const STEPS: { id: JobStep; label: string }[] = [
+  { id: 'discovery', label: 'Discovery' },
+  { id: 'analysis', label: 'Analisis' },
+  { id: 'processing', label: 'Proses' },
+]
+
+const NEEDS_ATTENTION: JobStatus[] = ['failed', 'interrupted']
+
+function pipelineSteps(job: Job): { id: string; label: string; state: StepState }[] {
+  if (job.status === 'completed') return STEPS.map((s) => ({ ...s, state: 'done' }))
+  const current = job.current_step ? STEPS.findIndex((s) => s.id === job.current_step) : job.status === 'failed' ? 0 : -1
+  return STEPS.map((s, i) => {
+    let state: StepState = 'todo'
+    if (i < current) state = 'done'
+    else if (i === current) {
+      if (job.status === 'running') state = 'active'
+      else if (job.status === 'failed') state = 'failed'
+    }
+    return { ...s, state }
+  })
+}
 
 export default function JobsPage() {
   const router = useRouter()
@@ -101,115 +129,229 @@ export default function JobsPage() {
     }
   }
 
-  const agentName = (id: string | null) => agents.find((a) => a.id === id)?.name || 'Agent terhapus'
+  const agentName = (id: string | null) => agents.find((a) => a.id === id)?.name || 'Workspace terhapus'
+  const openDetail = (job: Job) => router.push(`/discover/?job=${encodeURIComponent(job.id)}`)
+
+  const meta = (job: Job) => (
+    <>
+      {allAgents && `${agentName(job.agent_id)} · `}
+      {job.config.clip_duration} detik · maks. {job.config.max_clips_per_video || '∞'} klip · dibuat {formatDateTime(job.created_at)}
+    </>
+  )
+
+  const sourceTitle = (job: Job) => {
+    const source = jobSource(job)
+    return (
+      <div className="mc-row mc-gap-8">
+        {source.kind === 'file' ? <FileVideo size={16} aria-hidden="true" /> : <LinkIcon size={16} aria-hidden="true" />}
+        <span className="mc-label mc-truncate" title={job.source.local_file_path || job.source.youtube_url || undefined}>
+          <span className="mc-sr-only">{source.label}: </span>
+          {source.text}
+        </span>
+      </div>
+    )
+  }
+
+  const attention = jobs?.filter((j) => NEEDS_ATTENTION.includes(j.status)) ?? []
+  const running = jobs?.filter((j) => ACTIVE_JOB_STATUSES.includes(j.status)) ?? []
+  const finished = jobs?.filter((j) => !NEEDS_ATTENTION.includes(j.status) && !ACTIVE_JOB_STATUSES.includes(j.status)) ?? []
 
   return (
-    <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
+    <>
       <PageHeader
         title="Antrian Job"
-        subtitle="Semua proses analisis & pemotongan. Job yang terputus (misalnya karena aplikasi ditutup) bisa dilanjutkan dari checkpoint terakhir."
-        actions={
-          <>
-            <ToggleSwitch checked={allAgents} onChange={setAllAgents} label="Semua agent" />
-            <Link href="/discover/" style={{ textDecoration: 'none' }}>
-              <Button variant="primary" size="sm" icon={<Sparkles size={14} />}>
-                Job baru
-              </Button>
-            </Link>
-          </>
-        }
+        subtitle="Semua proses analisis dan pemotongan. Job yang terputus (misalnya karena aplikasi ditutup) bisa dilanjutkan dari checkpoint terakhir."
+        actions={<ToggleSwitch checked={allAgents} onChange={setAllAgents} label="Semua workspace" />}
       />
 
-      {error && (
-        <GlassCard hoverEffect={false} padding="16px 20px" style={{ border: '1px solid var(--danger)', marginBottom: '20px', display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <span style={{ flex: 1 }}>{error}</span>
-          <button className="mc-link-button" onClick={load}>
-            Coba lagi
-          </button>
-        </GlassCard>
-      )}
+      <div className="mc-stack mc-gap-32">
+        {error && (
+          <Alert
+            tone="error"
+            action={
+              <Button variant="secondary" size="sm" onClick={load}>
+                Coba lagi
+              </Button>
+            }
+          >
+            {error}
+          </Alert>
+        )}
 
-      {jobs === null ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} height={96} />
-          ))}
-        </div>
-      ) : jobs.length === 0 ? (
-        <EmptyState icon={ListChecks} title="Antrian kosong" description="Belum ada job. Tempel link YouTube atau upload video di menu Cari Video." />
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          {jobs.map((job) => {
-            const s = JOB_STATUS[job.status]
-            const active = ACTIVE_JOB_STATUSES.includes(job.status)
-            const source = jobSource(job)
-            const lastError = job.errors[job.errors.length - 1]
-            return (
-              <GlassCard key={job.id} hoverEffect={false} padding="20px">
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                  <div style={{ flex: 1, minWidth: '260px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-                      {source.kind === 'file' ? <FileVideo size={16} color="var(--text-muted)" /> : <LinkIcon size={16} color="var(--text-muted)" />}
-                      <span style={{ fontWeight: 600, fontSize: '15px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '520px' }} title={job.source.local_file_path || undefined}>{source.text}</span>
-                      <Badge variant={s.variant} glow={false}>
-                        {s.label}
-                      </Badge>
-                    </div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                      {allAgents && `${agentName(job.agent_id)} · `}
-                      {job.config.clip_duration} detik · maks. {job.config.max_clips_per_video || '∞'} klip · dibuat {formatDateTime(job.created_at)}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                    <Button variant="secondary" size="sm" icon={<Eye size={14} />} onClick={() => router.push(`/discover/?job=${encodeURIComponent(job.id)}`)}>
-                      Detail
-                    </Button>
-                    {active && (
-                      <Button variant="danger" size="sm" icon={<XCircle size={14} />} onClick={() => setPending({ kind: 'cancel', job })} disabled={busyId === job.id}>
-                        Batalkan
-                      </Button>
-                    )}
-                    {RESUMABLE_JOB_STATUSES.includes(job.status) && (
-                      <Button variant="primary" size="sm" icon={<RotateCcw size={14} />} onClick={() => resume(job)} loading={busyId === job.id}>
-                        Lanjutkan
-                      </Button>
-                    )}
-                    {!active && (
-                      <button className="mc-icon-button" title="Hapus job" onClick={() => setPending({ kind: 'delete', job })} disabled={busyId === job.id}>
-                        <Trash2 size={15} />
-                      </button>
-                    )}
-                  </div>
-                </div>
+        {jobs === null ? (
+          <div className="mc-stack">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} height={120} radius="lg" />
+            ))}
+          </div>
+        ) : jobs.length === 0 ? (
+          <EmptyState icon={ListChecks} title="Antrian kosong" description="Belum ada job. Tempel link YouTube atau upload video di menu Cari Video." />
+        ) : (
+          <>
+            {attention.length > 0 && (
+              <section className="mc-stack" aria-labelledby="jobs-attention">
+                <h2 id="jobs-attention" className="mc-h3">
+                  Perlu tindakan <span className="mc-mono mc-muted">{attention.length}</span>
+                </h2>
+                {attention.map((job) => {
+                  const lastError = job.errors[job.errors.length - 1]
+                  return (
+                    <Card key={job.id} as="article">
+                      <div className="mc-stack">
+                        <div className="mc-row mc-row--between mc-row--top mc-row--wrap mc-gap-16">
+                          <div className="mc-grow mc-stack mc-gap-4">
+                            <div className="mc-row mc-gap-12">
+                              {sourceTitle(job)}
+                              <StatusBadge kind="job" status={job.status} size="sm" />
+                            </div>
+                            <div className="mc-caption mc-muted">{meta(job)}</div>
+                          </div>
+                          <div className="mc-row mc-row--wrap mc-gap-8">
+                            <Button variant="primary" size="sm" icon={<RotateCcw size={16} />} onClick={() => resume(job)} loading={busyId === job.id}>
+                              Lanjutkan
+                            </Button>
+                            <Button variant="secondary" size="sm" icon={<Eye size={16} />} onClick={() => openDetail(job)}>
+                              Detail
+                            </Button>
+                            <Button variant="danger" size="sm" icon={<Trash2 size={16} />} onClick={() => setPending({ kind: 'delete', job })} disabled={busyId === job.id}>
+                              Hapus job
+                            </Button>
+                          </div>
+                        </div>
+                        <PipelineSteps steps={pipelineSteps(job)} />
+                        {job.status === 'interrupted' && job.current_step && (
+                          <p className="mc-muted">Terhenti di langkah: {jobStepLabel(job.current_step)}.</p>
+                        )}
+                        {lastError && (
+                          <Alert tone={job.status === 'failed' ? 'error' : 'warning'} style={{ wordBreak: 'break-word' }}>
+                            {lastError.message}
+                          </Alert>
+                        )}
+                      </div>
+                    </Card>
+                  )
+                })}
+              </section>
+            )}
 
-                {active && (
-                  <div style={{ marginTop: '16px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-dim)', marginBottom: '8px' }}>
-                      <span>{jobStepLabel(job.current_step)}</span>
-                      <span>
-                        {job.total_scenes > 0 ? `${job.processed_scenes}/${job.total_scenes} klip · ` : ''}
-                        {Math.round(job.progress_pct)}%
-                      </span>
+            {running.length > 0 && (
+              <section className="mc-stack" aria-labelledby="jobs-running">
+                <h2 id="jobs-running" className="mc-h3">
+                  Sedang berjalan <span className="mc-mono mc-muted">{running.length}</span>
+                </h2>
+                {running.map((job) => (
+                  <Card key={job.id} as="article">
+                    <div className="mc-stack">
+                      <div className="mc-row mc-row--between mc-row--top mc-row--wrap mc-gap-16">
+                        <div className="mc-grow mc-stack mc-gap-4">
+                          <div className="mc-row mc-gap-12">
+                            {sourceTitle(job)}
+                            <StatusBadge kind="job" status={job.status} size="sm" />
+                          </div>
+                          <div className="mc-caption mc-muted">{meta(job)}</div>
+                        </div>
+                        <div className="mc-row mc-row--wrap mc-gap-8">
+                          <Button variant="secondary" size="sm" icon={<Eye size={16} />} onClick={() => openDetail(job)}>
+                            Detail
+                          </Button>
+                          <Button variant="danger" size="sm" icon={<XCircle size={16} />} onClick={() => setPending({ kind: 'cancel', job })} disabled={busyId === job.id}>
+                            Batalkan
+                          </Button>
+                        </div>
+                      </div>
+                      <PipelineSteps steps={pipelineSteps(job)} />
+                      <ProgressBar
+                        value={job.progress_pct}
+                        showValue
+                        label={`${jobStepLabel(job.current_step)}${job.total_scenes > 0 ? ` · ${job.processed_scenes}/${job.total_scenes} klip` : ''}`}
+                      />
                     </div>
-                    <ProgressBar progress={job.progress_pct} height="6px" />
+                  </Card>
+                ))}
+              </section>
+            )}
+
+            {finished.length > 0 && (
+              <section className="mc-stack" aria-labelledby="jobs-finished">
+                <h2 id="jobs-finished" className="mc-h3">
+                  Riwayat <span className="mc-mono mc-muted">{finished.length}</span>
+                </h2>
+                <Card>
+                  <div className="mc-table-wrap">
+                    <table className="mc-table">
+                      <thead>
+                        <tr>
+                          <th>Status</th>
+                          <th>Sumber</th>
+                          {allAgents && <th>Workspace</th>}
+                          <th>Pengaturan</th>
+                          <th>Dibuat</th>
+                          <th className="mc-num">Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {finished.map((job) => {
+                          const lastError = job.errors[job.errors.length - 1]
+                          return (
+                            <tr key={job.id}>
+                              <td>
+                                <StatusBadge kind="job" status={job.status} size="sm" />
+                              </td>
+                              <td>
+                                <div style={{ maxWidth: 360 }}>
+                                  {sourceTitle(job)}
+                                  {lastError && (
+                                    <div className="mc-caption mc-muted mc-truncate" title={lastError.message}>
+                                      {lastError.message}
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                              {allAgents && <td className="mc-truncate">{agentName(job.agent_id)}</td>}
+                              <td className="mc-muted" style={{ whiteSpace: 'nowrap' }}>
+                                {job.config.clip_duration} detik · maks. {job.config.max_clips_per_video || '∞'} klip
+                              </td>
+                              <td className="mc-muted" style={{ whiteSpace: 'nowrap' }}>
+                                {formatDateTime(job.created_at)}
+                              </td>
+                              <td>
+                                <div className="mc-row mc-row--end mc-gap-4">
+                                  {RESUMABLE_JOB_STATUSES.includes(job.status) && (
+                                    <Button variant="secondary" size="sm" icon={<RotateCcw size={16} />} onClick={() => resume(job)} loading={busyId === job.id}>
+                                      Lanjutkan
+                                    </Button>
+                                  )}
+                                  <IconButton label="Detail job" icon={<Eye size={16} />} variant="ghost" size="sm" onClick={() => openDetail(job)} />
+                                  <IconButton
+                                    label="Hapus job"
+                                    icon={<Trash2 size={16} />}
+                                    variant="ghost"
+                                    size="sm"
+                                    tooltip="end"
+                                    onClick={() => setPending({ kind: 'delete', job })}
+                                    disabled={busyId === job.id}
+                                  />
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
                   </div>
-                )}
-                {!active && lastError && (
-                  <p style={{ marginTop: '12px', fontSize: '12px', color: 'var(--danger)', wordBreak: 'break-word' }}>
-                    {lastError.message}
-                  </p>
-                )}
-              </GlassCard>
-            )
-          })}
-        </div>
-      )}
+                </Card>
+              </section>
+            )}
+          </>
+        )}
+      </div>
 
       <ConfirmModal
         isOpen={pending?.kind === 'cancel'}
         title="Batalkan job ini?"
         message="Proses akan dihentikan. Klip yang sudah selesai tetap tersimpan, dan job bisa dilanjutkan lagi nanti."
         confirmLabel="Batalkan job"
+        confirmIcon={<XCircle size={16} />}
         danger
         loading={!!busyId}
         onConfirm={confirm}
@@ -220,11 +362,12 @@ export default function JobsPage() {
         title="Hapus job dari antrian?"
         message="Riwayat job ini akan dihapus. Klip yang sudah dihasilkan tidak ikut terhapus."
         confirmLabel="Hapus job"
+        confirmIcon={<Trash2 size={16} />}
         danger
         loading={!!busyId}
         onConfirm={confirm}
         onClose={() => setPending(null)}
       />
-    </div>
+    </>
   )
 }

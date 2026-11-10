@@ -55,6 +55,10 @@ def put_secret(name: str, body: SecretValue):
         sec.set_secret(name, body.value)
     except Exception as exc:
         raise http_error(500, f"Gagal menyimpan ke Windows Credential Manager: {exc}")
+    if name == "groq_api_key":
+        from backend.agents.tools.whisper import resume_groq
+
+        resume_groq()  # a new key: try Groq again right away in "auto" mode
     return {"ok": True}
 
 

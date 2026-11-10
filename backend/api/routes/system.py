@@ -9,7 +9,7 @@ import psutil
 from fastapi import APIRouter
 from starlette.concurrency import run_in_threadpool
 
-from backend.agents.tools import ffmpeg_ops, ytdlp
+from backend.agents.tools import ffmpeg_ops, whisper_local, ytdlp
 from backend.api.dto import http_error
 from backend.core import db as dbm
 from backend.core import procs
@@ -87,6 +87,16 @@ def _check() -> dict:
                       "detail": None if render_ok else "render-engine/dist/render.js belum di-build"})
     except FileNotFoundError as exc:
         items.append({"key": "render", "label": "Render engine (Remotion)", "ok": False, "version": None, "detail": str(exc)})
+    wv = whisper_local.version()
+    needed = {whisper_local.chosen_model(words=False), whisper_local.chosen_model(words=True)}
+    missing = [m for m in needed if not whisper_local.installed(m)]
+    w_detail = None
+    if not wv:
+        w_detail = "Whisper lokal tidak ditemukan di folder bin; transkripsi hanya lewat Groq"
+    elif missing:
+        names = " dan ".join(f"{m.label} ({m.size_bytes / 1024**2:.0f} MB)" for m in missing)
+        w_detail = f"Model {names} diunduh saat pertama dipakai, atau dari Pengaturan"
+    items.append({"key": "whisper", "label": "Whisper lokal (whisper.cpp)", "ok": bool(wv), "version": wv, "detail": w_detail})
     try:
         import mediapipe  # noqa: F401
         import cv2
@@ -136,6 +146,7 @@ def _storage() -> dict:
         "library_bytes": _dir_size(paths.library_dir),
         "cache_bytes": _dir_size(paths.cache_dir),
         "backups_bytes": _dir_size(paths.backups_dir),
+        "models_bytes": _dir_size(paths.models_dir),
         "per_agent": per_agent,
     }
 

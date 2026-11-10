@@ -57,7 +57,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       })
       return list
     } catch (err) {
-      setAgentError(errorMessage(err, 'Gagal memuat daftar Super Agent'))
+      setAgentError(errorMessage(err, 'Gagal memuat daftar workspace'))
       return []
     } finally {
       setIsAgentLoading(false)

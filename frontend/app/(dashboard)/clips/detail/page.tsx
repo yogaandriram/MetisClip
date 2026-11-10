@@ -4,46 +4,64 @@ import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } fr
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   ArrowLeft,
-  Play,
-  Pause,
-  Save,
-  Type,
-  RotateCcw,
-  Palette,
   Check,
-  Loader2,
-  Download,
-  Maximize,
-  Trash2,
-  Plus,
-  ChevronDown,
-  Undo2,
-  Redo2,
-  FolderOpen,
-  AlertCircle,
-  Flame,
-  Keyboard,
   CheckCircle2,
-  XCircle,
-  Sparkles,
-  Star,
+  ChevronDown,
+  Download,
+  FolderOpen,
+  Keyboard,
+  Maximize,
+  Palette,
+  Pause,
+  PenLine,
+  Play,
+  Plus,
+  Redo2,
+  RotateCcw,
+  Save,
+  ScanText,
   Scissors,
+  Star,
+  Trash2,
+  Type,
+  Undo2,
+  X,
+  XCircle,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { presets } from '@/lib/presets'
 import { CaptionLayer } from '@/lib/presets/CaptionLayer'
 import { LogoOverlay } from '@/lib/presets/BrandOverlay'
 import { type CaptionStyle, BASE_CAPTION_STYLE, getPreset, presetSwitch, resolveCaptionStyle } from '@/lib/presets/defaults'
-import { type AiCaptionSettings, DEFAULT_AI_SETTINGS, computeKeepSegments, isCut, isFiller, keptDuration, nextKeptTime, resolveAi } from '@/lib/presets/captions'
-import { ToggleSwitch } from '@/components/ui/ToggleSwitch'
-import { Dropdown } from '@/components/ui/Dropdown'
-import { Button } from '@/components/ui/Button'
-import { Badge } from '@/components/ui/Badge'
-import { Modal } from '@/components/ui/Modal'
-import { ConfirmModal } from '@/components/ui/ConfirmModal'
-import { ProgressBar } from '@/components/ui/ProgressBar'
-import { Skeleton } from '@/components/ui/Skeleton'
-import { SelectField } from '@/components/ui/SelectField'
+import { type AiCaptionSettings, type Segment, DEFAULT_AI_SETTINGS, computeKeepSegments, isCut, isFiller, keptDuration, nextKeptTime, resolveAi } from '@/lib/presets/captions'
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  Chip,
+  ColorPicker,
+  ConfirmModal,
+  Divider,
+  Dropdown,
+  EmptyState,
+  IconButton,
+  Kbd,
+  KeyValueList,
+  Modal,
+  PageHeader,
+  ProgressBar,
+  ScoreBadge,
+  SelectField,
+  Skeleton,
+  Slider,
+  Spinner,
+  Stage,
+  ToggleSwitch,
+  Tooltip,
+} from '@/components/ui'
+import { cx } from '@/lib/cx'
 import { SUPPORTED_FONTS, FONT_WEIGHTS_MAP } from '@/lib/constants'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
@@ -90,14 +108,38 @@ export default function ClipDetailPage() {
   )
 }
 
+const BACK = { href: '/clips/', label: 'Kembali ke Hasil Clip' }
+
+/** Full-height editor below the shell padding (16 top + 48 bottom), so only the columns scroll. */
+const PAGE_STYLE: React.CSSProperties = { height: 'calc(100vh - 64px)', minHeight: 640, display: 'flex', flexDirection: 'column' }
+const GRID_STYLE: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(300px, 360px) minmax(320px, 1fr) minmax(300px, 360px)',
+  gap: 20,
+  flex: 1,
+  minHeight: 0,
+}
+const COLUMN_STYLE: React.CSSProperties = { display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }
+const COLUMN_BODY: React.CSSProperties = { flex: 1, minHeight: 0, overflowY: 'auto' }
+
+const SHORTCUTS: [string, string][] = [
+  ['Spasi', 'Putar / jeda'],
+  ['← / →', 'Mundur / maju 0,1 detik'],
+  ['Shift + ← / →', 'Mundur / maju 1 detik'],
+  ['Ctrl + S', 'Simpan'],
+  ['Ctrl + Z', 'Undo'],
+  ['Ctrl + Y', 'Redo'],
+  ['Ctrl + E', 'Ekspor video'],
+]
+
 function EditorSkeleton() {
   return (
-    <div style={{ maxWidth: '1400px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <Skeleton height={48} />
-      <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr 330px', gap: '20px' }}>
-        <Skeleton height={600} />
-        <Skeleton height={600} />
-        <Skeleton height={600} />
+    <div style={PAGE_STYLE}>
+      <PageHeader title="Editor klip" back={BACK} />
+      <div style={GRID_STYLE}>
+        <Skeleton height="100%" radius="lg" />
+        <Skeleton height="100%" radius="lg" />
+        <Skeleton height="100%" radius="lg" />
       </div>
     </div>
   )
@@ -455,7 +497,6 @@ function ClipEditor() {
     if (dirty) setLeaveTo(to)
     else router.push(to)
   }
-  const goBack = () => leave('/clips/')
 
   // ---- keyboard shortcuts -------------------------------------------------
 
@@ -500,14 +541,21 @@ function ClipEditor() {
 
   if (loadError && !detail) {
     return (
-      <div style={{ maxWidth: '600px', margin: '80px auto', textAlign: 'center' }}>
-        <AlertCircle size={44} color="var(--danger)" style={{ margin: '0 auto 16px' }} />
-        <h1 style={{ fontSize: '22px', fontWeight: 800, marginBottom: '8px' }}>Clip tidak dapat dibuka</h1>
-        <p style={{ color: 'var(--text-dim)', marginBottom: '24px' }}>{loadError}</p>
-        <Button variant="secondary" onClick={() => router.push('/clips/')} icon={<ArrowLeft size={16} />}>
-          Kembali ke galeri
-        </Button>
-      </div>
+      <>
+        <PageHeader title="Editor klip" back={BACK} />
+        <Alert
+          tone="error"
+          title="Clip tidak dapat dibuka"
+          style={{ maxWidth: 760 }}
+          action={
+            <Button variant="secondary" size="sm" onClick={() => router.push('/clips/')} icon={<ArrowLeft size={16} />}>
+              Kembali ke galeri
+            </Button>
+          }
+        >
+          {loadError}
+        </Alert>
+      </>
     )
   }
 
@@ -524,176 +572,214 @@ function ClipEditor() {
   const renderActive = !!render && (render.status === 'queued' || render.status === 'rendering')
   const canUndo = history.current.past.length > 0
   const canRedo = history.current.future.length > 0
-  const smallInput: React.CSSProperties = { background: 'rgba(0,0,0,0.4)', border: '1px solid transparent', borderRadius: '4px', color: 'var(--text-dim)', width: '56px', padding: '2px 4px', textAlign: 'center', fontSize: '11px', outline: 'none' }
-  const numberBox: React.CSSProperties = { display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', padding: '0 6px', border: '1px solid var(--border-glass)' }
+  const fontWeights = FONT_WEIGHTS_MAP[style.fontFamily] || ['Regular']
+  const weightOptions = (fontWeights.includes(style.fontWeight) ? fontWeights : [style.fontWeight, ...fontWeights]).map((w) => ({ value: w, label: w }))
+
+  /** Header links (back, "+ Klip baru", the jobs pill) ask first while there are unsaved edits. */
+  const guardHeaderLinks = (e: React.MouseEvent) => {
+    if (!dirty) return
+    const href = (e.target as Element).closest('a[href]')?.getAttribute('href')
+    if (!href || !href.startsWith('/')) return
+    e.preventDefault()
+    e.stopPropagation()
+    setLeaveTo(href)
+  }
+
+  const saveState = saving ? (
+    <span className="mc-row mc-gap-4 mc-caption">
+      <Spinner size="sm" /> Menyimpan…
+    </span>
+  ) : dirty ? (
+    <Badge tone="neutral" size="sm" icon={<PenLine size={14} aria-hidden="true" />}>
+      Belum disimpan
+    </Badge>
+  ) : (
+    <span className="mc-row mc-gap-4 mc-caption">
+      <Check size={14} aria-hidden="true" /> Tersimpan
+    </span>
+  )
+
+  const renderFooter = !render ? undefined : renderActive ? (
+    <Button variant="secondary" icon={<X size={16} />} onClick={cancelRender}>
+      Batalkan render
+    </Button>
+  ) : render.status === 'completed' ? (
+    isDesktop() ? (
+      <>
+        <Button
+          variant="secondary"
+          icon={<FolderOpen size={16} />}
+          onClick={() => {
+            const p = exportedPath || render.output_path
+            if (p) window.metis?.showItemInFolder(p)
+          }}
+        >
+          Buka folder
+        </Button>
+        <Button variant="secondary" loading={exporting} onClick={() => exportClip(false)}>
+          Salin ke folder ekspor
+        </Button>
+        <Button variant="primary" icon={<Download size={16} />} loading={exporting} onClick={() => exportClip(true)}>
+          Ekspor ke…
+        </Button>
+      </>
+    ) : (
+      <Button variant="primary" loading={exporting} onClick={() => exportClip(false)}>
+        Salin ke folder ekspor
+      </Button>
+    )
+  ) : render.status === 'failed' || render.status === 'cancelled' ? (
+    <Button variant="primary" onClick={() => startRender()}>
+      Coba render lagi
+    </Button>
+  ) : undefined
 
   return (
-    <div style={{ maxWidth: '1400px', margin: '0 auto', height: 'calc(100vh - 80px)', minHeight: '640px', display: 'flex', flexDirection: 'column' }}>
-      {/* Top bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '18px', paddingBottom: '14px', borderBottom: '1px solid var(--border-glass)', flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: 0 }}>
-          <Button variant="secondary" size="sm" onClick={goBack} icon={<ArrowLeft size={14} />}>
-            Kembali
-          </Button>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <h1 style={{ fontSize: '17px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '420px' }}>{clip.hook_text || 'Editor Klip'}</h1>
-              <Badge variant="accent" glow={false} icon={<Flame size={11} />}>
-                {Math.round(clip.viral_score)}
-              </Badge>
-              {dirty && (
-                <Badge variant="warning" glow={false}>
-                  Belum disimpan
-                </Badge>
-              )}
-            </div>
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              {formatClock(clip.duration_seconds)} · {words.length} kata
-            </p>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button className="mc-icon-button" onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)">
-            <Undo2 size={16} />
-          </button>
-          <button className="mc-icon-button" onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Y)">
-            <Redo2 size={16} />
-          </button>
-          <button className="mc-icon-button" onClick={() => setShowShortcuts(true)} title="Pintasan keyboard">
-            <Keyboard size={16} />
-          </button>
-          <Button variant="secondary" size="sm" onClick={() => setConfirmReset(true)} icon={<RotateCcw size={14} />}>
-            Reset ke template
-          </Button>
-          <Button variant="secondary" size="sm" onClick={() => save()} loading={saving} icon={justSaved ? <Check size={14} /> : <Save size={14} />}>
-            {justSaved ? 'Tersimpan' : 'Simpan'}
-          </Button>
-          <Button variant="primary" size="sm" onClick={startRender} icon={renderActive ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}>
-            {renderActive ? `Render ${Math.round(render?.progress_pct || 0)}%` : 'Ekspor video'}
-          </Button>
-        </div>
+    <div style={PAGE_STYLE}>
+      <div onClickCapture={guardHeaderLinks}>
+        <PageHeader
+          back={BACK}
+          title={
+            <span className="mc-truncate" style={{ display: 'block' }} title={clip.hook_text || undefined}>
+              {clip.hook_text || 'Editor klip'}
+            </span>
+          }
+          subtitle={
+            <span className="mc-row mc-row--wrap mc-gap-8">
+              <ScoreBadge score={clip.viral_score} size="sm" />
+              <span>
+                <span className="mc-mono">{formatClock(clip.duration_seconds)}</span> · {words.length} kata
+              </span>
+              <span aria-live="polite">{saveState}</span>
+            </span>
+          }
+          actions={
+            <>
+              <Button variant="secondary" onClick={() => save()} loading={saving} icon={justSaved ? <Check size={16} /> : <Save size={16} />}>
+                {justSaved ? 'Tersimpan' : 'Simpan'}
+              </Button>
+              <Button variant="primary" onClick={startRender} icon={renderActive ? <Spinner size="sm" /> : <Download size={16} />}>
+                {renderActive ? `Render ${Math.round(render?.progress_pct || 0)}%` : 'Ekspor'}
+              </Button>
+            </>
+          }
+        />
       </div>
 
-      {/* 3 columns */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 300px) minmax(280px, 1fr) minmax(260px, 330px)', gap: '18px', flex: 1, minHeight: 0 }}>
-        {/* Captions */}
-        <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
-          <style>{`
-            .word-card .add-word-btn { opacity: 0; pointer-events: none; }
-            .word-card:hover .add-word-btn, .word-card:focus-within .add-word-btn { opacity: 1; pointer-events: auto; }
-          `}</style>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border-glass)', background: 'rgba(0,0,0,0.2)' }}>
-            <h2 style={{ fontSize: '15px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Type size={16} color="var(--primary)" /> Caption
-            </h2>
-            <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Edit teks dan timing (detik). Klik kartu untuk melompat.</p>
+      <div style={GRID_STYLE}>
+        {/* Word editor */}
+        <Card as="section" padding="none" aria-label="Caption" style={COLUMN_STYLE}>
+          <div style={{ padding: '20px 20px 0' }}>
+            <CardHeader size="sm" icon={<Type size={18} />} title="Caption" subtitle="Edit teks dan timing (detik). Klik kartu untuk melompat." />
           </div>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '14px' }}>
+          <div style={{ ...COLUMN_BODY, padding: '4px 12px 16px' }}>
             {words.length === 0 ? (
-              <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px', padding: '20px 0' }}>
-                Belum ada subtitle.
-                <div style={{ marginTop: '12px' }}>
-                  <Button variant="secondary" size="sm" icon={<Plus size={14} />} onClick={() => setWords([{ word: 'Teks', start: 0, end: 0.5 }])}>
+              <EmptyState
+                icon={Type}
+                title="Belum ada subtitle"
+                description="Tambahkan kata pertama, lalu atur teks dan waktunya."
+                action={
+                  <Button variant="secondary" size="sm" icon={<Plus size={16} />} onClick={() => setWords([{ word: 'Teks', start: 0, end: 0.5 }])}>
                     Tambah kata
                   </Button>
-                </div>
-              </div>
+                }
+              />
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div className="mc-stack mc-gap-8">
                 {words.map((item, index) => {
                   const active = activeWordIndex === index
                   const filler = ai.fillerWords && isFiller(item.word)
+                  const keyword = !!item.keyword && ai.keywords
                   return (
                     <div
                       key={index}
-                      className="word-card"
+                      className={cx('mc-card', 'mc-card--pad-none', active ? 'mc-card--leaf' : 'mc-card--dew', active && 'mc-card--selected')}
+                      aria-current={active || undefined}
                       onClick={(e) => {
                         if (!isTypingTarget(e.target)) seekTo(item.start + style.offsetTime / 1000)
                       }}
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '8px',
-                        background: active ? 'rgba(7, 202, 107, 0.08)' : 'rgba(255,255,255,0.02)',
-                        opacity: filler ? 0.55 : 1,
-                        border: active ? '1px solid rgba(7, 202, 107, 0.35)' : '1px solid var(--border-glass)',
-                        padding: '10px 12px',
-                        borderRadius: '10px',
-                        position: 'relative',
-                        cursor: 'pointer',
-                      }}
+                      style={{ padding: '10px 10px 10px 12px', borderRadius: 'var(--r-md)', cursor: 'pointer' }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
+                      <div className="mc-row mc-gap-4">
                         <input
                           type="text"
+                          className="mc-input mc-input--sm mc-grow"
+                          aria-label={`Kata ${index + 1}`}
                           value={item.word}
                           onChange={(e) => setWords(words.map((w, i) => (i === index ? { ...w, word: e.target.value } : w)), `word-${index}`)}
                           style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: item.keyword && ai.keywords ? style.highlightColor : active ? '#fff' : 'var(--text-primary)',
-                            fontSize: '14px',
-                            fontWeight: active || item.keyword ? 700 : 500,
-                            textDecoration: filler ? 'line-through' : 'none',
-                            outline: 'none',
-                            width: '100%',
+                            padding: '0 12px',
+                            fontWeight: active || item.keyword ? 600 : 400,
+                            color: filler ? 'var(--text-subtle)' : keyword ? 'var(--moss)' : undefined,
+                            textDecoration: filler ? 'line-through' : undefined,
                           }}
                         />
                         {filler && (
-                          <span title="Kata pengisi: disembunyikan dari subtitle dan dipotong dari video" style={{ fontSize: '9px', color: 'var(--warning)', border: '1px solid rgba(232,149,88,0.4)', borderRadius: '4px', padding: '1px 4px', whiteSpace: 'nowrap' }}>
+                          <Badge tone="quiet" size="sm" title="Kata pengisi: disembunyikan dari subtitle dan dipotong dari video">
                             pengisi
-                          </span>
+                          </Badge>
                         )}
-                        <button
+                        <IconButton
+                          size="sm"
+                          variant={item.keyword ? 'ink' : 'surface'}
+                          tooltip="end"
+                          label={item.keyword ? 'Kata kunci (klik untuk hapus sorotan)' : 'Jadikan kata kunci (disorot)'}
+                          aria-pressed={!!item.keyword}
+                          icon={<Star size={16} fill={item.keyword ? 'currentColor' : 'none'} />}
                           onClick={(e) => {
                             e.stopPropagation()
                             setWords(words.map((w, i) => (i === index ? { ...w, keyword: !w.keyword } : w)))
                           }}
-                          title={item.keyword ? 'Kata kunci (klik untuk hapus sorotan)' : 'Jadikan kata kunci (disorot)'}
-                          style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px', display: 'flex', color: item.keyword ? 'var(--warning)' : 'var(--text-muted)', opacity: item.keyword ? 1 : 0.5 }}
-                        >
-                          <Star size={13} fill={item.keyword ? 'currentColor' : 'none'} />
-                        </button>
-                        <button
+                        />
+                        <IconButton
+                          size="sm"
+                          tooltip="end"
+                          label="Hapus kata"
+                          icon={<Trash2 size={16} />}
                           onClick={() => setWords(words.filter((_, i) => i !== index))}
-                          style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', padding: '2px', opacity: 0.75, display: 'flex' }}
-                          title="Hapus kata"
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                        />
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px dashed rgba(255,255,255,0.1)', paddingTop: '8px' }}>
-                        <TimeInput value={item.start} style={smallInput} onCommit={(v) => setWords(words.map((w, i) => (i === index ? { ...w, start: v } : w)), `start-${index}`)} />
-                        <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>–</span>
-                        <TimeInput value={item.end} style={smallInput} onCommit={(v) => setWords(words.map((w, i) => (i === index ? { ...w, end: v } : w)), `end-${index}`)} />
+                      <div className="mc-row mc-gap-4" style={{ marginTop: 8 }}>
+                        <TimeInput
+                          label={`Mulai kata ${index + 1} (detik)`}
+                          value={item.start}
+                          onCommit={(v) => setWords(words.map((w, i) => (i === index ? { ...w, start: v } : w)), `start-${index}`)}
+                        />
+                        <span className="mc-caption mc-muted" aria-hidden="true">
+                          –
+                        </span>
+                        <TimeInput
+                          label={`Selesai kata ${index + 1} (detik)`}
+                          value={item.end}
+                          onCommit={(v) => setWords(words.map((w, i) => (i === index ? { ...w, end: v } : w)), `end-${index}`)}
+                        />
                         <input
                           type="text"
+                          className="mc-input mc-input--sm"
                           value={item.emoji || ''}
                           placeholder="emoji"
+                          aria-label={`Emoji kata ${index + 1}`}
                           title="Emoji di atas subtitle mulai kata ini (kosongkan untuk menghapus)"
                           onClick={(e) => e.stopPropagation()}
                           onChange={(e) => {
                             const v = Array.from(e.target.value.trim()).slice(-2).join('')
                             setWords(words.map((w, i) => (i === index ? { ...w, emoji: v || null } : w)), `emoji-${index}`)
                           }}
-                          style={{ ...smallInput, width: '42px', opacity: item.emoji ? 1 : 0.5 }}
+                          style={{ width: 64, padding: '0 8px', textAlign: 'center' }}
                         />
-                      </div>
-                      <div style={{ position: 'absolute', bottom: '-14px', left: '50%', transform: 'translateX(-50%)', zIndex: 5 }}>
-                        <button
+                        <span className="mc-grow" />
+                        <IconButton
+                          size="sm"
+                          tooltip="end"
+                          label="Sisipkan kata"
+                          icon={<Plus size={16} />}
                           onClick={(e) => {
                             e.stopPropagation()
                             const next = [...words]
                             next.splice(index + 1, 0, { word: 'Baru', start: item.end, end: item.end + 0.5 })
                             setWords(next)
                           }}
-                          className="add-word-btn"
-                          title="Sisipkan kata"
-                          style={{ background: 'var(--primary)', border: 'none', borderRadius: '50%', width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', cursor: 'pointer', boxShadow: '0 2px 5px rgba(0,0,0,0.5)' }}
-                        >
-                          <Plus size={12} />
-                        </button>
+                        />
                       </div>
                     </div>
                   )
@@ -701,22 +787,33 @@ function ClipEditor() {
               </div>
             )}
           </div>
-        </div>
+        </Card>
 
         {/* Preview */}
-        <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, background: '#0a0a0c', borderRadius: '16px', border: '1px solid var(--border-glass)', overflow: 'hidden' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'rgba(0,0,0,0.4)', borderBottom: '1px solid var(--border-glass)' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Preview (9:16)</span>
-            <button
+        <Stage style={{ display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
+          <div className="mc-row mc-gap-4">
+            <IconButton variant="ghost" size="sm" label="Undo (Ctrl+Z)" icon={<Undo2 size={16} />} onClick={undo} disabled={!canUndo} />
+            <IconButton variant="ghost" size="sm" label="Redo (Ctrl+Y)" icon={<Redo2 size={16} />} onClick={redo} disabled={!canRedo} />
+            <IconButton variant="ghost" size="sm" label="Pintasan keyboard" icon={<Keyboard size={16} />} onClick={() => setShowShortcuts(true)} />
+            <span className="mc-grow" />
+            {cutActive && (
+              <Tooltip label="Bagian yang dipotong (kata pengisi / jeda hening) dilewati saat diputar dan tidak ada di hasil ekspor" placement="end">
+                <span className="mc-row mc-gap-4 mc-caption mc-muted">
+                  <Scissors size={14} aria-hidden="true" /> −{cutSeconds.toFixed(1)} dtk dipotong
+                </span>
+              </Tooltip>
+            )}
+            <IconButton
+              variant="ghost"
+              size="sm"
+              tooltip="end"
+              label="Layar penuh"
+              icon={<Maximize size={16} />}
               onClick={() => containerRef.current?.requestFullscreen().catch(() => undefined)}
-              style={{ background: 'transparent', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', display: 'flex' }}
-              title="Layar penuh"
-            >
-              <Maximize size={14} />
-            </button>
+            />
           </div>
 
-          <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '18px', overflow: 'hidden' }}>
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <div
               ref={containerRef}
               onClick={togglePlay}
@@ -726,10 +823,9 @@ function ClipEditor() {
                 aspectRatio: '9 / 16',
                 position: 'relative',
                 containerType: 'inline-size',
-                borderRadius: '12px',
-                background: '#000',
+                borderRadius: 'var(--r-md)',
+                background: 'var(--ink-soft)',
                 overflow: 'hidden',
-                boxShadow: '0 0 30px rgba(0,0,0,0.5)',
                 cursor: 'pointer',
               }}
             >
@@ -748,7 +844,10 @@ function ClipEditor() {
                   style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }}
                 />
               ) : (
-                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '13px', padding: '20px', textAlign: 'center' }}>
+                <div
+                  className="mc-caption mc-muted"
+                  style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, textAlign: 'center' }}
+                >
                   File video belum tersedia (clip masih diproses).
                 </div>
               )}
@@ -760,139 +859,136 @@ function ClipEditor() {
             </div>
           </div>
 
-          <div style={{ padding: '14px 18px', borderTop: '1px solid var(--border-glass)', background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', gap: '14px' }}>
-            <button
+          <div className="mc-row mc-gap-12">
+            <IconButton
+              variant="accent"
+              label={isPlaying ? 'Jeda (Spasi)' : 'Putar (Spasi)'}
+              icon={isPlaying ? <Pause size={18} /> : <Play size={18} />}
               onClick={togglePlay}
-              title="Putar/jeda (Spasi)"
-              style={{ background: 'var(--primary)', border: 'none', borderRadius: '50%', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', cursor: 'pointer', flexShrink: 0 }}
-            >
-              {isPlaying ? <Pause size={20} /> : <Play size={20} style={{ marginLeft: '3px' }} />}
-            </button>
-            <span className="mc-mono" style={{ fontSize: '12px', color: 'var(--text-dim)', minWidth: '84px' }}>
-              {formatClock(currentTime)} / {formatClock(duration || clip.duration_seconds)}
-            </span>
-            {cutActive && (
-              <span
-                title="Bagian yang dipotong (kata pengisi / jeda hening) dilewati saat diputar dan tidak ada di hasil ekspor"
-                style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--warning)', whiteSpace: 'nowrap' }}
-              >
-                <Scissors size={12} /> −{cutSeconds.toFixed(1)} dtk
-              </span>
-            )}
-            <input
-              type="range"
-              min={0}
-              max={duration || clip.duration_seconds || 100}
-              step={0.01}
-              value={currentTime}
-              onChange={(e) => seekTo(parseFloat(e.target.value))}
-              style={{ flex: 1, cursor: 'pointer', accentColor: 'var(--primary)' }}
             />
+            <span className="mc-mono" style={{ whiteSpace: 'nowrap' }}>
+              {formatClock(currentTime)} <span className="mc-muted">/ {formatClock(sourceDuration)}</span>
+            </span>
+            <Timeline time={currentTime} duration={sourceDuration} segments={segments} onSeek={seekTo} />
           </div>
-        </div>
+        </Stage>
 
-        {/* Inspector */}
-        <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border-glass)', background: 'rgba(0,0,0,0.2)' }}>
-            <h2 style={{ fontSize: '15px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Palette size={16} color="var(--warning)" /> Properti
-            </h2>
-            <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Perubahan di sini hanya berlaku untuk clip ini.</p>
+        {/* Style panel */}
+        <Card as="section" padding="none" aria-label="Properti" style={COLUMN_STYLE}>
+          <div style={{ padding: '20px 20px 0' }}>
+            <CardHeader size="sm" icon={<Palette size={18} />} title="Properti" subtitle="Perubahan di sini hanya berlaku untuk clip ini." />
           </div>
 
-          <div style={{ flex: 1, overflowY: 'auto', padding: '18px' }}>
-            <Section
-              title="BRAND TEMPLATE"
-              divider
+          <div className="mc-stack mc-gap-24" style={{ ...COLUMN_BODY, padding: '4px 20px 20px' }}>
+            <PanelSection
+              title="Brand Template"
               action={
-                <button
-                  type="button"
-                  onClick={() => leave('/brand-template/')}
-                  style={{ background: 'none', border: 'none', padding: 0, fontSize: '11px', color: 'var(--text-muted)', cursor: 'pointer' }}
-                >
+                <button type="button" className="mc-link" onClick={() => leave('/brand-template/')}>
                   Kelola template
                 </button>
               }
             >
               <SelectField
+                aria-label="Brand Template clip ini"
+                hint="Mengganti template memakai gaya caption, logo, dan pengaturan AI dari template itu untuk clip ini."
                 value={present.templateId || ''}
                 options={[
                   ...(present.templateId ? [] : [{ value: '', label: 'Bawaan MetisClip' }]),
                   ...(templates.length ? templates : activeTemplate ? [activeTemplate] : []).map((t) => ({
                     value: t.id,
-                    label: t.id === agentDefaultId ? `${t.name} (default agent)` : t.name,
+                    label: t.id === agentDefaultId ? `${t.name} (default workspace)` : t.name,
                   })),
                 ]}
                 onChange={(e) => e.target.value && chooseTemplate(e.target.value)}
               />
-              <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px' }}>
-                Mengganti template memakai gaya caption, logo, dan pengaturan AI dari template itu untuk clip ini.
-              </p>
-            </Section>
-
-            <Section title="GAYA ANIMASI">
-              <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '10px' }}>
-                Setiap preset punya font bawaan sendiri. Memilih preset mengganti pengaturan font ke bawaannya.
-              </p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                {presets.map((preset) => (
-                  <React.Fragment key={preset.id}>
-                    {preset.renderButton(style.mode === preset.id, () => setStyle(presetSwitch(style, preset.id)))}
-                  </React.Fragment>
-                ))}
+              <div>
+                <Button variant="ghost" size="sm" onClick={() => setConfirmReset(true)} icon={<RotateCcw size={16} />}>
+                  Reset ke template
+                </Button>
               </div>
-            </Section>
+            </PanelSection>
 
-            <Section title="AI SUBTITLE" divider>
-              <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '12px' }}>
-                Default dari Brand Template. Perubahan di sini hanya untuk clip ini dan ikut ke hasil ekspor.
-              </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <ToggleSwitch label="Hapus kata pengisi (eh, hmm)" checked={ai.fillerWords} onChange={(v) => setAi({ fillerWords: v })} />
-                <ToggleSwitch label="Hapus jeda hening" checked={ai.pauses} onChange={(v) => setAi({ pauses: v })} />
-                <ToggleSwitch label="Sorot kata kunci (AI)" checked={ai.keywords} onChange={(v) => setAi({ keywords: v })} />
-                <ToggleSwitch label="Emoji otomatis (AI)" checked={ai.emojis} onChange={(v) => setAi({ emojis: v })} />
+            <Divider />
+
+            <PanelSection title="Gaya animasi">
+              <p className="mc-caption mc-muted">Setiap preset punya font bawaan sendiri. Memilih preset mengganti pengaturan font ke bawaannya.</p>
+              <div role="group" aria-label="Preset animasi" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                {presets.map((preset) => {
+                  const selected = style.mode === preset.id
+                  return (
+                    // Preset art is subtitle content (made for video), so it sits on an ink tile; the ring marks the choice.
+                    <div
+                      key={preset.id}
+                      className={cx('mc-card', 'mc-card--pad-none', selected && 'mc-card--selected')}
+                      style={{ display: 'grid', padding: 4, borderRadius: 'var(--r-md)' }}
+                    >
+                      <div className="mc-card mc-card--ink mc-card--pad-none" style={{ display: 'grid', borderRadius: 'var(--r-sm)', overflow: 'hidden' }}>
+                        {preset.renderButton(selected, () => setStyle(presetSwitch(style, preset.id)))}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
+            </PanelSection>
+
+            <Divider />
+
+            <PanelSection title="AI subtitle">
+              <p className="mc-caption mc-muted">Default dari Brand Template. Perubahan di sini hanya untuk clip ini dan ikut ke hasil ekspor.</p>
+              <ToggleSwitch label="Hapus kata pengisi (eh, hmm)" checked={ai.fillerWords} onChange={(v) => setAi({ fillerWords: v })} />
+              <ToggleSwitch label="Hapus jeda hening" checked={ai.pauses} onChange={(v) => setAi({ pauses: v })} />
+              <ToggleSwitch label="Sorot kata kunci (AI)" checked={ai.keywords} onChange={(v) => setAi({ keywords: v })} />
+              <ToggleSwitch label="Emoji otomatis (AI)" checked={ai.emojis} onChange={(v) => setAi({ emojis: v })} />
               {(ai.keywords || ai.emojis) && (
-                <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                <div className="mc-stack mc-gap-8">
+                  <span className="mc-caption mc-muted">
                     {ai.keywords && `${keywordCount} kata kunci`}
                     {ai.keywords && ai.emojis && ' · '}
                     {ai.emojis && `${emojiCount} emoji`} (bisa diubah per kata di daftar caption)
                   </span>
-                  <Button variant="secondary" size="sm" loading={enriching} onClick={enrich} icon={<Sparkles size={14} />}>
-                    {keywordCount + emojiCount > 0 ? 'Analisis ulang dengan AI' : 'Analisis dengan AI'}
-                  </Button>
+                  <div>
+                    <Button variant="secondary" size="sm" loading={enriching} onClick={enrich} icon={<ScanText size={16} />}>
+                      {keywordCount + emojiCount > 0 ? 'Analisis ulang dengan AI' : 'Analisis dengan AI'}
+                    </Button>
+                  </div>
                 </div>
               )}
-            </Section>
+            </PanelSection>
 
-            <Section
-              title="TAMPILAN FONT"
-              divider
+            <Divider />
+
+            <PanelSection
+              title="Tampilan font"
               action={
-                <button
-                  type="button"
-                  onClick={() => setStyle(presetSwitch(style, style.mode))}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={<RotateCcw size={16} />}
                   title={`Kembalikan font ke bawaan preset ${getPreset(style.mode).name}`}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '11px', cursor: 'pointer', padding: 0 }}
+                  onClick={() => setStyle(presetSwitch(style, style.mode))}
                 >
-                  <RotateCcw size={12} /> Bawaan preset
-                </button>
+                  Bawaan preset
+                </Button>
               }
             >
-              <div style={{ marginBottom: '14px' }}>
+              <div className="mc-field">
+                <span className="mc-field__label">Font</span>
                 <Dropdown
                   width="100%"
+                  triggerClassName="mc-input"
+                  triggerLabel={`Font: ${style.fontFamily}`}
                   trigger={
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.05)', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-glass)', cursor: 'pointer' }}>
-                      <span style={{ fontSize: '14px', fontFamily: `'${style.fontFamily}'` }}>{style.fontFamily}</span>
-                      <ChevronDown size={16} color="var(--text-muted)" />
-                    </div>
+                    <span className="mc-row mc-row--between" style={{ width: '100%' }}>
+                      <span className="mc-truncate" style={{ fontFamily: `'${style.fontFamily}'` }}>
+                        {style.fontFamily}
+                      </span>
+                      <ChevronDown size={16} aria-hidden="true" />
+                    </span>
                   }
                   items={SUPPORTED_FONTS.map((f) => ({
                     id: f,
-                    label: <span style={{ fontFamily: `'${f}'`, fontSize: '15px' }}>{f}</span>,
+                    label: <span style={{ fontFamily: `'${f}'`, fontSize: 15 }}>{f}</span>,
+                    selected: f === style.fontFamily,
                     onClick: () => {
                       const available = FONT_WEIGHTS_MAP[f] || ['Regular']
                       const weight = available.includes(style.fontWeight) ? style.fontWeight : available.includes('Regular') ? 'Regular' : available[0]
@@ -901,214 +997,108 @@ function ClipEditor() {
                   }))}
                 />
               </div>
-
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', marginBottom: '14px' }}>
-                <ColorSwatch label="Warna font" value={style.fontColor} onChange={(v) => setStyle({ fontColor: v }, 'fontColor')} size={32} />
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1 }}>
-                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Ketebalan</span>
-                  <Dropdown
-                    width="100%"
-                    trigger={
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.05)', padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--border-glass)', cursor: 'pointer', height: '32px' }}>
-                        <span style={{ fontSize: '13px' }}>{style.fontWeight}</span>
-                        <ChevronDown size={14} color="var(--text-muted)" />
-                      </div>
-                    }
-                    items={(FONT_WEIGHTS_MAP[style.fontFamily] || ['Regular']).map((w) => ({ id: w, label: w, onClick: () => setStyle({ fontWeight: w }) }))}
-                  />
-                </div>
-              </div>
-
-              <RangeRow label={`Ukuran font (${style.fontSize}px)`} min={20} max={80} value={style.fontSize} onChange={(v) => setStyle({ fontSize: v }, 'fontSize')} />
-              <RangeRow label={`Posisi vertikal (Y: ${style.positionY})`} min={10} max={400} value={style.positionY} onChange={(v) => setStyle({ positionY: v }, 'positionY')} />
-              <RangeRow
+              <SelectField label="Ketebalan" value={style.fontWeight} options={weightOptions} onChange={(e) => setStyle({ fontWeight: e.target.value })} />
+              <ColorPicker label="Warna font" color={style.fontColor} onChange={(v) => setStyle({ fontColor: v }, 'fontColor')} />
+              <Slider label="Ukuran font" min={20} max={80} value={style.fontSize} format={(v) => `${v}px`} onChange={(v) => setStyle({ fontSize: v }, 'fontSize')} />
+              <Slider label="Posisi vertikal (Y)" min={10} max={400} value={style.positionY} onChange={(v) => setStyle({ positionY: v }, 'positionY')} />
+              <Slider
                 label="Sinkronisasi suara (delay)"
-                hint={`${style.offsetTime} ms`}
+                hint="Geser ke kanan jika subtitle muncul terlalu cepat."
                 min={-1000}
                 max={1000}
                 step={50}
                 value={style.offsetTime}
+                format={(v) => `${v} ms`}
                 onChange={(v) => setStyle({ offsetTime: v }, 'offsetTime')}
-                note="Geser ke kanan jika subtitle muncul terlalu cepat."
               />
-            </Section>
+            </PanelSection>
 
-            <Section title="HIGHLIGHT & DEKORASI" divider>
-              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Warna highlight</span>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', margin: '8px 0 14px', alignItems: 'center' }}>
-                {['#07CA6B', '#1856FF', '#E89558', '#EA2143', '#3B82F6', '#EC4899', '#FFE800'].map((color) => (
-                  <button
-                    key={color}
-                    onClick={() => setStyle({ highlightColor: color })}
-                    title={color}
-                    style={{
-                      width: '24px',
-                      height: '24px',
-                      borderRadius: '50%',
-                      background: color,
-                      border: style.highlightColor.toLowerCase() === color.toLowerCase() ? '2px solid #fff' : '1px solid rgba(255,255,255,0.1)',
-                      cursor: 'pointer',
-                    }}
-                  />
-                ))}
-                <ColorSwatch value={style.highlightColor} onChange={(v) => setStyle({ highlightColor: v }, 'highlightColor')} size={24} />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '12px', color: 'var(--text-dim)' }}>Format tambahan</span>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <ToggleChip active={style.isItalic} onClick={() => setStyle({ isItalic: !style.isItalic })} style={{ fontStyle: 'italic' }} title="Miring">
-                    I
-                  </ToggleChip>
-                  <ToggleChip active={style.isUnderline} onClick={() => setStyle({ isUnderline: !style.isUnderline })} style={{ textDecoration: 'underline' }} title="Garis bawah">
-                    U
-                  </ToggleChip>
-                  <ToggleChip active={style.isUppercase} onClick={() => setStyle({ isUppercase: !style.isUppercase })} style={{ fontWeight: 700, fontSize: '12px' }} title="Huruf kapital">
-                    TT
-                  </ToggleChip>
-                </div>
-              </div>
-            </Section>
+            <Divider />
 
-            <Section title="GARIS LUAR & BAYANGAN">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                <span style={{ fontSize: '12px', color: 'var(--text-dim)' }}>Garis luar (stroke)</span>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <ColorSwatch value={style.strokeColor} onChange={(v) => setStyle({ strokeColor: v }, 'strokeColor')} size={20} />
-                  <div style={numberBox}>
-                    <NumberInput value={style.strokeWidth} min={0} max={20} onChange={(v) => setStyle({ strokeWidth: v }, 'strokeWidth')} />
-                    <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>px</span>
-                  </div>
+            <PanelSection title="Highlight & dekorasi">
+              <ColorPicker label="Warna highlight" color={style.highlightColor} onChange={(v) => setStyle({ highlightColor: v }, 'highlightColor')} />
+              <div className="mc-field">
+                <span className="mc-field__label">Format tambahan</span>
+                <div role="group" aria-label="Format tambahan" className="mc-row mc-row--wrap mc-gap-8">
+                  <Chip size="sm" selected={style.isItalic} onClick={() => setStyle({ isItalic: !style.isItalic })}>
+                    Miring
+                  </Chip>
+                  <Chip size="sm" selected={style.isUnderline} onClick={() => setStyle({ isUnderline: !style.isUnderline })}>
+                    Garis bawah
+                  </Chip>
+                  <Chip size="sm" selected={style.isUppercase} onClick={() => setStyle({ isUppercase: !style.isUppercase })}>
+                    Huruf kapital
+                  </Chip>
                 </div>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                <span style={{ fontSize: '12px', color: 'var(--text-dim)' }}>Bayangan (shadow)</span>
-                <ToggleSwitch checked={style.hasShadow} onChange={(v) => setStyle({ hasShadow: v })} />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', opacity: style.hasShadow ? 1 : 0.3, pointerEvents: style.hasShadow ? 'auto' : 'none', background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '8px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Warna</span>
-                  <ColorSwatch value={style.shadowColor} onChange={(v) => setStyle({ shadowColor: v }, 'shadowColor')} size={20} />
-                </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  {(
-                    [
-                      ['X', 'shadowX'],
-                      ['Y', 'shadowY'],
-                      ['B', 'shadowBlur'],
-                    ] as const
-                  ).map(([label, key]) => (
-                    <div key={key} style={{ ...numberBox, flex: 1 }}>
-                      <span style={{ color: 'var(--text-muted)', fontSize: '10px', marginRight: '4px' }}>{label}:</span>
-                      <NumberInput value={style[key]} min={key === 'shadowBlur' ? 0 : -50} max={50} onChange={(v) => setStyle({ [key]: v } as Partial<CaptionStyle>, key)} />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </Section>
+            </PanelSection>
+
+            <Divider />
+
+            <PanelSection title="Garis luar & bayangan">
+              <ColorPicker label="Warna garis luar" color={style.strokeColor} onChange={(v) => setStyle({ strokeColor: v }, 'strokeColor')} />
+              <Slider label="Tebal garis luar" min={0} max={20} value={style.strokeWidth} format={(v) => `${v}px`} onChange={(v) => setStyle({ strokeWidth: v }, 'strokeWidth')} />
+              <ToggleSwitch label="Bayangan (shadow)" checked={style.hasShadow} onChange={(v) => setStyle({ hasShadow: v })} />
+              {style.hasShadow && (
+                <>
+                  <ColorPicker label="Warna bayangan" color={style.shadowColor} onChange={(v) => setStyle({ shadowColor: v }, 'shadowColor')} />
+                  <Slider label="Geser X" min={-50} max={50} value={style.shadowX} format={(v) => `${v}px`} onChange={(v) => setStyle({ shadowX: v }, 'shadowX')} />
+                  <Slider label="Geser Y" min={-50} max={50} value={style.shadowY} format={(v) => `${v}px`} onChange={(v) => setStyle({ shadowY: v }, 'shadowY')} />
+                  <Slider label="Blur" min={0} max={50} value={style.shadowBlur} format={(v) => `${v}px`} onChange={(v) => setStyle({ shadowBlur: v }, 'shadowBlur')} />
+                </>
+              )}
+            </PanelSection>
           </div>
-        </div>
+        </Card>
       </div>
 
       {/* Render / export modal */}
-      <Modal isOpen={renderOpen} onClose={() => setRenderOpen(false)} title="Ekspor video">
+      <Modal isOpen={renderOpen} onClose={() => setRenderOpen(false)} title="Ekspor video" size="md" footer={renderFooter}>
         {render ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div className="mc-stack">
+            <div className="mc-row mc-gap-12">
               {render.status === 'completed' ? (
-                <CheckCircle2 size={22} color="var(--accent)" />
+                <CheckCircle2 size={20} aria-hidden="true" />
               ) : render.status === 'failed' || render.status === 'cancelled' ? (
-                <XCircle size={22} color="var(--danger)" />
+                <XCircle size={20} aria-hidden="true" />
               ) : (
-                <Loader2 size={22} color="var(--primary)" className="animate-spin" />
+                <Spinner />
               )}
-              <span style={{ fontWeight: 600 }}>{RENDER_STATUS[render.status]}</span>
+              <span className="mc-label">{RENDER_STATUS[render.status]}</span>
             </div>
             {renderActive && (
               <>
-                <ProgressBar progress={render.progress_pct} />
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-muted)' }}>
-                  <span>{Math.round(render.progress_pct)}% selesai</span>
-                  <button className="mc-link-button" style={{ color: 'var(--danger)' }} onClick={cancelRender}>
-                    Batalkan render
-                  </button>
-                </div>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Anda boleh menutup jendela ini; render tetap berjalan di latar belakang.</p>
+                <ProgressBar value={render.progress_pct} label="Progres render" showValue />
+                <p className="mc-caption mc-muted">Anda boleh menutup jendela ini; render tetap berjalan di latar belakang.</p>
               </>
             )}
-            {render.status === 'failed' && render.error && <p style={{ fontSize: '13px', color: 'var(--danger)', wordBreak: 'break-word' }}>{render.error}</p>}
-            {render.status === 'completed' && (
-              <>
-                {render.output_path && (
-                  <div className="mc-mono" style={{ fontSize: '12px', color: 'var(--text-dim)', wordBreak: 'break-all', padding: '10px 12px', borderRadius: '8px', background: 'rgba(0,0,0,0.3)' }}>
-                    {render.output_path}
-                  </div>
-                )}
-                {exportedPath && (
-                  <p style={{ fontSize: '13px', color: 'var(--accent)', wordBreak: 'break-all' }}>
-                    Disalin ke: <span className="mc-mono">{exportedPath}</span>
-                  </p>
-                )}
-                {isDesktop() ? (
-                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      icon={<FolderOpen size={14} />}
-                      onClick={() => {
-                        const p = exportedPath || render.output_path
-                        if (p) window.metis?.showItemInFolder(p)
-                      }}
-                    >
-                      Buka folder
-                    </Button>
-                    <Button variant="secondary" size="sm" loading={exporting} onClick={() => exportClip(false)}>
-                      Salin ke folder ekspor
-                    </Button>
-                    <Button variant="primary" size="sm" icon={<Download size={14} />} loading={exporting} onClick={() => exportClip(true)}>
-                      Ekspor ke…
-                    </Button>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    <Button variant="primary" size="sm" loading={exporting} onClick={() => exportClip(false)}>
-                      Salin ke folder ekspor
-                    </Button>
-                  </div>
-                )}
-              </>
+            {render.status === 'failed' && render.error && (
+              <Alert tone="error" style={{ wordBreak: 'break-word' }}>
+                {render.error}
+              </Alert>
             )}
-            {(render.status === 'failed' || render.status === 'cancelled') && (
-              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <Button variant="primary" size="sm" onClick={() => startRender()}>
-                  Coba render lagi
-                </Button>
-              </div>
+            {render.status === 'completed' && render.output_path && (
+              <Card tone="dew" padding="sm">
+                <span className="mc-mono mc-caption" style={{ wordBreak: 'break-all' }}>
+                  {render.output_path}
+                </span>
+              </Card>
+            )}
+            {render.status === 'completed' && exportedPath && (
+              <Alert tone="success" title="Disalin ke">
+                <span className="mc-mono" style={{ wordBreak: 'break-all' }}>
+                  {exportedPath}
+                </span>
+              </Alert>
             )}
           </div>
         ) : (
-          <Skeleton height={60} />
+          <Skeleton height={60} radius="md" />
         )}
       </Modal>
 
       <Modal isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} title="Pintasan keyboard">
-        <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '10px 18px', fontSize: '14px' }}>
-          {[
-            ['Spasi', 'Putar / jeda'],
-            ['← / →', 'Mundur / maju 0,1 detik'],
-            ['Shift + ← / →', 'Mundur / maju 1 detik'],
-            ['Ctrl + S', 'Simpan'],
-            ['Ctrl + Z', 'Undo'],
-            ['Ctrl + Y', 'Redo'],
-            ['Ctrl + E', 'Ekspor video'],
-          ].map(([k, v]) => (
-            <React.Fragment key={k}>
-              <kbd className="mc-mono" style={{ padding: '2px 8px', borderRadius: '6px', border: '1px solid var(--border-glass)', background: 'rgba(255,255,255,0.04)', fontSize: '12px', whiteSpace: 'nowrap' }}>
-                {k}
-              </kbd>
-              <span style={{ color: 'var(--text-dim)' }}>{v}</span>
-            </React.Fragment>
-          ))}
-        </div>
+        <KeyValueList items={SHORTCUTS.map(([k, v]) => ({ id: k, key: v, value: <Kbd>{k}</Kbd> }))} />
       </Modal>
 
       <ConfirmModal
@@ -1116,6 +1106,7 @@ function ClipEditor() {
         title="Kembalikan ke Brand Template?"
         message={`Gaya caption dan pengaturan AI khusus clip ini diganti dengan template "${activeTemplate?.name || 'bawaan'}". Teks & timing subtitle tidak berubah. Bisa di-undo; tersimpan setelah klik Simpan.`}
         confirmLabel="Reset gaya"
+        confirmIcon={<RotateCcw size={16} />}
         danger
         onConfirm={resetToTemplate}
         onClose={() => setConfirmReset(false)}
@@ -1126,6 +1117,7 @@ function ClipEditor() {
         title="Perubahan belum disimpan"
         message="Simpan perubahan subtitle sebelum keluar dari editor?"
         confirmLabel="Simpan & keluar"
+        confirmIcon={<Save size={16} />}
         cancelLabel="Batal"
         loading={saving}
         onConfirm={async () => {
@@ -1133,10 +1125,10 @@ function ClipEditor() {
         }}
         onClose={() => setLeaveTo(null)}
       >
-        <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
-          <button className="mc-link-button" style={{ color: 'var(--danger)' }} onClick={() => router.push(leaveTo || '/clips/')}>
+        <div>
+          <Button variant="danger" size="sm" icon={<Trash2 size={16} />} onClick={() => router.push(leaveTo || '/clips/')}>
             Keluar tanpa menyimpan
-          </button>
+          </Button>
         </div>
       </ConfirmModal>
     </div>
@@ -1144,114 +1136,78 @@ function ClipEditor() {
 }
 
 // ---------------------------------------------------------------------------
-// Small inspector controls
+// Small editor parts
 // ---------------------------------------------------------------------------
 
-function Section({ title, divider, action, children }: { title: string; divider?: boolean; action?: React.ReactNode; children: React.ReactNode }) {
+function PanelSection({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div style={{ marginBottom: '22px', paddingBottom: divider ? '22px' : 0, borderBottom: divider ? '1px solid var(--border-glass)' : 'none' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '12px' }}>
-        <h3 style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.5px' }}>{title}</h3>
+    <section className="mc-stack mc-gap-12">
+      <div className="mc-row mc-row--between mc-gap-8">
+        <h3 className="mc-body-lg mc-label">{title}</h3>
         {action}
       </div>
       {children}
-    </div>
+    </section>
   )
 }
 
-function RangeRow({
-  label,
-  hint,
-  note,
-  min,
-  max,
-  step = 1,
-  value,
-  onChange,
-}: {
-  label: string
-  hint?: string
-  note?: string
-  min: number
-  max: number
-  step?: number
-  value: number
-  onChange: (v: number) => void
-}) {
+/**
+ * Scrub track on the stage (DESIGN.md §8.17): kept ranges in ink-line, cut ranges (fillers, pauses)
+ * leave the darker track visible, the playhead is a white line. ← / → seek via the editor shortcuts.
+ */
+function Timeline({ time, duration, segments, onSeek }: { time: number; duration: number; segments: Segment[]; onSeek: (t: number) => void }) {
+  const track = useRef<HTMLDivElement>(null)
+  const dragging = useRef(false)
+  const pct = (t: number) => (duration > 0 ? Math.min(100, Math.max(0, (t / duration) * 100)) : 0)
+  const seekAt = (clientX: number) => {
+    const el = track.current
+    if (!el || !(duration > 0)) return
+    const r = el.getBoundingClientRect()
+    onSeek(((clientX - r.left) / r.width) * duration)
+  }
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '14px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{label}</span>
-        {hint && <span style={{ fontSize: '11px', color: value === 0 ? 'var(--text-dim)' : 'var(--primary)' }}>{hint}</span>}
-      </div>
-      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} style={{ cursor: 'pointer', accentColor: 'var(--primary)', width: '100%' }} />
-      {note && <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{note}</span>}
-    </div>
-  )
-}
-
-function ColorSwatch({ label, value, onChange, size }: { label?: string; value: string; onChange: (v: string) => void; size: number }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-      {label && <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{label}</span>}
-      <label style={{ width: `${size}px`, height: `${size}px`, borderRadius: size > 24 ? '8px' : '4px', background: value, cursor: 'pointer', border: '1px solid rgba(255,255,255,0.25)', overflow: 'hidden', display: 'block' }}>
-        <input type="color" value={/^#[0-9a-f]{6}$/i.test(value) ? value : '#ffffff'} onChange={(e) => onChange(e.target.value)} style={{ opacity: 0, width: '100%', height: '100%', cursor: 'pointer' }} />
-      </label>
-    </div>
-  )
-}
-
-function ToggleChip({ active, onClick, style, title, children }: { active: boolean; onClick: () => void; style?: React.CSSProperties; title: string; children: React.ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      style={{
-        background: active ? 'rgba(255,255,255,0.12)' : 'transparent',
-        border: `1px solid ${active ? 'var(--primary)' : 'var(--border-glass)'}`,
-        borderRadius: '4px',
-        padding: '4px 8px',
-        color: '#fff',
-        fontSize: '14px',
-        cursor: 'pointer',
-        ...style,
+    <div
+      ref={track}
+      role="slider"
+      tabIndex={0}
+      aria-label="Posisi video"
+      aria-valuemin={0}
+      aria-valuemax={Math.round(duration * 100) / 100}
+      aria-valuenow={Math.round(time * 100) / 100}
+      aria-valuetext={`${formatClock(time)} dari ${formatClock(duration)}`}
+      className="mc-grow"
+      onPointerDown={(e) => {
+        dragging.current = true
+        e.currentTarget.setPointerCapture(e.pointerId)
+        seekAt(e.clientX)
       }}
+      onPointerMove={(e) => {
+        if (dragging.current) seekAt(e.clientX)
+      }}
+      onPointerUp={() => {
+        dragging.current = false
+      }}
+      onPointerCancel={() => {
+        dragging.current = false
+      }}
+      style={{ position: 'relative', height: 40, borderRadius: 'var(--r-sm)', background: 'var(--ink-soft)', overflow: 'hidden', cursor: 'pointer', touchAction: 'none' }}
     >
-      {children}
-    </button>
-  )
-}
-
-/** Number input that tolerates an empty/partial value while typing. */
-function NumberInput({ value, min, max, onChange }: { value: number; min: number; max: number; onChange: (v: number) => void }) {
-  const [text, setText] = useState(String(value))
-  const focused = useRef(false)
-  useEffect(() => {
-    if (!focused.current) setText(String(value))
-  }, [value])
-  return (
-    <input
-      type="number"
-      value={text}
-      min={min}
-      max={max}
-      onFocus={() => (focused.current = true)}
-      onBlur={() => {
-        focused.current = false
-        setText(String(value))
-      }}
-      onChange={(e) => {
-        setText(e.target.value)
-        const n = Number(e.target.value)
-        if (e.target.value !== '' && isFinite(n)) onChange(Math.max(min, Math.min(max, n)))
-      }}
-      style={{ background: 'transparent', border: 'none', color: '#fff', width: '100%', minWidth: '28px', padding: '4px 0', outline: 'none', fontSize: '12px' }}
-    />
+      {segments.map((s) => (
+        <span
+          key={`${s.start}-${s.end}`}
+          aria-hidden="true"
+          style={{ position: 'absolute', top: 0, bottom: 0, left: `${pct(s.start)}%`, width: `${pct(s.end) - pct(s.start)}%`, background: 'var(--ink-line)' }}
+        />
+      ))}
+      <span aria-hidden="true" style={{ position: 'absolute', top: 0, bottom: 0, left: `${pct(time)}%`, width: 2, marginLeft: -1, background: 'var(--on-ink)' }}>
+        <span style={{ position: 'absolute', top: 2, left: '50%', width: 10, height: 10, marginLeft: -5, borderRadius: 'var(--r-full)', background: 'var(--on-ink)' }} />
+      </span>
+    </div>
   )
 }
 
 /** Seconds input (2 decimals) committed on every valid value. */
-function TimeInput({ value, onCommit, style }: { value: number; onCommit: (v: number) => void; style: React.CSSProperties }) {
+function TimeInput({ value, onCommit, label }: { value: number; onCommit: (v: number) => void; label: string }) {
   const [text, setText] = useState(value.toFixed(2))
   const focused = useRef(false)
   useEffect(() => {
@@ -1260,6 +1216,8 @@ function TimeInput({ value, onCommit, style }: { value: number; onCommit: (v: nu
   return (
     <input
       type="number"
+      className="mc-input mc-input--sm mc-input--mono"
+      aria-label={label}
       step={0.05}
       min={0}
       value={text}
@@ -1274,7 +1232,7 @@ function TimeInput({ value, onCommit, style }: { value: number; onCommit: (v: nu
         const n = parseFloat(e.target.value)
         if (isFinite(n) && n >= 0) onCommit(Math.round(n * 1000) / 1000)
       }}
-      style={style}
+      style={{ width: 80, padding: '0 8px 0 12px' }}
     />
   )
 }

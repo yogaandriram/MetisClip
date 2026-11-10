@@ -1,76 +1,74 @@
-import React from 'react'
+'use client'
+
+import React, { useRef } from 'react'
+import { cx } from '@/lib/cx'
 
 export interface Tab {
   id: string
-  label: string
+  label: React.ReactNode
   icon?: React.ReactNode
+  disabled?: boolean
 }
 
 interface TabsProps {
   tabs: Tab[]
   activeTab: string
   onChange: (id: string) => void
-  style?: React.CSSProperties
+  /** Accessible name of the tab list */
+  ariaLabel?: string
+  size?: 'sm' | 'md'
+  /** Stretch the segments to the full width */
+  block?: boolean
+  /** Use when the control sits on the canvas instead of inside a card */
+  onCanvas?: boolean
   className?: string
 }
 
-export const Tabs: React.FC<TabsProps> = ({
-  tabs,
-  activeTab,
-  onChange,
-  style,
-  className = ''
-}) => {
+/** Segmented control: the active segment is an ink pill (DESIGN.md §8.3). */
+export function Tabs({ tabs, activeTab, onChange, ariaLabel, size = 'md', block, onCanvas, className }: TabsProps) {
+  const refs = useRef<Array<HTMLButtonElement | null>>([])
+  const enabled = tabs.filter((t) => !t.disabled)
+
+  const focusMove = (dir: 1 | -1) => {
+    const i = enabled.findIndex((t) => t.id === activeTab)
+    const next = enabled[(i + dir + enabled.length) % enabled.length]
+    if (!next) return
+    onChange(next.id)
+    refs.current[tabs.indexOf(next)]?.focus()
+  }
+
   return (
-    <div 
-      className={className}
-      style={{
-        display: 'inline-flex',
-        background: 'rgba(0, 0, 0, 0.2)',
-        backdropFilter: 'blur(10px)',
-        border: '1px solid var(--border-glass)',
-        borderRadius: '12px',
-        padding: '6px',
-        gap: '4px',
-        ...style
-      }}
+    <div
+      role="tablist"
+      aria-label={ariaLabel}
+      className={cx('mc-seg', size === 'sm' && 'mc-seg--sm', block && 'mc-seg--block', onCanvas && 'mc-seg--on-canvas', className)}
     >
-      {tabs.map((tab) => {
-        const isActive = activeTab === tab.id
+      {tabs.map((tab, i) => {
+        const active = tab.id === activeTab
         return (
           <button
             key={tab.id}
+            ref={(el) => {
+              refs.current[i] = el
+            }}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            tabIndex={active ? 0 : -1}
+            disabled={tab.disabled}
+            className="mc-seg__item"
             onClick={() => onChange(tab.id)}
-            style={{
-              background: isActive ? 'var(--bg-glass-active)' : 'transparent',
-              color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
-              border: isActive ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid transparent',
-              borderRadius: '8px',
-              padding: '8px 16px',
-              fontSize: '14px',
-              fontWeight: isActive ? 600 : 500,
-              fontFamily: 'var(--font-sans)',
-              cursor: 'pointer',
-              transition: 'all 0.2s ease',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              boxShadow: isActive ? '0 2px 8px rgba(0,0,0,0.2)' : 'none'
-            }}
-            onMouseEnter={(e) => {
-              if (!isActive) {
-                e.currentTarget.style.color = 'var(--text-primary)'
-                e.currentTarget.style.background = 'var(--bg-glass)'
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (!isActive) {
-                e.currentTarget.style.color = 'var(--text-muted)'
-                e.currentTarget.style.background = 'transparent'
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowRight') {
+                e.preventDefault()
+                focusMove(1)
+              } else if (e.key === 'ArrowLeft') {
+                e.preventDefault()
+                focusMove(-1)
               }
             }}
           >
-            {tab.icon && <span>{tab.icon}</span>}
+            {tab.icon}
             {tab.label}
           </button>
         )

@@ -10,40 +10,52 @@ interface ConfirmModalProps {
   message?: React.ReactNode
   confirmLabel?: string
   cancelLabel?: string
+  /** Destructive: the confirm button becomes solid ink and should name the action ("Hapus klip") */
   danger?: boolean
+  confirmIcon?: React.ReactNode
   loading?: boolean
   onConfirm: () => void
   onClose: () => void
   children?: React.ReactNode
 }
 
-/** In-app replacement for window.confirm (blocked/ugly in Electron). */
-export const ConfirmModal: React.FC<ConfirmModalProps> = ({
+/** In-app replacement for window.confirm (blocked in Electron). */
+export function ConfirmModal({
   isOpen,
   title,
   message,
   confirmLabel = 'Ya, lanjutkan',
   cancelLabel = 'Batal',
   danger = false,
+  confirmIcon,
   loading = false,
   onConfirm,
   onClose,
   children,
-}) => (
-  <Modal isOpen={isOpen} onClose={loading ? () => undefined : onClose} title={title}>
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {message && <div style={{ color: 'var(--text-dim)', lineHeight: 1.6, fontSize: '14px' }}>{message}</div>}
-      {children}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-        <Button variant="secondary" size="sm" onClick={onClose} disabled={loading}>
-          {cancelLabel}
-        </Button>
-        <Button variant={danger ? 'danger' : 'primary'} size="sm" onClick={onConfirm} loading={loading}>
-          {confirmLabel}
-        </Button>
+}: ConfirmModalProps) {
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={title}
+      busy={loading}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={loading}>
+            {cancelLabel}
+          </Button>
+          <Button variant="primary" icon={confirmIcon} onClick={onConfirm} loading={loading} data-autofocus={danger ? undefined : true}>
+            {confirmLabel}
+          </Button>
+        </>
+      }
+    >
+      <div className="mc-stack">
+        {message && <div className="mc-muted">{message}</div>}
+        {children}
       </div>
-    </div>
-  </Modal>
-)
+    </Modal>
+  )
+}
 
 export default ConfirmModal

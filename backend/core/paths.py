@@ -70,6 +70,11 @@ class Paths:
         return self.data_root / "cache"
 
     @property
+    def models_dir(self) -> Path:
+        """Downloaded AI models (local Whisper), kept on the drive the user chose for the data."""
+        return self.data_root / "models"
+
+    @property
     def backups_dir(self) -> Path:
         return self.data_root / "backups"
 
@@ -184,4 +189,4 @@ def slugify(text: str, max_len: int = 32) -> str:
     """'Podcast Bisnis & Startup' -> 'podcast-bisnis-startup' (ASCII, short, filesystem-safe)."""
     norm = unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode("ascii").lower()
     slug = _slug_re.sub("-", norm).strip("-")
-    return (slug[:max_len].strip("-")) or "agent"
+    return (slug[:max_len].strip("-")) or "workspace"

@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { Play } from 'lucide-react';
+import { Stage } from '@/components/ui';
 import { assetUrl } from '@/lib/media';
 import { CaptionLayer } from '@/lib/presets/CaptionLayer';
 import { LOGO_BASE_SIZE, logoPosition, logoScale } from '@/lib/presets/BrandOverlay';
 import type { CaptionWord } from '@/lib/presets/types';
-import { AiSettings, CaptionSettings, BrandSettings, LayoutSettings } from '../types';
+import { AiSettings, CaptionSettings, BrandSettings, LayoutSettings, safeZoneLabel } from '../types';
 
 interface TemplatePreviewCanvasProps {
   caption: CaptionSettings;
@@ -25,6 +27,20 @@ const SAMPLE_WORDS: CaptionWord[] = [
   { word: 'banget!', start: 2.65, end: 3.15, emoji: '💡' },
 ];
 const SAMPLE_LOOP = 4.3; // seconds, includes a short silence so the fade-out is visible
+
+// Platform UI areas drawn over the preview (guides only)
+const SAFE_ZONE_BOX: React.CSSProperties = {
+  position: 'absolute',
+  background: 'var(--ink-glass)',
+  border: '1px solid var(--on-ink-muted)',
+  borderRadius: 'var(--r-xs)',
+  color: 'var(--on-ink)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: '10px',
+  pointerEvents: 'none',
+};
 
 /** Seconds since mount, looping, on requestAnimationFrame (same time-based animation as the render). */
 function useLoopClock(period: number): number {
@@ -157,62 +173,67 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
   };
 
   return (
-    <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', background: 'rgba(0,0,0,0.2)', borderRadius: '16px', position: 'relative' }}>
-      {/* Mock Mobile Screen */}
-      <div 
+    <Stage className="mc-stack">
+      <div className="mc-row mc-row--between">
+        <h2 className="mc-h3">Preview</h2>
+        {layoutSettings.safeZone && layoutSettings.safeZone !== 'none' && (
+          <span className="mc-caption mc-muted">Safe zone {safeZoneLabel(layoutSettings.safeZone)}</span>
+        )}
+      </div>
+
+      {/* 9:16 preview at the design size the caption and logo positions refer to */}
+      <div
         ref={containerRef}
-        style={{ 
-          width: `${CANVAS_WIDTH}px`, 
-          height: `${CANVAS_HEIGHT}px`, 
-          background: '#1A1A2E', containerType: 'inline-size', 
-          borderRadius: '16px', 
-          position: 'relative', 
-          overflow: 'hidden', 
-          boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
-          border: '1px solid var(--border-glass)'
+        style={{
+          width: `${CANVAS_WIDTH}px`,
+          height: `${CANVAS_HEIGHT}px`,
+          background: 'var(--ink-soft)', containerType: 'inline-size',
+          borderRadius: 'var(--r-md)',
+          position: 'relative',
+          overflow: 'hidden',
         }}
       >
         {videoUrl ? (
-          <video 
+          <video
             src={videoUrl}
-            autoPlay 
-            loop 
-            muted 
+            autoPlay
+            loop
+            muted
             playsInline
             style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.8 }}
           />
         ) : (
-          <div style={{ width: '100%', height: '100%', background: 'linear-gradient(160deg, #1b2440 0%, #0d0d18 55%, #10261c 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '12px', textAlign: 'center', padding: '0 30px' }}>
-            Unggah &quot;Video contoh&quot; di menu Brand untuk melihat preview di atas video Anda.
+          <div className="mc-caption mc-muted" style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '0 30px' }}>
+            Unggah &quot;Video contoh&quot; di bagian Logo & video contoh untuk melihat preview di atas video Anda.
           </div>
         )}
-        
-        {/* Safe Zone Overlays */}
+
+        {/* Safe zone overlays (guides only, never rendered) */}
         {layoutSettings.safeZone === 'tiktok' && (
           <>
-            <div style={{ position: 'absolute', right: '10px', bottom: '150px', width: '40px', height: '200px', background: 'rgba(255,0,0,0.2)', border: '1px dashed red', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', color: 'red', writingMode: 'vertical-rl', pointerEvents: 'none' }}>TikTok UI</div>
-            <div style={{ position: 'absolute', left: '10px', bottom: '20px', width: '200px', height: '80px', background: 'rgba(255,0,0,0.2)', border: '1px dashed red', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', color: 'red', pointerEvents: 'none' }}>Caption & Sound</div>
+            <div style={{ ...SAFE_ZONE_BOX, right: '10px', bottom: '150px', width: '40px', height: '200px', writingMode: 'vertical-rl' }}>TikTok UI</div>
+            <div style={{ ...SAFE_ZONE_BOX, left: '10px', bottom: '20px', width: '200px', height: '80px' }}>Caption & Sound</div>
           </>
         )}
         {layoutSettings.safeZone === 'reels' && (
           <>
-            <div style={{ position: 'absolute', right: '10px', bottom: '120px', width: '40px', height: '200px', background: 'rgba(255,0,255,0.2)', border: '1px dashed #f0f', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', color: '#f0f', writingMode: 'vertical-rl', pointerEvents: 'none' }}>Reels UI</div>
-            <div style={{ position: 'absolute', left: '10px', bottom: '20px', width: '200px', height: '80px', background: 'rgba(255,0,255,0.2)', border: '1px dashed #f0f', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', color: '#f0f', pointerEvents: 'none' }}>Caption & Audio</div>
+            <div style={{ ...SAFE_ZONE_BOX, right: '10px', bottom: '120px', width: '40px', height: '200px', writingMode: 'vertical-rl' }}>Reels UI</div>
+            <div style={{ ...SAFE_ZONE_BOX, left: '10px', bottom: '20px', width: '200px', height: '80px' }}>Caption & Audio</div>
           </>
         )}
         {layoutSettings.safeZone === 'shorts' && (
           <>
-            <div style={{ position: 'absolute', right: '10px', bottom: '80px', width: '40px', height: '240px', background: 'rgba(255,0,0,0.2)', border: '1px dashed red', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', color: 'red', writingMode: 'vertical-rl', pointerEvents: 'none' }}>Shorts UI</div>
-            <div style={{ position: 'absolute', left: '10px', bottom: '20px', width: '220px', height: '60px', background: 'rgba(255,0,0,0.2)', border: '1px dashed red', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', color: 'red', pointerEvents: 'none' }}>Channel & Title</div>
+            <div style={{ ...SAFE_ZONE_BOX, right: '10px', bottom: '80px', width: '40px', height: '240px', writingMode: 'vertical-rl' }}>Shorts UI</div>
+            <div style={{ ...SAFE_ZONE_BOX, left: '10px', bottom: '20px', width: '220px', height: '60px' }}>Channel & Title</div>
           </>
         )}
 
         {/* Snap Guides */}
         {isDragging && snapGuides.x && (
-          <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: '1px', background: 'var(--primary)', borderLeft: '1px dashed var(--primary)', transform: 'translateX(-50%)', zIndex: 10, pointerEvents: 'none' }} />
+          <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: '1px', background: 'var(--leaf)', transform: 'translateX(-50%)', zIndex: 10, pointerEvents: 'none' }} />
         )}
         {isDragging && snapGuides.y && (
-          <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: '1px', background: 'var(--primary)', borderTop: '1px dashed var(--primary)', transform: 'translateY(-50%)', zIndex: 10, pointerEvents: 'none' }} />
+          <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: '1px', background: 'var(--leaf)', transform: 'translateY(-50%)', zIndex: 10, pointerEvents: 'none' }} />
         )}
 
         {/* Overlay Image (Logo/CTA) */}
@@ -227,42 +248,42 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
               zIndex: 20
             }}
           >
-            <img 
-              src={overlaySrc} 
+            <img
+              src={overlaySrc}
               alt="Brand Overlay"
               onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
               draggable={false}
-              style={{ 
-                width: '100%', 
+              style={{
+                width: '100%',
                 height: 'auto',
                 display: 'block',
                 cursor: isDragging ? 'grabbing' : 'grab',
                 touchAction: 'none',
                 pointerEvents: 'auto',
-                border: (isDragging || isResizing) ? '1px dashed rgba(255,255,255,0.5)' : 'none'
+                outline: (isDragging || isResizing) ? '1px solid var(--leaf)' : 'none'
               }}
             />
             <div
               onPointerDown={handleResizePointerDown}
               onPointerMove={handleResizePointerMove}
               onPointerUp={handleResizePointerUp}
+              aria-hidden="true"
               style={{
                 position: 'absolute',
                 right: '-6px',
                 bottom: '-6px',
                 width: '14px',
                 height: '14px',
-                background: 'var(--primary)',
-                borderRadius: '50%',
-                border: '2px solid white',
+                background: 'var(--leaf)',
+                borderRadius: 'var(--r-full)',
+                border: '2px solid var(--ink)',
                 cursor: 'nwse-resize',
                 touchAction: 'none',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
                 display: 'block',
                 opacity: (isDragging || isResizing) ? 1 : 0.7,
-                transition: 'opacity 0.2s',
+                transition: 'opacity var(--dur-base) var(--ease-out)',
                 pointerEvents: 'auto'
               }}
             />
@@ -272,14 +293,20 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
         {/* Caption: the same component and sizing as the clip editor and the exported video */}
         <CaptionLayer words={SAMPLE_WORDS} time={clock} style={{ ...caption, offsetTime: 0 }} ai={ai} />
 
-        {/* Mock Timeline */}
-        <div style={{ position: 'absolute', bottom: '15px', width: '90%', height: '4px', background: 'rgba(255,255,255,0.3)', borderRadius: '2px' }}>
-          <div style={{ width: `${(clock / SAMPLE_LOOP) * 100}%`, height: '100%', background: 'var(--primary)', borderRadius: '2px' }} />
-        </div>
-        <div style={{ position: 'absolute', bottom: '10px', left: '15px' }}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
+        {/* Mock player bar */}
+        <div aria-hidden="true" style={{ position: 'absolute', left: '12px', right: '12px', bottom: '12px', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--on-ink)', pointerEvents: 'none' }}>
+          <Play size={12} fill="currentColor" strokeWidth={0} />
+          <div style={{ flex: 1, height: '4px', background: 'var(--ink-glass)', borderRadius: 'var(--r-full)', overflow: 'hidden' }}>
+            <div style={{ width: `${(clock / SAMPLE_LOOP) * 100}%`, height: '100%', background: 'var(--leaf)' }} />
+          </div>
         </div>
       </div>
-    </div>
+
+      {overlaySrc && (
+        <p className="mc-caption mc-muted" style={{ maxWidth: `${CANVAS_WIDTH}px` }}>
+          Geser logo untuk memindahkan, tarik titik di sudutnya untuk mengubah ukuran.
+        </p>
+      )}
+    </Stage>
   );
 };

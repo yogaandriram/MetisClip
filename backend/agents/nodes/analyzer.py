@@ -186,8 +186,8 @@ def _analyze_video(ctx: JobContext, video: dict[str, Any], lo: float, hi: float,
                     temperature=0.2, max_tokens=2000,
                     on_retry=lambda m: ctx.progress(message=m), should_stop=lambda: ctx.cancel.cancelled,
                 )
-            except llm.LLMNotConfigured:
-                raise
+            except (llm.LLMNotConfigured, llm.LLMQuotaExhausted):
+                raise  # the next chunks would fail the same way
             except llm.LLMError as exc:
                 failures += 1
                 ctx.error("analysis", f"Bagian {i + 1} gagal dianalisis: {exc}")
@@ -212,10 +212,11 @@ def _analyze_video(ctx: JobContext, video: dict[str, Any], lo: float, hi: float,
             proposals.append({**seg, "_start": ts_to_seconds(seg["start_time"]), "_end": ts_to_seconds(seg["end_time"])})
 
     out: list[dict[str, Any]] = []
+    critic_on = use_llm
     for seg in proposals:
         ctx.check()
         start, end = float(seg["_start"]), float(seg["_end"])
-        if use_llm:
+        if critic_on:
             context_entries = [e for e in transcript if start - 30 <= e["start"] <= end + hi + 30]
             try:
                 critic = llm.chat_json(
@@ -225,6 +226,10 @@ def _analyze_video(ctx: JobContext, video: dict[str, Any], lo: float, hi: float,
                     should_stop=lambda: ctx.cancel.cancelled,
                 )
                 start, end = apply_critic(start, end, critic)
+            except llm.LLMQuotaExhausted as exc:
+                # The segments are already found; keep them with the code-side boundary fixes only
+                critic_on = False
+                logger.info("Critic pass skipped for the remaining segments: %s", exc)
             except llm.LLMError as exc:
                 logger.info("Critic pass skipped: %s", exc)
         start, end = enforce_duration(start, end, lo, hi, transcript, video.get("duration_seconds"))
@@ -282,8 +287,11 @@ def run(ctx: JobContext, videos: list[dict[str, Any]]) -> list[dict[str, Any]]:
         try:
             transcript = get_transcript(video, ctx.cancel, on_status=lambda m: ctx.progress(message=m))
             found = _analyze_video(ctx, video, lo, hi, per_video, transcript, use_llm)
-        except (PipelineError, llm.LLMNotConfigured) as exc:
+        except (PipelineError, llm.LLMNotConfigured, llm.LLMQuotaExhausted) as exc:
             db.source_videos.update_one({"_id": video["_id"]}, {"$set": {"status": "failed"}})
+            if isinstance(exc, llm.LLMQuotaExhausted):
+                # Stop the job: the other videos would hit the same quota. The transcript is cached.
+                raise PipelineError(exc.message("Lalu klik Lanjutkan pada job ini.")) from exc
             if isinstance(exc, llm.LLMNotConfigured) or len(videos) == 1:
                 raise PipelineError(str(exc)) from exc
             ctx.error("analysis", str(exc))

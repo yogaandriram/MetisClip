@@ -40,7 +40,7 @@ class JobContext:
 
     @property
     def agent_slug(self) -> str:
-        return (self.agent or {}).get("slug") or "_tanpa-agent"
+        return (self.agent or {}).get("slug") or "_tanpa-workspace"
 
     @property
     def timezone(self) -> str:

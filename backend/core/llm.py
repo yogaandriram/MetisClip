@@ -7,6 +7,10 @@ Anthropic uses its Messages API; every other provider uses the OpenAI chat-compl
 Providers differ in which request parameters they accept (temperature on reasoning models,
 max_tokens vs max_completion_tokens, JSON mode, reasoning_effort). A request refused because of
 such a parameter is retried without it, and the adjustment is remembered per endpoint and model.
+
+Rate limits (HTTP 429): a short limit (per minute) is retried after the wait the provider asks for.
+A used-up quota (a daily limit, billing, or a wait of minutes) raises LLMQuotaExhausted at once,
+because retrying cannot help and every caller should stop instead of trying the next request.
 """
 from __future__ import annotations
 
@@ -16,7 +20,9 @@ import re
 import threading
 import time
 from dataclasses import dataclass
+from email.utils import parsedate_to_datetime
 from typing import Any, Callable
+from urllib.parse import urlsplit
 
 from backend.core.llm_providers import PROVIDERS, Provider
 from backend.core.secrets import get_secret
@@ -41,6 +47,28 @@ class LLMNotConfigured(LLMError):
     pass
 
 
+QUOTA_ADVICE = "Untuk lanjut sekarang, pilih model atau penyedia lain di Pengaturan."
+
+
+class LLMQuotaExhausted(LLMError):
+    """The provider's quota is used up (daily limit, billing, or a wait of minutes): retrying now cannot help."""
+
+    def __init__(self, summary: str, detail: str = "", *, advice: str = QUOTA_ADVICE,
+                 retry_after: float | None = None) -> None:
+        self.summary, self.detail, self.advice, self.retry_after = summary, detail, advice, retry_after
+        super().__init__(self.message())
+
+    def message(self, extra: str = "") -> str:
+        """User-facing text; `extra` (e.g. what to do in a job) goes before the provider's own message."""
+        parts = (self.summary, self.advice, extra, f"Pesan penyedia: {self.detail}" if self.detail else "")
+        return " ".join(p for p in parts if p)
+
+
+# Rate-limit waits up to this long happen inline (per-minute limits reset within a minute);
+# a longer wait means the quota is used up for now
+MAX_INLINE_WAIT = 65.0
+
+
 # Transport-level outcomes, mapped to user-facing errors by the callers
 class _Auth(Exception):
     pass
@@ -60,9 +88,27 @@ class _Rejected(Exception):
 
 
 class _Retryable(Exception):
-    def __init__(self, rate_limited: bool, detail: str = "") -> None:
+    """Worth retrying soon. kind: "rate" (429), "server" (5xx), "timeout" or "network"."""
+
+    def __init__(self, kind: str, detail: str = "", *, status: int | None = None,
+                 retry_after: float | None = None, daily: bool = False) -> None:
         super().__init__(detail)
-        self.rate_limited = rate_limited
+        self.kind = kind
+        self.detail = detail
+        self.status = status
+        self.retry_after = retry_after
+        # A daily limit with a short wait (rolling window): worth one wait, not more
+        self.daily = daily
+
+
+class _Quota(Exception):
+    """Retrying now cannot help. kind: "daily", "billing" or "wait" (a wait longer than MAX_INLINE_WAIT)."""
+
+    def __init__(self, kind: str, detail: str = "", retry_after: float | None = None) -> None:
+        super().__init__(detail)
+        self.kind = kind
+        self.detail = detail
+        self.retry_after = retry_after
 
 
 @dataclass(frozen=True)
@@ -115,14 +161,170 @@ def _short(text: str) -> str:
     return text[:220] + ("…" if len(text) > 220 else "")
 
 
-def _provider_detail(exc: Exception) -> str:
-    """Short upstream error text (e.g. 'model ... does not exist') so the user sees the real cause."""
+def _clean_detail(text: str) -> str:
+    """Readable provider message for the user.
+
+    Routers such as 9Router put the upstream JSON error inside their own message
+    ('[groq/model] [429]: {"error":{"message":"…"}} (reset after 30s)', sometimes cut off):
+    keep the route and the inner message. Organization ids and service tiers are dropped."""
+    text = text or ""
+    inner = re.search(r'"message"\s*:\s*"((?:[^"\\]|\\.)*)"?', text)
+    if inner:
+        try:
+            msg = json.loads(f'"{inner.group(1)}"')
+        except ValueError:
+            msg = inner.group(1)
+        route = re.match(r"\s*(\[[^\]]+\])", text)
+        text = f"{route.group(1)} {msg}" if route else msg
+    text = re.sub(r"\s+(?:in organization|service tier)\s+`[^`\s]*`?", "", text)
+    return _short(text)
+
+
+def _provider_message(exc: Exception) -> str:
+    """The provider's own error text (falls back to the exception text)."""
     body = getattr(exc, "body", None)
     msg = ""
     if isinstance(body, dict):
         err = body.get("error") if isinstance(body.get("error"), dict) else body
         msg = str(err.get("message") or "")
-    return _short(msg or str(exc))
+    return msg or str(exc)
+
+
+def _provider_detail(exc: Exception) -> str:
+    """Short upstream error text (e.g. 'model ... does not exist') so the user sees the real cause."""
+    return _clean_detail(_provider_message(exc))
+
+
+# ---------------------------------------------------------------- rate limits and quotas
+
+_DAILY = re.compile(r"per[\s_-]?day|perday|\b(?:tpd|rpd)\b|daily", re.I)
+_BILLING = re.compile(r"insufficient[\s_]quota|insufficient[\s_]balance|plan and billing|billing details|"
+                      r"credit balance|payment required|out of credits", re.I)
+_UNIT = r"(?:ms|milliseconds?|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)(?![a-z])"
+# "Please try again in 27m41.0s" (Groq, OpenAI), "Please retry in 41.2s" / "retryDelay": "41s" (Gemini),
+# "(reset after 30s)" (9Router)
+_WAIT = re.compile(rf"(?:try again in|retry in|retry after|resets? (?:after|in)|retrydelay\W*)\s*"
+                   rf"((?:\d+(?:\.\d+)?\s*{_UNIT}\s*)+)", re.I)
+_DURATION = re.compile(rf"(\d+(?:\.\d+)?)\s*({_UNIT})", re.I)
+
+
+def _unit_seconds(unit: str) -> float:
+    u = unit.lower()
+    if u == "ms" or u.startswith("milli"):
+        return 0.001
+    if u.startswith("h"):
+        return 3600.0
+    if u.startswith("m"):
+        return 60.0
+    return 1.0
+
+
+def _header_wait(headers: Any) -> float | None:
+    """Retry-After (seconds or an HTTP date) / retry-after-ms, if the response has them."""
+    if not headers:
+        return None
+    try:
+        ms = headers.get("retry-after-ms")
+        if ms:
+            return max(0.0, float(ms) / 1000)
+    except (TypeError, ValueError):
+        pass
+    value = headers.get("retry-after")
+    if not value:
+        return None
+    try:
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        pass
+    try:
+        return max(0.0, parsedate_to_datetime(value).timestamp() - time.time())
+    except (TypeError, ValueError):
+        return None
+
+
+def _retry_after(text: str, headers: Any = None) -> float | None:
+    """How long the provider asks us to wait (the longest of the headers and the message), or None."""
+    waits = [w for w in (_header_wait(headers),) if w is not None]
+    for m in _WAIT.finditer(text or ""):
+        secs = sum(float(v) * _unit_seconds(u) for v, u in _DURATION.findall(m.group(1)))
+        waits.append(secs)
+    return max(waits) if waits else None
+
+
+def _limit_error(status: int, message: str, headers: Any = None, raw: str = "") -> Exception:
+    """A 429 / 402: _Retryable (wait briefly, then retry) or _Quota (stop: daily limit, billing, long wait)."""
+    text = f"{message} {raw}"
+    detail = _clean_detail(message)
+    wait = _retry_after(text, headers)
+    daily = bool(_DAILY.search(text))
+    if wait is not None and wait > MAX_INLINE_WAIT:
+        return _Quota("daily" if daily else "wait", detail, wait)
+    if wait is None and daily:
+        return _Quota("daily", detail)
+    # Gemini's per-minute limit also says "check your plan and billing details", but it names a wait
+    if wait is None and (status == 402 or _BILLING.search(text)):
+        return _Quota("billing", detail)
+    return _Retryable("rate", detail, status=status, retry_after=wait, daily=daily)
+
+
+def _fmt_wait(seconds: float) -> str:
+    s = int(round(seconds))
+    if s < 60:
+        return f"{max(1, s)} detik"
+    minutes = round(s / 60)
+    if minutes < 60:
+        return f"{minutes} menit"
+    h, m = divmod(minutes, 60)
+    return f"{h} jam" + (f" {m} menit" if m else "")
+
+
+def _where(t: Target) -> str:
+    """'Groq · model' style name for messages; an OpenAI-compatible endpoint is named by its host."""
+    name = t.provider.label
+    if t.provider.id == "openai_compatible":
+        name = urlsplit(t.base_url).hostname or name
+    return f"{name} · {t.model}"
+
+
+def _quota_error(q: _Quota, where: str) -> LLMQuotaExhausted:
+    when = f" Kuota pulih sekitar {_fmt_wait(q.retry_after)} lagi." if q.retry_after else ""
+    if q.kind == "billing":
+        return LLMQuotaExhausted(f"Kuota atau saldo akun LLM habis ({where}).", q.detail,
+                                 advice="Periksa paket atau billing di situs penyedia, atau pilih penyedia lain di Pengaturan.")
+    if q.kind == "daily":
+        return LLMQuotaExhausted(f"Kuota harian LLM habis ({where}).{when}", q.detail, retry_after=q.retry_after)
+    return LLMQuotaExhausted(f"Batas pemakaian LLM tercapai ({where}).{when}", q.detail, retry_after=q.retry_after)
+
+
+def _gave_up(exc: _Retryable, where: str, attempts: int, compatible: bool) -> LLMError:
+    """The error after the last retry, named after what actually went wrong."""
+    said = f" Pesan penyedia: {exc.detail}" if exc.detail else ""
+    if exc.daily:
+        return _quota_error(_Quota("daily", exc.detail, exc.retry_after), where)
+    if exc.kind == "rate":
+        return LLMError(f"LLM terus terkena batas rate (HTTP 429) dari {where} setelah {attempts} percobaan. "
+                        f"Coba lagi beberapa menit lagi, atau pilih model lain di Pengaturan.{said}")
+    if exc.kind == "server":
+        return LLMError(f"Server LLM sedang bermasalah (HTTP {exc.status}, {where}) setelah {attempts} percobaan. "
+                        f"Coba lagi nanti.{said}")
+    if exc.kind == "timeout":
+        return LLMError(f"LLM tidak menjawab dalam batas waktu ({where}), {attempts} kali berturut-turut. "
+                        "Coba lagi nanti, atau pilih model yang lebih cepat di Pengaturan.")
+    check = "koneksi internet dan Base URL di Pengaturan" if compatible else "koneksi internet"
+    return LLMError(f"LLM tidak dapat dihubungi ({where}) setelah {attempts} percobaan. Periksa {check}."
+                    + (f" Detail: {exc.detail}" if exc.detail else ""))
+
+
+def _sleep(seconds: float, should_stop: Callable[[], bool] | None) -> bool:
+    """Wait, checking for cancellation. True when cancelled."""
+    end = time.monotonic() + seconds
+    while True:
+        if should_stop and should_stop():
+            return True
+        left = end - time.monotonic()
+        if left <= 0:
+            return False
+        time.sleep(min(0.5, left))
 
 
 def _looks_like_bad_key(detail: str) -> bool:
@@ -247,20 +449,26 @@ def _openai_complete(t: Target, system: str, user: str, *, temperature: float, m
         except (openai.NotFoundError, openai.PermissionDeniedError) as exc:
             raise _NotFound(_provider_detail(exc)) from exc
         except openai.RateLimitError as exc:
-            raise _Retryable(True, _provider_detail(exc)) from exc
+            raise _limit_error(429, _provider_message(exc), getattr(exc.response, "headers", None), str(exc)) from exc
         except openai.BadRequestError as exc:
             detail = _provider_detail(exc)
             if _looks_like_bad_key(detail):
                 raise _Auth(detail) from exc
+            if _BILLING.search(f"{_provider_message(exc)} {exc}"):
+                raise _Quota("billing", detail) from exc
             if not _adapt(params, f"{detail} {exc}", qkey):
                 raise _Rejected(400, detail) from exc
             logger.info("LLM %s/%s refused a parameter, retrying with %s", p.id, t.model, sorted(params))
         except openai.APIStatusError as exc:
+            if exc.status_code == 402:
+                raise _limit_error(402, _provider_message(exc), getattr(exc.response, "headers", None), str(exc)) from exc
             if exc.status_code in (408, 409, 425, 500, 502, 503, 504, 529):
-                raise _Retryable(False, _provider_detail(exc)) from exc
+                raise _Retryable("server", _provider_detail(exc), status=exc.status_code) from exc
             raise _Rejected(exc.status_code, _provider_detail(exc)) from exc
-        except (openai.APITimeoutError, openai.APIConnectionError) as exc:
-            raise _Retryable(False, str(exc)) from exc
+        except openai.APITimeoutError as exc:
+            raise _Retryable("timeout", str(exc)) from exc
+        except openai.APIConnectionError as exc:
+            raise _Retryable("network", str(exc)) from exc
     raise _Rejected(400, "Parameter permintaan ditolak oleh penyedia")
 
 
@@ -294,8 +502,10 @@ def _anthropic_complete(t: Target, system: str, user: str, *, temperature: float
     for _ in range(3):
         try:
             resp = httpx.post(f"{t.base_url}/messages", headers=_anthropic_headers(t.key), json=body, timeout=timeout)
-        except (httpx.TimeoutException, httpx.TransportError) as exc:
-            raise _Retryable(False, str(exc)) from exc
+        except httpx.TimeoutException as exc:
+            raise _Retryable("timeout", str(exc)) from exc
+        except httpx.TransportError as exc:
+            raise _Retryable("network", str(exc)) from exc
         if resp.status_code == 200:
             data = resp.json()
             return "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
@@ -305,10 +515,12 @@ def _anthropic_complete(t: Target, system: str, user: str, *, temperature: float
             raise _Auth(detail)
         if status in (403, 404):
             raise _NotFound(detail)
-        if status == 429:
-            raise _Retryable(True, detail)
+        if status in (402, 429):
+            raise _limit_error(status, detail, resp.headers, resp.text)
         if status in (408, 409, 500, 502, 503, 504, 529):
-            raise _Retryable(False, detail)
+            raise _Retryable("server", detail, status=status)
+        if status == 400 and _BILLING.search(detail):  # "Your credit balance is too low …"
+            raise _Quota("billing", detail)
         if status == 400 and _adapt(body, detail, qkey):
             continue
         raise _Rejected(status, detail)
@@ -332,42 +544,64 @@ def chat_json(
     on_retry: Callable[[str], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
-    """JSON answer from the active provider, with retry/backoff on 429, 5xx, timeouts and invalid JSON."""
+    """JSON answer from the active provider.
+
+    Retries 429 (after the wait the provider asks for), 5xx, timeouts and invalid JSON. Raises
+    LLMQuotaExhausted without retrying when the quota is used up (daily limit, billing, long wait)."""
     t = target()
     label = t.provider.label
+    where = _where(t)
     last_exc: Exception | None = None
+    attempts = 0
+    daily_waited = False
     for attempt in range(retries + 1):
         if should_stop and should_stop():
             raise LLMError("Dibatalkan")
+        attempts += 1
         try:
             content = _complete(t, system, user, temperature=temperature, max_tokens=max_tokens, json_mode=True, timeout=90.0)
             return _parse_json(content)
         except _Auth as exc:
             raise LLMNotConfigured(f"API key {label} ditolak oleh penyedia. Periksa kembali di Pengaturan.") from exc
         except _NotFound as exc:
-            raise LLMError(f"Model atau endpoint LLM tidak tersedia ({label} · {t.model}). Periksa Pengaturan. "
+            raise LLMError(f"Model atau endpoint LLM tidak tersedia ({where}). Periksa Pengaturan. "
                            f"Pesan penyedia: {exc.detail}") from exc
         except _Rejected as exc:
             raise LLMError(f"{label} menolak permintaan (HTTP {exc.status}): {exc.detail}") from exc
+        except _Quota as exc:
+            logger.warning("LLM quota used up (%s, %s): %s", exc.kind, where, exc.detail)
+            raise _quota_error(exc, where) from exc
         except _Retryable as exc:
             last_exc = exc
+            if exc.daily:
+                if daily_waited:  # the daily limit is still reached after waiting once
+                    break
+                daily_waited = True
             if attempt >= retries:
                 break
-            wait = min(30.0, 2.0 * (2**attempt))
-            kind = "batas rate (429)" if exc.rate_limited else "gangguan koneksi"
-            msg = f"LLM terkena {kind}, mencoba lagi dalam {int(wait)} detik"
-            logger.warning("%s: %s", msg, exc)
+            if exc.retry_after is not None:
+                wait = min(MAX_INLINE_WAIT, exc.retry_after + 0.5)
+            else:
+                wait = min(30.0, 2.0 * (2**attempt))
+            what = {
+                "rate": "LLM terkena batas rate (429)",
+                "server": f"Server LLM sedang bermasalah (HTTP {exc.status})",
+                "timeout": "LLM tidak menjawab dalam batas waktu",
+            }.get(exc.kind, "LLM tidak dapat dihubungi")
+            msg = f"{what}, mencoba lagi dalam {_fmt_wait(wait)}"
+            logger.warning("%s (%s): %s", msg, where, exc.detail)
             if on_retry:
                 on_retry(msg)
-            time.sleep(wait)
+            if _sleep(wait, should_stop):
+                raise LLMError("Dibatalkan")
         except (ValueError, json.JSONDecodeError) as exc:
             last_exc = exc
             if attempt >= retries:
                 break
             logger.warning("LLM returned invalid JSON (attempt %s): %s", attempt + 1, exc)
-    if isinstance(last_exc, (ValueError, json.JSONDecodeError)):
-        raise LLMError("LLM mengembalikan respons yang tidak valid") from last_exc
-    raise LLMError("LLM tidak dapat dihubungi setelah beberapa percobaan") from last_exc
+    if isinstance(last_exc, _Retryable):
+        raise _gave_up(last_exc, where, attempts, t.provider.id == "openai_compatible") from last_exc
+    raise LLMError("LLM mengembalikan respons yang tidak valid") from last_exc
 
 
 def list_models(provider_id: str, *, key: str | None = None, base_url: str | None = None) -> list[str]:
@@ -437,9 +671,17 @@ def test_connection(provider_id: str | None = None, api_key: str | None = None) 
         except LLMError:
             pass
         return False, f"Model '{t.model}' tidak tersedia: {exc.detail}.{hint}"
+    except _Quota as exc:
+        return False, _quota_error(exc, _where(t)).message()
     except _Retryable as exc:
-        if exc.rate_limited:
-            return True, "Key valid, tetapi sedang terkena batas rate (429)"
+        if exc.daily:
+            return False, _quota_error(_Quota("daily", exc.detail, exc.retry_after), _where(t)).message()
+        if exc.kind == "rate":
+            return True, "Key valid, tetapi sedang terkena batas rate (429). Coba lagi sebentar lagi."
+        if exc.kind == "server":
+            return False, f"Server {label} sedang bermasalah (HTTP {exc.status}). Coba lagi nanti."
+        if exc.kind == "timeout":
+            return False, f"{label} tidak menjawab dalam batas waktu"
         return False, f"Tidak dapat terhubung ke {label}"
     except _Rejected as exc:
         return False, f"HTTP {exc.status}: {exc.detail}"

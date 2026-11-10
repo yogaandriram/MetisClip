@@ -1,39 +1,49 @@
 'use client'
 
-import React, { useState } from 'react'
-import { Plus, Bot, Trash2, Edit2, X } from 'lucide-react'
+import React, { useEffect, useState } from 'react'
+import { Check, Pencil, Plus, Trash2, Users, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAgent } from '@/contexts/AgentContext'
-import { GlassCard } from '@/components/ui/GlassCard'
-import { Button } from '@/components/ui/Button'
-import { Badge } from '@/components/ui/Badge'
-import { Skeleton } from '@/components/ui/Skeleton'
-import { Modal } from '@/components/ui/Modal'
-import { ConfirmModal } from '@/components/ui/ConfirmModal'
-import { PageHeader } from '@/components/ui/PageHeader'
-import { EmptyState } from '@/components/ui/EmptyState'
+import { useEngine } from '@/contexts/EngineContext'
+import { Avatar, Badge, Button, Card, CardHeader, ConfirmModal, EmptyState, IconButton, Modal, PageHeader, Skeleton, Tag } from '@/components/ui'
 import { AgentForm, toAgentInput, type AgentFormValue } from '@/components/agents/AgentForm'
-import { api, type Agent } from '@/lib/engine'
+import { api, type Agent, type BrandTemplate } from '@/lib/engine'
 import { CLIP_DURATION_OPTIONS, errorMessage, formatDate } from '@/lib/format'
 
 export default function AgentsPage() {
   const { agents, refreshAgents, activeAgent, setActiveAgent, isAgentLoading } = useAgent()
+  const { epoch } = useEngine()
   const [isCreating, setIsCreating] = useState(false)
   const [editing, setEditing] = useState<Agent | null>(null)
   const [toDelete, setToDelete] = useState<Agent | null>(null)
   const [deleteFiles, setDeleteFiles] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [templates, setTemplates] = useState<BrandTemplate[]>([])
+
+  // Only for showing each agent's default template name on its card
+  useEffect(() => {
+    let cancelled = false
+    api.brandTemplates
+      .list()
+      .then(({ brand_templates }) => {
+        if (!cancelled) setTemplates(brand_templates)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [epoch])
 
   const create = async (value: AgentFormValue) => {
     try {
       const { agent } = await api.agents.create(toAgentInput(value))
-      toast.success(`Super Agent "${agent.name}" dibuat`)
+      toast.success(`Workspace "${agent.name}" dibuat`)
       setIsCreating(false)
       const list = await refreshAgents()
       const fresh = list.find((a) => a.id === agent.id)
       if (fresh && (!activeAgent || agents.length === 0)) setActiveAgent(fresh)
     } catch (err) {
-      toast.error(errorMessage(err, 'Gagal membuat agent'))
+      toast.error(errorMessage(err, 'Gagal membuat workspace'))
     }
   }
 
@@ -41,7 +51,7 @@ export default function AgentsPage() {
     if (!editing) return
     try {
       await api.agents.update(editing.id, toAgentInput(value))
-      toast.success('Agent diperbarui')
+      toast.success('Workspace diperbarui')
       setEditing(null)
       await refreshAgents()
     } catch (err) {
@@ -54,7 +64,7 @@ export default function AgentsPage() {
     setDeleting(true)
     try {
       await api.agents.remove(toDelete.id, deleteFiles)
-      toast.success('Super Agent dihapus')
+      toast.success('Workspace dihapus')
       if (activeAgent?.id === toDelete.id) setActiveAgent(null)
       setToDelete(null)
       await refreshAgents()
@@ -66,121 +76,111 @@ export default function AgentsPage() {
   }
 
   const durationLabel = (v: string) => CLIP_DURATION_OPTIONS.find((o) => o.value === v)?.label.split(' (')[0] || v
+  // Agents without a default use the oldest template, which the list returns first
+  const templateName = (agent: Agent) => (templates.find((t) => t.id === agent.default_brand_template_id) || (agent.default_brand_template_id ? null : templates[0]))?.name
 
   return (
-    <div style={{ maxWidth: '960px', margin: '0 auto' }}>
+    <>
       <PageHeader
-        title="Super Agent"
-        subtitle="Setiap agent adalah profil kerja terpisah (niche, brand template, dan clip sendiri)."
+        title="Workspace"
+        subtitle="Setiap workspace adalah ruang kerja terpisah dengan niche, brand template, dan clip sendiri."
         actions={
-          <Button variant={isCreating ? 'secondary' : 'primary'} icon={isCreating ? <X size={16} /> : <Plus size={16} />} onClick={() => setIsCreating(!isCreating)}>
-            {isCreating ? 'Batal' : 'Buat agent baru'}
+          <Button variant={isCreating ? 'secondary' : 'accent'} icon={isCreating ? <X size={16} /> : <Plus size={16} />} onClick={() => setIsCreating(!isCreating)}>
+            {isCreating ? 'Batal' : 'Buat workspace baru'}
           </Button>
         }
       />
 
-      {isCreating && (
-        <GlassCard glow hoverEffect={false} padding="28px" style={{ marginBottom: '32px' }}>
-          <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Bot size={20} color="var(--primary)" /> Konfigurasi agent baru
-          </h3>
-          <AgentForm submitLabel="Simpan agent" onSubmit={create} onCancel={() => setIsCreating(false)} />
-        </GlassCard>
-      )}
+      <div className="mc-stack mc-gap-32">
+        {isCreating && (
+          <Card style={{ maxWidth: 760 }}>
+            <CardHeader title="Workspace baru" icon={<Users size={18} />} />
+            <AgentForm submitLabel="Simpan workspace" onSubmit={create} onCancel={() => setIsCreating(false)} />
+          </Card>
+        )}
 
-      {isAgentLoading && agents.length === 0 ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} height={200} />
-          ))}
-        </div>
-      ) : agents.length === 0 ? (
-        !isCreating && (
-          <EmptyState
-            icon={Bot}
-            title="Belum ada Super Agent"
-            description="Buat agent pertama Anda untuk mulai mencari video dan menghasilkan clip."
-            action={
-              <Button size="sm" icon={<Plus size={14} />} onClick={() => setIsCreating(true)}>
-                Buat agent
-              </Button>
-            }
-          />
-        )
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
-          {agents.map((agent) => {
-            const isActive = activeAgent?.id === agent.id
-            return (
-              <GlassCard key={agent.id} hoverEffect={false} padding="24px" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '16px' }}>
-                    <div
-                      style={{
-                        background: 'rgba(24, 86, 255, 0.1)',
-                        width: '40px',
-                        height: '40px',
-                        borderRadius: '10px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: 'var(--primary)',
-                        border: '1px solid rgba(24, 86, 255, 0.25)',
+        {isAgentLoading && agents.length === 0 ? (
+          <div className="mc-grid">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="mc-col-4" height={232} radius="lg" />
+            ))}
+          </div>
+        ) : agents.length === 0 ? (
+          !isCreating && (
+            <EmptyState
+              icon={Users}
+              title="Belum ada workspace"
+              description="Buat workspace pertama Anda untuk mulai mencari video dan menghasilkan clip."
+              action={
+                <Button variant="primary" icon={<Plus size={16} />} onClick={() => setIsCreating(true)}>
+                  Buat workspace
+                </Button>
+              }
+            />
+          )
+        ) : (
+          <div className="mc-grid">
+            {agents.map((agent) => {
+              const isActive = activeAgent?.id === agent.id
+              const template = templateName(agent)
+              return (
+                <Card key={agent.id} as="article" selected={isActive} className="mc-col-4 mc-stack mc-gap-16" style={{ justifyContent: 'space-between' }}>
+                  <div className="mc-stack mc-gap-16">
+                    <div className="mc-row mc-row--between mc-row--top">
+                      <div className="mc-row mc-gap-12 mc-grow">
+                        <Avatar name={agent.name} seed={agent.id} size={44} />
+                        <div className="mc-grow">
+                          <h2 className="mc-h3 mc-truncate">{agent.name}</h2>
+                          <p className="mc-muted mc-truncate">{agent.niche || 'Tanpa deskripsi niche'}</p>
+                        </div>
+                      </div>
+                      {isActive && (
+                        <Badge tone="accent" size="sm" icon={<Check size={14} aria-hidden="true" />}>
+                          Aktif
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="mc-row mc-row--wrap mc-gap-8">
+                      <Tag>{durationLabel(agent.default_duration)}</Tag>
+                      {template && <Tag>Template: {template}</Tag>}
+                    </div>
+                    <p className="mc-caption mc-subtle">Dibuat {formatDate(agent.created_at)}</p>
+                  </div>
+
+                  <div className="mc-row mc-gap-8">
+                    <Button
+                      variant={isActive ? 'primary' : 'secondary'}
+                      size="sm"
+                      className="mc-grow"
+                      disabled={isActive}
+                      onClick={() => {
+                        setActiveAgent(agent)
+                        toast.success(`Beralih ke ${agent.name}`)
                       }}
                     >
-                      <Bot size={20} />
-                    </div>
-                    {isActive && (
-                      <Badge variant="primary" glow>
-                        Aktif
-                      </Badge>
-                    )}
+                      {isActive ? 'Sedang aktif' : 'Pilih workspace'}
+                    </Button>
+                    <IconButton label="Ubah workspace" icon={<Pencil size={16} />} variant="outline" size="sm" onClick={() => setEditing(agent)} />
+                    <IconButton
+                      label="Hapus workspace"
+                      icon={<Trash2 size={16} />}
+                      variant="outline"
+                      size="sm"
+                      tooltip="end"
+                      onClick={() => {
+                        setDeleteFiles(false)
+                        setToDelete(agent)
+                      }}
+                    />
                   </div>
-                  <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '6px' }}>{agent.name}</h3>
-                  <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '12px', lineHeight: 1.5 }}>{agent.niche || 'Tanpa deskripsi niche'}</p>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                    <Badge variant="muted" glow={false}>
-                      {durationLabel(agent.default_duration)}
-                    </Badge>
-                  </div>
-                  <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '12px' }}>Dibuat {formatDate(agent.created_at)}</p>
-                </div>
+                </Card>
+              )
+            })}
+          </div>
+        )}
+      </div>
 
-                <div style={{ display: 'flex', gap: '8px', marginTop: '20px' }}>
-                  <Button
-                    variant={isActive ? 'primary' : 'secondary'}
-                    size="sm"
-                    style={{ flex: 1, justifyContent: 'center' }}
-                    disabled={isActive}
-                    onClick={() => {
-                      setActiveAgent(agent)
-                      toast.success(`Beralih ke ${agent.name}`)
-                    }}
-                  >
-                    {isActive ? 'Sedang aktif' : 'Pilih agent'}
-                  </Button>
-                  <button className="mc-icon-button" title="Ubah agent" onClick={() => setEditing(agent)}>
-                    <Edit2 size={15} />
-                  </button>
-                  <button
-                    className="mc-icon-button"
-                    title="Hapus agent"
-                    style={{ color: 'var(--danger)' }}
-                    onClick={() => {
-                      setDeleteFiles(false)
-                      setToDelete(agent)
-                    }}
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              </GlassCard>
-            )
-          })}
-        </div>
-      )}
-
-      <Modal isOpen={!!editing} onClose={() => setEditing(null)} title="Ubah Super Agent">
+      <Modal isOpen={!!editing} onClose={() => setEditing(null)} title="Ubah workspace" size="md">
         {editing && (
           <AgentForm
             key={editing.id}
@@ -200,22 +200,24 @@ export default function AgentsPage() {
       <ConfirmModal
         isOpen={!!toDelete}
         title={`Hapus "${toDelete?.name || ''}"?`}
-        message="Agent beserta job, clip, dan brand template-nya akan dihapus dari database. Tindakan ini tidak bisa dibatalkan."
-        confirmLabel="Hapus agent"
+        message="Workspace beserta job dan clip-nya akan dihapus dari database. Brand template tetap tersimpan di library. Tindakan ini tidak bisa dibatalkan."
+        confirmLabel="Hapus workspace"
+        confirmIcon={<Trash2 size={16} />}
         danger
         loading={deleting}
         onConfirm={remove}
         onClose={() => setToDelete(null)}
       >
-        <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '14px', cursor: 'pointer', lineHeight: 1.5 }}>
-          <input type="checkbox" checked={deleteFiles} onChange={(e) => setDeleteFiles(e.target.checked)} style={{ marginTop: '3px', accentColor: 'var(--danger)' }} />
+        <label className="mc-row mc-row--top mc-gap-12" style={{ cursor: 'pointer' }}>
+          <input type="checkbox" checked={deleteFiles} onChange={(e) => setDeleteFiles(e.target.checked)} style={{ marginTop: 1 }} />
           <span>
-            Hapus juga file video agent ini dari folder data
-            <br />
-            <small style={{ color: 'var(--text-muted)' }}>Jika tidak dicentang, file video tetap ada di folder library.</small>
+            Hapus juga file video workspace ini dari folder data
+            <span className="mc-caption mc-muted" style={{ display: 'block', marginTop: 2 }}>
+              Jika tidak dicentang, file video tetap ada di folder library.
+            </span>
           </span>
         </label>
       </ConfirmModal>
-    </div>
+    </>
   )
 }

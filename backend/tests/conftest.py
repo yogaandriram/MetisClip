@@ -99,6 +99,17 @@ def db(mongo):
     dbm.set_db(None, None)  # type: ignore[arg-type]
 
 
+@pytest.fixture(autouse=True)
+def _no_whisper_model_downloads(monkeypatch):
+    """Tests never download real Whisper models (190-574 MB); test_whisper fakes the HTTP side."""
+    from backend.agents.tools import whisper_local
+
+    def blocked(model, cancel, on_progress):
+        raise whisper_local.LocalWhisperError("Whisper model downloads are disabled in tests")
+
+    monkeypatch.setattr(whisper_local, "_download", blocked)
+
+
 @pytest.fixture()
 def secrets():
     from backend.core import secrets as sec
