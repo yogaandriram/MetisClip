@@ -3,7 +3,7 @@
 import React, { useState } from 'react'
 import { AlertTriangle, ExternalLink, KeyRound, ListRestart } from 'lucide-react'
 import { api, type LlmProvider, type LlmSecretName, type SecretName, type Settings } from '@/lib/engine'
-import { COMPATIBLE_ENDPOINTS, LLM_PROVIDERS, providerInfo } from '@/lib/llmProviders'
+import { LLM_PROVIDERS, providerInfo } from '@/lib/llmProviders'
 import { errorMessage } from '@/lib/format'
 import { Button, ChoiceChips, Field, InputField, SelectField } from '@/components/ui'
 import { SecretField } from '@/components/settings/SecretField'
@@ -38,7 +38,6 @@ export function LlmSection({ value, onChange, secrets, onSecretConfigured, persi
   const hasKey = secrets[provider.secret] || !!keyValue.trim()
   const list = models[value.provider]
   const compatible = value.provider === 'openai_compatible'
-  const endpoint = COMPATIBLE_ENDPOINTS.find((e) => e.base_url === value.base_url.replace(/\/+$/, ''))
 
   const choose = (id: LlmProvider) => {
     setModelsError(null)
@@ -90,18 +89,15 @@ export function LlmSection({ value, onChange, secrets, onSecretConfigured, persi
       </Field>
 
       {compatible && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(160px, 220px) 1fr', gap: 16 }}>
-          <SelectField
-            label="Layanan"
-            value={endpoint?.id || MANUAL}
-            options={[...COMPATIBLE_ENDPOINTS.map((e) => ({ value: e.id, label: e.label })), { value: MANUAL, label: 'Lainnya (isi Base URL)' }]}
-            onChange={(e) => {
-              const picked = COMPATIBLE_ENDPOINTS.find((x) => x.id === e.target.value)
-              if (picked) onChange({ ...value, base_url: picked.base_url })
-            }}
-          />
-          <InputField label="Base URL" placeholder="https://…/v1" value={value.base_url} onChange={(e) => onChange({ ...value, base_url: e.target.value })} spellCheck={false} mono />
-        </div>
+        <InputField
+          label="Base URL"
+          hint="Alamat endpoint yang memakai format API OpenAI, biasanya diakhiri /v1."
+          placeholder="https://…/v1"
+          value={value.base_url}
+          onChange={(e) => onChange({ ...value, base_url: e.target.value })}
+          spellCheck={false}
+          mono
+        />
       )}
 
       <SecretField
@@ -114,7 +110,7 @@ export function LlmSection({ value, onChange, secrets, onSecretConfigured, persi
               Buat API key {provider.label} <ExternalLink size={14} aria-hidden="true" />
             </a>
           ) : (
-            'Key dari layanan yang Anda pilih di atas (mis. 9Router, Groq, OpenRouter).'
+            'Key dari layanan pemilik Base URL di atas.'
           )
         }
         configured={secrets[provider.secret]}

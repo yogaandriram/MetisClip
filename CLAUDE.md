@@ -695,7 +695,7 @@ Base URL: `http://127.0.0.1:{port}`. Every request carries `Authorization: Beare
 - `db.wiredtiger_cache_gb` (default 0.25, applied on restart)
 - `llm.provider`: `openai` | `anthropic` | `gemini` | `xai` | `deepseek` | `qwen` | `openai_compatible` (default; 9Router). The six hosted providers have fixed endpoints in `core/llm_providers.py`.
 - `llm.models`: the chosen model per provider, so switching back keeps the earlier choice. Defaults (Nov 2026): `gpt-6.1-terra`, `claude-haiku-5-5`, `gemini-3.6-flash`, `grok-4.3`, `deepseek-flash`, `qwen-plus`, `metisclip` (9Router). Model names change often; the UI loads the live list from the provider ("Muat daftar model").
-- `llm.base_url`: only for `openai_compatible` (quick fills: 9Router, Groq, OpenRouter, Together AI, Fireworks AI). Migration 004 turned the old presets (9router, Groq, Custom) into this provider.
+- `llm.base_url`: only for `openai_compatible` (default 9Router). Pengaturan shows just a Base URL field and the API key for it, with no list of services (owner decision, 2026-11-10). Migration 004 turned the old presets (9router, Groq, Custom) into this provider.
 - `whisper.provider`: `auto` (default) | `local` | `groq` (§5.2); `whisper.model`: the Groq model (default `whisper-large-v3-turbo`); `whisper.local_model`: `auto` (default) | `small` | `large-v3-turbo`
 - `processing.max_workers`, `processing.encoder` (`auto` | `libx264` | `h264_nvenc` | `h264_qsv` | `h264_amf`), `render.concurrency`
 - `ytdlp.player_client`, `ytdlp.cookies_file`

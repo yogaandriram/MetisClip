@@ -29,12 +29,3 @@ export const LLM_SECRET_NAMES: LlmSecretName[] = LLM_PROVIDERS.map((p) => p.secr
 export function providerInfo(id: LlmProvider): LlmProviderInfo {
   return LLM_PROVIDERS.find((p) => p.id === id) || LLM_PROVIDERS[LLM_PROVIDERS.length - 1]
 }
-
-/** Quick fills for the OpenAI-compatible base URL */
-export const COMPATIBLE_ENDPOINTS: { id: string; label: string; base_url: string }[] = [
-  { id: '9router', label: '9Router', base_url: 'https://9routeryoga.my.id/v1' },
-  { id: 'groq', label: 'Groq', base_url: 'https://api.groq.com/openai/v1' },
-  { id: 'openrouter', label: 'OpenRouter', base_url: 'https://openrouter.ai/api/v1' },
-  { id: 'together', label: 'Together AI', base_url: 'https://api.together.xyz/v1' },
-  { id: 'fireworks', label: 'Fireworks AI', base_url: 'https://api.fireworks.ai/inference/v1' },
-]
