@@ -52,7 +52,9 @@
   position: relative;
   width: 64px;
   height: 100%;
-  padding: 20px 0;
+  /* Top: the first item's center (56 + 22 = 78) minus the bite's tail (45.3) stays below the
+     32 px rounded cap, so the bite always meets the straight edge (DESIGN.md §4.2.1) */
+  padding: 56px 0 20px;
   border-radius: var(--r-full);
   background: var(--ink);
   display: flex;
@@ -63,13 +65,20 @@
 
 .mc-rail__bite {
   position: absolute;
-  top: -56px;
+  top: -46px;
   left: 0;
   width: 66px;
-  height: 112px;
+  /* 2 px wider than the rail on purpose: base.css caps svg at max-width 100 %, which would
+     shrink it to 64 px and leave a step where the tails meet the rail's edge */
+  max-width: none;
+  height: 92px;
   pointer-events: none;
-  transform: translateY(var(--bite-y, 42px));
+  transform: translateY(var(--bite-y, 78px));
   transition: transform var(--dur-slow) var(--ease-spring), opacity var(--dur-fast) var(--ease-out);
+}
+
+.mc-rail__bite[data-edge='top'] {
+  transition-timing-function: var(--ease-out), var(--ease-out);
 }
 
 .mc-rail__bite path {

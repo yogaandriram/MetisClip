@@ -285,10 +285,17 @@ None of them are used in the clip editor, the Brand Template editor, Pengaturan 
 
 The active nav item is a surface-colored circle that bites into the ink rail from the canvas side, connected with concave curves. It is one SVG that moves along the rail. The bite path must be filled with the color **behind** the rail (`--canvas`).
 
+Geometry: a hole of radius 26 around the item (center x = 36), joined to the rail's straight edge (x = 64) by two fillet arcs of radius 20 that are tangent to both, so the outline has no corner anywhere. The tails end at y = ±45.3 with a vertical tangent.
+
+Three rules keep it smooth (each one was a visible defect, fixed 2026-11-10):
+- **The bite never reaches the rail's rounded ends.** A tail that lands inside the 32 px cap crosses its curve and leaves a sharp ink horn. The rail's top padding (56) puts the first item's center at 78, and 78 − 45.3 ≥ 32.
+- **The SVG keeps its full 66 px width** (`max-width: none`). The base `svg { max-width: 100% }` would shrink it to the rail's 64 px, and the tails would then stop 2 px short of the edge, leaving a step.
+- **No overshoot into the top cap.** The spring overshoots by about 10 % of the distance, so a glide that ends on the first item uses `--ease-out` instead (`data-edge="top"`).
+
 ```html
-<nav class="rail" aria-label="Navigasi utama" style="--bite-y: 94px">
-  <svg class="rail-bite" viewBox="0 -56 66 112" aria-hidden="true">
-    <path d="M66 56H64C64 34 50 26 36 26A26 26 0 0 1 36 -26C50 -26 64 -34 64 -56H66Z" />
+<nav class="rail" aria-label="Navigasi utama" style="--bite-y: 78px">
+  <svg class="rail-bite" viewBox="0 -46 66 92" aria-hidden="true">
+    <path d="M66 45.3H64A20 20 0 0 0 40.52 25.6A26 26 0 1 1 40.52 -25.6A20 20 0 0 0 64 -45.3H66Z" />
     <circle cx="36" cy="0" r="22" />
   </svg>
   <a class="rail-item" href="/dashboard/" aria-label="Beranda" aria-current="page">…</a>
@@ -300,7 +307,7 @@ The active nav item is a surface-colored circle that bites into the ink rail fro
 .rail {
   position: relative;
   width: 64px;
-  padding: 20px 0;
+  padding: 56px 0 20px;                        /* keeps the bite below the rounded top */
   border-radius: var(--r-full);
   background: var(--ink);
   display: flex;
@@ -310,14 +317,16 @@ The active nav item is a surface-colored circle that bites into the ink rail fro
 }
 .rail-bite {
   position: absolute;
-  top: -56px;                                  /* center of the SVG sits on the rail's top edge… */
+  top: -46px;                                  /* center of the SVG sits on the rail's top edge… */
   left: 0;
   width: 66px;
-  height: 112px;
+  max-width: none;                             /* 2 px wider than the rail on purpose */
+  height: 92px;
   transform: translateY(var(--bite-y));        /* …then moves to the active item's center */
   transition: transform var(--dur-slow) var(--ease-spring);
   pointer-events: none;
 }
+.rail-bite[data-edge='top'] { transition-timing-function: var(--ease-out); }
 .rail-bite path { fill: var(--canvas); }
 .rail-bite circle { fill: var(--surface); }
 .rail-item {
@@ -335,7 +344,7 @@ The active nav item is a surface-colored circle that bites into the ink rail fro
 .rail-item[aria-current='page'] { color: var(--ink); transform: translateX(4px); } /* centers the icon in the bite */
 ```
 
-`--bite-y` is the active item's `offsetTop + 22` (its vertical center), set from React when the route changes.
+`--bite-y` is the active item's `offsetTop + 22` (its vertical center), set from React when the route changes. When no item is active (Sistem), the bite fades out where it was and fades back in there.
 
 #### 4.2.2 Notch badge
 
