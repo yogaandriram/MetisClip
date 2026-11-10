@@ -30,15 +30,19 @@ function errorPage(detail: string): string {
   return `<!doctype html><html lang="id"><head><meta charset="utf-8"><title>MetisClip</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
 <style>
-  body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:#030307;color:#E8EAF2;
+  /* Same tokens as frontend/styles/tokens.css: canvas mist, surface card, ink text and buttons. */
+  body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:#ECFAE5;color:#16240F;
        font-family:"Segoe UI",system-ui,sans-serif}
-  .card{max-width:640px;padding:32px 36px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1)}
-  h1{font-size:20px;margin:0 0 12px} p{line-height:1.6;color:#A8ADC2;margin:8px 0}
-  code{display:block;margin:12px 0;padding:10px 12px;border-radius:8px;background:#07070F;color:#E89558;font-family:Consolas,monospace;
+  .card{max-width:640px;padding:32px 36px;border-radius:28px;background:#F9FDF6}
+  h1{font-size:22px;font-weight:600;margin:0 0 12px} p{line-height:1.6;color:#465F3A;margin:8px 0}
+  code{display:block;margin:12px 0;padding:10px 14px;border-radius:12px;background:#ECFAE5;color:#16240F;font-family:Consolas,monospace;
        font-size:12px;white-space:pre-wrap;word-break:break-all}
-  .row{display:flex;gap:12px;margin-top:20px}
-  button{font:inherit;padding:10px 18px;border-radius:10px;border:0;cursor:pointer;background:#1856FF;color:#fff}
-  button.secondary{background:rgba(255,255,255,.08);color:#E8EAF2}
+  .row{display:flex;gap:12px;margin-top:24px}
+  button{font:inherit;font-weight:600;height:44px;padding:0 22px;border-radius:999px;border:0;cursor:pointer;background:#16240F;color:#F9FDF6}
+  button:hover{background:#293D1F}
+  button.secondary{background:transparent;color:#16240F;box-shadow:inset 0 0 0 1px #6D8D5E}
+  button.secondary:hover{background:#DDF6D2}
+  button:focus-visible{outline:2px solid #16240F;outline-offset:3px}
 </style></head><body><div class="card">
   <h1>Tampilan MetisClip tidak bisa dimuat</h1>
   <p>Terjadi masalah saat membuka antarmuka aplikasi.</p>
@@ -78,7 +82,7 @@ function createWindow(): BrowserWindow {
     minHeight,
     show: false,
     title: 'MetisClip',
-    backgroundColor: '#030307',
+    backgroundColor: '#ECFAE5', // --mist, the UI canvas (frontend/styles/tokens.css)
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'index.js'),

@@ -1,0 +1,73 @@
+/*
+ * MetisClip design tokens (DESIGN.md §2.6). The only place raw colors are written.
+ * Every color is a green of hue ~101°, the hue of the owner's palette
+ * (#ECFAE5, #DDF6D2, #CAE8BD, #B0DB9C). Light theme only.
+ */
+:root {
+  color-scheme: light;
+
+  /* Owner palette */
+  --mist: #ECFAE5;
+  --dew: #DDF6D2;
+  --sage: #CAE8BD;
+  --leaf: #B0DB9C;
+
+  /* Same hue, lighter or darker, for surfaces, lines and text */
+  --surface: #F9FDF6;
+  --leaf-strong: #9BCD84;
+  --line: #D2EAC8;
+  --line-dashed: #93BB81;
+  --line-input: #6D8D5E;
+  --moss: #345625;
+  --ink: #16240F;
+  --ink-soft: #293D1F;
+  --ink-line: #3C5431;
+
+  /* Roles */
+  --canvas: var(--mist);
+  --text: var(--ink);
+  --text-muted: #465F3A;
+  --text-subtle: #5B724F;
+  --text-disabled: var(--line-dashed);
+  --on-ink: var(--surface);
+  --on-ink-muted: var(--sage);
+  --skeleton: var(--dew);
+
+  /* Type */
+  --font-display: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+  --font-text: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', Consolas, monospace;
+
+  /* Spacing (4 px base, DESIGN.md §5.1) */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-10: 40px;
+  --s-12: 48px;
+  --s-16: 64px;
+
+  /* Shape */
+  --r-xs: 8px;
+  --r-sm: 12px;
+  --r-md: 20px;
+  --r-lg: 28px;
+  --r-xl: 36px;
+  --r-full: 999px;
+
+  /* Elevation (ink at low alpha) */
+  --shadow-1: 0 12px 32px -8px rgb(22 36 15 / 0.18);
+  --shadow-2: 0 32px 80px -16px rgb(22 36 15 / 0.32);
+  --scrim: rgb(22 36 15 / 0.4);
+  --ink-glass: rgb(22 36 15 / 0.55);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+}

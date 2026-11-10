@@ -1,151 +1,76 @@
 'use client'
 
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useCallback, useRef, useState } from 'react'
 import Link from 'next/link'
-import { ChevronDown, Bot, Settings } from 'lucide-react'
+import { Check, ChevronDown, Users } from 'lucide-react'
 import { useAgent } from '@/contexts/AgentContext'
+import { useDismiss } from '@/hooks/useDismiss'
+import { Avatar } from './Avatar'
 
+/** Active Super Agent as a pill in the top bar, with a popover to switch or manage agents. */
 export function AgentSwitcher() {
   const { activeAgent, agents, setActiveAgent, isAgentLoading } = useAgent()
-  const [isOpen, setIsOpen] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+  const close = useCallback(() => setOpen(false), [])
+  useDismiss(root, open, close)
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
+  const name = activeAgent ? activeAgent.name : isAgentLoading ? 'Memuat agent…' : 'Pilih agent'
 
   return (
-    <div ref={dropdownRef} style={{ position: 'relative', marginBottom: '40px' }}>
+    <div ref={root} className="mc-popover-anchor">
       <button
-        onClick={() => setIsOpen(!isOpen)}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          width: '100%',
-          padding: '12px 16px',
-          background: 'rgba(255, 255, 255, 0.03)',
-          border: '1px solid var(--border-glass)',
-          borderRadius: '12px',
-          color: '#fff',
-          cursor: 'pointer',
-          transition: 'var(--transition-fast)'
-        }}
-        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'}
-        onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)'}
+        type="button"
+        className="mc-pillgroup__item"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Super Agent aktif: ${name}. Ganti agent`}
+        onClick={() => setOpen((v) => !v)}
+        style={{ paddingLeft: activeAgent ? 6 : 16 }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{
-            background: 'linear-gradient(135deg, var(--primary), var(--accent))',
-            width: '28px',
-            height: '28px',
-            borderRadius: '6px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 0 10px var(--primary-glow)'
-          }}>
-            <Bot size={14} color="#fff" />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              Super Agent
-            </span>
-            <span style={{ fontSize: '14px', fontWeight: 600 }}>
-              {activeAgent ? activeAgent.name : isAgentLoading ? 'Memuat…' : 'Pilih Agent'}
-            </span>
-          </div>
-        </div>
-        <ChevronDown size={16} color="var(--text-muted)" style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: '0.2s' }} />
+        {activeAgent && <Avatar name={activeAgent.name} seed={activeAgent.id} size={28} />}
+        <span className="mc-truncate" style={{ maxWidth: 200 }}>
+          {name}
+        </span>
+        <ChevronDown size={16} aria-hidden="true" style={{ transform: open ? 'rotate(180deg)' : undefined, transition: 'transform var(--dur-base) var(--ease-out)' }} />
       </button>
 
-      {isOpen && (
-        <div style={{
-          position: 'absolute',
-          top: '100%',
-          left: 0,
-          right: 0,
-          marginTop: '8px',
-          background: 'rgba(15, 15, 20, 0.95)',
-          backdropFilter: 'blur(20px)',
-          border: '1px solid var(--border-glass)',
-          borderRadius: '12px',
-          padding: '8px',
-          zIndex: 100,
-          boxShadow: '0 10px 30px rgba(0,0,0,0.5)'
-        }}>
+      {open && (
+        <div role="menu" className="mc-popover mc-popover--end" style={{ width: 280 }}>
+          <div className="mc-menu-label">Super Agent</div>
           {agents.length > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '8px' }}>
-              {agents.map(agent => (
+            agents.map((agent) => {
+              const selected = activeAgent?.id === agent.id
+              return (
                 <button
                   key={agent.id}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={selected}
+                  className="mc-menu-item"
                   onClick={() => {
                     setActiveAgent(agent)
-                    setIsOpen(false)
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    padding: '10px 12px',
-                    borderRadius: '8px',
-                    background: activeAgent?.id === agent.id ? 'rgba(255,255,255,0.05)' : 'transparent',
-                    border: 'none',
-                    color: '#fff',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    fontSize: '13px'
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
-                  onMouseLeave={(e) => {
-                    if (activeAgent?.id !== agent.id) {
-                      e.currentTarget.style.background = 'transparent'
-                    } else {
-                      e.currentTarget.style.background = 'rgba(255,255,255,0.05)'
-                    }
+                    close()
                   }}
                 >
-                  <Bot size={14} color="var(--text-muted)" />
-                  {agent.name}
+                  <Avatar name={agent.name} seed={agent.id} size={28} />
+                  <span className="mc-grow mc-truncate">{agent.name}</span>
+                  {selected && <Check size={16} aria-hidden="true" />}
                 </button>
-              ))}
-            </div>
+              )
+            })
           ) : (
-            <div style={{ padding: '12px', textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)' }}>
-              Belum ada agent
-            </div>
+            <div className="mc-menu-label">Belum ada agent. Buat satu untuk mulai.</div>
           )}
-          
-          <div style={{ height: '1px', background: 'var(--border-glass)', margin: '4px 0 8px 0' }} />
-          
-          <Link
-            href="/agents/"
-            onClick={() => setIsOpen(false)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              padding: '10px',
-              borderRadius: '8px',
-              background: 'rgba(24, 86, 255, 0.1)',
-              color: 'var(--primary)',
-              textDecoration: 'none',
-              fontSize: '13px',
-              fontWeight: 600
-            }}
-          >
-            <Settings size={14} />
-            Kelola Super Agent
+          <div className="mc-menu-sep" role="separator" />
+          <Link href="/agents/" role="menuitem" className="mc-menu-item" onClick={close}>
+            <Users size={16} aria-hidden="true" />
+            Kelola Super Agents
           </Link>
         </div>
       )}
     </div>
   )
 }
+
+export default AgentSwitcher

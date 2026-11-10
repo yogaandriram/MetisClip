@@ -140,7 +140,7 @@ The tables above describe the web build. On this branch:
 | Removed (D3, 2026-11-09) | Scheduling (`scheduler_ai`, `/api/schedule`, Jadwal Post page), social account connections (`/api/connections`, Settings card) and the `metisclip://` protocol. Migration `002_remove_publishing` drops `scheduled_posts` and `super_agents.social_connections` from existing databases after the usual pre-migration backup. |
 | Removed (D6, 2026-11-09) | Keyword search ("Pencarian Pintar"): `tools/youtube_api.py`, the YouTube Data API key, the `api_cache` collection, the agents' default keywords and video types, and the job filters (`video_types`, `min_duration_minutes`, `min_views`) and quality score. Jobs take a YouTube link only. Migration `005_remove_keyword_search` cleans existing databases (after the pre-migration backup) and deletes the stored YouTube key. |
 | Video upload (2026-11-09) | Cari Video has two tabs, "Link YouTube" and "Upload Video" (drag & drop via `window.metis.pathForFile`, or the file dialog). The file is used in place, never copied; jobs store `source.local_file_path`. Its transcript always comes from Whisper, so outside dev the job is refused without the Groq key. Migration `006_local_video_upload` lets `source_videos` hold a file instead of a `youtube_id`. |
-| Design system (2026-11-10) | `DESIGN.md` was rewritten for a light, soft-organic UI (§9.1). The frontend code still uses the old glassmorphism tokens until it is migrated per DESIGN.md §13. |
+| Design system (2026-11-10) | `DESIGN.md` defines a light, green-only, soft-organic UI (§9.1). The frontend is rebuilt on it: tokens/base/components CSS in `frontend/styles/`, the component library in `frontend/components/ui`, the shell (logo, nav rail with the liquid active indicator, top bar) in `frontend/components/shell` and `app/(dashboard)/layout.tsx`. Electron's window background and startup-error page use the same greens. |
 | Still open | K4: the Composio key in `frontend/.env.local` is untracked but **must still be rotated**. Phase 1 items not done: signing, installer run on a clean VM, tray/auto-update, daily yt-dlp update check. |
 | Tests | `pytest backend/tests` runs against a throwaway bundled `mongod.exe`. It includes a link-job pipeline test (real FFmpeg and MediaPipe) and resume idempotency. |
 | Packaging | `scripts/build-engine.ps1` → `backend/dist/metisclip-engine/` (onedir, about 320 MB, mostly cv2 and mediapipe), with a smoke test and self-test. `scripts/build-desktop.ps1 -Pack` → `desktop/dist/MetisClip-Setup-<version>.exe` (about 440 MB, unsigned). |
@@ -699,14 +699,15 @@ No credentials go in `.env`: API keys are entered in the app (§8.2), and the LL
 
 ### 9.1 Design system
 
-**`DESIGN.md` is the source of truth.** Since 2026-11-10 it defines a light, soft-organic style:
+**`DESIGN.md` is the source of truth.** Since 2026-11-10 it defines a light, soft-organic style in **greens only** (owner decision):
 
-- Off-white canvas `#F4F6F2`, white cards, and ink `#121412` for the nav rail, primary buttons and the video stage.
-- The owner's greens `#ECFAE5`, `#DDF6D2`, `#CAE8BD` and `#B0DB9C` as accents, with `#345625` for green text.
+- Every color is a green of the owner's palette hue: canvas `#ECFAE5` (mist), cards `#F9FDF6` (surface), accents `#DDF6D2`, `#CAE8BD`, `#B0DB9C`, green text `#345625`, and ink `#16240F` (a near-black green) for text, the nav rail, primary buttons and the video stage. No white, gray, red, amber or blue: errors use an icon, an ink outline and clear wording.
+- **Light theme only.** No emoji in the UI chrome; the subtitle "Emoji AI" marks are video content and stay.
 - Outfit for display, Plus Jakarta Sans for text, JetBrains Mono for timecodes.
 - Pill-shaped controls and 28 px cards.
+- Raw colors live only in `frontend/styles/tokens.css`. Screens are built from the reusable components in `frontend/components/ui` (barrel `index.ts`) and the `mc-` classes in `styles/components.css`; add a missing piece there, not inside a page.
 
-The earlier glassmorphism system (Liquid Blue `#1856FF`, deep-space backgrounds, frosted panels) is obsolete. Migrate screens to the new tokens as you touch them (DESIGN.md §13). `backdrop-filter` is allowed only on the video overlay controls.
+The earlier glassmorphism system (Liquid Blue `#1856FF`, deep-space backgrounds, frosted panels) has been removed. `backdrop-filter` is allowed only on the video overlay controls.
 
 ### 9.2 Screens
 

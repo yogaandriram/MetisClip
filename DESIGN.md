@@ -1,16 +1,17 @@
 ---
 name: metisclip-soft-organic
-description: Light, soft-organic desktop UI. Off-white canvas, ink-black structure, the owner's four greens as accents, pill controls, rounded cards and a few liquid shapes.
+description: Light, soft-organic desktop UI in greens only. Mist canvas, near-black green structure, the owner's four greens as fills and accents, pill controls, rounded cards and a few liquid shapes.
 ---
 
 # MetisClip Design System
 
 > The source of truth for the desktop app's UI: tokens, shapes, components, screens and rules.
-> **Revised 2026-11-10.** This replaces the dark glassmorphism system (Liquid Blue `#1856FF`, deep-space backgrounds, frosted panels). That system is obsolete. Migrate screens as you touch them (§13).
+> **Revised 2026-11-10.** This replaces the dark glassmorphism system (Liquid Blue `#1856FF`, deep-space backgrounds, frosted panels), which is removed from the code. Every screen is built from the component library in `frontend/components/ui` (§13).
 >
 > **Inputs:**
 > - Style reference: the "Project Management Tool design" dashboard shot the owner supplied on 2026-11-10.
-> - Palette chosen by the owner: `#ECFAE5`, `#DDF6D2`, `#CAE8BD`, `#B0DB9C`.
+> - Palette chosen by the owner: `#ECFAE5`, `#DDF6D2`, `#CAE8BD`, `#B0DB9C`. **Only greens close to these are allowed** (owner, 2026-11-10): every token shares their hue (§2).
+> - Light theme only, and no emoji in the UI (owner, 2026-11-10).
 >
 > **Scope:** app chrome only. Subtitle presets, Brand Template output and rendered video are content. They keep their own colors and fonts (§1.4).
 
@@ -24,8 +25,8 @@ The reference is a light dashboard that feels soft and hand-made rather than cor
 
 | Trait | In the reference | In MetisClip |
 |---|---|---|
-| **Neutral, airy base** | Off-white canvas, pure white cards, no borders, almost no shadows | `--canvas` + `--surface`; cards separate by tone, not lines |
-| **Ink as structure** | A black nav rail, black chart cells, black tooltips and icon tiles | `--ink` for the rail, primary buttons, the video stage, chart marks and tooltips |
+| **Neutral, airy base** | Off-white canvas, pure white cards, no borders, almost no shadows | Mist canvas + a near-white green `--surface`; cards separate by tone, not lines |
+| **Ink as structure** | A black nav rail, black chart cells, black tooltips and icon tiles | `--ink` (a near-black green) for text, the rail, primary buttons, the video stage, chart marks and tooltips |
 | **Pastel accent family** | Lime and peach as card fills and layered blobs | The owner's four greens (§2.1). The reference's orange is not carried over; its role goes to ink and leaf |
 | **Pills for anything you act on** | Nav pill group, search pill, time pill, chip pairs, progress rows | Buttons, inputs, chips, badges, segmented controls and the rail are all `--r-full` |
 | **Large-radius containers** | Cards around 28–32 px | `--r-lg` 28 px cards, `--r-xl` 36 px modals and stage |
@@ -42,7 +43,7 @@ The reference is a light dashboard that feels soft and hand-made rather than cor
 
 **Not carried over:**
 
-- **Orange.** The second accent family is replaced by ink plus the greens, so the palette stays as the owner chose.
+- **Orange, white, black and gray.** The second accent family is replaced by ink plus the greens, and the reference's neutrals become greens of the same hue, so the palette stays as the owner chose.
 - **The emoji greeting.** UI copy has no emoji.
 - **Clock, weather, search and notification bell.** MetisClip has no such features, so the top bar does not fake them.
 - **The "Go premium" upsell.** There is no monetization in v1 (CLAUDE.md D1).
@@ -50,7 +51,7 @@ The reference is a light dashboard that feels soft and hand-made rather than cor
 
 ### 1.2 Design read
 
-- **Theme:** light only in v1. The reference and the palette are light. Video is watched on the ink stage (§8.17), so editing does not need a dark theme. The tokens are named by role, which leaves room for a dark theme later.
+- **Theme:** light only (owner decision). The reference and the palette are light. Video is watched on the ink stage (§8.17), so editing does not need a dark theme.
 - **Decoration:** *expressive at the edges, quiet at the core.*
   - Overview screens (Beranda, Setup Wizard, empty states) may use blobs, contour lines, the tilt and notches.
   - Work screens (clip editor, Brand Template editor, Pengaturan, Antrian, Sistem, tables) use only flat cards, pills and ink.
@@ -78,178 +79,138 @@ This is the rule that keeps a pill-heavy UI readable:
 
 ## 2. Color
 
+**Only greens.** Every color in the app has the hue of the owner's palette (≈ 101°): the four palette greens, lighter versions of them for surfaces, and darker versions for text and lines. There is no white, no gray, no red, no amber and no blue. **Light theme only**; the dark surfaces (rail, video stage, ink cards, toasts) are the darkest green, not a dark mode.
+
+`frontend/styles/tokens.css` is the only file that holds raw color values. Everything else uses `var(--token)`.
+
 ### 2.1 Brand palette (owner)
 
-All four greens share hue ≈ 101° and are light. None of them is dark enough for text on a light surface, so they work as **fills** with ink on top.
+All four are light, so none of them works as text on a light surface. They are **fills**, with ink on top.
 
 | Token | Hex | Name | Role |
 |---|---|---|---|
-| `--mist` | `#ECFAE5` | Mist | Hover fill on white, selected table row, drop-zone drag-over, quiet info panels |
-| `--dew` | `#DDF6D2` | Dew | Success and "completed" badges (with moss text), clip tag chips, secondary tinted card, current transcript line |
-| `--sage` | `#CAE8BD` | Sage | Middle blob layer, pressed state of dew and mist fills, third chart series |
-| `--leaf` | `#B0DB9C` | Leaf | **The accent**: create actions ("+"), the one highlighted card per screen, the active subtitle word, top viral scores, the focus halo, the rail count badge, accents on ink |
+| `--mist` | `#ECFAE5` | Mist | **The window canvas** (`--canvas`); hover fill on surface; table row hover; sunken tracks inside cards |
+| `--dew` | `#DDF6D2` | Dew | Success badges (with moss text), tag chips, the dew card tone, skeletons, secondary hover |
+| `--sage` | `#CAE8BD` | Sage | Middle blob layer, warning badge fill, pressed state of dew; inactive icons and secondary text **on ink** |
+| `--leaf` | `#B0DB9C` | Leaf | **The accent**: create actions ("+"), the one highlighted card per screen, the active subtitle word, high viral scores, the rail count badge, progress fills and accents on ink |
 
-### 2.2 Derived tones
+### 2.2 Derived greens
 
-These two are computed from the palette's hue. Use them only where the four pastels cannot do the job.
-
-| Token | Hex | Why it exists |
-|---|---|---|
-| `--leaf-strong` | `#9BCD84` | Hover and pressed state of leaf fills. The palette has nothing darker than leaf. |
-| `--moss` | `#345625` | Green **text and icons** on light surfaces: success labels, links inside green panels, the chart line core. It passes AA on white and on every palette green. |
-
-### 2.3 Neutrals
+Same hue, computed lighter or darker so the palette can carry surfaces, lines and text.
 
 | Token | Hex | Role |
 |---|---|---|
-| `--ink` | `#121412` | Rail, primary buttons, video stage, tooltips, toasts, chart marks, body text. Slightly green-tinted black. |
-| `--ink-soft` | `#2A2E29` | Hover on ink; raised areas inside the stage (timeline track) |
-| `--ink-line` | `#3A4038` | Dividers and tracks on ink surfaces |
-| `--canvas` | `#F4F6F2` | Window background; sunken areas inside white cards (segmented tracks, table header) |
-| `--surface` | `#FFFFFF` | Cards, inputs, popovers, modals |
-| `--line` | `#E4E8E1` | Hairline dividers (decorative) |
-| `--line-dashed` | `#B8BEB3` | Dashed outlines of create-cards and drop zones |
-| `--line-input` | `#858C81` | Borders that identify a control: inputs, secondary buttons, unchecked boxes, chart cells (≥ 3:1) |
-| `--skeleton` | `#EDF0EA` | Loading placeholders |
+| `--surface` | `#F9FDF6` | Cards, inputs, popovers, modals; text on ink (`--on-ink`). The "white" of this app. |
+| `--leaf-strong` | `#9BCD84` | Hover and pressed state of leaf fills |
+| `--line` | `#D2EAC8` | Decorative hairlines and dividers; progress tracks |
+| `--line-dashed` | `#93BB81` | Dashed outlines of create-cards and drop zones; disabled text (`--text-disabled`) |
+| `--line-input` | `#6D8D5E` | Borders that identify a control: inputs, secondary buttons, unchecked boxes (≥ 3:1) |
+| `--moss` | `#345625` | Green **text and icons** on light fills: success labels, links inside green panels, keyword marks |
+| `--ink` | `#16240F` | Text, the rail, primary buttons, the video stage, ink cards, tooltips, toasts. A near-black green. |
+| `--ink-soft` | `#293D1F` | Hover on ink; raised areas inside the stage (timeline track) |
+| `--ink-line` | `#3C5431` | Dividers and tracks on ink surfaces |
 
-**Text tokens**
+**Role tokens**
 
-| Token | Hex | Use |
+| Token | Value | Use |
 |---|---|---|
-| `--text` | `#121412` | Default text (same as ink) |
-| `--text-muted` | `#5C6358` | Secondary text, subtitles, table headers |
-| `--text-subtle` | `#6B7267` | Placeholders and meta text, only on surface, canvas or mist |
-| `--text-disabled` | `#A3AA9F` | Disabled labels (exempt from contrast rules) |
-| `--on-ink` | `#FFFFFF` | Text and icons on ink |
-| `--on-ink-muted` | `#A3AA9F` | Secondary text and inactive rail icons on ink |
+| `--canvas` | `var(--mist)` | Window background |
+| `--text` | `var(--ink)` | Default text |
+| `--text-muted` | `#465F3A` | Secondary text, subtitles, table headers. Passes AA on every light fill, leaf included. |
+| `--text-subtle` | `#5B724F` | Placeholders and meta text, only on surface, mist or dew |
+| `--text-disabled` | `var(--line-dashed)` | Disabled labels (exempt from contrast rules) |
+| `--on-ink` | `var(--surface)` | Text and icons on ink |
+| `--on-ink-muted` | `var(--sage)` | Secondary text and inactive rail icons on ink |
+| `--skeleton` | `var(--dew)` | Loading placeholders |
+| `--ink-glass` | `rgb(22 36 15 / .55)` | Video overlay controls only (§6) |
 
-### 2.4 Status
+### 2.3 Status without red or amber
 
-Status colors are functional, not brand colors. Use them only to label a state, always together with an icon and a word.
+Status is told by **fill + icon + word**, never by color alone, and all of it stays green.
 
-| State | Fill | Text / icon |
+| State | Look | Example |
 |---|---|---|
-| Success | `--dew` | `--moss` |
-| Warning (`interrupted`, low disk) | `--warning-soft` `#FFF1DB` | `--warning` `#8A5300` |
-| Danger (`failed`, destructive) | `--danger-soft` `#FCE8E6` | `--danger` `#B3261E` |
-| Running | `--ink` | `--on-ink` + spinner |
+| Success, completed, exported | dew fill, moss text, check icon | "Selesai" |
+| Running, rendering | ink fill, on-ink text, spinner | "Berjalan" |
+| Ready | leaf fill, ink text, check icon | "Siap" |
+| Warning (interrupted, low disk) | sage fill, ink text, pause or alert icon | "Terputus" |
+| Error (failed) | surface fill, **2 px ink ring**, ink text, triangle-alert icon | "Gagal" |
+| Pending, cancelled | surface or mist fill, muted text, outline or x icon | "Menunggu", "Dibatalkan" |
 
-### 2.5 Measured contrast (WCAG 2.2)
+- **Error alerts** (`Alert tone="error"`): surface fill with a 2 px ink outline, an ink icon tile and a title that names what failed. They carry the strongest outline on the screen, which is what makes them stand out without red.
+- **Destructive buttons** (`Button variant="danger"`): ink outline, trash icon and an explicit label ("Hapus klip"). The confirm button of `ConfirmModal danger` is solid ink with the same label.
+- Wording carries the severity: "Gagal", "Tidak bisa", "Hapus permanen". Never rely on the shape alone.
 
-All values were computed from the hex codes above. ✗ means "do not use this pair for text".
+### 2.4 Measured contrast (WCAG 2.2)
 
-| Foreground | surface | canvas | mist | dew | sage | leaf | ink |
-|---|---|---|---|---|---|---|---|
-| `--ink` / `--text` | 18.51 | 17.02 | 17.08 | 16.03 | 13.92 | 11.86 | — |
-| `--text-muted` | 6.21 | 5.71 | 5.73 | 5.38 | 4.67 | 3.98 ✗ | — |
-| `--text-subtle` | 4.97 | 4.57 | 4.58 | 4.30 ✗ | ✗ | ✗ | — |
-| `--moss` | 8.39 | 7.71 | 7.74 | 7.26 | 6.31 | 5.38 | — |
-| `--danger` | 6.54 | 6.01 | — | — | — | — | — |
-| `--warning` | 6.33 | 5.82 | — | — | — | — | — |
-| `--on-ink` | — | — | — | — | — | — | 18.51 |
-| `--leaf` | 1.56 ✗ | 1.43 ✗ | — | — | — | — | 11.86 |
-| `--on-ink-muted` | — | — | — | — | — | — | 7.76 (5.79 on ink-soft) |
+Computed from the hex values above. ✗ = do not use this pair for text.
 
-Other pairs: danger on danger-soft 5.55, warning on warning-soft 5.68, white on danger 6.54.
+| Foreground | surface | mist | dew | sage | leaf | ink |
+|---|---|---|---|---|---|---|
+| `--ink` / `--text` | 15.78 | 14.98 | 14.06 | 12.21 | 10.41 | — |
+| `--text-muted` | 6.90 | 6.55 | 6.15 | 5.34 | 4.55 | — |
+| `--text-subtle` | 5.15 | 4.89 | 4.59 | 3.98 ✗ | 3.39 ✗ | — |
+| `--moss` | 8.15 | 7.74 | 7.26 | 6.31 | 5.38 | — |
+| `--on-ink` | — | — | — | — | — | 15.78 (11.46 on ink-soft) |
+| `--on-ink-muted` | — | — | — | — | — | 12.21 (8.86 on ink-soft) |
+| `--leaf` | 1.52 ✗ | 1.44 ✗ | — | — | — | 10.41 |
 
 **Non-text contrast (3:1, WCAG 1.4.11):**
 
-- `--line-input`: 3.46 on surface, 3.18 on canvas. This is the lightest border allowed to identify a control.
-- Leaf against white or canvas: 1.56 or less. **A green fill can never be the only boundary or the only state indicator.** Pair it with ink (text, icon, outline) or with a visible label.
-- Ink against any light token: ≥ 11.8, so ink is the default for state (selected segment, checked box, toggle on).
+- `--line-input`: 3.63 on surface, 3.45 on mist, 3.24 on dew. It is the lightest border allowed to identify a control.
+- Light greens against each other measure 1.0–1.5. **A green fill is never the only boundary or the only state indicator.** Pair it with ink (text, icon, outline) or a visible label.
+- Ink against any light green is ≥ 8.8, so ink marks state: the selected segment, the checked box, the toggle that is on, the focus ring.
 
-### 2.6 Usage rules
+### 2.5 Usage rules
 
-- **Proportion per screen:** about 60 % neutrals (canvas and surface), about 25 % ink, about 10 % greens, at most 5 % status colors.
+- **Proportion per screen:** about 65 % light greens (canvas and surface), about 25 % ink, about 10 % accents (dew, sage, leaf).
 - **One leaf moment per region.** Leaf marks the thing to look at or the way to start something new. If leaf is everywhere, it stops being the accent.
-- **Text on greens is always `--ink`**, or `--moss` for success labels. Never put `--text-muted` on leaf, and never use any palette green as a text color on a light surface.
-- **On leaf cards, every piece of text is ink.** Secondary text uses ink at weight 400 rather than a gray.
-- **No gradients** in chrome. The only layered color is the chart line (§9) and the blob layers (§4.2.3).
-- **No raw hex or rgba outside the token block** in `globals.css`. SVG decorations reference tokens through `var()`.
+- **Text on light greens is ink**, `--text-muted`, or `--moss` for success labels. Never use a palette green as text on a light fill.
+- **On leaf cards every piece of text is ink**, with weight 400 for secondary text instead of a lighter color.
+- **No gradients** in chrome. The only layered color is the blob (§4.2.3).
+- **No raw color values outside `tokens.css`.** SVG decorations reference tokens through `var()`. Subtitle presets are video content and keep their own colors (§13).
 
-### 2.7 Token block
+### 2.6 Token block
 
-This replaces the `:root` block in `frontend/styles/globals.css`.
+`frontend/styles/tokens.css`, abridged (spacing, radius, fonts and motion follow in the file):
 
 ```css
 :root {
   color-scheme: light;
 
-  /* Brand greens (owner palette) */
+  /* Owner palette */
   --mist: #ECFAE5;
   --dew: #DDF6D2;
   --sage: #CAE8BD;
   --leaf: #B0DB9C;
 
-  /* Derived from the palette (hue 101°): states and text only */
+  /* Same hue, lighter or darker, for surfaces, lines and text */
+  --surface: #F9FDF6;
   --leaf-strong: #9BCD84;
+  --line: #D2EAC8;
+  --line-dashed: #93BB81;
+  --line-input: #6D8D5E;
   --moss: #345625;
+  --ink: #16240F;
+  --ink-soft: #293D1F;
+  --ink-line: #3C5431;
 
-  /* Neutrals */
-  --ink: #121412;
-  --ink-soft: #2A2E29;
-  --ink-line: #3A4038;
-  --canvas: #F4F6F2;
-  --surface: #FFFFFF;
-  --line: #E4E8E1;
-  --line-dashed: #B8BEB3;
-  --line-input: #858C81;
-  --skeleton: #EDF0EA;
+  /* Roles */
+  --canvas: var(--mist);
+  --text: var(--ink);
+  --text-muted: #465F3A;
+  --text-subtle: #5B724F;
+  --text-disabled: var(--line-dashed);
+  --on-ink: var(--surface);
+  --on-ink-muted: var(--sage);
+  --skeleton: var(--dew);
 
-  /* Text */
-  --text: #121412;
-  --text-muted: #5C6358;
-  --text-subtle: #6B7267;
-  --text-disabled: #A3AA9F;
-  --on-ink: #FFFFFF;
-  --on-ink-muted: #A3AA9F;
-
-  /* Status */
-  --success: var(--moss);
-  --success-soft: var(--dew);
-  --warning: #8A5300;
-  --warning-soft: #FFF1DB;
-  --danger: #B3261E;
-  --danger-soft: #FCE8E6;
-
-  /* Type */
-  --font-display: 'Outfit', 'Plus Jakarta Sans', sans-serif;
-  --font-text: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', Consolas, monospace;
-
-  /* Shape */
-  --r-xs: 8px;
-  --r-sm: 12px;
-  --r-md: 20px;
-  --r-lg: 28px;
-  --r-xl: 36px;
-  --r-full: 999px;
-
-  /* Space */
-  --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px; --s-5: 20px;
-  --s-6: 24px; --s-8: 32px; --s-10: 40px; --s-12: 48px; --s-16: 64px;
-
-  /* Elevation */
-  --shadow-1: 0 12px 32px -8px rgb(18 20 18 / 0.18);
-  --shadow-2: 0 32px 80px -16px rgb(18 20 18 / 0.32);
-  --scrim: rgb(18 20 18 / 0.40);
-
-  /* Motion */
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-  --dur-fast: 120ms;
-  --dur-base: 200ms;
-  --dur-slow: 320ms;
+  /* Elevation (ink at low alpha) */
+  --shadow-1: 0 12px 32px -8px rgb(22 36 15 / 0.18);
+  --shadow-2: 0 32px 80px -16px rgb(22 36 15 / 0.32);
+  --scrim: rgb(22 36 15 / 0.4);
+  --ink-glass: rgb(22 36 15 / 0.55);
 }
-
-body {
-  background: var(--canvas);
-  color: var(--text);
-  font: 400 14px/20px var(--font-text);
-  -webkit-font-smoothing: antialiased;
-}
-
-::selection { background: var(--leaf); color: var(--ink); }
 ```
 
 ---
@@ -312,7 +273,7 @@ These give MetisClip its character. Each has a **dose cap**; going over it turns
 |---|---|---|
 | Rail bite | Nav rail only | 1 (always present) |
 | Notch badge | Stat cards, hero card, preset cards | 4 |
-| Corner blob | White or mist cards on overview screens, Setup Wizard, empty states | 2 |
+| Corner blob | Surface or mist cards on overview screens, Setup Wizard, empty states | 2 |
 | Contour lines | Ink hero card | 1 |
 | Goo bridge | Two pills of the **same fill** forming one compound label | 1 per card |
 | Tilt + dashed ghost | One stat card holding just a number and a label, on an overview screen | 1 |
@@ -322,7 +283,7 @@ None of them are used in the clip editor, the Brand Template editor, Pengaturan 
 
 #### 4.2.1 Rail bite
 
-The active nav item is a white circle that bites into the ink rail from the canvas side, connected with concave curves. It is one SVG that moves along the rail. The bite path must be filled with the color **behind** the rail (`--canvas`).
+The active nav item is a surface-colored circle that bites into the ink rail from the canvas side, connected with concave curves. It is one SVG that moves along the rail. The bite path must be filled with the color **behind** the rail (`--canvas`).
 
 ```html
 <nav class="rail" aria-label="Navigasi utama" style="--bite-y: 94px">
@@ -512,7 +473,7 @@ Use the 4 px based tokens `--s-1` through `--s-16` (4, 8, 12, 16, 20, 24, 32, 40
 - **Logo:** a 64 px ink circle, 16 px from the top-left, holding the MetisClip mark in leaf.
 - **Rail:** 64 px wide, starts 12 px below the logo and ends 16 px above the window bottom.
   - Main items, from `NAV_ITEMS`: Beranda, Cari Video, Antrian, Hasil Clip, Brand Template, Pengaturan.
-  - Bottom slot: **Sistem**, as a white circle button. It shows a danger dot only when the engine or database reports a real problem.
+  - Bottom slot: **Sistem**, as a surface circle button. It shows a leaf alert dot with an ink ring only when the engine or database reports a real problem, and its tooltip names the problem.
   - Antrian shows a count badge (20 px leaf circle, ink caption) while jobs are active.
   - Each item has an `aria-label` and a tooltip to its right (§8.10).
 - **Top bar:** 64 px tall, aligned with the logo, and scrolls with the page (the clip editor is the exception, where it stays fixed).
@@ -544,7 +505,7 @@ Use the 4 px based tokens `--s-1` through `--s-16` (4, 8, 12, 16, 20, 24, 32, 40
 - **Library:** lucide-react. It is already a dependency, ships offline, and its outline style matches the reference's thin monochrome icons.
 - **Stroke:** 1.75.
 - **Sizes:** 16 px inline with text, 20 px in buttons, inputs and the rail, 24 px in empty states and icon tiles.
-- **Color:** icons inherit `currentColor`. They take their color from the container: white on ink, ink on leaf, moss in success contexts. **No green icon strokes on white**, which fails contrast.
+- **Color:** icons inherit `currentColor`. They take their color from the container: `--on-ink` on ink, ink on leaf, moss in success contexts. **No light-green icon strokes on light fills**, which fails contrast.
 - **Meaning first:** no sparkles, magic wands or robots for "AI". Replace `Sparkles` on Cari Video with a content icon such as `Clapperboard`. Every icon-only button has an `aria-label` and a tooltip.
 
 ---
@@ -560,13 +521,13 @@ Paths refer to `frontend/components/ui/`.
 | `primary` | `--ink` | `--on-ink` | `--ink-soft` | The confirm action of a form or step: "Simpan", "Mulai proses", "Ekspor" |
 | `accent` | `--leaf` | `--ink` | `--leaf-strong` | A "create new" entry point: "+ Klip baru". At most one per screen |
 | `secondary` | `--surface` + inset `1px --line-input` | `--ink` | `--mist` fill | Alternatives: "Tes", "Buka folder" |
-| `ghost` | transparent | `--ink` | `--mist` on white, `--surface` on canvas | Cancel, low-priority actions |
-| `danger` | `--danger-soft` | `--danger` | adds an inset `1px --danger` ring | Destructive action in a list. Inside a confirm modal it becomes solid `--danger` with `--on-ink` text |
+| `ghost` | transparent | `--ink` | `--mist` on surface, `--dew` on canvas | Cancel, low-priority actions |
+| `danger` | `--surface` + inset `1.5px --ink` | `--ink` | solid `--ink`, `--on-ink` text | Destructive action, always with a trash icon and an explicit label ("Hapus klip"). Inside a confirm modal it is solid ink |
 
 - **Sizes:** `sm` 36 px tall with 16 px side padding (tables, toolbars); `md` 44 px with 22 px (default); `lg` 52 px with 28 px (wizard, Cari Video submit).
 - **Typography:** the `label` token. A leading icon is optional; a trailing arrow appears only when the button navigates.
 - **Pressed:** `scale(.97)` for `--dur-fast`.
-- **Disabled:** `--canvas` fill, `--text-disabled` text, `cursor: not-allowed`.
+- **Disabled:** `--dew` fill, `--text-subtle` text, `cursor: not-allowed`.
 - **Loading:** a spinner replaces the leading icon, the label stays, and the width does not change.
 - **Icon button:** a 40 px circle (`sm` 32 px). Variants: surface, ghost, ink.
 - **Create button:** a 48 px leaf circle with an ink "+" icon, used inside create-cards.
@@ -588,11 +549,11 @@ Paths refer to `frontend/components/ui/`.
 .input::placeholder { color: var(--text-subtle); }
 .input:hover { box-shadow: inset 0 0 0 1px var(--text-muted); }
 .input:focus-visible { outline: none; box-shadow: inset 0 0 0 1.5px var(--ink), 0 0 0 4px var(--leaf); }
-.input[aria-invalid='true'] { box-shadow: inset 0 0 0 1.5px var(--danger), 0 0 0 4px var(--danger-soft); }
+.input[aria-invalid='true'] { box-shadow: inset 0 0 0 2px var(--ink); }
 ```
 
 - **Textarea:** radius `--r-md`, padding 14 px 20 px.
-- **Label:** above the field, `label` token, 6 px gap. Helper text below in `caption`, `--text-muted`. An error replaces the helper text, in `--danger` with an alert icon.
+- **Label:** above the field, `label` token, 6 px gap. Helper text below in `caption`, `--text-muted`. An error replaces the helper text, in ink at weight 600 with a triangle-alert icon, and the field gets a 2 px ink outline.
 - **Leading icon:** 18 px, `--text-subtle`, 16 px from the left edge.
 - **Select:** the same pill with a chevron; its menu is a popover (§8.11).
 - **Secret field:** an input with an eye icon button inside on the right, plus a `secondary sm` "Tes" button outside. The test result appears as a status badge below.
@@ -600,7 +561,7 @@ Paths refer to `frontend/components/ui/`.
 
 ### 8.3 Segmented control (`Tabs.tsx`)
 
-- **Track:** `--canvas` (inside a white card) or `--surface` (on canvas), 4 px padding, `--r-full`.
+- **Track:** `--mist` (inside a surface card) or `--surface` (on the canvas, `onCanvas`), 4 px padding, `--r-full`.
 - **Segments:** 36 px tall, 16 px side padding, `label` token, `--text-muted`.
 - **Active segment:** an ink pill with `--on-ink` text that slides between segments (`--dur-base`, `--ease-out`).
 - **Accessibility:** `role="tablist"`, arrow keys move between segments.
@@ -624,22 +585,22 @@ Paths refer to `frontend/components/ui/`.
 | Status | Fill | Text | Icon |
 |---|---|---|---|
 | `running`, `rendering`, `processing` | `--ink` | `--on-ink` | spinner |
-| `pending`, `queued` | `--canvas` | `--ink` | clock |
+| `pending`, `queued` | `--surface` + inset `1px --line-input` | `--ink` | clock |
 | `ready` (clip) | `--leaf` | `--ink` | check |
 | `completed`, `exported` | `--dew` | `--moss` | check |
-| `interrupted` | `--warning-soft` | `--warning` | pause |
-| `failed` | `--danger-soft` | `--danger` | alert |
-| `cancelled` | `--canvas` | `--text-muted` | x |
+| `interrupted` | `--sage` | `--ink` | pause |
+| `failed` | `--surface` + inset `1.5px --ink` | `--ink` | triangle-alert |
+| `cancelled` | transparent + inset `1px --line` | `--text-muted` | x |
 
 **Viral score:** a 36 px circle (or pill) showing the number in Outfit 500.
 
 - ≥ 80: leaf fill, ink text
 - 60–79: dew fill, ink text
-- below 60: canvas fill, `--text-muted`
+- below 60: surface fill with an inset `--line-input` outline, `--text-muted`
 
 It has the tooltip "Skor viral" and `aria-label="Skor viral 87"`.
 
-### 8.6 Card (`GlassCard.tsx` → `Card.tsx`)
+### 8.6 Card (`Card.tsx`)
 
 | Variant | Background | Text |
 |---|---|---|
@@ -656,7 +617,7 @@ It has the tooltip "Skor viral" and `aria-label="Skor viral 87"`.
 
 ### 8.7 Icon tile
 
-A 44 px ink square with `--r-sm` corners. Two leaf quarter-circles sit on opposite corners as decoration, with a white 18 px icon in the middle. It marks a card's topic on tinted cards.
+A 44 px ink square with `--r-sm` corners. Two leaf quarter-circles sit on opposite corners as decoration, with an 18 px `--on-ink` icon in the middle. It marks a card's topic on tinted cards.
 
 ```css
 .icon-tile { position: relative; width: 44px; height: 44px; border-radius: var(--r-sm); background: var(--ink); color: var(--on-ink); display: grid; place-items: center; overflow: hidden; }
@@ -677,12 +638,12 @@ A card with a notch badge (§4.2.2), an optional corner blob, a `display` number
 ### 8.9 Progress (`ProgressBar.tsx`)
 
 - **Bar:** 8 px tall, `--r-full`.
-  - On white: `--line` track, `--ink` fill.
-  - On tinted cards: white at 60 % for the track.
+  - On surface: `--line` track, `--ink` fill.
+  - On dew or leaf cards: surface at 65 % for the track.
   - On ink: `--ink-line` track, `--leaf` fill.
   - The percentage sits next to it in `mono`.
   - Width changes animate over 300 ms (`--ease-out`), driven only by WS events.
-- **Progress row** (the reference's month rows): a 44 px pill with an inset `1.5px` outline track (white at 70 % on leaf cards, `--line-input` on white).
+- **Progress row** (the reference's month rows): a 44 px pill with an inset `1.5px` outline track (surface at 70 % on leaf cards, `--line-input` on surface).
   - Fill is `--surface`; one highlighted row may use an `--ink` fill with `--on-ink` label.
   - Label on the left (`label`), value on the right (`mono`).
   - Used for storage per category and per agent on Sistem.
@@ -698,18 +659,18 @@ A card with a notch badge (§4.2.2), an optional corner blob, a `display` number
 - Appears after 300 ms on hover and immediately on keyboard focus.
 - Required on every icon-only control. An optional variant has a leading info icon.
 
-### 8.11 Popover, dropdown, menu (`Dropdown.tsx`, `AgentSwitcher.tsx`, `DatePicker.tsx`)
+### 8.11 Popover, dropdown, menu (`Dropdown.tsx`, `AgentSwitcher.tsx`)
 
 - `--surface`, radius `--r-md`, `1px solid var(--line)`, `--shadow-1`, padding 6.
 - Items are 40 px tall with radius `--r-sm` and 12 px side padding; hover `--mist`.
 - The selected item has weight 600 and a check icon.
-- A destructive item uses `--danger` text and is separated by a hairline.
+- A destructive item uses weight 600, a trash icon and an explicit label, separated by a hairline.
 - Full keyboard support: arrows, Enter, Esc, typeahead.
 
 ### 8.12 Modal (`Modal.tsx`, `ConfirmModal.tsx`)
 
 - `--surface`, radius `--r-xl`, padding 32, width 480 (or 640 for forms), over `--scrim`.
-- Title in `h2`, body in `body`. Actions are right-aligned: `ghost` or `secondary` first, then `primary` (or solid `danger` for destructive confirms).
+- Title in `h2`, body in `body`. Actions are right-aligned: `ghost` or `secondary` first, then `primary` (solid ink with a trash icon and the action's name for destructive confirms).
 - A close icon button sits top-right.
 - Focus is trapped, Esc closes, and focus returns to the trigger.
 - Enter: opacity 0 → 1 and `scale(.98)` → 1 over `--dur-base`.
@@ -717,32 +678,32 @@ A card with a notch badge (§4.2.2), an optional corner blob, a `display` number
 ### 8.13 Toast (`ToastProvider.tsx`, react-hot-toast)
 
 - `--ink`, radius `--r-md`, padding 12 × 16, `--on-ink` text, bottom-right with 24 px inset and an 8 px gap between toasts.
-- **Leading 28 px circle:** leaf with an ink check (success), `--danger-soft` with a danger icon (error), `--warning-soft` with a warning icon (warning).
+- **Leading icon:** leaf on ink for success and loading, `--on-ink` for errors. Errors stay longer (8 s) and their text names what failed.
 - **Action** (e.g. "Buka folder"): a text button in `--leaf`.
 - Success toasts close after 5 s. Error toasts stay until closed.
 
-### 8.14 Toggle, checkbox, radio, slider (`ToggleSwitch.tsx`, `PremiumSlider.tsx`)
+### 8.14 Toggle, checkbox, radio, slider (`ToggleSwitch.tsx`, `Slider.tsx`, `NumberStepper.tsx`, `ColorPicker.tsx`)
 
 - **Toggle** (44 × 24 track, 18 px knob):
   - Off: `--surface` track with inset `1.5px --line-input` and a `--line-input` knob.
   - On: `--ink` track with a `--leaf` knob.
 - **Checkbox** (20 px, radius 6):
   - Unchecked: inset `1.5px --line-input`.
-  - Checked: `--ink` fill with a white check.
+  - Checked: `--ink` fill with an `--on-ink` check.
 - **Radio** (20 px circle): checked shows an ink ring and an ink dot.
 - **Slider:**
   - Track 6 px, `--line`, with an `--ink` fill.
   - Thumb: 20 px `--surface` circle with an inset `2px --ink` ring.
   - While dragging, the value shows in a `mono` tooltip.
 
-### 8.15 Drop zone and create-card (`discover/VideoFilePicker.tsx`)
+### 8.15 Drop zone and create-card (`DropZone.tsx`, used by `discover/VideoFilePicker.tsx`)
 
 - A dashed card (§4.2.7), at least 200 px tall, with its content centered:
   - a 48 px leaf circle with an upload or plus icon
   - a `label` title ("Seret video ke sini atau pilih file")
   - a `caption` line ("MP4, MKV, MOV, WEBM, M4V, AVI · file dipakai di tempatnya, tidak disalin")
 - **Drag-over:** `--mist` fill with a `2px dashed var(--ink)` outline.
-- **Error:** a `--danger` dashed outline and the message below.
+- **Error:** a `2px dashed var(--ink)` outline and the message below, with an alert icon.
 - The whole zone is a button (Enter or Space opens the file dialog).
 
 ### 8.16 Table
@@ -759,13 +720,13 @@ A card with a notch badge (§4.2.2), an optional corner blob, a `display` number
 
 - An `--ink` card with radius `--r-xl` and 24 px padding. The 9:16 preview is centered with radius `--r-md`. The parent of the preview keeps `container-type: inline-size` (CLAUDE.md §5.4).
 - **Controls below the preview:**
-  - ghost-on-ink icon buttons (white icons, `--ink-soft` hover)
+  - ghost-on-ink icon buttons (`--on-ink` icons, `--ink-soft` hover)
   - the timecode in `mono`: current time in `--on-ink`, total in `--on-ink-muted`
 - **Timeline:**
   - Track: 40 px tall, `--ink-soft`, radius `--r-sm`.
   - Kept segments: `--ink-line`. Cut ranges (fillers, pauses): hatched at 20 % `--on-ink-muted`.
   - Viral segment markers: `--leaf`.
-  - Playhead: a 2 px white line with a 10 px knob.
+  - Playhead: a 2 px `--on-ink` line with a 10 px knob.
 - **Overlay controls on the video:** the only glass in the app (§6).
 
 ### 8.18 Subtitle word editor
@@ -785,13 +746,13 @@ A card with a notch badge (§4.2.2), an optional corner blob, a `display` number
 ### 8.20 Avatar (`Avatar.tsx`)
 
 - An agent avatar is a circle: 44 px in popovers, 32 px in lists. It shows the initials in Jakarta 600, ink.
-- Its fill is picked by a hash of the agent ID from mist, dew, sage and leaf. All four keep ink text at 11.8:1 or more.
+- Its fill is picked by a hash of the agent ID from mist, dew, sage and leaf. All four keep ink text at 10.4:1 or more.
 
 ### 8.21 Wizard stepper (`app/setup`)
 
 - Five 32 px numbered circles joined by a 2 px line.
   - Done: `--leaf` with an ink check.
-  - Current: `--ink` with a white number.
+  - Current: `--ink` with an `--on-ink` number.
   - Upcoming: `--surface` with an inset `--line-input` outline and a `--text-muted` number.
 - The step name appears below each circle in `caption`.
 
@@ -825,7 +786,7 @@ A card with a notch badge (§4.2.2), an optional corner blob, a `display` number
   - The top cell is filled `--ink` and carries the value in Outfit 15/500, `--on-ink`.
   - Larger counts use regular bars: ink fill, radius `--r-sm` on top.
 - **Line:** a smooth monotone curve with a 2.5 px `--moss` core over an 8 px `--leaf` underlay, round caps. No point markers; hovering shows a chart tooltip (popover style, §8.11).
-- **Series order:** ink, then leaf (with a moss outline), then sage (with an ink outline). At most three series. Green marks always carry a label or an outline, because leaf on white is 1.56:1.
+- **Series order:** ink, then leaf (with a moss outline), then sage (with an ink outline). At most three series. Green marks always carry a label or an outline, because leaf on surface is 1.52:1.
 - **Axes:** no gridlines and no frame. Labels use `caption` in `--text-muted`. Day labels: "Sen Sel Rab Kam Jum Sab Min".
 - **Data:** only real engine data. With too little data, show the empty state, not a demo curve.
 
@@ -858,9 +819,9 @@ Each screen is built around the decision the user makes there. Decoration follow
 | **Cari Video** (`/discover`) | "Which video, and how many clips?" | One centered card, max 760: segmented "Link YouTube / Upload Video"; a large pill input with paste, or the drop zone; duration choice chips; clip-count stepper; `lg primary` "Mulai proses". | Quiet; the drop zone is the only dashed element |
 | **Antrian** (`/jobs`) | "Which job needs me?" | Failed and interrupted jobs first, as cards with pipeline steps and "Lanjutkan" / "Batalkan"; running jobs next, with live bars; finished jobs last, as a table. | Quiet |
 | **Hasil Clip** (`/clips`) | "Which clip should I edit or export?" | Status segmented filter. A grid of 9:16 thumbnail cards (radius `--r-md`) with a score badge as a top-left notch, duration `mono` pill bottom-right and status badge; hover lifts the card and shows "Edit" / "Ekspor". | Quiet |
-| **Clip editor** (`/clips/detail?id=`) | "Are the words and style right?" | Fixed top bar with title, save state, "Ekspor" (primary). Three columns: word editor (white, 360) · ink stage · style panel (white, 360: preset picker, font, AI subtitle settings). | None |
+| **Clip editor** (`/clips/detail?id=`) | "Are the words and style right?" | Fixed top bar with title, save state, "Ekspor" (primary). Three columns: word editor (surface, 360) · ink stage · style panel (surface, 360: preset picker, font, AI subtitle settings). | None |
 | **Brand Template** | "What will my clips look like?" | Template list (left, 300) · settings in collapsible card sections · ink stage preview. | None |
-| **Pengaturan** | "Are my keys and settings correct?" | Single column, max 760; one white card per group (LLM, Whisper, processing, export folder, yt-dlp); secret fields with "Tes". | None |
+| **Pengaturan** | "Are my keys and settings correct?" | Single column, max 760; one surface card per group (LLM, Whisper, processing, export folder, yt-dlp); secret fields with "Tes". | None |
 | **Sistem** | "Is everything healthy, and where is my space going?" | Health checks as rows with badges; a leaf storage card with progress rows (db, library, cache, per agent); actions (Update yt-dlp, Backup sekarang, Pindahkan Lokasi Data, Buka folder log) as secondary buttons. | Quiet |
 | **Super Agents** | "Which workspace, with which template?" | Cards per agent: avatar, name, niche, default template chip, clip count, actions. | Quiet |
 | **Setup Wizard** (`/setup`) | "What do I need before the first clip?" | Centered card (radius `--r-xl`, max 720) with the stepper on top. The welcome step may use a corner blob and the logo. | Expressive on step 1, quiet after |
@@ -896,57 +857,45 @@ Each screen is built around the decision the user makes there. Decoration follow
 
 ---
 
-## 13. Implementation and migration
+## 13. Implementation
 
-### 13.1 Tokens
+### 13.1 Files
 
-Replace the `:root` block in `frontend/styles/globals.css` with §2.7. During the migration, keep the old names as aliases so unmigrated screens keep working:
-
-| Old token | Alias to | Note |
+| Layer | Path | Holds |
 |---|---|---|
-| `--bg-deep` | `--canvas` | |
-| `--bg-dark` | `--canvas` | |
-| `--bg-glass`, `--bg-glass-hover`, `--bg-glass-active` | `--surface`, `--mist`, `--dew` | |
-| `--border-glass` | `--line` | |
-| `--border-glass-glow` | `--line-input` | |
-| `--primary`, `--primary-hover` | `--ink`, `--ink-soft` | Blue is gone. Primary actions are ink |
-| `--primary-glow`, `--accent-glow` | `transparent` | No glows |
-| `--accent` | `--leaf` | As a text color it must become `--moss` |
-| `--text-primary` | `--text` | |
-| `--text-dim` | `--text-muted` | |
-| `--text-muted` (old) | `--text-subtle` | **The name changes meaning**; check each use |
-| `--font-sans` | `--font-text` | |
+| Tokens | `frontend/styles/tokens.css` | Every color, font, radius, spacing, elevation and motion value. The only file with raw colors. |
+| Base | `frontend/styles/base.css` | Reset, type classes (`mc-display`, `mc-h1`…`mc-caption`, `mc-mono`, `mc-muted`), layout helpers (`mc-stack`, `mc-row`, `mc-grid` + `mc-col-*`, `mc-gap-*`), reduced motion |
+| Components | `frontend/styles/components.css` | One `mc-` block per component in §8, the app shell, and the forced-colors fallbacks |
+| React | `frontend/components/ui/*` | The component library, imported from the barrel: `import { Button, Card } from '@/components/ui'` |
+| Shell | `frontend/components/shell/*`, `app/(dashboard)/layout.tsx` | Logo, `NavRail` with the bite, `ShellProvider` (active job count) |
+| Electron | `desktop/src/main/index.ts` | `backgroundColor` `#ECFAE5` (no dark flash at startup) and the inline startup-error page, which repeats the token values because it cannot load CSS files |
 
-Remove the aliases once `grep -rn "var(--bg-glass\|var(--primary\|var(--accent\|var(--text-primary\|var(--text-dim" frontend` returns nothing.
+### 13.2 Component inventory
 
-### 13.2 Steps
+| Need | Component |
+|---|---|
+| Container | `Card` (tones surface, dew, leaf, ink, dashed), `CardHeader`, `SectionBar`, `Stage` |
+| Page top bar | `PageHeader` (title, subtitle, actions, back link; adds the agent switcher, "+ Klip baru" and the jobs pill) |
+| Actions | `Button`, `ButtonLink`, `IconButton`, `IconLink`, `Dropdown` |
+| Inputs | `InputField`, `SelectField`, `TextAreaField`, `ToggleSwitch`, `Slider`, `NumberStepper`, `ColorPicker`, `ChoiceChips`, `Chip`, `Tabs`, `DropZone`, `Field` |
+| Status | `Badge`, `StatusBadge` (job, clip, render), `ScoreBadge`, `Tag`, `Alert`, `ProgressBar`, `ProgressRow`, `PipelineSteps`, `WizardSteps`, `Spinner`, `Skeleton`, `EmptyState` |
+| Overlays | `Modal`, `ConfirmModal`, `Tooltip`, toasts via react-hot-toast styled by `ToastProvider` |
+| Identity and motifs | `Logo`, `LogoMark`, `Avatar`, `IconTile`, `StatCard`, `Notch`, `Blob`, `Contour`, `Tilt`, `GooPair`, `KeyValueList`, `Kbd`, `Divider` |
 
-1. **Tokens:** §13.1.
-2. **Classes.**
-   - Delete `.glass-panel`, `.glass-card-glowing` and `.viral-badge`.
-   - Rebuild `.btn-primary`, `.btn-secondary` and `.glass-input` (renamed `.input`) per §8.
-   - Add `.card`, `.notch`, `.goo`, `.rail`, `.icon-tile`, `.chip` and `.badge`.
-   - `body` drops its radial-gradient background.
-3. **Inline styles.** Components and `app/(dashboard)/layout.tsx` hard-code colors (`rgba(10, 10, 15, 0.85)`, `rgba(24, 86, 255, 0.1)`, gradient text). Move them to classes and tokens as each file is touched. No raw hex or rgba outside the token block.
-4. **Shell.** Rewrite `app/(dashboard)/layout.tsx` from the 260 px sidebar to the logo, rail and top bar in §5.2.
-   - `NavLink.tsx` becomes the rail item.
-   - `AgentSwitcher.tsx` moves into the top-bar pill group.
-   - The version and engine status move into the Sistem button's tooltip and the Sistem page.
-5. **Components.**
-   - `GlassCard.tsx` → `Card.tsx` with the variants in §8.6.
-   - Restyle `PremiumSlider`, `PremiumColorPicker`, `Tabs`, `Badge`, `ProgressBar`, `Modal`, `ToastProvider` and `EmptyState` per §8.
-6. **Electron.** In `desktop/src/main/index.ts`:
-   - The `BrowserWindow` `backgroundColor` changes from `#030307` to `#F4F6F2`, so there is no dark flash at startup.
-   - The inline startup-error and recovery HTML uses the same tokens (§11).
-7. **Scope check.** Nothing in `frontend/lib/presets/`, `render-engine/` or a Brand Template's caption and brand settings changes.
-8. **Verify each migrated screen** at 1280 × 720 and 1920 × 1080, at 100 % and 150 % scaling, with keyboard only and with reduced motion on.
+### 13.3 Rules for new screens
+
+1. Build from `components/ui`. When something is missing, add it there (component + `mc-` class block), not inside a page.
+2. Inline `style` only for layout (widths, grid columns, aspect ratios). Colors always come from tokens.
+3. Status always uses `StatusBadge` and the `{ label, tone }` maps in `lib/format.ts`.
+4. Nothing in `frontend/lib/presets/`, `render-engine/` or a Brand Template's caption and brand settings follows these tokens: subtitles are video content.
+5. Verify each screen at 1280 × 720 and 1920 × 1080, at 100 % and 150 % scaling, with keyboard only and with reduced motion on.
 
 ---
 
 ## 14. Don'ts
 
 - Don't use glass or `backdrop-filter`, except the video overlay controls.
-- Don't use glows, gradients in chrome, blue, purple or orange.
+- Don't use any color that is not a green of the palette's hue: no white, gray, red, amber, blue or purple, and no glows or gradients in chrome.
 - Don't use palette greens as text on light surfaces, or `--text-muted` on leaf. Green text is `--moss`.
 - Don't make a green fill the only boundary or state signal.
 - Don't go over a motif's dose cap (§4.2), and don't use any motif on work screens.
@@ -954,8 +903,9 @@ Remove the aliases once `grep -rn "var(--bg-glass\|var(--primary\|var(--accent\|
 - Don't use a goo bridge between pills of different fills, or inside a segmented control.
 - Don't use dashed outlines for anything that is not an add or drop target.
 - Don't use decorative status dots. A dot marks a real state (job count, engine problem) or does not exist.
-- Don't use emoji, uppercase letter-spaced labels, or weights of 700 and above in the chrome.
+- Don't use emoji, uppercase letter-spaced labels, or weights of 700 and above in the chrome. (The subtitle "Emoji AI" marks are video content, not chrome, and stay.)
 - Don't add top-bar controls without a feature behind them (no search, bell, clock or weather until such features exist).
 - Don't show invented numbers, deltas, chart data or rows. Show real engine data or a named empty state.
-- Don't use raw colors outside the token block, or new font families.
+- Don't use raw colors outside `frontend/styles/tokens.css`, or new font families.
+- Don't add a dark theme. The app is light only.
 - Don't apply UI tokens to subtitle presets, Brand Template output or rendered video.

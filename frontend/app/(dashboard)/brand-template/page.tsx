@@ -1,34 +1,31 @@
 'use client'
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Undo, Redo, RefreshCw, Layout, Type, Image as ImageIcon, RotateCcw, Save } from 'lucide-react'
+import { Captions, ChevronDown, Image as ImageIcon, Redo, RefreshCw, RotateCcw, Save, Smartphone, Trash2, Type, Undo } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAgent } from '@/contexts/AgentContext'
 import { useEngine } from '@/contexts/EngineContext'
-import { Button } from '@/components/ui/Button'
-import { GlassCard } from '@/components/ui/GlassCard'
-import { Skeleton } from '@/components/ui/Skeleton'
-import { ConfirmModal } from '@/components/ui/ConfirmModal'
-import { Modal } from '@/components/ui/Modal'
-import { InputField } from '@/components/ui/InputField'
+import { Alert, Badge, Button, Card, ConfirmModal, IconButton, InputField, Modal, PageHeader, Skeleton } from '@/components/ui'
 import { api, type BrandTemplate } from '@/lib/engine'
 import { errorMessage, formatDateTime } from '@/lib/format'
 import { presets } from '@/lib/presets'
 import { resolveCaptionStyle } from '@/lib/presets/defaults'
 import { resolveAi } from '@/lib/presets/captions'
 
-import { TemplateConfig, DEFAULT_TEMPLATE_CONFIG } from './types'
+import { TemplateConfig, DEFAULT_TEMPLATE_CONFIG, safeZoneLabel } from './types'
 import { LayoutSettingsPanel } from './components/LayoutSettingsPanel'
-import { CaptionSettingsPanel } from './components/CaptionSettingsPanel'
+import { CaptionSettingsPanel, presetLabel } from './components/CaptionSettingsPanel'
 import { AiSettingsPanel } from './components/AiSettingsPanel'
 import { BrandSettingsPanel } from './components/BrandSettingsPanel'
 import { TemplatePreviewCanvas } from './components/TemplatePreviewCanvas'
 import { TemplateLibraryBar } from './components/TemplateLibraryBar'
 
 type Section = 'layout_settings' | 'caption_settings' | 'ai_settings' | 'brand_settings'
+type PanelId = 'caption' | 'ai' | 'overlay' | 'layout'
 type NameDialog = { mode: 'create' | 'duplicate' | 'rename'; value: string }
 
 const STORAGE_KEY = 'brandTemplateId'
+const NAME_FORM_ID = 'brand-template-name-form'
 
 function readStoredId(): string | null {
   try {
@@ -62,6 +59,60 @@ function toConfig(tpl: BrandTemplate | null): TemplateConfig {
   }
 }
 
+interface SettingsSectionProps {
+  id: PanelId
+  title: string
+  icon: React.ReactNode
+  /** Current value, shown in the header so a closed section still says what it is set to */
+  summary?: string
+  open: boolean
+  onToggle: () => void
+  children: React.ReactNode
+}
+
+/** A settings card whose header opens and closes it. Closed sections keep their state. */
+function SettingsSection({ id, title, icon, summary, open, onToggle, children }: SettingsSectionProps) {
+  const bodyId = `brand-template-section-${id}`
+  return (
+    <Card as="section" padding="sm" aria-labelledby={`${bodyId}-title`}>
+      <button
+        type="button"
+        className="mc-btn mc-btn--ghost mc-btn--block"
+        aria-expanded={open}
+        aria-controls={bodyId}
+        onClick={onToggle}
+        style={{
+          justifyContent: 'space-between',
+          height: 'auto',
+          minHeight: 52,
+          margin: -8,
+          width: 'calc(100% + 16px)',
+          padding: '8px 12px',
+          borderRadius: 'var(--r-md)',
+        }}
+      >
+        <span className="mc-row" style={{ flexShrink: 0 }}>
+          {icon}
+          <span id={`${bodyId}-title`} className="mc-h3">
+            {title}
+          </span>
+        </span>
+        <span className="mc-row mc-gap-8">
+          {summary && <span className="mc-caption mc-muted mc-truncate">{summary}</span>}
+          <ChevronDown
+            size={18}
+            aria-hidden="true"
+            style={{ transform: open ? 'rotate(180deg)' : undefined, transition: 'transform var(--dur-base) var(--ease-out)' }}
+          />
+        </span>
+      </button>
+      <div id={bodyId} hidden={!open} style={{ marginTop: 'var(--s-5)' }}>
+        {children}
+      </div>
+    </Card>
+  )
+}
+
 export default function BrandTemplatePage() {
   const { activeAgent, isAgentLoading, refreshAgents } = useAgent()
   const { epoch } = useEngine()
@@ -72,7 +123,7 @@ export default function BrandTemplatePage() {
   const [loaded, setLoaded] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
-  const [activeMenu, setActiveMenu] = useState<string | null>(null)
+  const [openPanels, setOpenPanels] = useState<Record<PanelId, boolean>>({ caption: true, ai: true, overlay: false, layout: false })
   const [confirmDefaults, setConfirmDefaults] = useState(false)
   const savedRef = useRef<string>('')
 
@@ -289,96 +340,57 @@ export default function BrandTemplatePage() {
     setConfirmDefaults(false)
   }
 
+  const togglePanel = (id: PanelId) => setOpenPanels((open) => ({ ...open, [id]: !open[id] }))
+
   // Same resolution as the clip editor and the render (base ⊕ preset defaults ⊕ saved settings)
   const mergedCaptionSettings = resolveCaptionStyle(config.caption_settings)
-  const SAFE_ZONE_LABEL: Record<string, string> = { none: 'Tidak ada', tiktok: 'TikTok', reels: 'IG Reels', shorts: 'YT Shorts' }
-
-  const renderActiveMenuContent = () => {
-    if (activeMenu === 'layout') {
-      return <LayoutSettingsPanel layout={config.layout_settings} updateLayout={(updates) => updateConfig('layout_settings', updates)} />
-    }
-    if (activeMenu === 'caption') {
-      return <CaptionSettingsPanel caption={mergedCaptionSettings} updateCaption={(updates, replace) => updateConfig('caption_settings', updates, replace)} />
-    }
-    if (activeMenu === 'overlay' && selected) {
-      return <BrandSettingsPanel templateId={selected.id} brand={config.brand_settings} updateBrand={(updates) => updateConfig('brand_settings', updates)} />
-    }
-    return null
-  }
-
-  const MenuItem = ({ icon: Icon, label, value, id }: { icon: React.ElementType; label: string; value: string; id: string }) => {
-    const isActive = activeMenu === id
-    return (
-      <div
-        onClick={() => setActiveMenu(isActive ? null : id)}
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          padding: '12px 16px',
-          cursor: 'pointer',
-          borderRadius: '8px',
-          background: isActive ? 'var(--bg-glass-active)' : 'transparent',
-          marginBottom: '4px',
-          transition: 'all 0.2s',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <Icon size={18} color="var(--text-muted)" />
-          <span style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>{label}</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{value}</span>
-          <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>{'>'}</span>
-        </div>
-      </div>
-    )
-  }
+  const activePreset = presets.find((p) => p.id === mergedCaptionSettings.mode)
+  const aiOnCount = [config.ai_settings.fillerWords, config.ai_settings.pauses, config.ai_settings.keywords, config.ai_settings.emojis].filter(Boolean).length
 
   const nameTitle = nameDialog?.mode === 'rename' ? 'Ganti nama template' : nameDialog?.mode === 'duplicate' ? 'Duplikat template' : 'Template baru'
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', paddingBottom: '20px', borderBottom: '1px solid var(--border-glass)', marginBottom: '20px', flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: '14px', flexWrap: 'wrap' }}>
-          <h1 style={{ fontSize: '22px', fontWeight: 800 }}>Brand Template</h1>
-          <span style={{ fontSize: '14px', color: 'var(--text-muted)' }}>Simpan beberapa gaya clip dan pakai di Super Agent mana pun</span>
-          {selected?.updated_at && <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Disimpan {formatDateTime(selected.updated_at)}</span>}
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button className="mc-icon-button" onClick={handleUndo} disabled={historyIndex <= 0} title="Undo">
-            <Undo size={16} />
-          </button>
-          <button className="mc-icon-button" onClick={handleRedo} disabled={historyIndex >= history.length - 1} title="Redo">
-            <Redo size={16} />
-          </button>
-          <button className="mc-icon-button" onClick={() => guard(() => loadAll(selectedId))} title="Muat ulang dari database">
-            <RefreshCw size={16} className={!loaded ? 'animate-spin' : ''} />
-          </button>
-          <Button variant="secondary" size="sm" onClick={() => setConfirmDefaults(true)} icon={<RotateCcw size={14} />} disabled={!selected}>
-            Default
-          </Button>
-          <Button variant="primary" size="sm" onClick={save} loading={isSaving} disabled={!hasChanges} icon={<Save size={14} />}>
-            Simpan
-          </Button>
-        </div>
-      </div>
+    <>
+      <PageHeader
+        title="Brand Template"
+        subtitle="Simpan beberapa gaya clip dan pakai di Super Agent mana pun"
+        actions={
+          <>
+            <IconButton label="Urungkan" tooltip="bottom" icon={<Undo size={18} aria-hidden="true" />} onClick={handleUndo} disabled={historyIndex <= 0} />
+            <IconButton label="Ulangi" tooltip="bottom" icon={<Redo size={18} aria-hidden="true" />} onClick={handleRedo} disabled={historyIndex >= history.length - 1} />
+            <IconButton
+              label="Muat ulang dari database"
+              tooltip="bottom"
+              icon={<RefreshCw size={18} aria-hidden="true" className={!loaded ? 'animate-spin' : undefined} />}
+              onClick={() => guard(() => loadAll(selectedId))}
+            />
+            <Button variant="primary" onClick={save} loading={isSaving} disabled={!hasChanges} icon={<Save size={16} aria-hidden="true" />}>
+              Simpan
+            </Button>
+          </>
+        }
+      />
 
       {!loaded && !selected ? (
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <Skeleton width={300} height={610} />
-          <Skeleton width={300} height={533} style={{ margin: '0 auto' }} />
+        <div style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr) 348px', gap: 'var(--s-5)', alignItems: 'start' }}>
+          <Skeleton height={320} radius="lg" />
+          <Skeleton height={610} radius="lg" />
+          <Skeleton height={620} radius="lg" />
         </div>
       ) : loadError ? (
-        <GlassCard hoverEffect={false} padding="20px" style={{ border: '1px solid var(--danger)', display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span style={{ flex: 1 }}>{loadError}</span>
-          <button className="mc-link-button" onClick={() => loadAll(selectedId)}>
-            Coba lagi
-          </button>
-        </GlassCard>
+        <Alert
+          tone="error"
+          title="Brand template tidak bisa dimuat"
+          action={
+            <Button variant="secondary" size="sm" onClick={() => loadAll(selectedId)}>
+              Coba lagi
+            </Button>
+          }
+        >
+          {loadError}
+        </Alert>
       ) : (
-        <>
+        <div style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr) auto', gap: 'var(--s-5)', alignItems: 'start' }}>
           <TemplateLibraryBar
             templates={templates}
             selected={selected}
@@ -392,29 +404,75 @@ export default function BrandTemplatePage() {
             onMakeDefault={makeDefault}
           />
 
-          <div style={{ display: 'flex', flex: 1, gap: '10px' }}>
-            <GlassCard hoverEffect={false} style={{ width: '300px', height: '610px', padding: '20px', flexShrink: 0 }}>
-              <h2 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '20px' }}>Pengaturan</h2>
-
-              <div style={{ marginBottom: '24px' }}>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px', paddingLeft: '8px' }}>Gaya</p>
-                <MenuItem id="layout" icon={Layout} label="Safe zone" value={SAFE_ZONE_LABEL[config.layout_settings.safeZone || 'none'] || ''} />
-                <MenuItem id="caption" icon={Type} label="Caption" value={`${mergedCaptionSettings.fontFamily} ${mergedCaptionSettings.fontSize}`} />
+          <div className="mc-stack">
+            <div className="mc-row mc-row--between mc-row--top">
+              <div className="mc-grow">
+                <h2 className="mc-h2 mc-truncate" title={selected?.name}>
+                  {selected?.name || 'Pengaturan'}
+                </h2>
+                <div className="mc-row mc-gap-8 mc-row--wrap" style={{ marginTop: 'var(--s-1)' }}>
+                  {hasChanges ? (
+                    <Badge tone="warning" size="sm">
+                      Belum disimpan
+                    </Badge>
+                  ) : (
+                    selected?.updated_at && <span className="mc-caption mc-muted">Disimpan {formatDateTime(selected.updated_at)}</span>
+                  )}
+                </div>
               </div>
+              <Button variant="ghost" size="sm" onClick={() => setConfirmDefaults(true)} icon={<RotateCcw size={16} aria-hidden="true" />} disabled={!selected}>
+                Kembalikan default
+              </Button>
+            </div>
 
-              <div style={{ marginBottom: '24px' }}>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px', paddingLeft: '8px' }}>Brand</p>
-                <MenuItem id="overlay" icon={ImageIcon} label="Overlay (logo, CTA)" value={config.brand_settings.overlayUrl ? '1 dipilih' : ''} />
-              </div>
+            <SettingsSection
+              id="caption"
+              title="Caption"
+              icon={<Type size={20} aria-hidden="true" />}
+              summary={`${activePreset ? `${presetLabel(activePreset.name)} · ` : ''}${mergedCaptionSettings.fontFamily} ${mergedCaptionSettings.fontSize}`}
+              open={openPanels.caption}
+              onToggle={() => togglePanel('caption')}
+            >
+              <CaptionSettingsPanel caption={mergedCaptionSettings} updateCaption={(updates, replace) => updateConfig('caption_settings', updates, replace)} />
+            </SettingsSection>
 
-              <div>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px', paddingLeft: '8px' }}>AI subtitle</p>
-                <AiSettingsPanel ai={config.ai_settings} updateAi={(updates) => updateConfig('ai_settings', updates)} />
-              </div>
-            </GlassCard>
+            <SettingsSection
+              id="ai"
+              title="AI subtitle"
+              icon={<Captions size={20} aria-hidden="true" />}
+              summary={`${aiOnCount} dari 4 aktif`}
+              open={openPanels.ai}
+              onToggle={() => togglePanel('ai')}
+            >
+              <AiSettingsPanel ai={config.ai_settings} updateAi={(updates) => updateConfig('ai_settings', updates)} />
+            </SettingsSection>
 
-            {activeMenu && renderActiveMenuContent()}
+            <SettingsSection
+              id="overlay"
+              title="Logo & video contoh"
+              icon={<ImageIcon size={20} aria-hidden="true" />}
+              summary={config.brand_settings.overlayUrl ? 'Logo dipasang' : 'Tanpa logo'}
+              open={openPanels.overlay}
+              onToggle={() => togglePanel('overlay')}
+            >
+              {selected && (
+                <BrandSettingsPanel templateId={selected.id} brand={config.brand_settings} updateBrand={(updates) => updateConfig('brand_settings', updates)} />
+              )}
+            </SettingsSection>
 
+            <SettingsSection
+              id="layout"
+              title="Safe zone"
+              icon={<Smartphone size={20} aria-hidden="true" />}
+              summary={safeZoneLabel(config.layout_settings.safeZone)}
+              open={openPanels.layout}
+              onToggle={() => togglePanel('layout')}
+            >
+              <LayoutSettingsPanel layout={config.layout_settings} updateLayout={(updates) => updateConfig('layout_settings', updates)} />
+            </SettingsSection>
+          </div>
+
+          <div style={{ position: 'sticky', top: 'var(--s-4)' }}>
             <TemplatePreviewCanvas
               caption={mergedCaptionSettings}
               ai={config.ai_settings}
@@ -423,37 +481,42 @@ export default function BrandTemplatePage() {
               onUpdateBrand={(updates) => updateConfig('brand_settings', updates)}
             />
           </div>
-        </>
+        </div>
       )}
 
-      <Modal isOpen={!!nameDialog} onClose={() => !nameBusy && setNameDialog(null)} title={nameTitle}>
+      <Modal
+        isOpen={!!nameDialog}
+        onClose={() => !nameBusy && setNameDialog(null)}
+        title={nameTitle}
+        busy={nameBusy}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setNameDialog(null)} disabled={nameBusy}>
+              Batal
+            </Button>
+            <Button type="submit" form={NAME_FORM_ID} variant="primary" loading={nameBusy} disabled={!nameDialog?.value.trim()}>
+              {nameDialog?.mode === 'rename' ? 'Simpan nama' : 'Buat template'}
+            </Button>
+          </>
+        }
+      >
         <form
+          id={NAME_FORM_ID}
           onSubmit={(e) => {
             e.preventDefault()
             submitName()
           }}
-          style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}
         >
           <InputField
             label="Nama template"
             value={nameDialog?.value || ''}
             onChange={(e) => nameDialog && setNameDialog({ ...nameDialog, value: e.target.value })}
             maxLength={80}
-            autoFocus
+            data-autofocus
             onFocus={(e) => e.currentTarget.select()}
             placeholder="Misal: Podcast gelap, Edukasi cerah"
+            hint={nameDialog?.mode === 'duplicate' ? `Semua pengaturan "${selected?.name}" yang sudah disimpan ikut disalin.` : undefined}
           />
-          {nameDialog?.mode === 'duplicate' && (
-            <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '-8px' }}>Semua pengaturan &quot;{selected?.name}&quot; yang sudah disimpan ikut disalin.</p>
-          )}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-            <Button type="button" variant="secondary" size="sm" onClick={() => setNameDialog(null)} disabled={nameBusy}>
-              Batal
-            </Button>
-            <Button type="submit" variant="primary" size="sm" loading={nameBusy} disabled={!nameDialog?.value.trim()}>
-              {nameDialog?.mode === 'rename' ? 'Simpan nama' : 'Buat template'}
-            </Button>
-          </div>
         </form>
       </Modal>
 
@@ -475,7 +538,7 @@ export default function BrandTemplatePage() {
         isOpen={confirmDelete}
         title={`Hapus template "${selected?.name || ''}"?`}
         message={
-          <>
+          <div className="mc-stack mc-gap-8">
             {(selected?.used_by_agents || []).length > 0 && (
               <p>
                 Template ini default untuk {(selected?.used_by_agents || []).map((a) => a.name).join(', ')}. Agent tersebut akan memakai template paling lama.
@@ -485,9 +548,10 @@ export default function BrandTemplatePage() {
               {selected?.clip_count || 0} clip yang memakai template ini akan kembali ke template default agent-nya. Logo dan file brand yang hanya dipakai template ini
               ikut dihapus. Tindakan ini tidak bisa dibatalkan.
             </p>
-          </>
+          </div>
         }
         confirmLabel="Hapus template"
+        confirmIcon={<Trash2 size={16} aria-hidden="true" />}
         danger
         loading={deleting}
         onConfirm={deleteSelected}
@@ -502,6 +566,6 @@ export default function BrandTemplatePage() {
         onConfirm={resetToDefaults}
         onClose={() => setConfirmDefaults(false)}
       />
-    </div>
+    </>
   )
 }

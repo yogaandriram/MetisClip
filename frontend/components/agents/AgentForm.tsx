@@ -3,9 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import { api, type AgentInput, type BrandTemplate } from '@/lib/engine'
 import { CLIP_DURATION_OPTIONS } from '@/lib/format'
-import { Button } from '@/components/ui/Button'
-import { InputField } from '@/components/ui/InputField'
-import { SelectField } from '@/components/ui/SelectField'
+import { Button, InputField, SelectField } from '@/components/ui'
 
 export interface AgentFormValue {
   name: string
@@ -38,6 +36,8 @@ interface AgentFormProps {
   onSubmit: (value: AgentFormValue) => Promise<void>
   onCancel?: () => void
 }
+
+const FIELD_GRID: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, alignItems: 'start' }
 
 export function AgentForm({ initial = EMPTY_AGENT_FORM, submitLabel, onSubmit, onCancel }: AgentFormProps) {
   const [value, setValue] = useState<AgentFormValue>(initial)
@@ -72,30 +72,26 @@ export function AgentForm({ initial = EMPTY_AGENT_FORM, submitLabel, onSubmit, o
   }
 
   return (
-    <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px' }}>
-        <InputField label="Nama Agent" placeholder="Misal: AI Tech Clipper" value={value.name} onChange={(e) => setValue({ ...value, name: e.target.value })} required maxLength={80} />
-        <InputField label="Fokus Niche" placeholder="Misal: Teknologi & AI, Bisnis" value={value.niche} onChange={(e) => setValue({ ...value, niche: e.target.value })} />
+    <form onSubmit={submit} className="mc-stack mc-gap-24">
+      <div style={FIELD_GRID}>
+        <InputField label="Nama agent" placeholder="Misal: AI Tech Clipper" value={value.name} onChange={(e) => setValue({ ...value, name: e.target.value })} required maxLength={80} />
+        <InputField label="Fokus niche" placeholder="Misal: Teknologi & AI, Bisnis" value={value.niche} onChange={(e) => setValue({ ...value, niche: e.target.value })} />
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', alignItems: 'start' }}>
-        <SelectField label="Durasi Clip Default" value={value.default_duration} options={CLIP_DURATION_OPTIONS} onChange={(e) => setValue({ ...value, default_duration: e.target.value })} />
+      <div style={FIELD_GRID}>
+        <SelectField label="Durasi klip default" value={value.default_duration} options={CLIP_DURATION_OPTIONS} onChange={(e) => setValue({ ...value, default_duration: e.target.value })} />
         {templates && templates.length > 0 && (
-          <div>
-            <SelectField
-              label="Brand Template Default"
-              value={value.default_brand_template_id}
-              options={templates.map((t) => ({ value: t.id, label: t.name }))}
-              onChange={(e) => setValue({ ...value, default_brand_template_id: e.target.value })}
-            />
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '6px' }}>
-              Dipakai oleh clip baru dari agent ini. Tiap clip tetap bisa diganti template-nya di editor.
-            </p>
-          </div>
+          <SelectField
+            label="Brand template default"
+            hint="Dipakai oleh clip baru dari agent ini. Tiap clip tetap bisa diganti template-nya di editor."
+            value={value.default_brand_template_id}
+            options={templates.map((t) => ({ value: t.id, label: t.name }))}
+            onChange={(e) => setValue({ ...value, default_brand_template_id: e.target.value })}
+          />
         )}
       </div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+      <div className="mc-row mc-row--end mc-gap-8">
         {onCancel && (
-          <Button type="button" variant="secondary" onClick={onCancel} disabled={busy}>
+          <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
             Batal
           </Button>
         )}

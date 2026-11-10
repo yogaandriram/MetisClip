@@ -2,25 +2,53 @@
 
 import React, { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { Activity, Eye, Film, Flame, KeyRound, Play, Sparkles, ArrowRight } from 'lucide-react'
-import { GlassCard } from '@/components/ui/GlassCard'
-import { Badge } from '@/components/ui/Badge'
-import { Button } from '@/components/ui/Button'
-import { Skeleton } from '@/components/ui/Skeleton'
-import { ProgressBar } from '@/components/ui/ProgressBar'
-import { PageHeader } from '@/components/ui/PageHeader'
+import { ArrowRight, ArrowUpRight, Clapperboard, Film, KeyRound, Plus } from 'lucide-react'
+import {
+  Alert,
+  Badge,
+  Button,
+  ButtonLink,
+  Card,
+  CardHeader,
+  Contour,
+  EmptyState,
+  GooPair,
+  Notch,
+  PageHeader,
+  ProgressBar,
+  ProgressRow,
+  ScoreBadge,
+  Skeleton,
+  StatCard,
+  StatusBadge,
+  iconButtonClass,
+} from '@/components/ui'
 import { NoAgentState } from '@/components/NoAgentState'
 import { useAgent } from '@/contexts/AgentContext'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
-import { api, type Clip, type DashboardStats, type Job, type SecretName } from '@/lib/engine'
+import { api, type Clip, type DashboardStats, type Job, type JobStep, type SecretName } from '@/lib/engine'
 import { mediaUrl } from '@/lib/media'
 import { providerInfo } from '@/lib/llmProviders'
-import { JOB_STATUS, errorMessage, formatClock, formatCompactNumber, formatDateTime, jobSource, jobStepLabel } from '@/lib/format'
+import { ACTIVE_JOB_STATUSES, errorMessage, formatClock, formatCompactNumber, formatDateTime, jobSource } from '@/lib/format'
+
+const LATEST_CLIPS = 6
+
+/** Short step names for the pills (DESIGN.md §8.9). */
+const STEP_SHORT: Record<JobStep, string> = {
+  discovery: 'Discovery',
+  analysis: 'Analisis',
+  processing: 'Proses',
+}
+
+function summary(ready: number | null, running: number | null, failed: boolean): string {
+  if (ready === null || running === null) return failed ? 'Ringkasan belum bisa dimuat.' : 'Memuat ringkasan…'
+  const clipsPart = ready > 0 ? `${ready} klip siap ekspor` : 'Belum ada klip siap ekspor'
+  const jobsPart = running > 0 ? `${running} proses berjalan` : 'tidak ada proses berjalan'
+  return `${clipsPart}, ${jobsPart}.`
+}
 
 export default function DashboardOverview() {
-  const router = useRouter()
   const { activeAgent } = useAgent()
   const { epoch } = useEngine()
   const [stats, setStats] = useState<DashboardStats | null>(null)
@@ -36,7 +64,7 @@ export default function DashboardOverview() {
       const [s, j, c] = await Promise.all([api.dashboard.stats(agentId), api.jobs.list({ agent_id: agentId, limit: 5 }), api.clips.list({ agent_id: agentId })])
       setStats(s)
       setJobs(j.jobs.slice(0, 5))
-      setClips(c.clips.slice(0, 6))
+      setClips(c.clips)
     } catch (err) {
       setError(errorMessage(err, 'Gagal memuat ringkasan'))
     }
@@ -70,160 +98,233 @@ export default function DashboardOverview() {
 
   if (!activeAgent) {
     return (
-      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+      <>
         <PageHeader title="Beranda" subtitle="Ringkasan aktivitas agentic AI." />
         <NoAgentState what="Beranda" />
-      </div>
+      </>
     )
   }
 
-  const statCards = [
-    { label: 'Potensi Views', value: stats ? formatCompactNumber(stats.potentialViews) : null, icon: Eye, color: 'var(--accent)', bg: 'rgba(7, 202, 107, 0.1)', note: 'Estimasi dari skor viral klip' },
-    { label: 'Video Diproses', value: stats ? formatCompactNumber(stats.videosProcessed) : null, icon: Play, color: 'var(--primary)', bg: 'rgba(24, 86, 255, 0.1)', note: 'Total video sumber' },
-    { label: 'Clip Dihasilkan', value: stats ? formatCompactNumber(stats.clipsGenerated) : null, icon: Film, color: 'var(--warning)', bg: 'rgba(232, 149, 88, 0.1)', note: 'Total klip vertikal' },
-  ]
+  const readyCount = clips ? clips.filter((c) => c.status === 'ready').length : null
+  const activeJobs = jobs ? jobs.filter((j) => ACTIVE_JOB_STATUSES.includes(j.status)) : null
+  const heroJob = activeJobs ? activeJobs.find((j) => j.status === 'running') || activeJobs[0] || null : null
+  const latestClips = clips ? clips.slice(0, LATEST_CLIPS) : null
 
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '30px' }}>
-      <PageHeader
-        title="Beranda"
-        subtitle={`Ringkasan aktivitas untuk ${activeAgent.name}.`}
-        actions={
-          <Link href="/discover/" style={{ textDecoration: 'none' }}>
-            <Button variant="primary" icon={<Sparkles size={16} />}>
-              Cari video baru
-            </Button>
-          </Link>
-        }
-      />
+    <>
+      <PageHeader title={activeAgent.name} subtitle={summary(readyCount, activeJobs ? activeJobs.length : null, !!error)} />
 
-      {missingKeys.length > 0 && (
-        <GlassCard hoverEffect={false} padding="16px 20px" style={{ border: '1px solid var(--warning)', display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
-          <KeyRound size={18} color="var(--warning)" />
-          <span style={{ flex: 1, fontSize: '14px', minWidth: '240px' }}>
+      <div className="mc-stack mc-gap-32">
+        {missingKeys.length > 0 && (
+          <Alert
+            tone="warning"
+            icon={<KeyRound size={18} />}
+            title="API key belum lengkap"
+            action={
+              <ButtonLink href="/settings/" variant="secondary" size="sm">
+                Buka Pengaturan
+              </ButtonLink>
+            }
+          >
             {missingKeys[0] === 'groq_api_key' ? 'API key Groq' : `API key ${llmLabel}`}
             {missingKeys.length > 1 ? ' dan API key Groq' : ''} belum diisi. Pipeline AI tidak akan berjalan tanpa key ini.
-          </span>
-          <Link href="/settings/" className="mc-link-button" style={{ textDecoration: 'none' }}>
-            Buka Pengaturan
+          </Alert>
+        )}
+
+        {error && (
+          <Alert
+            tone="error"
+            action={
+              <Button variant="secondary" size="sm" onClick={() => load(activeAgent.id)}>
+                Coba lagi
+              </Button>
+            }
+          >
+            {error}
+          </Alert>
+        )}
+
+        <div className="mc-grid">
+          <StatCard
+            className="mc-col-3"
+            tilt
+            blob
+            icon={<Film size={18} aria-hidden="true" />}
+            value={readyCount === null ? <Skeleton width={72} height={40} /> : formatCompactNumber(readyCount)}
+            label="Klip siap ekspor"
+          />
+          <StatCard
+            className="mc-col-3"
+            icon={<Clapperboard size={18} aria-hidden="true" />}
+            notchTone="ink"
+            value={stats === null ? <Skeleton width={72} height={40} /> : formatCompactNumber(stats.videosProcessed)}
+            label="Video diproses"
+          />
+          <Link href="/discover/" className="mc-card mc-card--dashed mc-card--interactive mc-stat mc-col-3" style={{ alignItems: 'center', justifyContent: 'center', gap: 16, textDecoration: 'none' }}>
+            <span className="mc-label">Buat klip baru</span>
+            <span className={iconButtonClass({ variant: 'accent', size: 'lg', tooltip: false })} aria-hidden="true">
+              <Plus size={22} />
+            </span>
           </Link>
-        </GlassCard>
-      )}
+          <HeroCard job={heroJob} loading={jobs === null && !error} />
+        </div>
 
-      {error && (
-        <GlassCard hoverEffect={false} padding="16px 20px" style={{ border: '1px solid var(--danger)', display: 'flex', alignItems: 'center', gap: '14px' }}>
-          <span style={{ flex: 1, fontSize: '14px' }}>{error}</span>
-          <button className="mc-link-button" onClick={() => load(activeAgent.id)}>
-            Coba lagi
-          </button>
-        </GlassCard>
-      )}
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px' }}>
-        {statCards.map((card) => {
-          const Icon = card.icon
-          return (
-            <GlassCard key={card.label} glow>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '15px' }}>
-                <span style={{ color: 'var(--text-dim)', fontWeight: 500 }}>{card.label}</span>
-                <div style={{ background: card.bg, padding: '8px', borderRadius: '8px', color: card.color }}>
-                  <Icon size={20} />
-                </div>
+        <div className="mc-grid">
+          <Card className="mc-col-8">
+            <CardHeader
+              title="Klip terbaru"
+              subtitle={stats ? `${formatCompactNumber(stats.clipsGenerated)} klip dibuat oleh agent ini` : undefined}
+              action={
+                <ButtonLink href="/clips/" variant="ghost" size="sm" iconRight={<ArrowRight size={16} aria-hidden="true" />}>
+                  Lihat semua
+                </ButtonLink>
+              }
+            />
+            {latestClips === null ? (
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${LATEST_CLIPS}, minmax(0, 1fr))`, gap: 12 }}>
+                {Array.from({ length: LATEST_CLIPS }).map((_, i) => (
+                  <Skeleton key={i} height="auto" radius="md" style={{ aspectRatio: '9 / 16' }} />
+                ))}
               </div>
-              {card.value === null ? <Skeleton height={40} width={120} /> : <div style={{ fontSize: '36px', fontWeight: 800 }}>{card.value}</div>}
-              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <Activity size={12} />
-                <span>{card.note}</span>
-              </div>
-            </GlassCard>
-          )
-        })}
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '24px', alignItems: 'start' }}>
-        <section>
-          <SectionHeader title="Job terbaru" href="/jobs/" />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {jobs === null ? (
-              Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} height={76} />)
-            ) : jobs.length === 0 ? (
-              <EmptyLine text="Belum ada job. Mulai dari menu Cari Video." />
+            ) : latestClips.length === 0 ? (
+              <EmptyState
+                icon={Film}
+                title="Belum ada klip"
+                description="Tempel link YouTube atau pilih file video di Cari Video untuk membuat klip pertama."
+                action={
+                  <ButtonLink href="/discover/" variant="secondary" size="sm">
+                    Buka Cari Video
+                  </ButtonLink>
+                }
+              />
             ) : (
-              jobs.map((job) => {
-                const s = JOB_STATUS[job.status]
-                const title = jobSource(job).text
-                return (
-                  <GlassCard key={job.id} padding="16px" onClick={() => router.push('/jobs/')} style={{ cursor: 'pointer' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', marginBottom: '8px' }}>
-                      <span style={{ fontSize: '14px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title || 'Job'}</span>
-                      <Badge variant={s.variant} glow={false}>
-                        {s.label}
-                      </Badge>
-                    </div>
-                    {job.status === 'running' || job.status === 'pending' ? (
-                      <>
-                        <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginBottom: '8px' }}>{jobStepLabel(job.current_step)}</div>
-                        <ProgressBar progress={job.progress_pct} height="6px" />
-                      </>
-                    ) : (
-                      <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{formatDateTime(job.finished_at || job.created_at)}</div>
-                    )}
-                  </GlassCard>
-                )
-              })
-            )}
-          </div>
-        </section>
-
-        <section>
-          <SectionHeader title="Clip terbaru" href="/clips/" />
-          {clips === null ? (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
-              {Array.from({ length: 3 }).map((_, i) => (
-                <Skeleton key={i} height={200} />
-              ))}
-            </div>
-          ) : clips.length === 0 ? (
-            <EmptyLine text="Belum ada clip yang dihasilkan." />
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '12px' }}>
-              {clips.map((clip) => (
-                <Link key={clip.id} href={`/clips/detail/?id=${encodeURIComponent(clip.id)}`} style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <div style={{ position: 'relative', aspectRatio: '9 / 16', borderRadius: '12px', overflow: 'hidden', background: '#000', border: '1px solid var(--border-glass)' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${LATEST_CLIPS}, minmax(0, 1fr))`, gap: 12 }}>
+                {latestClips.map((clip) => (
+                  <Link
+                    key={clip.id}
+                    href={`/clips/detail/?id=${encodeURIComponent(clip.id)}`}
+                    className="mc-thumb"
+                    style={{ display: 'block', aspectRatio: '9 / 16' }}
+                    aria-label={`Buka klip: ${clip.hook_text || formatClock(clip.duration_seconds)}`}
+                  >
                     {clip.files.thumbnail && (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={mediaUrl(clip.id, 'thumbnail', clip.updated_at)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.85 }} loading="lazy" />
+                      <img src={mediaUrl(clip.id, 'thumbnail', clip.updated_at)} alt="" loading="lazy" />
                     )}
-                    <div style={{ position: 'absolute', top: '8px', left: '8px' }}>
-                      <Badge variant="accent" glow={false} icon={<Flame size={11} />}>
-                        {Math.round(clip.viral_score)}
+                    <span className="mc-thumb__corner mc-thumb__corner--tl">
+                      <ScoreBadge score={clip.viral_score} size="sm" />
+                    </span>
+                    <span className="mc-thumb__corner mc-thumb__corner--br">
+                      <Badge tone="ink" size="sm">
+                        <span className="mc-mono">{formatClock(clip.duration_seconds)}</span>
                       </Badge>
-                    </div>
-                    <div style={{ position: 'absolute', bottom: '8px', right: '8px', fontSize: '11px', background: 'rgba(0,0,0,0.75)', padding: '2px 6px', borderRadius: '6px' }}>
-                      {formatClock(clip.duration_seconds)}
-                    </div>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </section>
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </Card>
+
+          <Card tone="dew" className="mc-col-4">
+            <CardHeader
+              title="Job terbaru"
+              size="sm"
+              action={
+                <ButtonLink href="/jobs/" variant="ghost" size="sm" iconRight={<ArrowRight size={16} aria-hidden="true" />}>
+                  Antrian
+                </ButtonLink>
+              }
+            />
+            {jobs === null ? (
+              <div className="mc-stack mc-gap-8">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <Skeleton key={i} height={44} radius="full" />
+                ))}
+              </div>
+            ) : jobs.length === 0 ? (
+              <p className="mc-muted">Belum ada job. Mulai dari Cari Video.</p>
+            ) : (
+              <div className="mc-stack mc-gap-12">
+                {jobs.map((job) => {
+                  const title = jobSource(job).text || 'Job'
+                  const active = ACTIVE_JOB_STATUSES.includes(job.status)
+                  return (
+                    <Link key={job.id} href="/jobs/" style={{ display: 'block', textDecoration: 'none' }}>
+                      {active ? (
+                        <ProgressRow label={title} value={`${Math.round(job.progress_pct)}%`} percent={job.progress_pct} />
+                      ) : (
+                        <div className="mc-row mc-row--between mc-gap-12">
+                          <div className="mc-grow">
+                            <div className="mc-label mc-truncate">{title}</div>
+                            <div className="mc-caption mc-muted">{formatDateTime(job.finished_at || job.created_at)}</div>
+                          </div>
+                          <StatusBadge kind="job" status={job.status} size="sm" />
+                        </div>
+                      )}
+                    </Link>
+                  )
+                })}
+              </div>
+            )}
+          </Card>
+        </div>
       </div>
-    </div>
+    </>
   )
 }
 
-function SectionHeader({ title, href }: { title: string; href: string }) {
+/** Ink hero: the running job with live progress, or a prompt to start one. */
+function HeroCard({ job, loading }: { job: Job | null; loading: boolean }) {
+  if (loading) {
+    return (
+      <Card tone="ink" className="mc-col-3 mc-stat" style={{ justifyContent: 'space-between' }}>
+        <Contour />
+        <h2 className="mc-h2 mc-card__body">Proses berjalan</h2>
+        <div className="mc-card__body mc-stack mc-gap-12">
+          <Skeleton width={96} height={40} />
+          <Skeleton height={8} radius="full" />
+        </div>
+      </Card>
+    )
+  }
+
+  if (!job) {
+    return (
+      <Card tone="ink" className="mc-col-3 mc-stat" style={{ justifyContent: 'space-between' }}>
+        <Contour />
+        <h2 className="mc-h2 mc-card__body">Tempel link YouTube</h2>
+        <div className="mc-card__body mc-stack mc-gap-12">
+          <p className="mc-muted">Tidak ada proses berjalan. Mulai dari link video panjang atau file di PC Anda.</p>
+          <div>
+            <ButtonLink href="/discover/" variant="primary" size="sm">
+              Buka Cari Video
+            </ButtonLink>
+          </div>
+        </div>
+      </Card>
+    )
+  }
+
+  const running = job.status === 'running'
+  const step = job.current_step ? STEP_SHORT[job.current_step] : 'Menunggu'
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-      <h2 style={{ fontSize: '18px', fontWeight: 700 }}>{title}</h2>
-      <Link href={href} className="mc-link-button" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-        Lihat semua <ArrowRight size={14} />
-      </Link>
-    </div>
+    <Card tone="ink" className="mc-col-3 mc-stat" style={{ justifyContent: 'space-between' }}>
+      <Contour />
+      <Notch icon={<ArrowUpRight size={18} />} position="end" label="Lihat antrian" href="/jobs/" />
+      <h2 className="mc-h2 mc-card__body">Proses berjalan</h2>
+      <div className="mc-card__body mc-stack mc-gap-12">
+        <div className="mc-display">{running ? `${Math.round(job.progress_pct)}%` : 'Antri'}</div>
+        <ProgressBar value={job.progress_pct} label="Progres job" />
+        {job.total_scenes > 0 ? (
+          <GooPair first={step} second={`klip ${job.processed_scenes} dari ${job.total_scenes}`} />
+        ) : (
+          <div>
+            <Badge tone="neutral" size="sm">
+              {step}
+            </Badge>
+          </div>
+        )}
+      </div>
+    </Card>
   )
-}
-
-function EmptyLine({ text }: { text: string }) {
-  return <div style={{ padding: '24px', borderRadius: '12px', border: '1px dashed var(--border-glass)', color: 'var(--text-muted)', fontSize: '14px', textAlign: 'center' }}>{text}</div>
 }

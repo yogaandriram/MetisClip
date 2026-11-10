@@ -2,33 +2,53 @@
 
 import React, { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { Play, Calendar, Flame, Loader2, MoreVertical, Trash2, Edit2, FolderOpen, Film, Sparkles, Download } from 'lucide-react'
+import { Download, Film, FolderOpen, Pencil, Plus, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { GlassCard } from '@/components/ui/GlassCard'
-import { Button } from '@/components/ui/Button'
-import { Badge } from '@/components/ui/Badge'
-import { Dropdown, type DropdownItem } from '@/components/ui/Dropdown'
-import { Skeleton } from '@/components/ui/Skeleton'
-import { PageHeader } from '@/components/ui/PageHeader'
-import { EmptyState } from '@/components/ui/EmptyState'
-import { ConfirmModal } from '@/components/ui/ConfirmModal'
+import {
+  Alert,
+  Badge,
+  Button,
+  ButtonLink,
+  ConfirmModal,
+  EmptyState,
+  IconButton,
+  PageHeader,
+  ScoreBadge,
+  Skeleton,
+  Spinner,
+  StatusBadge,
+  Tabs,
+  Tag,
+} from '@/components/ui'
 import { NoAgentState } from '@/components/NoAgentState'
 import { useAgent } from '@/contexts/AgentContext'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
-import { api, type Clip } from '@/lib/engine'
+import { api, type Clip, type ClipStatus } from '@/lib/engine'
 import { isDesktop, mediaUrl, revealInExplorer } from '@/lib/media'
 import { CLIP_STATUS, errorMessage, formatClock, formatDate } from '@/lib/format'
 
 const detailHref = (id: string) => `/clips/detail/?id=${encodeURIComponent(id)}`
 
+type Filter = 'all' | 'ready' | 'exported' | 'working' | 'failed'
+
+const FILTERS: { id: Filter; label: string; match: (s: ClipStatus) => boolean }[] = [
+  { id: 'all', label: 'Semua', match: () => true },
+  { id: 'ready', label: CLIP_STATUS.ready.label, match: (s) => s === 'ready' },
+  { id: 'exported', label: CLIP_STATUS.exported.label, match: (s) => s === 'exported' },
+  { id: 'working', label: CLIP_STATUS.processing.label, match: (s) => s === 'processing' || s === 'rendering' },
+  { id: 'failed', label: CLIP_STATUS.failed.label, match: (s) => s === 'failed' },
+]
+
+const GRID: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 20 }
+const CENTER: React.CSSProperties = { position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }
+
 export default function ClipsPage() {
-  const router = useRouter()
   const { activeAgent } = useAgent()
   const { epoch, systemInfo } = useEngine()
   const [clips, setClips] = useState<Clip[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [filter, setFilter] = useState<Filter>('all')
   const [toDelete, setToDelete] = useState<Clip | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [exportingId, setExportingId] = useState<string | null>(null)
@@ -123,34 +143,33 @@ export default function ClipsPage() {
     )
   }
 
+  const desktop = isDesktop()
+  const activeFilter = FILTERS.find((f) => f.id === filter) || FILTERS[0]
+  const visible = clips?.filter((c) => activeFilter.match(c.status)) ?? []
+
   return (
     <div>
-      <PageHeader
-        title="Hasil Pemotongan Clip"
-        subtitle="Klik salah satu clip untuk membuka editor subtitle."
-        actions={
-          <Link href="/discover/" style={{ textDecoration: 'none' }}>
-            <Button size="sm" icon={<Sparkles size={14} />}>
-              Clip video baru
-            </Button>
-          </Link>
-        }
-      />
+      <PageHeader title="Hasil Pemotongan Clip" subtitle="Klik salah satu clip untuk membuka editor subtitle." />
 
       {error && (
-        <GlassCard hoverEffect={false} padding="16px 20px" style={{ border: '1px solid var(--danger)', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span style={{ flex: 1 }}>{error}</span>
-          <button className="mc-link-button" onClick={() => load(activeAgent.id)}>
-            Coba lagi
-          </button>
-        </GlassCard>
+        <Alert
+          tone="error"
+          style={{ marginBottom: 20 }}
+          action={
+            <Button variant="secondary" size="sm" onClick={() => load(activeAgent.id)}>
+              Coba lagi
+            </Button>
+          }
+        >
+          {error}
+        </Alert>
       )}
 
       {clips === null ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '24px' }}>
+        <div style={GRID}>
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <Skeleton height={420} />
+            <div key={i} className="mc-stack mc-gap-12">
+              <Skeleton height="auto" radius="md" style={{ aspectRatio: '9 / 16' }} />
               <Skeleton height={18} width="70%" />
               <Skeleton height={14} width="90%" />
             </div>
@@ -162,136 +181,121 @@ export default function ClipsPage() {
           title="Belum ada clip"
           description="Clip yang dihasilkan AI akan muncul di sini secara otomatis. Mulai dari menu Cari Video."
           action={
-            <Link href="/discover/" style={{ textDecoration: 'none' }}>
-              <Button size="sm">Cari video</Button>
-            </Link>
+            <ButtonLink href="/discover/" variant="accent" size="sm" icon={<Plus size={16} aria-hidden="true" />}>
+              Klip baru
+            </ButtonLink>
           }
         />
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '24px' }}>
-          {clips.map((clip) => {
-            const ready = !!clip.files.raw && clip.status !== 'processing'
-            const status = CLIP_STATUS[clip.status]
-            const items: DropdownItem[] = [
-              { id: 'edit', label: 'Edit subtitle', icon: Edit2, onClick: () => router.push(detailHref(clip.id)) },
-            ]
-            if (isDesktop()) {
-              items.push({ id: 'reveal', label: 'Buka di Explorer', icon: FolderOpen, onClick: () => reveal(clip) })
-              if (clip.files.final) items.push({ id: 'export', label: exportingId === clip.id ? 'Mengekspor…' : 'Ekspor ke…', icon: Download, onClick: () => exportTo(clip) })
-            }
-            items.push({ id: 'delete', label: 'Hapus clip', icon: Trash2, danger: true, onClick: () => setToDelete(clip) })
+        <div className="mc-stack mc-gap-20">
+          <div>
+            <Tabs
+              ariaLabel="Filter status clip"
+              onCanvas
+              tabs={FILTERS.map((f) => ({
+                id: f.id,
+                label: (
+                  <>
+                    {f.label} <span className="mc-mono">{clips.filter((c) => f.match(c.status)).length}</span>
+                  </>
+                ),
+              }))}
+              activeTab={filter}
+              onChange={(id) => setFilter(id as Filter)}
+            />
+          </div>
 
-            return (
-              <GlassCard
-                key={clip.id}
-                glow
-                padding="0px"
-                style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', cursor: 'pointer' }}
-                onClick={() => router.push(detailHref(clip.id))}
-              >
-                <div style={{ position: 'relative', width: '100%', aspectRatio: '9/16', background: '#000', overflow: 'hidden' }}>
-                  {clip.files.thumbnail && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={mediaUrl(clip.id, 'thumbnail', clip.updated_at)}
-                      alt={clip.hook_text || 'Thumbnail clip'}
-                      loading="lazy"
-                      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.75 }}
-                    />
-                  )}
-
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: '50%',
-                      left: '50%',
-                      transform: 'translate(-50%, -50%)',
-                      width: '50px',
-                      height: '50px',
-                      borderRadius: '50%',
-                      background: ready ? 'rgba(24, 86, 255, 0.9)' : 'rgba(0, 0, 0, 0.7)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      boxShadow: ready ? '0 0 20px var(--primary-glow)' : 'none',
-                    }}
-                  >
-                    {ready ? <Play size={20} color="#fff" fill="#fff" style={{ marginLeft: '4px' }} /> : <Loader2 size={20} color="var(--warning)" className="animate-spin" />}
-                  </div>
-
-                  <div style={{ position: 'absolute', top: '14px', right: '14px', left: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                      <Badge variant="accent" glow icon={<Flame size={13} />}>
-                        {Math.round(clip.viral_score)}% viral
-                      </Badge>
-                      {clip.status !== 'ready' && (
-                        <Badge variant={status.variant} glow={false}>
-                          {status.label}
-                        </Badge>
+          {visible.length === 0 ? (
+            <EmptyState
+              icon={Film}
+              title="Tidak ada clip dengan status ini"
+              description={`Belum ada clip berstatus "${activeFilter.label}" untuk agent ini.`}
+              action={
+                <Button variant="secondary" size="sm" onClick={() => setFilter('all')}>
+                  Tampilkan semua
+                </Button>
+              }
+            />
+          ) : (
+            <div style={GRID}>
+              {visible.map((clip) => {
+                const ready = !!clip.files.raw && clip.status !== 'processing'
+                const hook = clip.hook_text || 'MetisClip'
+                const score = Math.round(clip.viral_score)
+                const clock = formatClock(clip.duration_seconds)
+                return (
+                  <article key={clip.id} className="mc-stack mc-gap-12">
+                    <Link
+                      href={detailHref(clip.id)}
+                      className="mc-thumb mc-on-ink mc-card--interactive"
+                      style={{ display: 'block', aspectRatio: '9 / 16', textDecoration: 'none' }}
+                      aria-label={`Buka editor: ${hook} (skor viral ${score}, ${CLIP_STATUS[clip.status]?.label ?? clip.status}, durasi ${clock})`}
+                    >
+                      {clip.files.thumbnail ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={mediaUrl(clip.id, 'thumbnail', clip.updated_at)} alt="" loading="lazy" style={{ position: 'absolute', inset: 0 }} />
+                      ) : (
+                        <span style={{ ...CENTER, color: 'var(--on-ink-muted)' }} aria-hidden="true">
+                          {ready ? <Film size={24} /> : <Spinner size="lg" />}
+                        </span>
                       )}
-                    </div>
-                    <div onClick={(e) => e.stopPropagation()}>
-                      <Dropdown
-                        align="right"
-                        width="190px"
-                        trigger={
-                          <div
-                            style={{
-                              width: '32px',
-                              height: '32px',
-                              borderRadius: '50%',
-                              background: 'rgba(0,0,0,0.6)',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              border: '1px solid rgba(255,255,255,0.1)',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            <MoreVertical size={16} color="#fff" />
-                          </div>
-                        }
-                        items={items}
-                      />
-                    </div>
-                  </div>
+                      <span className="mc-thumb__corner mc-thumb__corner--tl">
+                        <ScoreBadge score={clip.viral_score} size="sm" />
+                      </span>
+                      <span className="mc-thumb__corner mc-thumb__corner--tr">
+                        <StatusBadge kind="clip" status={clip.status} size="sm" />
+                      </span>
+                      <span className="mc-thumb__corner mc-thumb__corner--br">
+                        <Badge tone="ink" size="sm">
+                          <span className="mc-mono">{clock}</span>
+                        </Badge>
+                      </span>
+                    </Link>
 
-                  <div style={{ position: 'absolute', bottom: '10px', right: '10px', padding: '4px 8px', background: 'rgba(0,0,0,0.8)', borderRadius: '6px', fontSize: '12px', fontWeight: 700 }}>
-                    {formatClock(clip.duration_seconds)}
-                  </div>
-                </div>
+                    <div className="mc-stack mc-gap-4">
+                      <h2 className="mc-h3 mc-clamp-2" title={hook}>
+                        {hook}
+                      </h2>
+                      <span className="mc-caption mc-muted">{formatDate(clip.created_at)}</span>
+                    </div>
+                    {clip.rationale && (
+                      <p className="mc-muted mc-clamp-2" title={clip.rationale}>
+                        {clip.rationale}
+                      </p>
+                    )}
+                    {clip.tags.length > 0 && (
+                      <div className="mc-row mc-row--wrap mc-gap-4">
+                        {clip.tags.map((tag) => (
+                          <Tag key={tag}>{tag}</Tag>
+                        ))}
+                      </div>
+                    )}
 
-                <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', flex: 1 }}>
-                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Calendar size={12} />
-                    {formatDate(clip.created_at)}
-                  </p>
-                  <h3 style={{ fontSize: '17px', fontWeight: 700, marginBottom: '8px' }}>{clip.hook_text || 'MetisClip'}</h3>
-                  <p
-                    style={{
-                      fontSize: '13px',
-                      color: 'var(--text-dim)',
-                      lineHeight: 1.5,
-                      display: '-webkit-box',
-                      WebkitLineClamp: 3,
-                      WebkitBoxOrient: 'vertical',
-                      overflow: 'hidden',
-                      marginBottom: '14px',
-                    }}
-                  >
-                    {clip.rationale}
-                  </p>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: 'auto' }}>
-                    {clip.tags.map((tag) => (
-                      <Badge key={tag} variant="muted" glow={false}>
-                        #{tag}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              </GlassCard>
-            )
-          })}
+                    <div className="mc-row mc-row--wrap mc-gap-8" style={{ marginTop: 'auto' }}>
+                      <ButtonLink href={detailHref(clip.id)} variant="secondary" size="sm" icon={<Pencil size={16} aria-hidden="true" />}>
+                        Edit
+                      </ButtonLink>
+                      {desktop && clip.files.final && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          icon={<Download size={16} aria-hidden="true" />}
+                          loading={exportingId === clip.id}
+                          disabled={exportingId === clip.id}
+                          onClick={() => exportTo(clip)}
+                        >
+                          Ekspor
+                        </Button>
+                      )}
+                      <span className="mc-grow" />
+                      {desktop && <IconButton size="sm" variant="outline" label="Buka di Explorer" icon={<FolderOpen size={16} />} onClick={() => reveal(clip)} />}
+                      <IconButton size="sm" variant="outline" label="Hapus clip" tooltip="end" icon={<Trash2 size={16} />} onClick={() => setToDelete(clip)} />
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -300,6 +304,7 @@ export default function ClipsPage() {
         title="Hapus clip ini?"
         message="Clip beserta file videonya (mentah & hasil render) akan dihapus permanen dari folder data. Tindakan ini tidak bisa dibatalkan."
         confirmLabel="Hapus permanen"
+        confirmIcon={<Trash2 size={16} aria-hidden="true" />}
         danger
         loading={deleting}
         onConfirm={remove}

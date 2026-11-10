@@ -1,100 +1,91 @@
-import React, { useState } from 'react'
-import { Eye, EyeOff } from 'lucide-react'
+'use client'
 
-interface InputFieldProps extends React.InputHTMLAttributes<HTMLInputElement> {
-  label?: string
+import React, { useId, useState } from 'react'
+import { Eye, EyeOff } from 'lucide-react'
+import { cx } from '@/lib/cx'
+import { Field } from './Field'
+import { IconButton } from './IconButton'
+
+interface InputFieldProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> {
+  label?: React.ReactNode
+  hint?: React.ReactNode
+  error?: React.ReactNode
+  /** Leading icon (18 px) */
   icon?: React.ReactNode
-  error?: string
+  /** Trailing control inside the pill, e.g. an IconButton size="sm" */
+  action?: React.ReactNode
+  inputSize?: 'sm' | 'md' | 'lg'
+  mono?: boolean
+  containerClassName?: string
   containerStyle?: React.CSSProperties
   /** Password fields: control the eye icon from outside (e.g. to fetch a stored value first) */
   revealed?: boolean
   onRevealToggle?: () => void
 }
 
-export const InputField: React.FC<InputFieldProps> = ({
-  label,
-  icon,
-  error,
-  containerStyle,
-  style,
-  className = '',
-  type,
-  revealed,
-  onRevealToggle,
-  ...props
-}) => {
-  const [ownShowPassword, setShowPassword] = useState(false)
-  const showPassword = onRevealToggle ? !!revealed : ownShowPassword
-  const isPasswordType = type === 'password'
-  const currentType = isPasswordType ? (showPassword ? 'text' : 'password') : type
+/** Pill text input (DESIGN.md §8.2). type="password" gets an eye toggle. */
+export const InputField = React.forwardRef<HTMLInputElement, InputFieldProps>(function InputField(
+  {
+    label,
+    hint,
+    error,
+    icon,
+    action,
+    inputSize = 'md',
+    mono,
+    containerClassName,
+    containerStyle,
+    revealed,
+    onRevealToggle,
+    className,
+    type,
+    id,
+    ...props
+  },
+  ref,
+) {
+  const autoId = useId()
+  const inputId = id || autoId
+  const [ownReveal, setOwnReveal] = useState(false)
+  const isPassword = type === 'password'
+  const shown = onRevealToggle ? !!revealed : ownReveal
+  const trailing = isPassword ? (
+    <IconButton
+      size="sm"
+      variant="ghost"
+      label={shown ? 'Sembunyikan' : 'Tampilkan'}
+      tooltip="end"
+      icon={shown ? <EyeOff size={16} /> : <Eye size={16} />}
+      onClick={() => (onRevealToggle ? onRevealToggle() : setOwnReveal((v) => !v))}
+    />
+  ) : (
+    action
+  )
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', ...containerStyle }}>
-      {label && (
-        <label style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-dim)' }}>
-          {label}
-        </label>
-      )}
-      <div style={{ position: 'relative', width: '100%' }}>
-        {icon && (
-          <div style={{
-            position: 'absolute',
-            left: '16px',
-            top: '50%',
-            transform: 'translateY(-50%)',
-            color: 'var(--text-muted)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            pointerEvents: 'none'
-          }}>
-            {icon}
-          </div>
-        )}
+    <Field label={label} hint={hint} error={error} htmlFor={inputId} className={containerClassName} style={containerStyle}>
+      <div className="mc-control">
+        {icon && <span className="mc-control__icon">{icon}</span>}
         <input
-          type={currentType}
-          className={`glass-input ${className}`}
-          style={{
-            paddingLeft: icon ? '45px' : '18px',
-            paddingRight: isPasswordType ? '45px' : '18px',
-            borderColor: error ? 'var(--danger)' : 'var(--border-glass)',
-            boxShadow: error ? '0 0 10px rgba(239, 68, 68, 0.2)' : 'none',
-            ...style
-          }}
+          ref={ref}
+          id={inputId}
+          type={isPassword ? (shown ? 'text' : 'password') : type}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? `${inputId}-error` : hint ? `${inputId}-hint` : undefined}
+          className={cx(
+            'mc-input',
+            inputSize !== 'md' && `mc-input--${inputSize}`,
+            icon && 'mc-input--with-icon',
+            trailing && 'mc-input--with-action',
+            mono && 'mc-input--mono',
+            className,
+          )}
           {...props}
         />
-        {isPasswordType && (
-          <button
-            type="button"
-            onClick={() => (onRevealToggle ? onRevealToggle() : setShowPassword(!showPassword))}
-            aria-label={showPassword ? 'Sembunyikan' : 'Tampilkan'}
-            title={showPassword ? 'Sembunyikan' : 'Tampilkan'}
-            style={{
-              position: 'absolute',
-              right: '16px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              background: 'transparent',
-              border: 'none',
-              color: 'var(--text-muted)',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: 0
-            }}
-          >
-            {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-          </button>
-        )}
+        {trailing && <span className="mc-control__action">{trailing}</span>}
       </div>
-      {error && (
-        <span style={{ fontSize: '12px', color: 'var(--danger)', fontWeight: 500, marginTop: '2px' }}>
-          {error}
-        </span>
-      )}
-    </div>
+    </Field>
   )
-}
+})
 
 export default InputField

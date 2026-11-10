@@ -1,143 +1,111 @@
-import React, { useState, useRef, useEffect } from 'react'
+'use client'
+
+import React, { useCallback, useRef, useState } from 'react'
 import Link from 'next/link'
+import { Check } from 'lucide-react'
+import { cx } from '@/lib/cx'
+import { useDismiss } from '@/hooks/useDismiss'
 
 export interface DropdownItem {
   id: string
-  label: string | React.ReactNode
+  label: React.ReactNode
   icon?: React.ElementType
   onClick?: () => void
   href?: string
+  /** Destructive: separated by a line, shown in bold */
   danger?: boolean
+  selected?: boolean
+  disabled?: boolean
 }
 
 interface DropdownProps {
+  /** Rendered inside the toggle button; give it visible text or pass triggerLabel */
   trigger: React.ReactNode
+  triggerLabel?: string
+  triggerClassName?: string
   items: DropdownItem[]
   align?: 'left' | 'right'
-  width?: string
+  width?: number | string
+  header?: React.ReactNode
+  footer?: React.ReactNode
 }
 
-export const Dropdown: React.FC<DropdownProps> = ({
-  trigger,
-  items,
-  align = 'left',
-  width = '220px'
-}) => {
-  const [isOpen, setIsOpen] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
+/** Menu popover (DESIGN.md §8.11). */
+export function Dropdown({ trigger, triggerLabel, triggerClassName, items, align = 'left', width = 220, header, footer }: DropdownProps) {
+  const [open, setOpen] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+  const close = useCallback(() => setOpen(false), [])
+  useDismiss(root, open, close)
 
-  // Handle click outside to close
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false)
-      }
-    }
+  const onMenuKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+    e.preventDefault()
+    const list = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])'))
+    const i = list.indexOf(document.activeElement as HTMLElement)
+    const next = list[(i + (e.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length]
+    next?.focus()
+  }
 
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside)
-    }
+  const normal = items.filter((i) => !i.danger)
+  const danger = items.filter((i) => i.danger)
 
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
+  const renderItem = (item: DropdownItem) => {
+    const Icon = item.icon
+    const content = (
+      <>
+        {Icon && <Icon size={16} aria-hidden="true" />}
+        <span className="mc-grow">{item.label}</span>
+        {item.selected && <Check size={16} className="mc-menu-item__check" aria-hidden="true" />}
+      </>
+    )
+    const classes = cx('mc-menu-item', item.selected && 'mc-menu-item--selected', item.danger && 'mc-menu-item--danger')
+    if (item.href) {
+      return (
+        <Link key={item.id} href={item.href} role="menuitem" className={classes} onClick={close}>
+          {content}
+        </Link>
+      )
     }
-  }, [isOpen])
+    return (
+      <button
+        key={item.id}
+        type="button"
+        role="menuitem"
+        className={classes}
+        disabled={item.disabled}
+        aria-disabled={item.disabled || undefined}
+        onClick={() => {
+          item.onClick?.()
+          close()
+        }}
+      >
+        {content}
+      </button>
+    )
+  }
 
   return (
-    <div ref={dropdownRef} style={{ position: 'relative', display: width === '100%' ? 'block' : 'inline-block', width: width === '100%' ? '100%' : 'auto' }}>
-      {/* Trigger */}
-      <div 
-        onClick={() => setIsOpen(!isOpen)}
-        style={{ cursor: 'pointer', display: width === '100%' ? 'block' : 'inline-block', width: width === '100%' ? '100%' : 'auto' }}
+    <div ref={root} className="mc-popover-anchor">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={triggerLabel}
+        className={triggerClassName}
+        style={triggerClassName ? undefined : { all: 'unset', cursor: 'pointer', display: 'inline-flex' }}
+        onClick={() => setOpen((v) => !v)}
       >
         {trigger}
-      </div>
-
-      {/* Menu Body */}
-      {isOpen && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 'calc(100% + 8px)',
-            [align === 'right' ? 'right' : 'left']: 0,
-            width: width,
-            background: 'rgba(10, 10, 15, 0.8)', // Darker base for overlay
-            backdropFilter: 'blur(20px)',
-            WebkitBackdropFilter: 'blur(20px)',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
-            borderRadius: '16px',
-            boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.5)',
-            padding: '8px',
-            zIndex: 50,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '4px',
-            maxHeight: '300px',
-            overflowY: 'auto',
-            animation: 'dropdownFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1)'
-          }}
-          className="custom-scrollbar"
-        >
-          {items.map((item) => {
-            const content = (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  padding: '10px 14px',
-                  borderRadius: '10px',
-                  cursor: 'pointer',
-                  color: item.danger ? 'var(--danger)' : 'var(--text-primary)',
-                  fontSize: '14px',
-                  fontWeight: 500,
-                  transition: 'all 0.2s ease',
-                  background: 'transparent'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = item.danger 
-                    ? 'rgba(234, 33, 67, 0.1)' 
-                    : 'rgba(255, 255, 255, 0.06)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'transparent'
-                }}
-                onClick={() => {
-                  if (item.onClick) item.onClick()
-                  setIsOpen(false)
-                }}
-              >
-                {item.icon && <item.icon size={16} />}
-                <span>{item.label}</span>
-              </div>
-            )
-
-            if (item.href) {
-              return (
-                <Link key={item.id} href={item.href} style={{ textDecoration: 'none' }}>
-                  {content}
-                </Link>
-              )
-            }
-
-            return <React.Fragment key={item.id}>{content}</React.Fragment>
-          })}
+      </button>
+      {open && (
+        <div role="menu" className={cx('mc-popover', align === 'right' && 'mc-popover--end')} style={{ width }} onKeyDown={onMenuKey}>
+          {header}
+          {normal.map(renderItem)}
+          {danger.length > 0 && normal.length > 0 && <div className="mc-menu-sep" role="separator" />}
+          {danger.map(renderItem)}
+          {footer}
         </div>
       )}
-
-      {/* Global Style for dropdown animation */}
-      <style dangerouslySetInnerHTML={{__html: `
-        @keyframes dropdownFadeIn {
-          from {
-            opacity: 0;
-            transform: translateY(-8px) scale(0.98);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-          }
-        }
-      `}} />
     </div>
   )
 }

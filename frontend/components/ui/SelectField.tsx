@@ -1,69 +1,61 @@
-import React from 'react'
+'use client'
 
-interface SelectOption {
+import React, { useId } from 'react'
+import { ChevronDown } from 'lucide-react'
+import { cx } from '@/lib/cx'
+import { Field } from './Field'
+
+export interface SelectOption {
   value: string
   label: string
+  disabled?: boolean
 }
 
-interface SelectFieldProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
-  label?: string
+interface SelectFieldProps extends Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'size'> {
+  label?: React.ReactNode
+  hint?: React.ReactNode
+  error?: React.ReactNode
   options: SelectOption[]
+  inputSize?: 'sm' | 'md'
+  containerClassName?: string
   containerStyle?: React.CSSProperties
 }
 
-export const SelectField: React.FC<SelectFieldProps> = ({
+/** Native select in the pill input style. */
+export function SelectField({
   label,
+  hint,
+  error,
   options,
+  inputSize = 'md',
+  containerClassName,
   containerStyle,
-  style,
-  className = '',
+  className,
+  id,
   ...props
-}) => {
+}: SelectFieldProps) {
+  const autoId = useId()
+  const selectId = id || autoId
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', ...containerStyle }}>
-      {label && (
-        <label style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-dim)' }}>
-          {label}
-        </label>
-      )}
-      <div style={{ position: 'relative', width: '100%' }}>
+    <Field label={label} hint={hint} error={error} htmlFor={selectId} className={containerClassName} style={containerStyle}>
+      <div className="mc-control">
         <select
-          className={`glass-input ${className}`}
-          style={{
-            appearance: 'none',
-            cursor: 'pointer',
-            paddingRight: '40px',
-            ...style
-          }}
+          id={selectId}
+          aria-invalid={error ? true : undefined}
+          className={cx('mc-input', inputSize === 'sm' && 'mc-input--sm', className)}
           {...props}
         >
           {options.map((opt) => (
-            <option 
-              key={opt.value} 
-              value={opt.value}
-              style={{ background: '#07070F', color: '#FFF' }}
-            >
+            <option key={opt.value} value={opt.value} disabled={opt.disabled}>
               {opt.label}
             </option>
           ))}
         </select>
-        {/* Dropdown Chevron Indicator Overlay */}
-        <div style={{
-          position: 'absolute',
-          right: '16px',
-          top: '50%',
-          transform: 'translateY(-50%)',
-          color: 'var(--text-muted)',
-          pointerEvents: 'none',
-          display: 'flex',
-          alignItems: 'center'
-        }}>
-          <svg width="12" height="8" viewBox="0 0 12 8" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M1 1L6 6L11 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-          </svg>
-        </div>
+        <span className="mc-control__chevron" aria-hidden="true">
+          <ChevronDown size={16} />
+        </span>
       </div>
-    </div>
+    </Field>
   )
 }
 

@@ -1,12 +1,9 @@
 'use client'
 
 import React from 'react'
-import Link from 'next/link'
-import { Bot } from 'lucide-react'
+import { AlertTriangle, Plus, Users } from 'lucide-react'
 import { useAgent } from '@/contexts/AgentContext'
-import { EmptyState } from '@/components/ui/EmptyState'
-import { Skeleton } from '@/components/ui/Skeleton'
-import { Button } from '@/components/ui/Button'
+import { Button, ButtonLink, EmptyState, Skeleton } from '@/components/ui'
 
 /** Shown by pages that need an active Super Agent. */
 export function NoAgentState({ what = 'halaman ini' }: { what?: string }) {
@@ -14,9 +11,9 @@ export function NoAgentState({ what = 'halaman ini' }: { what?: string }) {
 
   if (isAgentLoading) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <Skeleton height={36} width={280} />
-        <Skeleton height={180} />
+      <div className="mc-stack">
+        <Skeleton height={36} width={280} radius="full" />
+        <Skeleton height={180} radius="lg" />
       </div>
     )
   }
@@ -24,11 +21,11 @@ export function NoAgentState({ what = 'halaman ini' }: { what?: string }) {
   if (agentError) {
     return (
       <EmptyState
-        icon={Bot}
+        icon={AlertTriangle}
         title="Gagal memuat Super Agent"
         description={agentError}
         action={
-          <Button variant="secondary" size="sm" onClick={() => refreshAgents()}>
+          <Button variant="secondary" onClick={() => refreshAgents()}>
             Coba lagi
           </Button>
         }
@@ -36,21 +33,30 @@ export function NoAgentState({ what = 'halaman ini' }: { what?: string }) {
     )
   }
 
+  if (agents.length === 0) {
+    return (
+      <EmptyState
+        icon={Users}
+        title="Belum ada Super Agent"
+        description={`Buat Super Agent pertama Anda untuk mulai menggunakan ${what}. Setiap agent punya niche, durasi klip, dan brand template sendiri.`}
+        action={
+          <ButtonLink href="/agents/" variant="accent" icon={<Plus size={16} />}>
+            Buat Super Agent
+          </ButtonLink>
+        }
+      />
+    )
+  }
+
   return (
     <EmptyState
-      icon={Bot}
-      title={agents.length === 0 ? 'Belum ada Super Agent' : 'Pilih Super Agent'}
-      description={
-        agents.length === 0
-          ? `Buat Super Agent pertama Anda untuk mulai menggunakan ${what}. Setiap agent punya niche, durasi klip, dan brand template sendiri.`
-          : `Pilih Super Agent aktif di menu samping untuk membuka ${what}.`
-      }
+      icon={Users}
+      title="Pilih Super Agent"
+      description={`Pilih Super Agent aktif lewat pemilih agent di kanan atas untuk membuka ${what}.`}
       action={
-        <Link href="/agents/" style={{ textDecoration: 'none' }}>
-          <Button variant="primary" size="sm">
-            {agents.length === 0 ? 'Buat Super Agent' : 'Kelola Super Agent'}
-          </Button>
-        </Link>
+        <ButtonLink href="/agents/" variant="primary">
+          Kelola Super Agent
+        </ButtonLink>
       }
     />
   )

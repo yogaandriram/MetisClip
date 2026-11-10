@@ -5,9 +5,7 @@ import { useRouter } from 'next/navigation'
 import { AlertTriangle, RefreshCw, Power } from 'lucide-react'
 import { api, getEngineInfo, type SystemInfo } from '@/lib/engine'
 import { errorMessage } from '@/lib/format'
-import { Button } from '@/components/ui/Button'
-import { Skeleton } from '@/components/ui/Skeleton'
-import { Spinner } from '@/components/ui/Spinner'
+import { Button, Card, Logo, Skeleton, Spinner } from '@/components/ui'
 
 type EngineContextValue = {
   /** Increments every time the engine (re)connects; use as an effect dependency to refetch */
@@ -134,51 +132,60 @@ export function useEngine(): EngineContextValue {
 
 function EngineSkeleton({ message }: { message: string | null }) {
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-deep)' }}>
-      <div style={{ width: '260px', padding: '30px 20px', borderRight: '1px solid var(--border-glass)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <Skeleton height={32} width={140} />
-        <Skeleton height={56} style={{ marginBottom: '20px' }} />
-        {Array.from({ length: 8 }).map((_, i) => (
-          <Skeleton key={i} height={40} />
-        ))}
+    <div className="mc-shell" aria-busy="true">
+      <div className="mc-shell__logo">
+        <Logo />
       </div>
-      <div style={{ flex: 1, padding: '40px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', color: 'var(--text-dim)', fontSize: '14px' }}>
-          <Spinner size="sm" color="primary" />
-          <span>{message || 'Menghubungkan ke engine MetisClip…'}</span>
-        </div>
-        <Skeleton height={36} width={320} />
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
-          <Skeleton height={130} />
-          <Skeleton height={130} />
-          <Skeleton height={130} />
-        </div>
-        <Skeleton height={260} />
+      <div className="mc-shell__rail">
+        <Skeleton width={64} height="100%" radius="full" />
       </div>
+      <main className="mc-shell__main">
+        <div className="mc-topbar">
+          <div className="mc-stack mc-gap-8">
+            <Skeleton width={280} height={32} radius="full" />
+            <div className="mc-row mc-muted">
+              <Spinner size="sm" />
+              <span role="status">{message || 'Menghubungkan ke engine MetisClip…'}</span>
+            </div>
+          </div>
+          <Skeleton width={320} height={48} radius="full" />
+        </div>
+        <div className="mc-grid">
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="mc-col-3" height={200} radius="lg" />
+          ))}
+          <Skeleton className="mc-col-8" height={280} radius="lg" />
+          <Skeleton className="mc-col-4" height={280} radius="lg" />
+        </div>
+      </main>
     </div>
   )
 }
 
 function EngineErrorScreen({ message, onRetry }: { message: string | null; onRetry: () => void }) {
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-deep)', padding: '20px' }}>
-      <div className="glass-card-glowing" style={{ maxWidth: '520px', width: '100%', padding: '36px', textAlign: 'center' }}>
-        <AlertTriangle size={44} color="var(--danger)" style={{ margin: '0 auto 16px' }} />
-        <h1 style={{ fontSize: '22px', fontWeight: 800, marginBottom: '10px' }}>Engine MetisClip tidak dapat dihubungi</h1>
-        <p style={{ color: 'var(--text-dim)', lineHeight: 1.6, marginBottom: '26px', wordBreak: 'break-word' }}>
-          {message || 'Terjadi kesalahan saat menyalakan engine lokal.'}
-        </p>
-        <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
-          <Button variant="primary" onClick={onRetry} icon={<RefreshCw size={16} />}>
-            Coba lagi
-          </Button>
-          {typeof window !== 'undefined' && window.metis && (
-            <Button variant="secondary" onClick={() => window.metis?.relaunch()} icon={<Power size={16} />}>
-              Mulai ulang aplikasi
+    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24 }}>
+      <Card padding="lg" style={{ maxWidth: 560, width: '100%', borderRadius: 'var(--r-xl)' }}>
+        <div className="mc-stack mc-gap-20">
+          <Logo size="sm" />
+          <div className="mc-stack mc-gap-8">
+            <h1 className="mc-h2">Engine MetisClip tidak dapat dihubungi</h1>
+            <p className="mc-muted" style={{ overflowWrap: 'anywhere' }}>
+              {message || 'Terjadi kesalahan saat menyalakan engine lokal.'}
+            </p>
+          </div>
+          <div className="mc-row mc-row--wrap">
+            <Button variant="primary" onClick={onRetry} icon={<RefreshCw size={16} />}>
+              Coba lagi
             </Button>
-          )}
+            {typeof window !== 'undefined' && window.metis && (
+              <Button variant="secondary" onClick={() => window.metis?.relaunch()} icon={<Power size={16} />}>
+                Mulai ulang aplikasi
+              </Button>
+            )}
+          </div>
         </div>
-      </div>
+      </Card>
     </div>
   )
 }
@@ -188,30 +195,30 @@ function EngineBanner({ phase, message, onRetry }: { phase: Phase; message: stri
   return (
     <div
       role="status"
+      className="mc-on-ink"
       style={{
         position: 'fixed',
-        top: '16px',
+        top: 16,
         left: '50%',
         transform: 'translateX(-50%)',
         zIndex: 200,
+        maxWidth: 'calc(100vw - 32px)',
         display: 'flex',
         alignItems: 'center',
-        gap: '12px',
-        padding: '10px 16px',
-        borderRadius: '12px',
-        background: 'rgba(7, 7, 15, 0.95)',
-        border: `1px solid ${isError ? 'var(--danger)' : 'var(--warning)'}`,
-        boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
-        fontSize: '13px',
-        maxWidth: 'calc(100vw - 32px)',
+        gap: 12,
+        padding: '10px 10px 10px 16px',
+        borderRadius: 'var(--r-full)',
+        background: 'var(--ink)',
+        color: 'var(--on-ink)',
+        boxShadow: 'var(--shadow-1)',
       }}
     >
-      {isError ? <AlertTriangle size={16} color="var(--danger)" /> : <Spinner size="sm" color="accent" />}
+      {isError ? <AlertTriangle size={16} aria-hidden="true" /> : <Spinner size="sm" />}
       <span>{message || (isError ? 'Engine berhenti.' : 'Engine sedang dimulai ulang…')}</span>
       {isError && (
-        <button className="mc-link-button" onClick={onRetry}>
+        <Button variant="primary" size="sm" onClick={onRetry}>
           Coba lagi
-        </button>
+        </Button>
       )}
     </div>
   )

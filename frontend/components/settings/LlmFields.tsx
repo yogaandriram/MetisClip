@@ -1,13 +1,11 @@
 'use client'
 
 import React, { useState } from 'react'
-import { CheckCircle2, ExternalLink, ListRestart } from 'lucide-react'
+import { AlertTriangle, ExternalLink, KeyRound, ListRestart } from 'lucide-react'
 import { api, type LlmProvider, type LlmSecretName, type SecretName, type Settings } from '@/lib/engine'
 import { COMPATIBLE_ENDPOINTS, LLM_PROVIDERS, providerInfo } from '@/lib/llmProviders'
 import { errorMessage } from '@/lib/format'
-import { Button } from '@/components/ui/Button'
-import { InputField } from '@/components/ui/InputField'
-import { SelectField } from '@/components/ui/SelectField'
+import { Button, ChoiceChips, Field, InputField, SelectField } from '@/components/ui'
 import { SecretField } from '@/components/settings/SecretField'
 
 export type LlmValue = Settings['llm']
@@ -24,6 +22,8 @@ interface LlmSectionProps {
 }
 
 const MANUAL = '__manual__'
+
+const inlineIcon: React.CSSProperties = { display: 'inline-block', verticalAlign: '-2px' }
 
 /** Provider picker (six providers + OpenAI-compatible), its API key, model and, for compatible endpoints, the base URL. */
 export function LlmSection({ value, onChange, secrets, onSecretConfigured, persist, allowRemove = true }: LlmSectionProps) {
@@ -60,54 +60,37 @@ export function LlmSection({ value, onChange, secrets, onSecretConfigured, persi
     }
   }
 
+  const providerOptions = LLM_PROVIDERS.map((p) => ({
+    value: p.id,
+    label: (
+      <>
+        {p.id === 'openai_compatible' || p.family === p.label ? p.label : `${p.label} · ${p.family}`}
+        {secrets[p.secret] && (
+          <>
+            <KeyRound size={14} aria-hidden="true" />
+            <span className="mc-sr-only">, API key tersimpan</span>
+          </>
+        )}
+      </>
+    ),
+  }))
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-      <div>
-        <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-dim)', marginBottom: '10px' }}>Penyedia LLM</div>
-        <div role="radiogroup" aria-label="Penyedia LLM" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '10px' }}>
-          {LLM_PROVIDERS.map((p) => {
-            const active = p.id === value.provider
-            const stored = secrets[p.secret]
-            return (
-              <button
-                key={p.id}
-                type="button"
-                role="radio"
-                aria-checked={active}
-                onClick={() => choose(p.id)}
-                style={{
-                  textAlign: 'left',
-                  padding: '12px 14px',
-                  borderRadius: '12px',
-                  cursor: 'pointer',
-                  background: active ? 'rgba(24, 86, 255, 0.14)' : 'rgba(255,255,255,0.03)',
-                  border: `1px solid ${active ? 'var(--primary)' : 'var(--border-glass)'}`,
-                  boxShadow: active ? '0 0 0 1px var(--primary) inset' : 'none',
-                  color: 'var(--text-primary)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '3px',
-                  minWidth: 0,
-                  // The compatible endpoint has the longest name and hint: give it two columns
-                  gridColumn: p.id === 'openai_compatible' ? 'span 2' : undefined,
-                }}
-              >
-                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', fontWeight: 700 }}>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.label}</span>
-                  {stored && <CheckCircle2 size={13} color="var(--accent)" style={{ flexShrink: 0 }} aria-label="API key tersimpan" />}
-                </span>
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.family}</span>
-              </button>
-            )
-          })}
-        </div>
-        <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px', lineHeight: 1.5 }}>
-          Dipakai untuk menganalisis transkrip, memilih momen viral, dan menandai kata kunci/emoji. Tanda <CheckCircle2 size={11} color="var(--accent)" style={{ verticalAlign: '-1px' }} /> berarti API key penyedia itu sudah tersimpan.
-        </p>
-      </div>
+    <div className="mc-stack mc-gap-20">
+      <Field
+        label="Penyedia LLM"
+        hint={
+          <>
+            Dipakai untuk menganalisis transkrip, memilih momen viral, dan menandai kata kunci/emoji. Tanda <KeyRound size={12} aria-hidden="true" style={inlineIcon} /> berarti
+            API key penyedia itu sudah tersimpan.
+          </>
+        }
+      >
+        <ChoiceChips ariaLabel="Penyedia LLM" options={providerOptions} value={value.provider} onChange={choose} />
+      </Field>
 
       {compatible && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(160px, 220px) 1fr', gap: '12px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(160px, 220px) 1fr', gap: 16 }}>
           <SelectField
             label="Layanan"
             value={endpoint?.id || MANUAL}
@@ -117,7 +100,7 @@ export function LlmSection({ value, onChange, secrets, onSecretConfigured, persi
               if (picked) onChange({ ...value, base_url: picked.base_url })
             }}
           />
-          <InputField label="Base URL" placeholder="https://…/v1" value={value.base_url} onChange={(e) => onChange({ ...value, base_url: e.target.value })} spellCheck={false} />
+          <InputField label="Base URL" placeholder="https://…/v1" value={value.base_url} onChange={(e) => onChange({ ...value, base_url: e.target.value })} spellCheck={false} mono />
         </div>
       )}
 
@@ -127,8 +110,8 @@ export function LlmSection({ value, onChange, secrets, onSecretConfigured, persi
         label={compatible ? 'API key OpenAI-compatible' : `API key ${provider.label}`}
         description={
           provider.keyUrl ? (
-            <a href={provider.keyUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-              Buat API key {provider.label} <ExternalLink size={11} />
+            <a href={provider.keyUrl} target="_blank" rel="noreferrer" className="mc-link" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              Buat API key {provider.label} <ExternalLink size={14} aria-hidden="true" />
             </a>
           ) : (
             'Key dari layanan yang Anda pilih di atas (mis. 9Router, Groq, OpenRouter).'
@@ -142,10 +125,17 @@ export function LlmSection({ value, onChange, secrets, onSecretConfigured, persi
         allowRemove={allowRemove}
       />
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
-          <InputField label="Model" value={model} onChange={(e) => setModel(e.target.value)} spellCheck={false} containerStyle={{ flex: 1 }} placeholder="Nama model" />
-          <Button type="button" variant="secondary" size="sm" onClick={loadModels} loading={loadingModels} disabled={!hasKey || (compatible && !/^https?:\/\//.test(value.base_url))} icon={<ListRestart size={14} />} style={{ height: '46px' }}>
+      <div className="mc-stack mc-gap-8">
+        <div className="mc-row mc-gap-8" style={{ alignItems: 'flex-end' }}>
+          <InputField label="Model" value={model} onChange={(e) => setModel(e.target.value)} spellCheck={false} containerClassName="mc-grow" placeholder="Nama model" mono />
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={loadModels}
+            loading={loadingModels}
+            disabled={!hasKey || (compatible && !/^https?:\/\//.test(value.base_url))}
+            icon={<ListRestart size={16} aria-hidden="true" />}
+          >
             Muat daftar model
           </Button>
         </div>
@@ -157,8 +147,13 @@ export function LlmSection({ value, onChange, secrets, onSecretConfigured, persi
             onChange={(e) => e.target.value !== MANUAL && setModel(e.target.value)}
           />
         )}
-        {modelsError && <span style={{ fontSize: '12px', color: 'var(--danger)' }}>{modelsError}</span>}
-        {!hasKey && <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Isi API key dulu untuk memuat daftar model dari {provider.label}.</span>}
+        {modelsError && (
+          <span className="mc-field__error" role="alert">
+            <AlertTriangle size={14} aria-hidden="true" />
+            {modelsError}
+          </span>
+        )}
+        {!hasKey && <span className="mc-caption mc-muted">Isi API key dulu untuk memuat daftar model dari {provider.label}.</span>}
       </div>
     </div>
   )

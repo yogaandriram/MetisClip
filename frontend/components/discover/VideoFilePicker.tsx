@@ -1,8 +1,8 @@
 'use client'
 
 import React, { useState } from 'react'
-import { FileVideo, FolderOpen, UploadCloud, X } from 'lucide-react'
-import { Button } from '@/components/ui/Button'
+import { FileVideo, FolderOpen, X } from 'lucide-react'
+import { Button, Card, DropZone, Field, IconButton, IconTile } from '@/components/ui'
 import { VIDEO_FILE_EXTENSIONS, fileName } from '@/lib/format'
 
 interface VideoFilePickerProps {
@@ -34,100 +34,67 @@ export function VideoFilePicker({ value, onChange, onError }: VideoFilePickerPro
     if (path) accept(path)
   }
 
+  const takeDroppedFile = (file: File | undefined) => {
+    if (!file) return
+    const path = window.metis?.pathForFile(file) || ''
+    if (!path) {
+      onError('File ini tidak bisa dipakai langsung. Simpan dulu ke komputer, lalu klik area unggah untuk memilihnya.')
+      return
+    }
+    accept(path)
+  }
+
+  // The chosen-file row stays a drop target, so another video can be dropped onto it to replace the first.
   const drag = {
-    onDragOver: (e: React.DragEvent) => {
+    onDragOver: (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault()
       e.dataTransfer.dropEffect = 'copy'
       setOver(true)
     },
-    onDragLeave: (e: React.DragEvent) => {
+    onDragLeave: (e: React.DragEvent<HTMLDivElement>) => {
       if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false)
     },
-    onDrop: (e: React.DragEvent) => {
+    onDrop: (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault()
       setOver(false)
-      const file = e.dataTransfer.files[0]
-      if (!file) return
-      const path = window.metis?.pathForFile(file) || ''
-      if (!path) {
-        onError('File ini tidak bisa dipakai langsung. Simpan dulu ke komputer, lalu pilih lewat tombol "Pilih file".')
-        return
-      }
-      accept(path)
+      takeDroppedFile(e.dataTransfer.files[0])
     },
   }
 
-  const border = over ? 'var(--primary)' : 'var(--border-glass)'
   const folder = value ? value.slice(0, Math.max(0, value.length - fileName(value).length)).replace(/[\\/]$/, '') : ''
 
   return (
-    <div>
-      <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-dim)', marginBottom: '10px' }}>Video dari komputer</div>
+    <Field
+      label="Video dari komputer"
+      hint="Video dipakai langsung dari lokasinya (tidak disalin), jadi jangan dipindah atau dihapus sampai job selesai. Transkripnya dibuat dengan Whisper, jadi API key Groq wajib diisi di Pengaturan."
+    >
       {value ? (
-        <div
-          {...drag}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '14px',
-            padding: '16px 18px',
-            borderRadius: '14px',
-            border: `1px solid ${border}`,
-            background: over ? 'rgba(24, 86, 255, 0.10)' : 'rgba(255,255,255,0.03)',
-          }}
-        >
-          <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'rgba(24, 86, 255, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <FileVideo size={22} color="var(--primary)" />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: '15px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={value}>
+        <Card tone="dew" padding="sm" className={over ? 'mc-row mc-drop--over' : 'mc-row'} {...drag}>
+          <IconTile icon={<FileVideo size={18} />} />
+          <div className="mc-stack mc-gap-4 mc-grow">
+            <span className="mc-label mc-truncate" title={value}>
               {fileName(value)}
-            </div>
-            <div className="mc-mono" style={{ fontSize: '12px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={folder}>
+            </span>
+            <span className="mc-caption mc-mono mc-muted mc-truncate" title={folder}>
               {folder}
-            </div>
+            </span>
           </div>
-          <Button type="button" variant="secondary" size="sm" icon={<FolderOpen size={14} />} onClick={browse}>
+          <Button variant="secondary" size="sm" icon={<FolderOpen size={16} />} onClick={browse} disabled={!desktop}>
             Ganti
           </Button>
-          <button
-            type="button"
-            onClick={() => onChange(null)}
-            aria-label="Hapus pilihan file"
-            title="Hapus pilihan file"
-            style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '6px', display: 'flex' }}
-          >
-            <X size={18} />
-          </button>
-        </div>
+          <IconButton variant="outline" size="sm" label="Hapus pilihan file" icon={<X size={16} />} onClick={() => onChange(null)} />
+        </Card>
       ) : (
-        <div
-          {...drag}
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '10px',
-            padding: '34px 20px',
-            borderRadius: '14px',
-            border: `2px dashed ${border}`,
-            background: over ? 'rgba(24, 86, 255, 0.10)' : 'rgba(0,0,0,0.18)',
-            textAlign: 'center',
-            transition: 'background 0.2s, border-color 0.2s',
-          }}
-        >
-          <UploadCloud size={34} color={over ? 'var(--primary)' : 'var(--text-muted)'} />
-          <div style={{ fontSize: '15px', fontWeight: 600 }}>{over ? 'Lepaskan untuk memakai video ini' : 'Tarik & lepas video ke sini'}</div>
-          <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{FORMATS}</div>
-          <Button type="button" variant="secondary" size="sm" icon={<FolderOpen size={14} />} onClick={browse} disabled={!desktop} style={{ marginTop: '6px' }}>
-            Pilih file
-          </Button>
-        </div>
+        <DropZone
+          title="Seret video ke sini atau klik untuk memilih file"
+          overTitle="Lepaskan untuk memakai video ini"
+          hint={FORMATS}
+          onActivate={browse}
+          onFiles={(files) => takeDroppedFile(files[0])}
+          disabled={!desktop}
+        />
       )}
-      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px', lineHeight: 1.5 }}>
-        Video dipakai langsung dari lokasinya (tidak disalin), jadi jangan dipindah atau dihapus sampai job selesai. Transkripnya dibuat dengan Whisper, jadi API key Groq wajib diisi di Pengaturan.
-      </p>
-    </div>
+    </Field>
   )
 }
 

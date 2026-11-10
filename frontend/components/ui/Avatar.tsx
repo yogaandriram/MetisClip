@@ -1,87 +1,40 @@
 import React from 'react'
+import { cx } from '@/lib/cx'
 
 interface AvatarProps {
+  /** Name the initials come from */
+  name: string
+  /** Stable value for the color (e.g. the agent ID); defaults to the name */
+  seed?: string
+  size?: number
   src?: string
-  alt?: string
-  initials?: string
-  size?: 'sm' | 'md' | 'lg'
-  style?: React.CSSProperties
   className?: string
-  onClick?: () => void
 }
 
-export const Avatar: React.FC<AvatarProps> = ({
-  src,
-  alt = 'Avatar',
-  initials,
-  size = 'md',
-  style,
-  className = '',
-  onClick
-}) => {
-  const getDimensions = () => {
-    switch (size) {
-      case 'sm': return '32px'
-      case 'lg': return '64px'
-      case 'md':
-      default: return '48px'
-    }
-  }
+function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  if (!words.length) return '?'
+  const first = words[0][0] || ''
+  const second = words.length > 1 ? words[1][0] : words[0][1] || ''
+  return (first + second).toUpperCase()
+}
 
-  const dim = getDimensions()
+function tone(seed: string): number {
+  let h = 0
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
+  return h % 4
+}
 
-  const combinedStyles: React.CSSProperties = {
-    width: dim,
-    height: dim,
-    borderRadius: '50%',
-    background: 'var(--bg-glass)',
-    border: '1px solid var(--border-glass)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-    cursor: onClick ? 'pointer' : 'default',
-    flexShrink: 0,
-    transition: 'all 0.2s ease',
-    boxShadow: '0 4px 10px rgba(0,0,0,0.1)',
-    ...style
-  }
-
+/** Initials on one of the palette greens, picked by a hash of the seed (DESIGN.md §8.20). */
+export function Avatar({ name, seed, size = 40, src, className }: AvatarProps) {
   return (
-    <div 
-      className={className} 
-      style={combinedStyles}
-      onClick={onClick}
-      onMouseEnter={(e) => {
-        if (onClick) {
-          e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'
-          e.currentTarget.style.transform = 'scale(1.05)'
-        }
-      }}
-      onMouseLeave={(e) => {
-        if (onClick) {
-          e.currentTarget.style.borderColor = 'var(--border-glass)'
-          e.currentTarget.style.transform = 'scale(1)'
-        }
-      }}
+    <span
+      className={cx('mc-avatar', `mc-avatar--t${tone(seed || name)}`, className)}
+      style={{ ['--avatar-size' as string]: `${size}px` }}
+      aria-hidden="true"
     >
-      {src ? (
-        <img 
-          src={src} 
-          alt={alt} 
-          style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-        />
-      ) : (
-        <span style={{ 
-          color: 'var(--text-primary)', 
-          fontFamily: 'var(--font-display)', 
-          fontWeight: 700,
-          fontSize: size === 'sm' ? '12px' : size === 'lg' ? '24px' : '18px'
-        }}>
-          {initials ? initials.substring(0, 2).toUpperCase() : '?'}
-        </span>
-      )}
-    </div>
+      {src ? <img src={src} alt="" /> : initials(name)}
+    </span>
   )
 }
 
