@@ -55,3 +55,8 @@ render-engine/dist/
 # Generated
 frontend/tsconfig.tsbuildinfo
 *.tsbuildinfo
+
+# Local-only docs: versioned in the local repo .git-private (use `git docs ...`), never pushed
+/CLAUDE.md
+/DESIGN.md
+/.git-private/
