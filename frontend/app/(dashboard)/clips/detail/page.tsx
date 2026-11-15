@@ -62,6 +62,7 @@ import {
   Tooltip,
 } from '@/components/ui'
 import { cx } from '@/lib/cx'
+import { CaptionPositionControls } from '@/components/captions/CaptionPositionControls'
 import { SUPPORTED_FONTS, FONT_WEIGHTS_MAP } from '@/lib/constants'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
@@ -1040,7 +1041,6 @@ function ClipEditor() {
               <SelectField label="Ketebalan" value={style.fontWeight} options={weightOptions} onChange={(e) => setStyle({ fontWeight: e.target.value })} />
               <ColorPicker label="Warna font" color={style.fontColor} onChange={(v) => setStyle({ fontColor: v }, 'fontColor')} />
               <Slider label="Ukuran font" min={20} max={80} value={style.fontSize} format={(v) => `${v}px`} onChange={(v) => setStyle({ fontSize: v }, 'fontSize')} />
-              <Slider label="Posisi vertikal (Y)" min={10} max={400} value={style.positionY} onChange={(v) => setStyle({ positionY: v }, 'positionY')} />
               <Slider
                 label="Sinkronisasi suara (delay)"
                 hint="Geser ke kanan jika subtitle muncul terlalu cepat."
@@ -1051,6 +1051,12 @@ function ClipEditor() {
                 format={(v) => `${v} ms`}
                 onChange={(v) => setStyle({ offsetTime: v }, 'offsetTime')}
               />
+            </PanelSection>
+
+            <Divider />
+
+            <PanelSection title="Posisi caption">
+              <CaptionPositionControls style={style} emoji={ai.emojis} onChange={(patch, key) => setStyle(patch, key)} />
             </PanelSection>
 
             <Divider />

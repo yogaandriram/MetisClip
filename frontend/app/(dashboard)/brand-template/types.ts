@@ -2,7 +2,8 @@ import type { CaptionStyle } from '@/lib/presets/defaults';
 import { resolveCaptionStyle } from '@/lib/presets/defaults';
 import { type AiCaptionSettings, DEFAULT_AI_SETTINGS } from '@/lib/presets/captions';
 
-export type SafeZone = 'none' | 'tiktok' | 'reels' | 'shorts';
+/** 'all' = the area any of TikTok, IG Reels and YT Shorts covers (lib/presets/position.ts). */
+export type SafeZone = 'none' | 'all' | 'tiktok' | 'reels' | 'shorts';
 
 export interface LayoutSettings {
   /** Platform UI guide drawn on the preview only (never rendered into the clip). */
@@ -10,10 +11,11 @@ export interface LayoutSettings {
 }
 
 export const SAFE_ZONE_OPTIONS: { value: SafeZone; label: string }[] = [
-  { value: 'none', label: 'Tidak ada' },
+  { value: 'all', label: 'Semua platform' },
   { value: 'tiktok', label: 'TikTok' },
   { value: 'reels', label: 'IG Reels' },
   { value: 'shorts', label: 'YT Shorts' },
+  { value: 'none', label: 'Tidak ada' },
 ];
 
 export function safeZoneLabel(zone: SafeZone | undefined): string {
@@ -46,7 +48,7 @@ export interface TemplateConfig {
 
 export const DEFAULT_TEMPLATE_CONFIG: TemplateConfig = {
   layout_settings: {
-    safeZone: 'tiktok'
+    safeZone: 'all'
   },
   caption_settings: resolveCaptionStyle({ mode: 'popshadow' }),
   ai_settings: { ...DEFAULT_AI_SETTINGS },
