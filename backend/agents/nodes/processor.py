@@ -1,4 +1,5 @@
-"""Processor Agent: per segment download (or cut) -> smart crop -> 1080x1920 -> thumbnail -> Whisper -> clip.
+"""Processor Agent: per segment download (or cut) with a margin -> Whisper -> trim at sentence edges ->
+smart crop -> 1080x1920 -> thumbnail -> clip.
 
 Each segment uses its OWN source: a YouTube section download (its own youtube_id, fixes K1) or a
 frame-accurate cut of the uploaded video file. Clip ids are deterministic
@@ -15,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.agents.context import JobContext, PipelineError
-from backend.agents.tools import caption_ai, ffmpeg_ops, whisper, ytdlp
+from backend.agents.tools import caption_ai, clip_edges, ffmpeg_ops, whisper, ytdlp
 from backend.agents.tools.smart_crop import process_auto_tracking_video
 from backend.agents.tools.transcript import cached as cached_transcript
 from backend.core import events, llm
@@ -57,19 +58,45 @@ def mock_words(text: str, duration: float) -> list[dict[str, Any]]:
             for i, t in enumerate(tokens)]
 
 
-def _subtitles(ctx: JobContext, seg: dict[str, Any], raw: Path, work: Path) -> list[dict[str, Any]]:
-    if whisper.available():
-        try:
-            audio = ffmpeg_ops.extract_audio_mp3(raw, work / "audio.mp3", ctx.cancel)
-            words = whisper.words_from_payload(whisper.transcribe(audio, words=True, cancel=ctx.cancel))
-            if words:
-                return words
-        except Cancelled:
-            raise
-        except Exception as exc:
-            ctx.error("processing", f"Whisper gagal untuk klip {seg['start_time']:.0f}s, memakai transkrip: {exc}")
-    words = words_from_transcript(_transcript_key(seg), seg["start_time"], seg["end_time"])
-    return words or mock_words(seg.get("hook_text") or "", seg["duration_seconds"])
+def _fetch(ctx: JobContext, seg: dict[str, Any], start: float, end: float, out: Path) -> Path:
+    if seg.get("file_path"):
+        return ffmpeg_ops.cut_section(Path(seg["file_path"]), start, end, out, ctx.cancel)
+    return ytdlp.download_section(seg["youtube_id"], start, end, out, ctx.cancel)
+
+
+def _source(ctx: JobContext, seg: dict[str, Any], work: Path) -> tuple[Path, list[dict[str, Any]] | None, float, float]:
+    """The clip's source video, its Whisper words (None without them) and its final edges in the video.
+
+    With Whisper, the clip is fetched with `clip_edges.EDGE_MARGIN` extra seconds on both sides and
+    transcribed; both edges then move to the nearest sentence boundary in those words, and the clip is
+    trimmed there. The same words become the subtitles, so Whisper runs once per clip."""
+    start, end = float(seg["start_time"]), float(seg["end_time"])
+    if not whisper.available():
+        return _fetch(ctx, seg, start, end, work / "src.mp4"), None, start, end
+    margin = clip_edges.EDGE_MARGIN
+    pad_start = max(0.0, start - margin)
+    padded = _fetch(ctx, seg, pad_start, end + margin, work / "padded.mp4")
+    ctx.check()
+    total = ffmpeg_ops.probe_duration(padded) or (end + margin - pad_start)
+    t0, t1 = start - pad_start, min(end - pad_start, total)
+    payload: dict[str, Any] | None = None
+    words: list[dict[str, Any]] = []
+    try:
+        audio = ffmpeg_ops.extract_audio_mp3(padded, work / "audio.mp3", ctx.cancel)
+        payload = whisper.transcribe(audio, words=True, cancel=ctx.cancel)
+        words = whisper.words_from_payload(payload)
+    except Cancelled:
+        raise
+    except Exception as exc:
+        ctx.error("processing", f"Whisper gagal untuk klip {start:.0f}s, memakai transkrip: {exc}")
+    a, b = clip_edges.snap(words, payload, t0, t1, total) or (t0, t1)
+    ctx.check()
+    if seg.get("file_path"):  # cut once more from the original file rather than re-encoding the padded cut
+        src = ffmpeg_ops.cut_section(Path(seg["file_path"]), pad_start + a, pad_start + b, work / "src.mp4", ctx.cancel)
+    else:
+        src = ffmpeg_ops.cut_section(padded, a, b, work / "src.mp4", ctx.cancel)
+    clip_words = clip_edges.shift_words(words, a, b - a) or None
+    return src, clip_words, round(pad_start + a, 2), round(pad_start + b, 2)
 
 
 def _ai_marks(ctx: JobContext, words: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -110,10 +137,7 @@ def process_segment(ctx: JobContext, seg: dict[str, Any]) -> dict[str, Any]:
 def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw: Path, thumb: Path) -> dict[str, Any]:
     paths = get_paths()
     try:
-        if seg.get("file_path"):
-            src = ffmpeg_ops.cut_section(Path(seg["file_path"]), seg["start_time"], seg["end_time"], work / "src.mp4", ctx.cancel)
-        else:
-            src = ytdlp.download_section(seg["youtube_id"], seg["start_time"], seg["end_time"], work / "src.mp4", ctx.cancel)
+        src, words, start, end = _source(ctx, seg, work)
         ctx.check()
         tracked = work / "tracked.mp4"
         if process_auto_tracking_video(str(src), str(tracked), ctx.cancel):
@@ -122,9 +146,11 @@ def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw
             ctx.error("processing", f"Face tracking gagal untuk klip {seg['start_time']:.0f}s, memakai center crop")
             ffmpeg_ops.center_crop_vertical(src, raw, ctx.cancel)
         ctx.check()
-        duration = ffmpeg_ops.probe_duration(raw) or seg["duration_seconds"]
+        duration = ffmpeg_ops.probe_duration(raw) or (end - start)
         ffmpeg_ops.thumbnail(raw, thumb, duration / 2, ctx.cancel)
-        words = _subtitles(ctx, seg, raw, work)
+        if words is None:
+            words = (words_from_transcript(_transcript_key(seg), start, end)
+                     or mock_words(seg.get("hook_text") or "", end - start))
     finally:
         shutil.rmtree(work, ignore_errors=True)
     ctx.check()
@@ -137,8 +163,8 @@ def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw
         job_id=ctx.id,
         source_video_id=seg.get("source_video_id"),
         youtube_id=seg["youtube_id"],
-        start_time=seg["start_time"],
-        end_time=seg["end_time"],
+        start_time=start,
+        end_time=end,
         duration_seconds=round(float(duration), 2),
         viral_score=seg.get("viral_score", 0),
         hook_text=seg.get("hook_text", ""),

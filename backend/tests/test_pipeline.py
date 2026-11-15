@@ -19,6 +19,15 @@ URL = f"https://www.youtube.com/watch?v={VID}"
 TRANSCRIPT = [{"text": f"Ini kalimat nomor {i}.", "start": float(i * 5), "duration": 5.0} for i in range(400)]
 
 
+def fake_chat(system, user, **kw):
+    """Scan: two clips in the first part (sentences 24-32 = 02:00-02:45, 60-68 = 05:00-05:45); rank: no changes."""
+    if "Transcript part 1/" not in user:  # later parts, the rank pass, AI keyword/emoji marks
+        return {"clips": []}
+    scores = {"hook": 9, "value": 9, "standalone": 9, "payoff": 9, "shareability": 9}
+    return {"clips": [{"start_id": 24, "end_id": 32, **scores, "hook_text": "pertama"},
+                      {"start_id": 60, "end_id": 68, **scores, "payoff": 7, "hook_text": "kedua"}]}
+
+
 @pytest.fixture()
 def fake_world(monkeypatch, db, secrets):
     secrets.set_secret("llm_api_key", "sk-test-0000000000")
@@ -33,12 +42,6 @@ def fake_world(monkeypatch, db, secrets):
                                                   "fetched_at": utcnow()}, upsert=True)
         return TRANSCRIPT
 
-    def fake_chat(system, user, **kw):
-        if "Critic" in system:
-            return {}
-        return {"segments": [{"start_time": "02:00", "end_time": "02:46", "viral_score": 90, "hook_text": "pertama"},
-                             {"start_time": "05:00", "end_time": "05:46", "viral_score": 95, "hook_text": "kedua"}]}
-
     def fake_download(youtube_id, start, end, out_path: Path, cancel=None):
         downloads.append(youtube_id)
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -51,7 +54,7 @@ def fake_world(monkeypatch, db, secrets):
 
     monkeypatch.setattr(discovery.ytdlp, "dump_metadata", fake_metadata)
     monkeypatch.setattr(analyzer, "get_transcript", fake_transcript)
-    monkeypatch.setattr(analyzer.llm, "chat_json", fake_chat)
+    monkeypatch.setattr(analyzer.llm, "chat_json", fake_chat)  # module-level fake
     monkeypatch.setattr(processor.ytdlp, "download_section", fake_download)
     # No Groq key and no local engine: clip words come from the transcript
     monkeypatch.setattr(whisper_local, "binary", lambda: None)
@@ -116,19 +119,18 @@ def test_upload_job_clips_the_local_file(db, secrets, monkeypatch, tmp_path):
 
     def fake_transcribe(audio, *, words, cancel=None, on_status=None):
         calls.append(words)
-        if words:  # per clip: word timings
-            return {"words": [{"word": "halo", "start": 0.0, "end": 0.4}, {"word": "semua", "start": 0.5, "end": 0.9}]}
+        if words:  # per clip (fetched with a margin): a word every 0.5 s, a sentence ends every 4 words
+            return {"words": [{"word": f"kata{k}" + ("." if k % 4 == 3 else ""), "start": k * 0.5, "end": k * 0.5 + 0.4}
+                              for k in range(110)]}
         return {"segments": [{"text": f"Kalimat {i}.", "start": i * 5.0, "end": i * 5.0 + 5} for i in range(80)]}
 
-    def fake_chat(system, user, **kw):
-        if "Critic" in system or "Transcript Chunk" not in user:  # critic pass, AI keyword/emoji marks
-            return {}
-        assert "Video Title: podcast lokal" in user  # the file name is the title
-        return {"segments": [{"start_time": "02:00", "end_time": "02:46", "viral_score": 90, "hook_text": "pertama"},
-                             {"start_time": "05:00", "end_time": "05:46", "viral_score": 95, "hook_text": "kedua"}]}
+    def chat(system, user, **kw):
+        if "Transcript part" in user:
+            assert "Video title: podcast lokal" in user  # the file name is the title
+        return fake_chat(system, user, **kw)
 
     monkeypatch.setattr(whisper, "transcribe", fake_transcribe)
-    monkeypatch.setattr(analyzer.llm, "chat_json", fake_chat)
+    monkeypatch.setattr(analyzer.llm, "chat_json", chat)
     monkeypatch.setattr(processor.ytdlp, "download_section", lambda *a, **k: pytest.fail("an upload never downloads"))
     db.super_agents.insert_one({"_id": "agent-u", "name": "Agen", "slug": "agen-u", "timezone": "Asia/Jakarta",
                                 "created_at": utcnow()})
@@ -152,7 +154,11 @@ def test_upload_job_clips_the_local_file(db, secrets, monkeypatch, tmp_path):
         info = ffmpeg_ops.probe_media(raw)
         assert info["width"] == 1080 and info["height"] == 1920 and info["has_audio"]
         assert info["duration"] == pytest.approx(c["end_time"] - c["start_time"], abs=1.5)
-        assert [w["word"] for w in c["subtitle"]["words"]] == ["halo", "semua"]
+        # Trimmed at the sentence boundaries of the clip's own words: it starts on the first word of a
+        # sentence and ends right after a word with a full stop
+        words = c["subtitle"]["words"]
+        assert int(words[0]["word"][4:]) % 4 == 0 and words[0]["start"] < 0.2
+        assert words[-1]["word"].endswith(".") and words[-1]["end"] <= c["end_time"] - c["start_time"]
     assert calls.count(False) == 1 and calls.count(True) == 2  # one transcript, Whisper words per clip
 
     # Resume a finished job: nothing is cut or transcribed again
