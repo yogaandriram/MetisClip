@@ -9,19 +9,20 @@ import {
   HEADER_PAD,
   SPEAKER_ROLE_SCALE,
   SPEAKER_SIDE,
-  type DuoData,
   type DuoFace,
   type Layout,
   type LayoutSpeaker,
   type Rect,
+  type SceneData,
   type SpeakerFrame,
   cardGeometry,
   creditText,
   duoCrop,
   duoFaces,
   duoGeometry,
-  duoShotAt,
   podcastGeometry,
+  sceneAt,
+  scenePlan,
   splitGeometry,
   speakerAt,
   zoomAt,
@@ -38,13 +39,14 @@ import {
  * (full, split) or the framed source (podcast, card), 'background' the blurred copy behind it
  * (muted), 'companion' the looping companion video of the split mode (muted; the caller loops it
  * from the clip's start point, see companionStart), 'duoTop' and 'duoBottom' the two panels of the
- * duo mode (source.mp4, muted).
- * `hidden`: the element is not on screen at this time (duo mode: the panels outside two-speaker
- * shots, raw.mp4 inside them). The editor keeps such a video playing out of sight (the main one
- * carries the sound); the render can leave it out of the frame.
- * `time` and `words` drive the dynamic zoom, the speaker tag and the duo shots (pure functions of time).
+ * duo and auto modes (source.mp4, muted), 'framed' the source in the podcast frame of the auto mode
+ * (source.mp4, muted; 'main' stays the face-tracked clip there).
+ * `hidden`: the element is not on screen at this time (duo and auto modes: the views of the other
+ * scenes). The editor keeps such a video playing out of sight (the main one carries the sound); the
+ * render can leave it out of the frame.
+ * `time` and `words` drive the dynamic zoom, the speaker tag and the scenes (pure functions of time).
  */
-export type VideoRole = 'main' | 'background' | 'companion' | 'duoTop' | 'duoBottom';
+export type VideoRole = 'main' | 'background' | 'companion' | 'duoTop' | 'duoBottom' | 'framed';
 
 export interface LayoutStageProps {
   layout: Layout;
@@ -68,8 +70,8 @@ export interface LayoutStageProps {
   words?: CaptionWord[];
   /** Caption sync offset in ms (a word is heard at start + offset), like the caption style's. */
   offsetMs?: number;
-  /** Two-speaker shots of the clip (duo mode); without them the duo mode shows the clip full-frame. */
-  duo?: DuoData | null;
+  /** The clip's shots from its face scan (duo and auto modes); without them the clip shows full-frame. */
+  scenes?: SceneData | null;
 }
 
 const W = DESIGN_CANVAS.width;
@@ -99,7 +101,8 @@ export const LayoutStage: React.FC<LayoutStageProps> = (props) => {
   if (layout.mode === 'podcast') body = <PodcastBody {...props} zoomStyle={zoomed(layout.frame.focusX)} />;
   else if (layout.mode === 'card') body = <CardBody {...props} zoomStyle={zoomed(layout.frame.focusX)} />;
   else if (layout.mode === 'split') body = <SplitBody {...props} zoomStyle={zoomed(0.5)} />;
-  else if (layout.mode === 'duo') body = <DuoBody {...props} zoomStyle={zoomed(0.5)} />;
+  else if (layout.mode === 'duo' || layout.mode === 'auto')
+    body = <ScenesBody {...props} zoomStyle={zoomed(0.5)} frameZoomStyle={zoomed(layout.frame.focusX)} />;
   else body = renderVideo('main', { ...COVER, objectFit: props.fullFit || 'cover', ...zoomed(0.5) });
 
   return (
@@ -431,17 +434,23 @@ const SplitBody: React.FC<BodyProps> = (props) => {
 const pct = (v: number, of: number) => `${r4((v / of) * 100)}%`;
 
 /**
- * Two speakers: in a shot with two people side by side, one panel each (source.mp4 cropped around
- * their face); in any other shot the face-tracked clip full-frame, as in 'full'. The credit sits in
- * the top panel's corner next to the seam.
+ * Duo and auto modes: the view of the scene at this time (scenePlan). 'full': the face-tracked clip
+ * full-frame; 'duo': one panel per speaker (source.mp4 cropped around their face); 'framed': the
+ * podcast frame with its background and title (auto mode). Only the views the clip's plan uses are
+ * mounted; the others stay mounted but hidden, so the editor's videos keep playing in sync. The credit
+ * sits in the top panel's corner next to the seam (the frame's own corner in a framed scene).
  */
-const DuoBody: React.FC<BodyProps> = (props) => {
-  const { layout, renderVideo, zoomStyle, channel, duo, time = 0, fullFit } = props;
-  const shot = duoShotAt(duo, time);
+const ScenesBody: React.FC<BodyProps & { frameZoomStyle: React.CSSProperties }> = (props) => {
+  const { layout, renderVideo, zoomStyle, frameZoomStyle, channel, scenes, time = 0, fullFit } = props;
+  const plan = scenePlan(scenes, layout);
+  const scene = sceneAt(plan, time);
+  const view = scene?.view || 'full';
+  const hasDuo = plan.some((p) => p.view === 'duo');
+  const hasFramed = plan.some((p) => p.view === 'framed');
   const g = duoGeometry(layout);
   const credit = creditText(layout, channel);
-  const source = { width: duo?.width || 1920, height: duo?.height || 1080 };
-  const faces = shot ? duoFaces(layout, shot) : null;
+  const source = { width: scenes?.width || 1920, height: scenes?.height || 1080 };
+  const faces = view === 'duo' && scene ? duoFaces(layout, scene.faces) : null;
   const box = (r: Rect, extra?: React.CSSProperties): React.CSSProperties => ({
     position: 'absolute',
     left: 0,
@@ -450,10 +459,11 @@ const DuoBody: React.FC<BodyProps> = (props) => {
     height: pctY(r.height),
     ...extra,
   });
+  const hide = (shown: boolean): React.CSSProperties => (shown ? {} : { visibility: 'hidden' });
   const panel = (role: 'duoTop' | 'duoBottom', r: Rect, face: DuoFace | null) => {
     const c = face ? duoCrop(face, r, source, layout.duo.faceSize) : { left: 0, top: 0, width: r.width, height: r.height };
     return (
-      <div style={box(r, { overflow: 'hidden', background: '#000', visibility: shot ? undefined : 'hidden' })}>
+      <div style={box(r, { overflow: 'hidden', background: '#000', ...hide(view === 'duo') })}>
         <div style={{ position: 'absolute', inset: 0, ...zoomStyle }}>
           {renderVideo(
             role,
@@ -466,7 +476,7 @@ const DuoBody: React.FC<BodyProps> = (props) => {
               maxWidth: 'none',
               objectFit: 'cover',
             },
-            !shot,
+            view !== 'duo',
           )}
         </div>
       </div>
@@ -474,11 +484,21 @@ const DuoBody: React.FC<BodyProps> = (props) => {
   };
   return (
     <>
-      {renderVideo('main', { ...COVER, objectFit: fullFit || 'cover', ...zoomStyle, visibility: shot ? 'hidden' : undefined }, !!shot)}
-      {panel('duoTop', g.top, faces ? faces[0] : null)}
-      {panel('duoBottom', g.bottom, faces ? faces[1] : null)}
-      {shot && g.divider && <div style={box(g.divider, { background: layout.duo.dividerColor })} />}
-      {credit && (
+      {renderVideo('main', { ...COVER, objectFit: fullFit || 'cover', ...zoomStyle, ...hide(view === 'full') }, view !== 'full')}
+      {hasFramed && (
+        <div style={{ position: 'absolute', inset: 0, ...hide(view === 'framed') }}>
+          <PodcastBody
+            {...props}
+            zoomStyle={frameZoomStyle}
+            // The frame shows source.mp4 ('framed'); 'main' stays the face-tracked clip
+            renderVideo={(role, style, hidden) => renderVideo(role === 'main' ? 'framed' : role, style, hidden || view !== 'framed')}
+          />
+        </div>
+      )}
+      {hasDuo && panel('duoTop', g.top, faces ? faces[0] : null)}
+      {hasDuo && panel('duoBottom', g.bottom, faces ? faces[1] : null)}
+      {view === 'duo' && g.divider && <div style={box(g.divider, { background: layout.duo.dividerColor })} />}
+      {credit && view !== 'framed' && (
         <div style={box(g.top, { pointerEvents: 'none' })}>
           <CreditBadge layout={layout} text={credit} />
         </div>

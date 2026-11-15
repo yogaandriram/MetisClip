@@ -4,8 +4,8 @@ import { Stage } from '@/components/ui';
 import { assetUrl } from '@/lib/media';
 import { CaptionLayer } from '@/lib/presets/CaptionLayer';
 import { LayoutStage } from '@/lib/presets/LayoutStage';
-import { LAYOUT_LIMITS, type LayoutPatch, SAMPLE_DUO, stageRect, usesSource } from '@/lib/presets/layout';
-import { DUO_PLACEHOLDER } from './LayoutPresetGallery';
+import { LAYOUT_LIMITS, type LayoutPatch, sampleScenes, stageRect, usesScenes, usesSource } from '@/lib/presets/layout';
+import { DUO_PLACEHOLDER, SLIDE_PLACEHOLDER } from './LayoutPresetGallery';
 import { LOGO_BASE_SIZE, logoPosition, logoScale } from '@/lib/presets/BrandOverlay';
 import type { CaptionWord } from '@/lib/presets/types';
 import {
@@ -207,7 +207,8 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
   // Podcast frame or card: dragged up and down, saved on release
   const framed = usesSource(layoutSettings.mode);
   const split = layoutSettings.mode === 'split';
-  const duo = layoutSettings.mode === 'duo';
+  const scened = usesScenes(layoutSettings.mode);
+  const auto = layoutSettings.mode === 'auto';
   const companionUrl = assetUrl(layoutSettings.companion.videoUrl);
   const [aspect, setAspect] = useState(16 / 9);
   const frameStart = useRef<{ py: number; y: number } | null>(null);
@@ -375,10 +376,13 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
           avatarUrl={assetUrl(layoutSettings.card.avatarUrl)}
           time={clock}
           words={SAMPLE_WORDS}
-          duo={SAMPLE_DUO}
+          // Auto: two people, one person and a slide in turn (a third of the sample loop each)
+          scenes={sampleScenes(layoutSettings.mode, SAMPLE_LOOP / 3)}
           renderVideo={(role, style) =>
             (role === 'duoTop' || role === 'duoBottom') && !videoUrl ? (
               <div style={{ ...style, ...DUO_PLACEHOLDER }} />
+            ) : (role === 'framed' || (auto && role === 'background')) && !videoUrl ? (
+              <div style={{ ...style, ...SLIDE_PLACEHOLDER }} />
             ) : role === 'companion' ? (
               companionUrl ? (
                 <video key={companionUrl} src={companionUrl} autoPlay loop muted playsInline style={style} />
@@ -401,16 +405,16 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
                     onSampleAspect?.(v.videoWidth / v.videoHeight);
                   }
                 }}
-                style={{ ...style, opacity: framed ? 1 : 0.8 }}
+                style={{ ...style, opacity: framed || auto ? 1 : 0.8 }}
               />
-            ) : role === 'main' && (framed || split) ? (
+            ) : role === 'main' && (framed || split || auto) ? (
               <div className="mc-caption" style={{ ...style, ...PLACEHOLDER }}>
-                {split ? 'Video pembicara' : 'Video sumber'}
+                {split || auto ? 'Video pembicara' : 'Video sumber'}
               </div>
             ) : null
           }
         />
-        {!videoUrl && !framed && !split && !duo && (
+        {!videoUrl && !framed && !split && !scened && (
           <div className="mc-caption mc-muted" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '0 30px' }}>
             Unggah &quot;Video contoh&quot; di bagian Logo & video contoh untuk melihat preview di atas video Anda.
           </div>

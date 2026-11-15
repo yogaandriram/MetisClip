@@ -117,7 +117,7 @@ export interface ClipFiles {
   thumbnail: string | null
   /** The clip in the source video's own ratio (podcast layout); null for clips made before it was kept */
   source?: string | null
-  /** Face scan of source (duo layout); null for clips made before it was kept */
+  /** Face scan of source (duo and auto layouts); null for clips made before it was kept */
   faces?: string | null
 }
 
@@ -150,11 +150,16 @@ export interface Clip {
   updated_at: ISODate
 }
 
-/** Same shape as DuoData in lib/presets/layout.ts. */
-export interface DuoClipData {
+/** Same shape as SceneData in lib/presets/layout.ts. */
+export interface ClipScenes {
   width: number
   height: number
-  shots: Array<{ start: number; end: number; faces: Array<{ x: number; y: number; h: number }> }>
+  shots: Array<{
+    start: number
+    end: number
+    kind: 'duo' | 'solo' | 'group' | 'none'
+    faces: Array<{ x: number; y: number; h: number }>
+  }>
 }
 
 export interface ClipDetail {
@@ -167,8 +172,8 @@ export interface ClipDetail {
   effective_layout?: Record<string, any>
   /** YouTube channel of the source video ('' for uploads), for the layout credit */
   channel?: string
-  /** Two-speaker shots from the clip's face scan (duo layout); null before the scan */
-  duo?: DuoClipData | null
+  /** The shots of the clip's face scan (duo and auto layouts); null before the scan */
+  scenes?: ClipScenes | null
   /** The template in effect (the clip's own choice, else its agent's default); null = built-in */
   brand_template: BrandTemplate | null
 }
@@ -692,8 +697,8 @@ export const api = {
     render: (id: string) => request<{ render_job: RenderJob }>('POST', `/api/clips/${id}/render`),
     /** Fetch the clip's original-ratio video again (clips made before the podcast layout). */
     prepareSource: (id: string) => request<{ clip: Clip }>('POST', `/api/clips/${id}/source`),
-    /** Face scan for the duo layout (fetches the source video first when it is missing too) */
-    prepareFaces: (id: string) => request<{ clip: Clip; duo: DuoClipData | null }>('POST', `/api/clips/${id}/faces`),
+    /** Face scan for the duo and auto layouts (fetches the source video first when it is missing too) */
+    prepareFaces: (id: string) => request<{ clip: Clip; scenes: ClipScenes | null }>('POST', `/api/clips/${id}/faces`),
     /** Speaker names for the layout's name tag, from the video title, channel and clip words (not saved). */
     suggestSpeaker: (id: string) => request<{ speakers: { name: string; role: string }[] }>('POST', `/api/clips/${id}/speaker/suggest`),
     export: (clipIds: string[], destDir?: string) => request<ExportResult>('POST', '/api/clips/export', { body: { clip_ids: clipIds, dest_dir: destDir } }),

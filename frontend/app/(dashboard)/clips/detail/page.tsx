@@ -44,11 +44,16 @@ import {
   LAYOUT_LIMITS,
   companionStart,
   companionTime,
-  duoSeconds,
   mergeLayout,
   resolveLayout,
+  type Scene,
+  SCENE_VIEWS,
+  type SceneView,
+  scenePlan,
   sourceAspect,
+  usesScenes,
   usesSource,
+  viewSeconds,
 } from '@/lib/presets/layout'
 import { type CaptionStyle, BASE_CAPTION_STYLE, getPreset, presetSwitch, resolveCaptionStyle } from '@/lib/presets/defaults'
 import {
@@ -123,6 +128,16 @@ const LAYOUT_MODE_OPTIONS: { value: LayoutMode; label: string }[] = [
   { value: 'card', label: 'Kartu' },
   { value: 'split', label: 'Pendamping' },
   { value: 'duo', label: 'Dua orang' },
+  { value: 'auto', label: 'Otomatis' },
+]
+const VIEW_OPTIONS: { value: SceneView; label: string }[] = [
+  { value: 'duo', label: 'Dua panel' },
+  { value: 'full', label: 'Penuh' },
+  { value: 'framed', label: 'Bingkai' },
+]
+const FULL_OR_FRAMED_OPTIONS: { value: 'full' | 'framed'; label: string }[] = [
+  { value: 'full', label: 'Penuh' },
+  { value: 'framed', label: 'Bingkai' },
 ]
 const DUO_TOP_OPTIONS: { value: DuoTop; label: string }[] = [
   { value: 'left', label: 'Orang kiri' },
@@ -134,6 +149,7 @@ const LAYOUT_MODE_HINTS: Record<LayoutMode, string> = {
   card: 'Video di dalam kartu bergaya postingan, judul sebagai teks postingan. Nama akun dan warna kartu diatur di Brand Template.',
   split: 'Pembicara dan video pendamping tanpa suara yang diputar berulang. Videonya diunggah di Brand Template.',
   duo: 'Dua orang dalam satu frame dipisah jadi panel atas dan bawah, masing-masing mengikuti wajahnya. Adegan lain tampil penuh 9:16.',
+  auto: 'Tampilan dipilih per adegan dari hasil face tracking: satu orang penuh, dua orang dua panel, slide atau adegan ramai dalam bingkai. Gantinya hanya di potongan kamera.',
 }
 const ZOOM_STYLE_OPTIONS: { value: ZoomStyle; label: string }[] = [
   { value: 'keywords', label: 'Di kata kunci' },
@@ -240,6 +256,8 @@ function ClipEditor() {
   // The two panels of the duo layout (source.mp4, muted, follow videoRef)
   const duoTopRef = useRef<HTMLVideoElement>(null)
   const duoBottomRef = useRef<HTMLVideoElement>(null)
+  // The podcast frame of the auto layout (source.mp4, muted, follows videoRef)
+  const framedRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
   const [detail, setDetail] = useState<ClipDetail | null>(null)
@@ -473,14 +491,14 @@ function ClipEditor() {
     return () => cancelAnimationFrame(raf)
   }, [isPlaying])
 
-  /** Keep the duo panels on the clip's time (tighter than the blurred background: faces must stay in sync). */
+  /** Keep the duo panels and the auto frame on the clip's time (tighter than the blurred background). */
   function syncDuo(t: number, force = false) {
-    for (const d of [duoTopRef.current, duoBottomRef.current]) {
+    for (const d of [duoTopRef.current, duoBottomRef.current, framedRef.current]) {
       if (d && (force || Math.abs(d.currentTime - t) > 0.12)) d.currentTime = t
     }
   }
   const playDuo = (play: boolean) => {
-    for (const d of [duoTopRef.current, duoBottomRef.current]) {
+    for (const d of [duoTopRef.current, duoBottomRef.current, framedRef.current]) {
       if (!d) continue
       if (play) d.play().catch(() => undefined)
       else d.pause()
@@ -617,18 +635,18 @@ function ClipEditor() {
     }
   }
   const [analyzing, setAnalyzing] = useState(false)
-  /** Face scan for the duo layout, for a clip made before it was kept (fetches source.mp4 too). */
+  /** Face scan for the duo and auto layouts, for a clip made before it was kept (fetches source.mp4 too). */
   const prepareFaces = async () => {
     if (!clipId || analyzing) return
     setAnalyzing(true)
     const id = toast.loading('Menganalisis wajah… Bisa butuh beberapa puluh detik.')
     try {
-      const { clip, duo } = await api.clips.prepareFaces(clipId)
+      const { clip, scenes } = await api.clips.prepareFaces(clipId)
       // Only the scan fields: unsaved edits stay as they are
       setDetail((d) =>
-        d ? { ...d, duo, clip: { ...d.clip, files: clip.files, source_width: clip.source_width, source_height: clip.source_height } } : d,
+        d ? { ...d, scenes, clip: { ...d.clip, files: clip.files, source_width: clip.source_width, source_height: clip.source_height } } : d,
       )
-      toast.success(duo?.shots.length ? `Ditemukan ${duo.shots.length} adegan dua orang` : 'Analisis selesai: tidak ada adegan dua orang', { id })
+      toast.success(`Analisis selesai: ${scenes?.shots.length || 0} adegan`, { id })
     } catch (err) {
       toast.error(errorMessage(err, 'Analisis wajah gagal'), { id })
     } finally {
@@ -791,10 +809,10 @@ function ClipEditor() {
   // Podcast and card show source.mp4; until it exists the preview stays full
   const sourceView = usesSource(layout.mode) && hasSource
   const split = layout.mode === 'split'
-  // Duo: two panels from source.mp4 in two-speaker shots; needs the source and the face scan
-  const duoData = detail.duo || null
-  const duoView = layout.mode === 'duo' && hasSource && !!duoData
-  const duoShown = duoSeconds(duoData)
+  // Duo and auto: a view per scene of the face scan; needs the source and the scan
+  const sceneData = detail.scenes || null
+  const scenesView = usesScenes(layout.mode) && hasSource && !!sceneData
+  const plan = scenePlan(sceneData, layout)
   const companionSrc = split ? assetUrl(layout.companion.videoUrl) : ''
   compLoop.current = { start: companionStart(clip.id, layout.companion.duration), duration: layout.companion.duration }
   const aspect = sourceAspect(clip.source_width, clip.source_height)
@@ -1070,8 +1088,8 @@ function ClipEditor() {
               {clip.files.raw ? (
                 // Same layout component as the Remotion render (lib/presets/LayoutStage.tsx): preview == render
                 <LayoutStage
-                  layout={sourceView || split || duoView ? layout : { ...layout, mode: 'full' }}
-                  duo={duoView ? duoData : null}
+                  layout={sourceView || split || scenesView ? layout : { ...layout, mode: 'full' }}
+                  scenes={scenesView ? sceneData : null}
                   aspect={aspect}
                   title={present.title}
                   channel={detail.channel}
@@ -1082,9 +1100,9 @@ function ClipEditor() {
                   words={words}
                   offsetMs={style.offsetTime}
                   renderVideo={(role, videoStyle, hidden) =>
-                    role === 'duoTop' || role === 'duoBottom' ? (
+                    role === 'duoTop' || role === 'duoBottom' || role === 'framed' ? (
                       <video
-                        ref={role === 'duoTop' ? duoTopRef : duoBottomRef}
+                        ref={role === 'duoTop' ? duoTopRef : role === 'duoBottom' ? duoBottomRef : framedRef}
                         src={mediaUrl(clip.id, 'source')}
                         muted
                         playsInline
@@ -1157,7 +1175,7 @@ function ClipEditor() {
                         onEnded={() => setIsPlaying(false)}
                         playsInline
                         preload="auto"
-                        // Duo mode: out of sight in two-speaker shots, still playing (it carries the sound)
+                        // Duo and auto modes: out of sight in other views' scenes, still playing (it carries the sound)
                         style={{ ...videoStyle, visibility: hidden ? 'hidden' : undefined }}
                       />
                     ) : (
@@ -1265,9 +1283,9 @@ function ClipEditor() {
                 onChange={(mode) => setLayout({ mode })}
               />
               <p className="mc-caption mc-muted">{LAYOUT_MODE_HINTS[layout.mode]}</p>
-              {layout.mode === 'duo' && (
+              {usesScenes(layout.mode) && (
                 <>
-                  {!duoData ? (
+                  {!sceneData ? (
                     <Alert
                       tone="info"
                       title="Wajah belum dianalisis"
@@ -1281,49 +1299,91 @@ function ClipEditor() {
                       Clip ini dibuat sebelum hasil face tracking disimpan. Analisis berjalan otomatis saat ekspor, atau jalankan sekarang untuk melihat
                       preview.
                     </Alert>
-                  ) : duoData.shots.length === 0 ? (
+                  ) : layout.mode === 'duo' && !plan.some((s) => s.view === 'duo') ? (
                     <Alert tone="info" title="Tidak ada adegan dua orang">
                       Tidak ada adegan dengan dua orang berdampingan dalam satu frame. Clip ini tampil seperti layout Penuh 9:16.
                     </Alert>
                   ) : (
-                    <p className="mc-caption mc-muted">
-                      Dua panel tampil di {duoData.shots.length} adegan ({Math.round(duoShown)} dari {Math.round(sourceDuration)} dtk). Adegan lain tampil
-                      penuh 9:16.
-                    </p>
+                    <SceneStrip plan={plan} duration={sourceDuration} time={currentTime} onSeek={seekTo} />
                   )}
-                  <Field label="Panel atas" hint="Orang di sisi kiri atau kanan video sumber.">
-                    <ChoiceChips<DuoTop>
-                      ariaLabel="Orang di panel atas"
-                      size="sm"
-                      options={DUO_TOP_OPTIONS}
-                      value={layout.duo.top}
-                      onChange={(top) => setLayout({ duo: { top } })}
-                    />
-                  </Field>
-                  <Slider
-                    label="Ukuran wajah"
-                    min={LAYOUT_LIMITS.faceSize.min}
-                    max={LAYOUT_LIMITS.faceSize.max}
-                    step={0.01}
-                    value={layout.duo.faceSize}
-                    format={(v) => `${Math.round(v * 100)}%`}
-                    hint="Tinggi wajah dibanding panelnya."
-                    onChange={(faceSize) => setLayout({ duo: { faceSize } }, 'duo-face')}
-                  />
-                  <Slider
-                    label="Tinggi panel atas"
-                    min={LAYOUT_LIMITS.split.min}
-                    max={LAYOUT_LIMITS.split.max}
-                    step={0.01}
-                    value={layout.duo.split}
-                    format={(v) => `${Math.round(v * 100)}%`}
-                    onChange={(splitShare) => setLayout({ duo: { split: splitShare } }, 'duo-split')}
-                  />
+                  {layout.mode === 'auto' && (
+                    <>
+                      <Field label="Satu orang">
+                        <ChoiceChips<'full' | 'framed'>
+                          ariaLabel="Tampilan adegan satu orang"
+                          size="sm"
+                          options={FULL_OR_FRAMED_OPTIONS}
+                          value={layout.auto.solo}
+                          onChange={(solo) => setLayout({ auto: { solo } })}
+                        />
+                      </Field>
+                      <Field label="Dua orang berdampingan">
+                        <ChoiceChips<SceneView>
+                          ariaLabel="Tampilan adegan dua orang"
+                          size="sm"
+                          options={VIEW_OPTIONS}
+                          value={layout.auto.duo}
+                          onChange={(duo) => setLayout({ auto: { duo } })}
+                        />
+                      </Field>
+                      <Field label="Ramai" hint="Tiga orang atau lebih, atau dua orang yang terlalu rapat untuk dipisah.">
+                        <ChoiceChips<'full' | 'framed'>
+                          ariaLabel="Tampilan adegan ramai"
+                          size="sm"
+                          options={FULL_OR_FRAMED_OPTIONS}
+                          value={layout.auto.group}
+                          onChange={(group) => setLayout({ auto: { group } })}
+                        />
+                      </Field>
+                      <Field label="Tanpa wajah" hint="Slide, rekaman layar, B-roll.">
+                        <ChoiceChips<'full' | 'framed'>
+                          ariaLabel="Tampilan adegan tanpa wajah"
+                          size="sm"
+                          options={FULL_OR_FRAMED_OPTIONS}
+                          value={layout.auto.none}
+                          onChange={(none) => setLayout({ auto: { none } })}
+                        />
+                      </Field>
+                    </>
+                  )}
+                  {(layout.mode === 'duo' || layout.auto.duo === 'duo') && (
+                    <>
+                      <Field label="Panel atas" hint="Orang di sisi kiri atau kanan video sumber.">
+                        <ChoiceChips<DuoTop>
+                          ariaLabel="Orang di panel atas"
+                          size="sm"
+                          options={DUO_TOP_OPTIONS}
+                          value={layout.duo.top}
+                          onChange={(top) => setLayout({ duo: { top } })}
+                        />
+                      </Field>
+                      <Slider
+                        label="Ukuran wajah"
+                        min={LAYOUT_LIMITS.faceSize.min}
+                        max={LAYOUT_LIMITS.faceSize.max}
+                        step={0.01}
+                        value={layout.duo.faceSize}
+                        format={(v) => `${Math.round(v * 100)}%`}
+                        hint="Tinggi wajah dibanding panelnya."
+                        onChange={(faceSize) => setLayout({ duo: { faceSize } }, 'duo-face')}
+                      />
+                      <Slider
+                        label="Tinggi panel atas"
+                        min={LAYOUT_LIMITS.split.min}
+                        max={LAYOUT_LIMITS.split.max}
+                        step={0.01}
+                        value={layout.duo.split}
+                        format={(v) => `${Math.round(v * 100)}%`}
+                        onChange={(splitShare) => setLayout({ duo: { split: splitShare } }, 'duo-split')}
+                      />
+                    </>
+                  )}
                 </>
               )}
-              {usesSource(layout.mode) && (
+              {(usesSource(layout.mode) || (layout.mode === 'auto' && plan.some((s) => s.view === 'framed'))) && (
                 <>
-                  {!hasSource && (
+                  {layout.mode === 'auto' && <span className="mc-label">Bingkai</span>}
+                  {usesSource(layout.mode) && !hasSource && (
                     <Alert
                       tone="info"
                       title="Video sumber belum ada"
@@ -1808,6 +1868,63 @@ function Timeline({ time, duration, segments, onSeek }: { time: number; duration
       <span aria-hidden="true" style={{ position: 'absolute', top: 0, bottom: 0, left: `${pct(time)}%`, width: 2, marginLeft: -1, background: 'var(--on-ink)' }}>
         <span style={{ position: 'absolute', top: 2, left: '50%', width: 10, height: 10, marginLeft: -5, borderRadius: 'var(--r-full)', background: 'var(--on-ink)' }} />
       </span>
+    </div>
+  )
+}
+
+const VIEW_LABELS: Record<SceneView, string> = { full: 'Penuh', duo: 'Dua panel', framed: 'Bingkai' }
+/** Scene strip colors: distinct greens, the darkest for the panels */
+const VIEW_COLORS: Record<SceneView, string> = { full: 'var(--leaf-strong)', duo: 'var(--moss)', framed: 'var(--sage)' }
+
+/**
+ * The clip's scenes (duo and auto layouts) as a strip, one block per scene in its view's color, with
+ * the playhead; a block seeks to its scene. The legend says how long each view is on screen.
+ */
+function SceneStrip({ plan, duration, time, onSeek }: { plan: Scene[]; duration: number; time: number; onSeek: (t: number) => void }) {
+  const total = duration > 0 ? duration : plan.length ? plan[plan.length - 1].end : 0
+  const pct = (t: number) => (total > 0 ? Math.min(100, Math.max(0, (t / total) * 100)) : 0)
+  const seconds = viewSeconds(plan)
+  const shown = SCENE_VIEWS.filter((v) => seconds[v] > 0)
+  return (
+    <div className="mc-stack mc-gap-8">
+      <span className="mc-label">Adegan</span>
+      <div style={{ position: 'relative', height: 28 }}>
+        {plan.map((s, i) => (
+          <button
+            key={`${s.start}-${i}`}
+            type="button"
+            title={`${VIEW_LABELS[s.view]} · ${formatClock(s.start)}–${formatClock(s.end)}`}
+            aria-label={`Adegan ${i + 1}: ${VIEW_LABELS[s.view]}, ${formatClock(s.start)} sampai ${formatClock(s.end)}`}
+            onClick={() => onSeek(s.start + 0.01)}
+            style={{
+              position: 'absolute',
+              top: 0,
+              bottom: 0,
+              left: `${pct(s.start)}%`,
+              width: `calc(${pct(s.end) - pct(s.start)}% - 2px)`,
+              minWidth: 2,
+              padding: 0,
+              border: 0,
+              borderRadius: 'var(--r-xs)',
+              background: VIEW_COLORS[s.view],
+              boxShadow: 'inset 0 0 0 1px var(--line-input)', // the light views stay visible on the card
+              cursor: 'pointer',
+            }}
+          />
+        ))}
+        <span
+          aria-hidden="true"
+          style={{ position: 'absolute', top: -3, bottom: -3, left: `${pct(time)}%`, width: 2, marginLeft: -1, borderRadius: 1, background: 'var(--ink)', pointerEvents: 'none' }}
+        />
+      </div>
+      <div className="mc-row mc-gap-12" style={{ flexWrap: 'wrap' }}>
+        {shown.map((v) => (
+          <span key={v} className="mc-row mc-gap-4 mc-caption">
+            <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: 3, background: VIEW_COLORS[v], boxShadow: 'inset 0 0 0 1px var(--line-input)' }} />
+            {VIEW_LABELS[v]} {Math.round(seconds[v])} dtk
+          </span>
+        ))}
+      </div>
     </div>
   )
 }

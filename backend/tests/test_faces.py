@@ -84,13 +84,14 @@ def test_a_missed_detection_does_not_break_a_duo_shot():
     assert [s["kind"] for s in faces.shots(doc)] == ["duo"]
 
 
-def test_duo_data_keeps_long_enough_duo_shots():
-    # 0-0.6 s duo (too short), 0.6-3 s solo, 3-6 s duo
+def test_scene_data_lists_every_shot():
+    # 0-0.6 s duo, 0.6-3 s solo, 3-6 s duo: all of them (the layout model drops too-short panels)
     doc = _doc(6.0, lambda t: DUO if t < 0.6 or t >= 3 else SOLO, cuts=[0.6, 3.0])
-    data = faces.duo_data(doc)
+    data = faces.scene_data(doc)
     assert data["width"] == 1920 and data["height"] == 1080
-    assert [(s["start"], s["end"]) for s in data["shots"]] == [(3.0, 6.0)]
-    assert faces.duo_data(None) is None
+    assert [(s["start"], s["end"], s["kind"]) for s in data["shots"]] == [(0.0, 0.6, "duo"), (0.6, 3.0, "solo"), (3.0, 6.0, "duo")]
+    assert data["shots"][1]["faces"] == [{"x": 0.5, "y": 0.4, "h": 0.4}]
+    assert faces.scene_data(None) is None
 
 
 def test_track_x_follows_the_nearest_face():
@@ -142,7 +143,7 @@ def test_scan_finds_the_camera_cut(tmp_path):
     assert [t for t, _ in doc["cuts"]] == [2.0]
     # No faces on either side of the cut: one 'none' shot (nothing for the duo layout)
     assert faces.shots(doc) == [{"start": 0.0, "end": 4.0, "kind": "none", "faces": []}]
-    assert faces.duo_data(doc)["shots"] == []
+    assert [s["kind"] for s in faces.scene_data(doc)["shots"]] == ["none"]
 
 
 def test_scan_size_never_upscales():

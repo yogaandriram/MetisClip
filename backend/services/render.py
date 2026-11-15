@@ -124,14 +124,14 @@ def build_props(clip: dict[str, Any]) -> dict[str, Any]:
         "title": clip.get("hook_text") or "",
         "clipId": clip["_id"],  # picks where the companion loop starts (split layout)
     }
-    # Podcast, card and duo layouts: the original-ratio cut (same timeline as raw.mp4); without one the
-    # clip stays full. Duo also needs the shots with two speakers from the face scan.
+    # Podcast, card, duo and auto layouts: the original-ratio cut (same timeline as raw.mp4); without
+    # one the clip stays full. Duo and auto also need the shots of the face scan.
     if layout_svc.needs_source(lay) and (clip.get("files") or {}).get("source"):
         props["sourceUrl"] = media_url(clip["_id"], "source")
         props["sourceAspect"] = source_aspect(clip)
         props["channel"] = channel_name(clip)
         if layout_svc.needs_faces(lay):
-            props["duo"] = layout_svc.duo_info(clip)
+            props["scenes"] = layout_svc.scene_info(clip)
     return props
 
 
@@ -230,7 +230,7 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
             except layout_svc.SourceError as exc:
                 raise RuntimeError(f"Layout {name} butuh video sumber: {exc}") from exc
             cancel.check()
-        if layout_svc.needs_faces(lay) and not layout_svc.duo_info(clip):
+        if layout_svc.needs_faces(lay) and not layout_svc.scene_info(clip):
             try:
                 clip = layout_svc.prepare_faces(clip, cancel, on_step=step)
             except layout_svc.SourceError as exc:

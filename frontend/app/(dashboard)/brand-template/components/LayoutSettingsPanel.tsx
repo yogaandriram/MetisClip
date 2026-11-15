@@ -16,6 +16,7 @@ import {
   type Layout,
   type LayoutMode,
   type LayoutPatch,
+  type SceneView,
   type SpeakerAlign,
   type TextAlign,
   type ZoomStyle,
@@ -55,6 +56,18 @@ export const MODE_OPTIONS: { value: LayoutMode; label: string }[] = [
   { value: 'card', label: 'Kartu postingan' },
   { value: 'split', label: 'Video pendamping' },
   { value: 'duo', label: 'Dua pembicara' },
+  { value: 'auto', label: 'Otomatis per adegan' },
+];
+
+/** The views of the auto layout, as offered for each kind of scene. */
+const VIEW_OPTIONS: { value: SceneView; label: string }[] = [
+  { value: 'duo', label: 'Dua panel' },
+  { value: 'full', label: 'Penuh' },
+  { value: 'framed', label: 'Bingkai' },
+];
+const FULL_OR_FRAMED_OPTIONS: { value: 'full' | 'framed'; label: string }[] = [
+  { value: 'full', label: 'Penuh' },
+  { value: 'framed', label: 'Bingkai' },
 ];
 
 /** Which speaker goes in the top panel (duo layout), as seen in the source video. */
@@ -110,6 +123,7 @@ const MODE_HINTS: Record<LayoutMode, string> = {
   card: 'Video di dalam kartu bergaya postingan: foto profil, nama akun, judul sebagai teks postingan, lalu videonya.',
   split: 'Layar dibagi dua: pembicara (mengikuti wajah) dan video pendamping tanpa suara yang diputar berulang, misalnya gameplay atau B-roll.',
   duo: 'Dua orang yang duduk berdampingan dipisah jadi panel atas dan bawah, masing-masing mengikuti wajahnya. Adegan lain (close-up satu orang, shot lebar) tampil penuh 9:16.',
+  auto: 'Tampilan dipilih per adegan dari hasil face tracking: satu orang tampil penuh, dua orang jadi dua panel, slide atau adegan ramai masuk bingkai. Tampilan hanya berganti di potongan kamera.',
 };
 
 const TABS: Record<LayoutMode, { id: string; label: string }[]> = {
@@ -135,6 +149,14 @@ const TABS: Record<LayoutMode, { id: string; label: string }[]> = {
     { id: 'duo', label: 'Panel' },
     { id: 'credit', label: 'Kredit' },
   ],
+  auto: [
+    { id: 'auto', label: 'Adegan' },
+    { id: 'duo', label: 'Panel' },
+    { id: 'video', label: 'Bingkai' },
+    { id: 'background', label: 'Latar' },
+    { id: 'header', label: 'Judul' },
+    { id: 'credit', label: 'Kredit' },
+  ],
 };
 
 const px = (v: number) => `${Math.round(v)}px`;
@@ -152,7 +174,9 @@ export function layoutSummary(layout: LayoutSettings): string {
           ? 'Video pendamping'
           : layout.mode === 'duo'
             ? 'Dua pembicara'
-            : 'Penuh 9:16',
+            : layout.mode === 'auto'
+              ? 'Otomatis per adegan'
+              : 'Penuh 9:16',
   ];
   if (layout.zoom.enabled) parts.push('Zoom');
   if (layout.speaker.enabled) parts.push('Nama pembicara');
@@ -175,7 +199,7 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
   updateLayout,
   updateCaption,
 }) => {
-  const [tab, setTab] = useState('video');
+  const [tab, setTab] = useState(''); // '' = the mode's first tab
   const [uploading, setUploading] = useState<'' | 'background' | 'avatar' | 'companion'>('');
   const mode = layout.mode;
   const card = mode === 'card';
@@ -183,13 +207,14 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
   const activeTab = tabs.some((t) => t.id === tab) ? tab : tabs[0]?.id || '';
   const frame = frameRect(layout, aspect);
   const { lines, scale } = headerLines(layout, headerText(layout, SAMPLE_TITLE));
-  const covered = mode === 'podcast' ? headerCoveredBy(headerRect(layout, frame, lines, scale)) : [];
+  const covered = mode === 'podcast' || mode === 'auto' ? headerCoveredBy(headerRect(layout, frame, lines, scale)) : [];
   const h = layout.header;
   const z = layout.zoom;
   const sp = layout.speaker;
   const c = layout.card;
   const m = layout.companion;
   const d = layout.duo;
+  const au = layout.auto;
 
   const upload = async (file: File, kind: 'background' | 'avatar') => {
     if (file.type && !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
@@ -238,7 +263,7 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
 
   // Caption centered on the line between the two parts (speaker and companion, or the two speakers)
   const captionOnSeam = () => {
-    const g = mode === 'duo' ? duoGeometry(layout) : splitGeometry(layout);
+    const g = mode === 'split' ? splitGeometry(layout) : duoGeometry(layout);
     const y = Math.round(DESIGN_CANVAS.height - g.seam - captionHeight(caption, emoji) / 2);
     updateCaption({ positionY: Math.max(POSITION_LIMITS.y.min, Math.min(POSITION_LIMITS.y.max, y)), positionX: 150 });
   };
@@ -266,7 +291,15 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
           activeTab={activeTab}
           onChange={setTab}
           ariaLabel={
-            card ? 'Pengaturan kartu' : mode === 'split' ? 'Pengaturan video pendamping' : mode === 'duo' ? 'Pengaturan dua pembicara' : 'Pengaturan layout podcast'
+            card
+              ? 'Pengaturan kartu'
+              : mode === 'split'
+                ? 'Pengaturan video pendamping'
+                : mode === 'duo'
+                  ? 'Pengaturan dua pembicara'
+                  : mode === 'auto'
+                    ? 'Pengaturan layout otomatis'
+                    : 'Pengaturan layout podcast'
           }
           size="sm"
           block
@@ -389,6 +422,27 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
           <Button variant="secondary" size="sm" icon={<SeparatorHorizontal size={16} aria-hidden="true" />} onClick={captionOnSeam}>
             Taruh caption di garis tengah
           </Button>
+        </div>
+      )}
+
+      {activeTab === 'auto' && (
+        <div className="mc-stack">
+          <p className="mc-caption mc-muted">
+            Tampilan untuk tiap jenis adegan. Bingkai memakai pengaturan di tab Bingkai, Latar dan Judul; dua panel di tab Panel. Editor klip
+            menunjukkan adegan mana tampil dengan cara apa.
+          </p>
+          <Field label="Satu orang">
+            <ChoiceChips<'full' | 'framed'> ariaLabel="Tampilan adegan satu orang" size="sm" options={FULL_OR_FRAMED_OPTIONS} value={au.solo} onChange={(solo) => updateLayout({ auto: { solo } })} />
+          </Field>
+          <Field label="Dua orang berdampingan">
+            <ChoiceChips<SceneView> ariaLabel="Tampilan adegan dua orang" size="sm" options={VIEW_OPTIONS} value={au.duo} onChange={(duo) => updateLayout({ auto: { duo } })} />
+          </Field>
+          <Field label="Ramai" hint="Tiga orang atau lebih, atau dua orang yang terlalu rapat untuk dipisah.">
+            <ChoiceChips<'full' | 'framed'> ariaLabel="Tampilan adegan ramai" size="sm" options={FULL_OR_FRAMED_OPTIONS} value={au.group} onChange={(group) => updateLayout({ auto: { group } })} />
+          </Field>
+          <Field label="Tanpa wajah" hint="Slide, rekaman layar, B-roll.">
+            <ChoiceChips<'full' | 'framed'> ariaLabel="Tampilan adegan tanpa wajah" size="sm" options={FULL_OR_FRAMED_OPTIONS} value={au.none} onChange={(none) => updateLayout({ auto: { none } })} />
+          </Field>
         </div>
       )}
 

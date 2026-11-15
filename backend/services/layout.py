@@ -1,6 +1,6 @@
 """Brand Template layout (frontend/lib/presets/layout.ts): validation, a clip's effective layout, the
-clip's original-ratio video (`source.mp4`) that the podcast, card and duo layouts show, the clip's
-face scan (`faces.json`) that the duo layout crops by, and the companion video of the split layout
+clip's original-ratio video (`source.mp4`) that the podcast, card, duo and auto layouts show, the
+clip's face scan (`faces.json`) that the duo and auto layouts pick their views and crops by, and the companion video of the split layout
 (a Brand Template asset, normalized on import).
 
 Layouts are stored as patches: a template's `layout_settings` (next to its preview-only `safeZone`)
@@ -22,8 +22,11 @@ from backend.core.paths import get_paths
 
 logger = logging.getLogger(__name__)
 
-MODES = ("full", "podcast", "card", "split", "duo")
-SOURCE_MODES = ("podcast", "card", "duo")  # modes that show source.mp4
+MODES = ("full", "podcast", "card", "split", "duo", "auto")
+SOURCE_MODES = ("podcast", "card", "duo", "auto")  # modes that show source.mp4
+SCENE_MODES = ("duo", "auto")  # modes that pick a view per shot of the face scan
+SCENE_VIEWS = ("full", "duo", "framed")
+FULL_OR_FRAMED = ("full", "framed")
 RATIOS = ("source", "16:9", "4:3", "1:1", "4:5")
 BACKGROUNDS = ("blur", "color", "gradient", "image")
 HEADER_SOURCES = ("title", "custom")
@@ -121,6 +124,13 @@ SCHEMA: dict[str, dict[str, tuple[str, Any]]] = {
         "divider": ("num", (0, 8)),
         "dividerColor": ("color", None),
     },
+    # The view for each kind of shot (auto mode); panels need two people
+    "auto": {
+        "solo": ("enum", FULL_OR_FRAMED),
+        "duo": ("enum", SCENE_VIEWS),
+        "group": ("enum", FULL_OR_FRAMED),
+        "none": ("enum", FULL_OR_FRAMED),
+    },
 }
 
 
@@ -212,16 +222,16 @@ def effective_layout(clip: dict[str, Any] | None, bt: dict[str, Any] | None) -> 
 
 
 def needs_source(layout: dict[str, Any]) -> bool:
-    """Podcast, card and duo layouts show the clip's original-ratio video (source.mp4)."""
+    """Podcast, card, duo and auto layouts show the clip's original-ratio video (source.mp4)."""
     return layout.get("mode") in SOURCE_MODES
 
 
 def needs_faces(layout: dict[str, Any]) -> bool:
-    """The duo layout crops source.mp4 around the faces of the clip's face scan."""
-    return layout.get("mode") == "duo"
+    """The duo and auto layouts pick a view per shot of the clip's face scan."""
+    return layout.get("mode") in SCENE_MODES
 
 
-MODE_NAMES = {"podcast": "podcast", "card": "kartu", "duo": "dua pembicara"}
+MODE_NAMES = {"podcast": "podcast", "card": "kartu", "duo": "dua pembicara", "auto": "otomatis"}
 
 
 def companion_problem(layout: dict[str, Any]) -> str | None:
@@ -334,11 +344,11 @@ def faces_path(clip: dict[str, Any]) -> Path | None:
     return p if p.is_file() else None
 
 
-def duo_info(clip: dict[str, Any]) -> dict[str, Any] | None:
-    """The duo layout's data for this clip ({width, height, shots}), or None before its face scan."""
+def scene_info(clip: dict[str, Any]) -> dict[str, Any] | None:
+    """The clip's shots for the duo and auto layouts ({width, height, shots}), or None before its face scan."""
     from backend.agents.tools import faces
 
-    return faces.duo_data(faces.load(faces_path(clip)))
+    return faces.scene_data(faces.load(faces_path(clip)))
 
 
 def prepare_faces(clip: dict[str, Any], cancel: procs.CancelToken | None = None,

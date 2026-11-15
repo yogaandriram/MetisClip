@@ -11,6 +11,9 @@
 //  - 'duo': two speakers sitting side by side in the source picture, one above the other, each in
 //    its own panel cropped from source.mp4 around their face (the clip's face scan, faces.json). In
 //    shots without two speakers (a close-up, a wide shot) the clip shows full-frame like 'full'.
+//  - 'auto': a view per shot of the face scan, chosen by what the shot shows (`auto`): one person
+//    full-frame, two people as the duo panels, a group or no face (slides, screen recordings) in the
+//    podcast frame. The view changes only at camera cuts, where the picture changes anyway.
 // Every mode can add a dynamic zoom (punch-in on AI keywords or every other sentence) and a speaker
 // name tag (lower third) shown for a few seconds.
 // Pure (no React, no DOM): the clip editor, the Brand Template preview and the Remotion render use
@@ -25,7 +28,7 @@ import { isFiller } from './captions';
 import { Ease, interpolate } from './anim';
 import type { CaptionWord } from './types';
 
-export type LayoutMode = 'full' | 'podcast' | 'card' | 'split' | 'duo';
+export type LayoutMode = 'full' | 'podcast' | 'card' | 'split' | 'duo' | 'auto';
 export type FrameRatio = 'source' | '16:9' | '4:3' | '1:1' | '4:5';
 export type BackgroundType = 'blur' | 'color' | 'gradient' | 'image';
 export type HeaderSource = 'title' | 'custom';
@@ -34,6 +37,10 @@ export type ZoomStyle = 'keywords' | 'sentences';
 export type SpeakerAlign = 'left' | 'center';
 export type CompanionPosition = 'bottom' | 'top';
 export type DuoTop = 'left' | 'right';
+/** What a shot shows (face scan): two people side by side, one person, a group, or no face. */
+export type SceneKind = 'duo' | 'solo' | 'group' | 'none';
+/** How a scene is shown: the face-tracked clip full-frame, the two duo panels, or the podcast frame. */
+export type SceneView = 'full' | 'duo' | 'framed';
 
 export interface LayoutFrame {
   /** Top edge of the video frame (design px from the top). */
@@ -164,6 +171,14 @@ export interface LayoutDuo {
   dividerColor: string;
 }
 
+/** Automatic layout ('auto' mode): the view for each kind of shot. Panels need two people. */
+export interface LayoutAuto {
+  solo: 'full' | 'framed';
+  duo: SceneView;
+  group: 'full' | 'framed';
+  none: 'full' | 'framed';
+}
+
 export interface Layout {
   mode: LayoutMode;
   frame: LayoutFrame;
@@ -175,6 +190,7 @@ export interface Layout {
   speaker: LayoutSpeaker;
   companion: LayoutCompanion;
   duo: LayoutDuo;
+  auto: LayoutAuto;
 }
 
 /** Partial layout as stored (template layout_settings, clip layout_style): sections are partial too. */
@@ -189,9 +205,10 @@ export type LayoutPatch = {
   speaker?: Partial<LayoutSpeaker>;
   companion?: Partial<LayoutCompanion>;
   duo?: Partial<LayoutDuo>;
+  auto?: Partial<LayoutAuto>;
 };
 
-const SECTIONS = ['frame', 'background', 'header', 'credit', 'card', 'zoom', 'speaker', 'companion', 'duo'] as const;
+const SECTIONS = ['frame', 'background', 'header', 'credit', 'card', 'zoom', 'speaker', 'companion', 'duo', 'auto'] as const;
 
 const W = DESIGN_CANVAS.width;
 const H = DESIGN_CANVAS.height;
@@ -254,6 +271,8 @@ export const DEFAULT_LAYOUT: Layout = {
   companion: { videoUrl: '', duration: 0, position: 'bottom', split: 0.5, focusY: 0.35, divider: 0, dividerColor: '#000000' },
   // A face 30 % of its panel's height: a podcast face (~15 % of a 1080p frame) shown about 1.8x
   duo: { top: 'left', split: 0.5, faceSize: 0.3, divider: 0, dividerColor: '#000000' },
+  // A 9:16 crop suits one person; a group or a slide would be cut, so it goes in the frame whole
+  auto: { solo: 'full', duo: 'duo', group: 'framed', none: 'framed' },
 };
 
 /** Numeric limits (also enforced by the engine). */
@@ -278,7 +297,9 @@ export const LAYOUT_LIMITS = {
   faceSize: { min: 0.15, max: 0.5 },
 };
 
-export const MODES: LayoutMode[] = ['full', 'podcast', 'card', 'split', 'duo'];
+export const MODES: LayoutMode[] = ['full', 'podcast', 'card', 'split', 'duo', 'auto'];
+export const SCENE_VIEWS: SceneView[] = ['full', 'duo', 'framed'];
+const FULL_OR_FRAMED = ['full', 'framed'] as const;
 export const RATIO_VALUES: FrameRatio[] = ['source', '16:9', '4:3', '1:1', '4:5'];
 export const BACKGROUND_TYPES: BackgroundType[] = ['blur', 'color', 'gradient', 'image'];
 export const ZOOM_STYLES: ZoomStyle[] = ['keywords', 'sentences'];
@@ -329,6 +350,7 @@ export function resolveLayout(...patches: Array<LayoutPatch | Record<string, any
   const s = p.speaker || {};
   const m = p.companion || {};
   const u = p.duo || {};
+  const a = p.auto || {};
   const L = LAYOUT_LIMITS;
   return {
     mode: oneOf(p.mode, MODES, d.mode),
@@ -412,6 +434,12 @@ export function resolveLayout(...patches: Array<LayoutPatch | Record<string, any
       faceSize: num(u.faceSize, L.faceSize, d.duo.faceSize),
       divider: num(u.divider, L.divider, d.duo.divider),
       dividerColor: color(u.dividerColor, d.duo.dividerColor),
+    },
+    auto: {
+      solo: oneOf(a.solo, FULL_OR_FRAMED, d.auto.solo),
+      duo: oneOf(a.duo, SCENE_VIEWS, d.auto.duo),
+      group: oneOf(a.group, FULL_OR_FRAMED, d.auto.group),
+      none: oneOf(a.none, FULL_OR_FRAMED, d.auto.none),
     },
   };
 }
@@ -689,7 +717,7 @@ export function companionTime(start: number, duration: number, t: number): numbe
 }
 
 // ---------------------------------------------------------------------------------------------
-// Two speakers ('duo' mode)
+// Scenes: two speakers ('duo') and the automatic layout ('auto'), from the clip's face scan
 // ---------------------------------------------------------------------------------------------
 
 /** A face in the source picture: center and height as fractions of the frame. */
@@ -699,19 +727,34 @@ export interface DuoFace {
   h: number;
 }
 
-/** A shot with two speakers (source time, seconds): faces = [left, right]. */
-export interface DuoShot {
+/**
+ * A shot of the clip from its face scan (source time, seconds). kind: 'duo' (two people side by side;
+ * faces = [left, right]), 'solo' (one; faces = [it]), 'group' (more, or two too close or too small to
+ * crop apart) or 'none' (no face: slides, screen recordings, B-roll).
+ */
+export interface Shot {
   start: number;
   end: number;
+  kind: SceneKind;
   faces: DuoFace[];
 }
 
-/** The duo data of a clip, from its face scan (GET /api/clips/{id} → duo; render props → duo). */
-export interface DuoData {
+/** The shots of a clip, from its face scan (GET /api/clips/{id} → scenes; render props → scenes). */
+export interface SceneData {
   /** Size of source.mp4 in px. */
   width: number;
   height: number;
-  shots: DuoShot[];
+  /** Every shot, covering the clip from 0 to its end. */
+  shots: Shot[];
+}
+
+/** A planned scene: when the clip shows which view (duo and auto modes). */
+export interface Scene {
+  start: number;
+  end: number;
+  view: SceneView;
+  /** [left, right] in a 'duo' scene. */
+  faces: DuoFace[];
 }
 
 /** Most the source is blown up in a panel (output px per source px); covering the panel wins. */
@@ -720,20 +763,72 @@ export const DUO_MAX_UPSCALE = 2.2;
 export const DUO_FACE_Y = 0.42;
 /** Output px per design px (the render is 1080×1920). */
 const OUT_PER_DESIGN = 1920 / H;
+/** Shorter two-speaker shots are not split into panels (no layout flicker). */
+export const MIN_DUO_S = 0.8;
+/** Auto mode: a shorter scene takes a neighbour's view (full or framed) instead of switching for it. */
+export const MIN_SCENE_S = 1.0;
 
 /**
  * Shot times in faces.json are frame times rounded to 1 ms, so the first frame of a shot can sit up to
  * 0.5 ms before its rounded start. A frame counts from this much earlier: more than the rounding,
  * less than half a frame even at 120 fps.
  */
-const DUO_EPS = 0.004;
+const SCENE_EPS = 0.004;
 
-/** The two-speaker shot at source time `t`, or null (the clip shows full-frame then). */
-export function duoShotAt(data: DuoData | null | undefined, t: number): DuoShot | null {
-  if (!data || !Array.isArray(data.shots)) return null;
-  const u = t + DUO_EPS;
-  for (const s of data.shots) if (u >= s.start && u < s.end && s.faces?.length === 2) return s;
+/** Modes that pick a view per scene from the clip's face scan. */
+export const usesScenes = (mode: LayoutMode): boolean => mode === 'duo' || mode === 'auto';
+
+/**
+ * The view of every shot. 'duo' mode: two panels in two-speaker shots of at least MIN_DUO_S, full
+ * elsewhere. 'auto' mode: the layout's `auto` choice for the shot's kind (a two-speaker shot too
+ * short for panels counts as a group), then a scene shorter than MIN_SCENE_S takes the view of the
+ * scene before it (or after it) when that is full or framed, so the layout does not flash for a
+ * moment. Neighbouring full or framed scenes merge. Other modes: no scenes.
+ */
+export function scenePlan(data: SceneData | null | undefined, layout: Layout): Scene[] {
+  if (!data || !Array.isArray(data.shots) || !usesScenes(layout.mode)) return [];
+  const auto = layout.mode === 'auto';
+  const out: Scene[] = data.shots.map((s) => {
+    const panels = s.kind === 'duo' && s.faces?.length === 2 && s.end - s.start >= MIN_DUO_S;
+    let view: SceneView;
+    if (!auto) view = panels ? 'duo' : 'full';
+    else {
+      const kind: SceneKind = s.kind === 'duo' && !panels ? 'group' : s.kind;
+      view = layout.auto[kind] || 'full';
+    }
+    return { start: s.start, end: s.end, view, faces: view === 'duo' ? s.faces.slice(0, 2) : [] };
+  });
+  if (auto) {
+    for (let i = 0; i < out.length; i++) {
+      const s = out[i];
+      if (s.view === 'duo' || s.end - s.start >= MIN_SCENE_S) continue;
+      const prev = out[i - 1];
+      const next = out[i + 1];
+      if (prev && prev.view !== 'duo') s.view = prev.view;
+      else if (next && next.view !== 'duo') s.view = next.view;
+    }
+  }
+  const merged: Scene[] = [];
+  for (const s of out) {
+    const last = merged[merged.length - 1];
+    if (last && last.view === s.view && s.view !== 'duo') last.end = s.end;
+    else merged.push({ ...s });
+  }
+  return merged;
+}
+
+/** The scene at source time `t`, or null (outside the plan: the clip shows full-frame). */
+export function sceneAt(plan: Scene[], t: number): Scene | null {
+  const u = t + SCENE_EPS;
+  for (const s of plan) if (u >= s.start && u < s.end) return s;
   return null;
+}
+
+/** Seconds of the clip shown in each view. */
+export function viewSeconds(plan: Scene[]): Record<SceneView, number> {
+  const out: Record<SceneView, number> = { full: 0, duo: 0, framed: 0 };
+  for (const s of plan) out[s.view] += Math.max(0, s.end - s.start);
+  return out;
 }
 
 export interface DuoGeometry {
@@ -750,9 +845,9 @@ export function duoGeometry(layout: Layout): DuoGeometry {
   return { top: g.first, bottom: g.second, seam: g.seam, divider: g.divider };
 }
 
-/** The face for each panel: [top, bottom], from the shot's [left, right] and the layout's choice. */
-export function duoFaces(layout: Layout, shot: DuoShot): [DuoFace, DuoFace] {
-  const [left, right] = shot.faces;
+/** The face for each panel: [top, bottom], from a duo scene's [left, right] and the layout's choice. */
+export function duoFaces(layout: Layout, faces: DuoFace[]): [DuoFace, DuoFace] {
+  const [left, right] = faces;
   return layout.duo.top === 'left' ? [left, right] : [right, left];
 }
 
@@ -775,16 +870,30 @@ export function duoCrop(face: DuoFace, panel: { width: number; height: number },
   };
 }
 
-/** Seconds of the clip shown as two panels. */
-export const duoSeconds = (data: DuoData | null | undefined): number =>
-  (data?.shots || []).reduce((sum, s) => sum + Math.max(0, s.end - s.start), 0);
+const SAMPLE_PAIR: DuoFace[] = [
+  { x: 0.3, y: 0.42, h: 0.18 },
+  { x: 0.7, y: 0.42, h: 0.18 },
+];
 
-/** Stand-in duo data for previews without a clip (Brand Template): two people at a third and two thirds. */
-export const SAMPLE_DUO: DuoData = {
-  width: 1920,
-  height: 1080,
-  shots: [{ start: 0, end: 1e9, faces: [{ x: 0.3, y: 0.42, h: 0.18 }, { x: 0.7, y: 0.42, h: 0.18 }] }],
-};
+/**
+ * Stand-in scenes for previews without a clip (Brand Template, preset gallery). Duo mode: two people
+ * all the time. Auto mode: two people, one person, then a picture without a face, `step` seconds
+ * each, repeating (the preview's clock loops), so the preview shows every view.
+ */
+export function sampleScenes(mode: LayoutMode, step = 1.45): SceneData {
+  if (mode !== 'auto') return { width: 1920, height: 1080, shots: [{ start: 0, end: 1e9, kind: 'duo', faces: SAMPLE_PAIR }] };
+  const shots: Shot[] = [];
+  const kinds: Array<[SceneKind, DuoFace[]]> = [
+    ['duo', SAMPLE_PAIR],
+    ['solo', [{ x: 0.5, y: 0.4, h: 0.35 }]],
+    ['none', []],
+  ];
+  for (let i = 0; i < 60; i++) {
+    const [kind, faces] = kinds[i % 3];
+    shots.push({ start: i * step, end: (i + 1) * step, kind, faces });
+  }
+  return { width: 1920, height: 1080, shots };
+}
 
 /** The part of the layout dragged up and down on the Brand Template preview (podcast frame or card). */
 export function stageRect(layout: Layout, aspect: number, title: string | null | undefined): Rect | null {
@@ -979,6 +1088,12 @@ export const LAYOUT_PRESETS: LayoutPreset[] = [
     name: 'Dua pembicara + garis',
     description: 'Dua panel dengan garis putih di tengah.',
     patch: { mode: 'duo', duo: { divider: 3, dividerColor: '#FFFFFF' } },
+  },
+  {
+    id: 'auto',
+    name: 'Otomatis per adegan',
+    description: 'Satu orang penuh, dua orang dua panel, slide dalam bingkai.',
+    patch: { mode: 'auto' },
   },
 ];
 

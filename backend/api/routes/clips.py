@@ -56,8 +56,8 @@ def get_clip(clip_id: str):
         # Template layout ⊕ the clip's layout_style (the editor fills in the defaults)
         "effective_layout": layout_svc.effective_layout(clip, bt),
         "channel": channel_name(clip),
-        # Shots with two speakers from the clip's face scan (duo layout); null before the scan
-        "duo": layout_svc.duo_info(clip),
+        # The shots of the clip's face scan (duo and auto layouts); null before the scan
+        "scenes": layout_svc.scene_info(clip),
         # The template in effect (the clip's own choice, else its agent's default); null = built-in
         "brand_template": brand_template_dto(tpl),
     }
@@ -208,7 +208,7 @@ def prepare_clip_source(clip_id: str):
 
 @router.post("/api/clips/{clip_id}/faces")
 def prepare_clip_faces(clip_id: str):
-    """The clip's face scan (duo layout), with its source.mp4 first when that is missing too."""
+    """The clip's face scan (duo and auto layouts), with its source.mp4 first when that is missing too."""
     clip = _get(clip_id)
     try:
         clip = layout_svc.prepare_faces(clip, CancelToken())
@@ -219,7 +219,7 @@ def prepare_clip_faces(clip_id: str):
     except Exception as exc:
         raise http_error(502, f"Analisis wajah gagal: {exc}")
     events.publish({"type": "clip.updated", "id": clip_id})
-    return {"clip": clip_dto(clip), "duo": layout_svc.duo_info(clip)}
+    return {"clip": clip_dto(clip), "scenes": layout_svc.scene_info(clip)}
 
 
 @router.post("/api/clips/{clip_id}/render")

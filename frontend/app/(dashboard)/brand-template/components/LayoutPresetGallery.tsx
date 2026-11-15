@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Check, ZoomIn } from 'lucide-react';
 import { LayoutStage } from '@/lib/presets/LayoutStage';
-import { type Layout, LAYOUT_PRESETS, type LayoutPreset, SAMPLE_DUO, applyLayoutPreset, matchingPreset } from '@/lib/presets/layout';
+import { type Layout, LAYOUT_PRESETS, type LayoutPreset, applyLayoutPreset, matchingPreset, sampleScenes } from '@/lib/presets/layout';
 import { SAMPLE_TITLE } from '../types';
 
 /** A stand-in for the video in the thumbnails: a person on a green backdrop. */
@@ -20,7 +20,7 @@ const COMPANION: React.CSSProperties = {
 
 /**
  * A stand-in for a source picture with two people side by side (duo layout): heads at a third and two
- * thirds, where SAMPLE_DUO puts the faces.
+ * thirds, where sampleScenes puts the faces.
  */
 export const DUO_PLACEHOLDER: React.CSSProperties = {
   background: [
@@ -31,6 +31,35 @@ export const DUO_PLACEHOLDER: React.CSSProperties = {
     'linear-gradient(165deg, var(--leaf-strong) 0%, var(--moss) 100%)',
   ].join(', '),
 };
+
+/** A stand-in for a picture without a face (auto layout's framed scenes): a slide with a title and lines. */
+export const SLIDE_PLACEHOLDER: React.CSSProperties = {
+  background: [
+    'linear-gradient(var(--moss), var(--moss)) 12% 22% / 52% 9% no-repeat',
+    'linear-gradient(var(--leaf-strong), var(--leaf-strong)) 12% 48% / 72% 6% no-repeat',
+    'linear-gradient(var(--leaf-strong), var(--leaf-strong)) 12% 64% / 62% 6% no-repeat',
+    'linear-gradient(var(--leaf-strong), var(--leaf-strong)) 12% 80% / 50% 6% no-repeat',
+    'var(--surface)',
+  ].join(', '),
+};
+
+/** Seconds per sample scene in the auto thumbnail (two people, one person, a slide). */
+const AUTO_STEP = 1.45;
+
+/**
+ * The auto thumbnail steps through its sample scenes, so it shows that the view changes per scene.
+ * Static (the two-people scene) when the user prefers reduced motion.
+ */
+function useSceneCycle(enabled: boolean): number {
+  const [t, setT] = useState(AUTO_STEP / 2);
+  useEffect(() => {
+    if (!enabled) return;
+    if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const id = window.setInterval(() => setT((v) => (v + AUTO_STEP) % (AUTO_STEP * 3)), 1600);
+    return () => window.clearInterval(id);
+  }, [enabled]);
+  return t;
+}
 
 /** Thumbnails show the account row filled in, like a real card. */
 const SAMPLE_ACCOUNT = { name: 'Nama Akun', handle: '@namaakun' };
@@ -63,6 +92,8 @@ const PresetTile: React.FC<{ preset: LayoutPreset; layout: Layout; selected: boo
   onApply,
 }) => {
   const result = applyLayoutPreset(layout, preset);
+  const auto = result.mode === 'auto';
+  const time = useSceneCycle(auto);
   const shown: Layout = {
     ...result,
     card: { ...result.card, name: result.card.name || SAMPLE_ACCOUNT.name, handle: result.card.handle || SAMPLE_ACCOUNT.handle },
@@ -94,12 +125,19 @@ const PresetTile: React.FC<{ preset: LayoutPreset; layout: Layout; selected: boo
             aspect={16 / 9}
             title={SAMPLE_TITLE}
             channel="Channel contoh"
-            duo={SAMPLE_DUO}
+            scenes={sampleScenes(result.mode, AUTO_STEP)}
+            time={auto ? time : 0}
             renderVideo={(role, style) => (
               <span
                 style={{
                   ...style,
-                  ...(role === 'companion' ? COMPANION : role === 'duoTop' || role === 'duoBottom' ? DUO_PLACEHOLDER : PERSON),
+                  ...(role === 'companion'
+                    ? COMPANION
+                    : role === 'duoTop' || role === 'duoBottom'
+                      ? DUO_PLACEHOLDER
+                      : role === 'framed' || (auto && role === 'background')
+                        ? SLIDE_PLACEHOLDER
+                        : PERSON),
                   display: 'block',
                 }}
               />

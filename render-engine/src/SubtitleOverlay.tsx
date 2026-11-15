@@ -28,7 +28,7 @@ import { computeKeepSegments, frameSegments, isCut, resolveAi, sourceTimeAt } fr
 // @ts-ignore
 import { LayoutStage } from '../../frontend/lib/presets/LayoutStage';
 // @ts-ignore
-import { companionStart, creditText, headerText, resolveLayout, usesSource } from '../../frontend/lib/presets/layout';
+import { companionStart, creditText, headerText, resolveLayout, usesScenes, usesSource } from '../../frontend/lib/presets/layout';
 // Bundled woff2 files (offline, deterministic). See scripts/gen-fonts.cjs.
 import { FONT_WEIGHTS } from './fonts';
 
@@ -52,8 +52,8 @@ export type OverlayProps = {
   channel?: string;
   /** The clip's id: picks where the companion video loop starts (split layout). */
   clipId?: string;
-  /** Two-speaker shots from the clip's face scan (duo layout): {width, height, shots}. */
-  duo?: any;
+  /** The clip's shots from its face scan (duo and auto layouts): {width, height, shots}. */
+  scenes?: any;
 };
 
 export const FPS = 30;
@@ -85,19 +85,20 @@ export const SubtitleOverlay: React.FC<OverlayProps> = (props) => {
   // video; without one the clip stays full-frame (the engine refuses such a render first)
   const framed = usesSource(layout.mode) && !!props.sourceUrl;
   const split = layout.mode === 'split' && !!layout.companion.videoUrl && layout.companion.duration > 0;
-  // Duo: panels from source.mp4 in two-speaker shots, raw.mp4 elsewhere (main stays raw.mp4)
-  const duo = layout.mode === 'duo' && !!props.sourceUrl;
-  const stageLayout = framed || split || duo ? layout : { ...layout, mode: 'full' as const };
+  // Duo and auto: a view per scene, from source.mp4 (panels, frame) or raw.mp4 (full; main stays raw.mp4)
+  const scened = usesScenes(layout.mode) && !!props.sourceUrl;
+  const auto = scened && layout.mode === 'auto';
+  const stageLayout = framed || split || scened ? layout : { ...layout, mode: 'full' as const };
 
   // Hold the frame until every font on screen (all bundled weights) is loaded from the local bundle.
   const families = useMemo(() => {
     const list = [primaryFamily(style.fontFamily)];
     const cardRow = layout.mode === 'card' && !!(layout.card.name.trim() || layout.card.handle.trim());
-    if (framed && (headerText(layout, props.title) || cardRow)) list.push(primaryFamily(layout.header.fontFamily));
-    if ((framed || split || duo) && creditText(layout, props.channel)) list.push('Plus Jakarta Sans');
+    if ((framed || auto) && (headerText(layout, props.title) || cardRow)) list.push(primaryFamily(layout.header.fontFamily));
+    if ((framed || split || scened) && creditText(layout, props.channel)) list.push('Plus Jakarta Sans');
     if (layout.speaker.enabled && layout.speaker.name.trim()) list.push(primaryFamily(layout.speaker.fontFamily));
     return Array.from(new Set(list));
-  }, [style.fontFamily, framed, split, duo, layout, props.title, props.channel]);
+  }, [style.fontFamily, framed, split, scened, auto, layout, props.title, props.channel]);
   const familyKey = families.join('|');
   const [handle] = useState(() => delayRender(`Memuat font ${familyKey}`, { timeoutInMilliseconds: 60000 }));
 
@@ -176,9 +177,9 @@ export const SubtitleOverlay: React.FC<OverlayProps> = (props) => {
     );
   };
 
-  // Duo: the picture switches between raw.mp4 and the two source panels per shot, so the sound comes
-  // from its own uninterrupted track (raw.mp4 and source.mp4 share the same audio and timeline)
-  const duoAudio = !duo ? null : !cut ? (
+  // Duo and auto: the picture switches between raw.mp4 and source.mp4 views per scene, so the sound
+  // comes from its own uninterrupted track (raw.mp4 and source.mp4 share the same audio and timeline)
+  const sceneAudio = !scened ? null : !cut ? (
     <Html5Audio src={src} />
   ) : (
     <Series>
@@ -190,13 +191,20 @@ export const SubtitleOverlay: React.FC<OverlayProps> = (props) => {
     </Series>
   );
 
-  const renderVideo = (role: 'main' | 'background' | 'companion' | 'duoTop' | 'duoBottom', videoStyle: React.CSSProperties, hidden?: boolean) => {
-    // Off screen at this frame (duo mode): nothing to extract
+  const renderVideo = (
+    role: 'main' | 'background' | 'companion' | 'duoTop' | 'duoBottom' | 'framed',
+    videoStyle: React.CSSProperties,
+    hidden?: boolean,
+  ) => {
+    // Off screen at this frame (another scene's view): nothing to extract
     if (hidden) return null;
     if (role === 'companion') return split ? companion(videoStyle) : null;
-    if (role === 'duoTop' || role === 'duoBottom') return duo ? clipVideo(resolveSrc(props.sourceUrl), videoStyle, true) : null;
+    // Panels, the auto frame and its blurred background show source.mp4
+    if (role === 'duoTop' || role === 'duoBottom' || role === 'framed' || (role === 'background' && scened)) {
+      return scened ? clipVideo(resolveSrc(props.sourceUrl), videoStyle, true) : null;
+    }
     if (!src) return null;
-    return clipVideo(src, videoStyle, role === 'background' || duo);
+    return clipVideo(src, videoStyle, role === 'background' || scened);
   };
 
   return (
@@ -213,9 +221,9 @@ export const SubtitleOverlay: React.FC<OverlayProps> = (props) => {
         time={sourceTime}
         words={words}
         offsetMs={style.offsetTime || 0}
-        duo={duo ? props.duo : null}
+        scenes={scened ? props.scenes : null}
       />
-      {duoAudio}
+      {sceneAudio}
 
       <LogoOverlay src={brandSettings?.overlayUrl || ''} brand={brandSettings} ImgComponent={Img} />
 

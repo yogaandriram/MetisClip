@@ -2,8 +2,9 @@
 frames where the picture changes at once (camera cuts), plus a shot analysis on top of them.
 
 One scan serves both the 9:16 face tracking of raw.mp4 (`smart_crop`) and the layouts that crop the
-original-ratio source.mp4 at render time (`duo`: two speakers, one per panel). Keeping the faces as
-data, not only as a cropped video, is what lets a layout pick its own crop per shot.
+original-ratio source.mp4 at render time (`duo`: two speakers, one per panel; `auto`: a view per
+shot). Keeping the faces as data, not only as a cropped video, is what lets a layout pick its own
+crop per shot.
 
 The scan decodes with ffmpeg at a long side of `SCAN_LONG_SIDE` px. MediaPipe's full-range model
 resizes its input to 192x192 anyway, so the detections match a full-size scan (measured on two
@@ -60,7 +61,6 @@ DUO_MIN_GAP = 0.18     # the two face centers at least this far apart (of the fr
 DUO_MIN_FACE = 0.08    # both faces at least this tall: smaller ones would be blown up too much
 SAME_X = 0.035         # neighbouring shots with faces this close (and SAME_H in size) are one shot
 SAME_H = 1.18
-MIN_DUO_S = 0.8        # shorter two-speaker shots stay full-frame (no layout flicker)
 
 
 class FacesError(RuntimeError):
@@ -303,11 +303,11 @@ def shots(doc: dict[str, Any]) -> list[dict[str, Any]]:
     return [{"start": round(s["start"], 3), "end": round(s["end"], 3), "kind": s["kind"], "faces": s["faces"]} for s in out]
 
 
-def duo_data(doc: dict[str, Any] | None) -> dict[str, Any] | None:
-    """What the `duo` layout needs (render props and the editor): the source size and the shots with
-    two speakers, each {start, end, faces: [left, right]} with faces {x, y, h}. None without faces."""
+def scene_data(doc: dict[str, Any] | None) -> dict[str, Any] | None:
+    """What the duo and auto layouts need (render props and the editor): the source size and every
+    shot {start, end, kind, faces}, faces {x, y, h}. None without a face scan. Which view each shot
+    gets (and the minimum lengths that keep the layout from flickering) is decided by the layout
+    model, `scenePlan` in frontend/lib/presets/layout.ts, so the editor and the render agree."""
     if not doc:
         return None
-    duo = [{"start": s["start"], "end": s["end"], "faces": s["faces"]}
-           for s in shots(doc) if s["kind"] == "duo" and s["end"] - s["start"] >= MIN_DUO_S]
-    return {"width": int(doc["width"]), "height": int(doc["height"]), "shots": duo}
+    return {"width": int(doc["width"]), "height": int(doc["height"]), "shots": shots(doc)}
