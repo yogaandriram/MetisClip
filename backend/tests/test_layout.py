@@ -333,3 +333,97 @@ def test_speaker_suggest_endpoint(client, db, paths, monkeypatch):
     assert r.status_code == 400 and "API key LLM" in r.text
     bare = _clip(db, paths, youtube_id=None)
     assert client.post(f"/api/clips/{bare['_id']}/speaker/suggest").status_code == 400
+
+
+# -- split layout (companion video) ------------------------------------------------------------------
+
+def test_clean_layout_companion():
+    out = layout.clean_layout({
+        "mode": "split",
+        "companion": {"videoUrl": "asset://library/_brand/x/companion-1.mp4", "duration": 42.5, "position": "top",
+                      "split": 0.9, "focusY": -1, "divider": 3, "dividerColor": "#FFFFFF", "junk": 1},
+    })
+    assert out == {"mode": "split", "companion": {
+        "videoUrl": "asset://library/_brand/x/companion-1.mp4", "duration": 42.5, "position": "top",
+        "split": 0.65, "focusY": 0, "divider": 3, "dividerColor": "#FFFFFF"}}
+    for bad in ({"companion": {"position": "left"}}, {"companion": {"videoUrl": "D:/gameplay.mp4"}},
+                {"companion": {"split": "half"}}):
+        with pytest.raises(layout.LayoutError):
+            layout.clean_layout(bad)
+    assert not layout.needs_source({"mode": "split"})  # the speaker part is the face-tracked raw.mp4
+
+
+def test_companion_problem(paths):
+    assert layout.companion_problem({"mode": "full"}) is None
+    assert "belum punya video" in layout.companion_problem({"mode": "split"})
+    rel = "library/_brand/t/companion-1.mp4"
+    split = {"mode": "split", "companion": {"videoUrl": f"asset://{rel}", "duration": 10}}
+    assert "tidak ditemukan" in layout.companion_problem(split)
+    f = paths.from_relative(rel)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_bytes(b"mp4")
+    assert layout.companion_problem(split) is None
+    assert "Durasi" in layout.companion_problem({"mode": "split", "companion": {"videoUrl": f"asset://{rel}"}})
+    assert "tidak ditemukan" in layout.companion_problem(
+        {"mode": "split", "companion": {"videoUrl": "asset://../luar.mp4", "duration": 3}})
+
+
+def test_split_render_fails_clearly_without_a_companion(db, paths, monkeypatch):
+    monkeypatch.setattr(render.events, "publish", lambda e: None)
+    clip = _clip(db, paths)
+    db.clips.update_one({"_id": clip["_id"]}, {"$set": {"layout_style": {"mode": "split"}}})
+    rid = new_id()
+    db.render_jobs.insert_one({"_id": rid, "clip_id": clip["_id"], "status": "queued", "progress_pct": 0,
+                               "created_at": utcnow()})
+    render.run_render(rid, procs.CancelToken())
+    rj = db.render_jobs.find_one({"_id": rid})
+    assert rj["status"] == "failed"
+    assert rj["error"].startswith("Layout video pendamping belum punya video")
+    assert db.clips.find_one({"_id": clip["_id"]})["status"] == "ready"
+
+
+def test_build_props_split(db, paths):
+    clip = _clip(db, paths)
+    db.clips.update_one({"_id": clip["_id"]}, {"$set": {"layout_style": {
+        "mode": "split", "companion": {"videoUrl": "asset://library/_brand/x/companion-1.mp4", "duration": 30}}}})
+    props = render.build_props(db.clips.find_one({"_id": clip["_id"]}))
+    assert props["clipId"] == clip["_id"]
+    assert props["videoUrl"].endswith(f"/api/clips/{clip['_id']}/media/raw?token={config.token}")
+    assert "sourceUrl" not in props
+    assert props["layout"]["companion"]["videoUrl"].startswith(f"{config.base_url}/api/files/library/_brand/x/companion-1.mp4")
+
+
+def test_companion_upload_is_converted(client, paths, tmp_path):
+    from backend.agents.tools import ffmpeg_ops
+    from backend.core.config import ffmpeg_path
+
+    src = tmp_path / "gameplay.mov"
+    procs.run([ffmpeg_path(), "-y", "-hide_banner", "-loglevel", "error",
+               "-f", "lavfi", "-i", "testsrc=size=1600x1200:rate=60:duration=2",
+               "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+               "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(src)],
+              timeout=120)
+    tpl = client.post("/api/brand-templates", json={"name": "Gameplay"}).json()["brand_template"]
+    r = client.post(f"/api/brand-templates/{tpl['id']}/assets",
+                    files={"file": ("gameplay.mov", src.read_bytes(), "video/quicktime")}, data={"kind": "companion"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["value"].startswith(f"asset://library/_brand/{tpl['id']}/companion-") and body["value"].endswith(".mp4")
+    assert 1.9 <= body["duration"] <= 2.1
+    out = paths.from_relative(body["path"])
+    info = ffmpeg_ops.probe_media(out)
+    assert info and not info["has_audio"]
+    assert (info["width"], info["height"]) == (1440, 1080)  # short side capped at 1080
+    probe = procs.run([ffmpeg_path(), "-hide_banner", "-i", str(out)], timeout=60, check=False).stderr.decode("utf-8", "replace")
+    assert "30 fps" in probe
+    assert not list(paths.cache_dir.glob("upload-*"))  # the raw upload is not kept
+    assert len([f for f in out.parent.iterdir() if f.is_file()]) == 1
+
+    # Not a video, or unreadable
+    r = client.post(f"/api/brand-templates/{tpl['id']}/assets", files={"file": ("a.png", b"PNG", "image/png")},
+                    data={"kind": "companion"})
+    assert r.status_code == 400 and "MP4, MOV atau WEBM" in r.json()["detail"]
+    r = client.post(f"/api/brand-templates/{tpl['id']}/assets", files={"file": ("rusak.mp4", b"bukan video", "video/mp4")},
+                    data={"kind": "companion"})
+    assert r.status_code == 400 and "tidak bisa dibaca" in r.json()["detail"]
+    assert not list(paths.cache_dir.glob("upload-*"))

@@ -193,6 +193,35 @@ def cut_section(source: Path, start: float, end: float, out_path: Path, cancel: 
     return out_path
 
 
+# The companion video of the split layout loops behind every clip: a few minutes is plenty
+COMPANION_MAX_SECONDS = 180
+
+
+def normalize_companion(source: Path, out_path: Path, cancel: procs.CancelToken | None = None) -> float:
+    """Companion video for the split layout, from any video the user imports: silent, 30 fps, H.264,
+    short side at most 1080 px (enough for the largest companion part, never upscaled), and at most
+    COMPANION_MAX_SECONDS long. Returns its duration in seconds."""
+    info = probe_media(source)
+    if not info or not info.get("has_video") or not info.get("duration"):
+        raise ValueError("Video tidak bisa dibaca. Pakai file MP4, MOV atau WEBM yang bisa diputar.")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    procs.run(
+        [ffmpeg_path(), "-y", "-hide_banner", "-loglevel", "error",
+         "-i", str(source), "-t", str(COMPANION_MAX_SECONDS),
+         "-map", "0:v:0", "-an", "-sn", "-dn",
+         "-vf", "scale=w='min(iw,1080)':h='min(ih,1080)':force_original_aspect_ratio=increase:force_divisible_by=2,fps=30,setsar=1",
+         "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
+         *(["-threads", str(LEAN_X264_THREADS)] if resources.tight() else []),
+         "-movflags", "+faststart", str(out_path)],
+        cancel=cancel, timeout=1800, low_priority=resources.enabled(),
+    )
+    duration = probe_duration(out_path)
+    if not duration:
+        out_path.unlink(missing_ok=True)
+        raise ValueError("Video pendamping gagal diproses")
+    return round(duration, 3)
+
+
 def probe_media(path: Path) -> dict | None:
     """{duration, has_video, has_audio, width, height} from `ffmpeg -i`, or None when unreadable."""
     try:

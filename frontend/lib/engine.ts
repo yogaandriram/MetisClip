@@ -656,7 +656,8 @@ export const api = {
       const form = new FormData()
       form.append('file', file)
       form.append('kind', kind)
-      return request<{ value: string; path: string }>('POST', `/api/brand-templates/${id}/assets`, { form })
+      // kind 'companion' (split layout video) is converted first and also returns its duration
+      return request<{ value: string; path: string; duration?: number }>('POST', `/api/brand-templates/${id}/assets`, { form })
     },
   },
 

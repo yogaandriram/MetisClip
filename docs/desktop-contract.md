@@ -162,7 +162,7 @@ Rules:
 | GET | `/api/brand-templates/{id}` | — | `{brand_template: BrandTemplate}` |
 | PUT | `/api/brand-templates/{id}` | `Partial<BrandTemplateInput>` (`name`, or sections; each section replaces the stored one). `layout_settings` is validated (see "Layout" below): unknown keys are dropped, numbers clamped, a wrong type is a 400 | `{brand_template: BrandTemplate}` |
 | DELETE | `/api/brand-templates/{id}` | — | `{ok: true}`; 400 for the last template. Its clips fall back to their agent's default, agents using it get the oldest template, and asset copies no other template uses are deleted |
-| POST | `/api/brand-templates/{id}/assets` | multipart: `file`, `kind` | `{value: "asset://library/_brand/<template id>/<file>", path}` |
+| POST | `/api/brand-templates/{id}/assets` | multipart: `file`, `kind` | `{value: "asset://library/_brand/<template id>/<file>", path}`. `kind: "companion"` (MP4, MOV or WEBM) is converted first (silent, 30 fps, short side ≤ 1080 px, first 180 s) and also returns `duration`; 400 with an Indonesian message when it is not a readable video |
 | GET | `/api/files/{relative path}` | `?token=` | file bytes (Range supported), only under the data root |
 | GET | `/api/jobs` | `?agent_id=&status=&limit=` | `{jobs: Job[]}` |
 | POST | `/api/jobs` | `JobCreate` | `{job: Job}` |
@@ -197,18 +197,19 @@ A finished render is written to `<clip dir>\final.mp4` (`output_path`) and then 
 
 `/api/clips/export` uses the same file name. Neither accepts the data folder itself, `db\`, `cache\` or `.metisclip\` as destination ("Folder tujuan tidak diizinkan").
 
-### Layout (podcast and card modes, zoom, speaker tag)
+### Layout (podcast, card and split modes, zoom, speaker tag)
 
 The Brand Template "Layout" section (`layout_settings`, next to the preview-only `safeZone`) and a clip's override (`layout_style`) are patches of the layout model in `frontend/lib/presets/layout.ts`; `backend/services/layout.py` validates them with the same enums and limits:
 
-- `mode`: `full` (default: the face-tracked raw.mp4 fills 9:16), `podcast` (the clip's `source.mp4` in its own ratio inside a frame) or `card` (`source.mp4` inside a social-post card).
+- `mode`: `full` (default: the face-tracked raw.mp4 fills 9:16), `podcast` (the clip's `source.mp4` in its own ratio inside a frame) `card` (`source.mp4` inside a social-post card) or `split` (raw.mp4 over a looping companion video).
 - `frame`: `y` (top edge, design px of the 300×533 canvas), `ratio` (`source`, `16:9`, `4:3`, `1:1`, `4:5`), `margin`, `radius`, `focusX` (0–1).
 - `background`: `type` (`blur`, `color`, `gradient`, `image`), `color`, `color2`, `imageUrl` (`asset://…`), `blur`, `dim` (0–0.9).
 - `header`: `enabled`, `source` (`title` = the clip's `hook_text`, `custom` = `text`), `text`, `fontFamily`, `fontWeight`, `fontSize` (caption units), `color`, `boxColor` (`''` = none), `align`, `isUppercase`, `gap`, `maxLines` (1–4).
-- `credit`: `enabled`, `text` (`{channel}` = the YouTube channel; hidden for uploads), `fontSize`, `color`. Drawn in the video's bottom-right corner, or top-right in card mode.
+- `credit`: `enabled`, `text` (`{channel}` = the YouTube channel; hidden for uploads), `fontSize`, `color`. Drawn in the video's bottom-right corner, top-right in card mode, and in split mode in the speaker part's corner next to the seam.
 - `card`: `name`, `handle` (the user's own account; the top row is hidden while both are empty), `avatarUrl` (`asset://…`; '' = first letter), `color`, `textColor`, `mutedColor`, `margin`, `radius`. The post text is the header (title) with the header's font, size and lines; `frame.y` places the card, `frame.ratio` / `focusX` / `radius` shape its video.
 - `zoom`: `enabled`, `style` (`keywords` = punch-in on AI keywords, `sentences` = every other sentence), `amount` (0.05–0.3).
 - `speaker`: `enabled`, `name`, `role` (usually set per clip), `fontFamily`, `fontSize`, `y`, `align` (`left`, `center`), `start`, `duration` (seconds of clip time), `color`, `textColor`, `accent`, `accentText`. Hidden while `name` is empty.
+- `companion` (split mode): `videoUrl` (`asset://…` from an upload with `kind: "companion"`), `duration` (seconds, from that upload), `position` (`bottom` = companion below the speaker, `top`), `split` (0.35–0.65, the speaker part's share of the height), `focusY` (0–1, vertical focus of the speaker video), `divider` (0–8 design px), `dividerColor`. A split render without `videoUrl`, or with its file missing, fails with "Layout video pendamping belum punya video. …" or "File video pendamping tidak ditemukan …".
 
 Effective layout = template ⊕ clip, merged per section (`GET /api/clips/{id}` returns it as `effective_layout`, with `channel`). Every new clip keeps `files.source` (`<clip dir>\source.mp4`, same timeline as raw.mp4) and `source_width` / `source_height`. A podcast or card render of a clip without one first prepares it ("Menyiapkan video sumber…" in `render.progress.message`); if that fails, the render fails with "Layout podcast butuh video sumber: …" (or "Layout kartu …").
 

@@ -57,6 +57,9 @@ RENDER_MAX_TABS = 4
 # with 2 tabs: 3.6 GB -> 3.0 GB, and no slower, since the encoder competes less with Chrome for the CPU
 RENDER_ENCODER_THREADS = 4
 RENDER_MEDIA_CACHE_MB = 256
+# A split layout decodes its companion video next to the clip. Measured 2026-11-15 (15 s clip, 4 tabs,
+# worker tree working set): 4.51 GB against 4.22 GB for the same render in full mode
+RENDER_COMPANION_MB = 300
 
 ALONE_RESERVE_MB = 768
 ALONE_MAX_WAIT_S = 90.0
@@ -297,8 +300,8 @@ def clip_need_mb(encoder: str, whisper_mb: int = 0) -> int:
     return max(CLIP_TRACK_MB, enc, whisper_mb)
 
 
-def render_need_mb(tabs: int) -> int:
-    return RENDER_BASE_MB + RENDER_TAB_MB * max(1, tabs)
+def render_need_mb(tabs: int, extra_mb: int = 0) -> int:
+    return RENDER_BASE_MB + RENDER_TAB_MB * max(1, tabs) + max(0, extra_mb)
 
 
 def _tab_cap(max_tabs: int | None) -> int:
@@ -312,11 +315,13 @@ def render_slot(
     cancel: CancelToken | None = None,
     on_wait: Callable[[WaitInfo], None] | None = None,
     max_tabs: int | None = None,
+    extra_mb: int = 0,
 ) -> Iterator[int | None]:
     """Hold RAM for an export render. Waits (with priority) for one Chrome tab's worth, then takes as
     many more tabs as the RAM free at that moment allows. Yields the tab count, or None with the
-    guard off (the worker then sizes itself)."""
-    with hold("render", render_need_mb(1), label="Ekspor video", cancel=cancel, on_wait=on_wait,
+    guard off (the worker then sizes itself). `extra_mb`: what the layout adds whatever the tab count
+    (RENDER_COMPANION_MB for a split layout)."""
+    with hold("render", render_need_mb(1, extra_mb), label="Ekspor video", cancel=cancel, on_wait=on_wait,
               priority=True) as h:
         if h is None:
             yield None
@@ -326,7 +331,7 @@ def render_slot(
             # render up, so they never eat into the RAM kept for the user's apps
             usable, _, _ = _usable()
             tabs = max(1, min(_tab_cap(max_tabs), 1 + max(0, usable) // RENDER_TAB_MB))
-            h.need_mb = render_need_mb(tabs)
+            h.need_mb = render_need_mb(tabs, extra_mb)
         yield tabs
 
 

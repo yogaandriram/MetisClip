@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
 import toast from 'react-hot-toast';
-import { ArrowDownToLine } from 'lucide-react';
+import { ArrowDownToLine, SeparatorHorizontal } from 'lucide-react';
 import { Alert, Button, ChoiceChips, ColorPicker, Divider, Field, InputField, SelectField, Slider, Tabs, ToggleSwitch } from '@/components/ui';
 import { api } from '@/lib/engine';
 import { errorMessage } from '@/lib/format';
 import { SUPPORTED_FONTS, FONT_WEIGHTS_MAP } from '@/lib/constants';
-import { DEFAULT_POSITION_Y, captionHeight } from '@/lib/presets/position';
+import { DEFAULT_POSITION_Y, DESIGN_CANVAS, POSITION_LIMITS, captionHeight } from '@/lib/presets/position';
 import {
   LAYOUT_LIMITS,
   type BackgroundType,
+  type CompanionPosition,
   type FrameRatio,
   type HeaderSource,
   type Layout,
@@ -24,6 +25,7 @@ import {
   headerRect,
   headerText,
   platformNames,
+  splitGeometry,
 } from '@/lib/presets/layout';
 import { CaptionSettings, LayoutSettings, SAFE_ZONE_OPTIONS, SAMPLE_TITLE, SafeZone } from '../types';
 import { AssetUploader } from './BrandSettingsPanel';
@@ -49,6 +51,12 @@ export const MODE_OPTIONS: { value: LayoutMode; label: string }[] = [
   { value: 'full', label: 'Penuh 9:16' },
   { value: 'podcast', label: 'Podcast (rasio asli)' },
   { value: 'card', label: 'Kartu postingan' },
+  { value: 'split', label: 'Video pendamping' },
+];
+
+const COMPANION_POSITION_OPTIONS: { value: CompanionPosition; label: string }[] = [
+  { value: 'bottom', label: 'Di bawah' },
+  { value: 'top', label: 'Di atas' },
 ];
 
 export const RATIO_OPTIONS: { value: FrameRatio; label: string }[] = [
@@ -91,6 +99,7 @@ const MODE_HINTS: Record<LayoutMode, string> = {
   full: 'Video dipotong 9:16 mengikuti wajah pembicara (face tracking).',
   podcast: 'Video tampil utuh dengan rasio aslinya di tengah, judul di atas, caption di bawah. Cocok untuk podcast dan wawancara.',
   card: 'Video di dalam kartu bergaya postingan: foto profil, nama akun, judul sebagai teks postingan, lalu videonya.',
+  split: 'Layar dibagi dua: pembicara (mengikuti wajah) dan video pendamping tanpa suara yang diputar berulang, misalnya gameplay atau B-roll.',
 };
 
 const TABS: Record<LayoutMode, { id: string; label: string }[]> = {
@@ -108,6 +117,10 @@ const TABS: Record<LayoutMode, { id: string; label: string }[]> = {
     { id: 'header', label: 'Teks' },
     { id: 'credit', label: 'Kredit' },
   ],
+  split: [
+    { id: 'companion', label: 'Pendamping' },
+    { id: 'credit', label: 'Kredit' },
+  ],
 };
 
 const px = (v: number) => `${Math.round(v)}px`;
@@ -116,7 +129,15 @@ const secs = (v: number) => `${v.toFixed(1).replace('.', ',')} dtk`;
 
 export function layoutSummary(layout: LayoutSettings): string {
   const bg = BACKGROUND_OPTIONS.find((o) => o.value === layout.background.type)?.label || '';
-  const parts = [layout.mode === 'podcast' ? `Podcast · ${bg}` : layout.mode === 'card' ? `Kartu · ${bg}` : 'Penuh 9:16'];
+  const parts = [
+    layout.mode === 'podcast'
+      ? `Podcast · ${bg}`
+      : layout.mode === 'card'
+        ? `Kartu · ${bg}`
+        : layout.mode === 'split'
+          ? 'Video pendamping'
+          : 'Penuh 9:16',
+  ];
   if (layout.zoom.enabled) parts.push('Zoom');
   if (layout.speaker.enabled) parts.push('Nama pembicara');
   return parts.join(' · ');
@@ -139,7 +160,7 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
   updateCaption,
 }) => {
   const [tab, setTab] = useState('video');
-  const [uploading, setUploading] = useState<'' | 'background' | 'avatar'>('');
+  const [uploading, setUploading] = useState<'' | 'background' | 'avatar' | 'companion'>('');
   const mode = layout.mode;
   const card = mode === 'card';
   const tabs = TABS[mode];
@@ -151,6 +172,7 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
   const z = layout.zoom;
   const sp = layout.speaker;
   const c = layout.card;
+  const m = layout.companion;
 
   const upload = async (file: File, kind: 'background' | 'avatar') => {
     if (file.type && !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
@@ -175,6 +197,35 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
     }
   };
 
+  const uploadCompanion = async (file: File) => {
+    if (file.type && !['video/mp4', 'video/quicktime', 'video/webm'].includes(file.type)) {
+      toast.error('Format video tidak didukung. Pakai MP4, MOV atau WEBM');
+      return;
+    }
+    if (file.size > 500 * 1024 * 1024) {
+      toast.error('File terlalu besar. Maksimal 500 MB');
+      return;
+    }
+    setUploading('companion');
+    const id = toast.loading('Menyiapkan video pendamping… Video panjang bisa butuh 1–2 menit.');
+    try {
+      const { value, duration } = await api.brandTemplates.uploadAsset(templateId, file, 'companion');
+      updateLayout({ companion: { videoUrl: value, duration: duration || 0 } });
+      toast.success('Video pendamping tersimpan. Jangan lupa klik Simpan.', { id });
+    } catch (err) {
+      toast.error(errorMessage(err, 'Gagal mengimpor video'), { id });
+    } finally {
+      setUploading('');
+    }
+  };
+
+  // Caption centered on the line between the speaker and the companion
+  const captionOnSeam = () => {
+    const g = splitGeometry(layout);
+    const y = Math.round(DESIGN_CANVAS.height - g.seam - captionHeight(caption, emoji) / 2);
+    updateCaption({ positionY: Math.max(POSITION_LIMITS.y.min, Math.min(POSITION_LIMITS.y.max, y)), positionX: 150 });
+  };
+
   const captionUnder = () => {
     const y = captionUnderFrame(frame, captionHeight(caption, emoji), DEFAULT_POSITION_Y);
     updateCaption({ positionY: y, positionX: 150 });
@@ -193,7 +244,14 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
       </Field>
 
       {tabs.length > 0 && (
-        <Tabs tabs={tabs} activeTab={activeTab} onChange={setTab} ariaLabel={card ? 'Pengaturan kartu' : 'Pengaturan layout podcast'} size="sm" block />
+        <Tabs
+          tabs={tabs}
+          activeTab={activeTab}
+          onChange={setTab}
+          ariaLabel={card ? 'Pengaturan kartu' : mode === 'split' ? 'Pengaturan video pendamping' : 'Pengaturan layout podcast'}
+          size="sm"
+          block
+        />
       )}
 
       {activeTab === 'card' && (
@@ -245,6 +303,73 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
           <ColorPicker label="Warna handle" color={c.mutedColor} onChange={(mutedColor) => updateLayout({ card: { mutedColor } })} />
           <Slider label="Jarak tepi" min={LAYOUT_LIMITS.margin.min} max={LAYOUT_LIMITS.margin.max} value={c.margin} format={px} onChange={(margin) => updateLayout({ card: { margin } })} />
           <Slider label="Sudut kartu" min={LAYOUT_LIMITS.radius.min} max={LAYOUT_LIMITS.radius.max} value={c.radius} format={px} onChange={(radius) => updateLayout({ card: { radius } })} />
+        </div>
+      )}
+
+      {activeTab === 'companion' && (
+        <div className="mc-stack">
+          <AssetUploader
+            title="Video pendamping"
+            description="Diputar berulang tanpa suara. Tiap klip mulai dari bagian yang berbeda. Dipakai 3 menit pertama."
+            accept="video/mp4,video/quicktime,video/webm"
+            formats="MP4, MOV, WEBM · maks. 500 MB"
+            current={m.videoUrl}
+            busy={uploading === 'companion'}
+            disabled={!!uploading}
+            onFile={uploadCompanion}
+            onClear={() => updateLayout({ companion: { videoUrl: '', duration: 0 } })}
+          />
+          {!m.videoUrl && (
+            <Alert tone="info" title="Belum ada video pendamping">
+              Unggah video dulu. Selama belum ada, klip dengan layout ini tidak bisa diekspor.
+            </Alert>
+          )}
+          <p className="mc-caption mc-muted">
+            Pakai video yang boleh Anda pakai ulang, misalnya rekaman gameplay atau B-roll milik sendiri. Video dari kanal lain bisa membuat klip
+            kena klaim hak cipta.
+          </p>
+          <Field label="Letak video pendamping">
+            <ChoiceChips<CompanionPosition>
+              ariaLabel="Letak video pendamping"
+              size="sm"
+              options={COMPANION_POSITION_OPTIONS}
+              value={m.position}
+              onChange={(position) => updateLayout({ companion: { position } })}
+            />
+          </Field>
+          <Slider
+            label="Tinggi bagian pembicara"
+            min={LAYOUT_LIMITS.split.min}
+            max={LAYOUT_LIMITS.split.max}
+            step={0.01}
+            value={m.split}
+            format={pct}
+            onChange={(split) => updateLayout({ companion: { split } })}
+          />
+          <Slider
+            label="Fokus vertikal pembicara"
+            min={0}
+            max={1}
+            step={0.05}
+            value={m.focusY}
+            format={pct}
+            hint="Geser bila kepala terpotong (lebih kecil = bagian atas video lebih terlihat). Bisa diubah per klip di editor."
+            onChange={(focusY) => updateLayout({ companion: { focusY } })}
+          />
+          <Slider
+            label="Garis tengah"
+            min={LAYOUT_LIMITS.divider.min}
+            max={LAYOUT_LIMITS.divider.max}
+            value={m.divider}
+            format={(v) => (v > 0 ? px(v) : 'Tidak ada')}
+            onChange={(divider) => updateLayout({ companion: { divider } })}
+          />
+          {m.divider > 0 && (
+            <ColorPicker label="Warna garis" color={m.dividerColor} onChange={(dividerColor) => updateLayout({ companion: { dividerColor } })} />
+          )}
+          <Button variant="secondary" size="sm" icon={<SeparatorHorizontal size={16} aria-hidden="true" />} onClick={captionOnSeam}>
+            Taruh caption di garis tengah
+          </Button>
         </div>
       )}
 
@@ -495,7 +620,7 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
                 options={SUPPORTED_FONTS.map((f) => ({ value: f, label: f }))}
                 onChange={(e) => updateLayout({ speaker: { fontFamily: e.target.value } })}
               />
-              <Field label="Posisi" style={{ flexShrink: 0 }}>
+              <Field label="Posisi" style={{ flex: '0 0 auto', width: 'auto' }}>
                 <ChoiceChips<SpeakerAlign> ariaLabel="Posisi label nama" size="sm" options={SPEAKER_ALIGN_OPTIONS} value={sp.align} onChange={(align) => updateLayout({ speaker: { align } })} />
               </Field>
             </div>

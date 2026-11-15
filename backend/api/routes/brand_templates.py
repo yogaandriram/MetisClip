@@ -1,12 +1,14 @@
 """Brand template library: named templates shared by every workspace, plus their brand assets."""
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from typing import Any, Optional
 
 from fastapi import APIRouter, File, Form, UploadFile
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from backend.api.dto import brand_template_dto, http_error
 from backend.core import events
@@ -17,8 +19,10 @@ from backend.services import brand_templates as bts
 from backend.services import layout as layout_svc
 
 router = APIRouter(tags=["brand-templates"])
+logger = logging.getLogger(__name__)
 
 ASSET_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".mp4", ".mov", ".webm", ".mp3", ".wav", ".m4a", ".aac", ".ogg"}
+VIDEO_EXT = {".mp4", ".mov", ".webm"}
 MAX_ASSET_BYTES = 500 * 1024 * 1024
 SECTIONS = ("brand_settings", "caption_settings", "layout_settings", "ai_settings")
 _safe_name = re.compile(r"[^A-Za-z0-9._-]+")
@@ -136,15 +140,24 @@ def delete_template(template_id: str):
 
 @router.post("/api/brand-templates/{template_id}/assets")
 async def upload_asset(template_id: str, file: UploadFile = File(...), kind: str = Form("asset")):
-    """Import a logo, overlay or sample video; store the returned `value` (asset://…) in brand_settings."""
+    """Import a logo, overlay, sample video or layout image; store the returned `value` (asset://…) in
+    the template. kind "companion" (the split layout's companion video) is converted first: silent,
+    30 fps, at most 3 minutes; its `duration` comes back too."""
     _get(template_id)
     ext = "." + (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else ""
     if ext not in ASSET_EXT:
         raise http_error(400, "Jenis file tidak didukung")
+    companion = kind == "companion"
+    if companion and ext not in VIDEO_EXT:
+        raise http_error(400, "Video pendamping harus berupa MP4, MOV atau WEBM")
     folder = bts.asset_dir(template_id)
     folder.mkdir(parents=True, exist_ok=True)
     kind_clean = _safe_name.sub("-", kind or "asset").strip("-")[:20] or "asset"
     dest = folder / f"{kind_clean}-{uuid.uuid4().hex[:8]}{ext}"
+    if companion:  # the upload lands in the cache; only the converted copy is kept
+        upload_path = get_paths().cache_dir / f"upload-{uuid.uuid4().hex}{ext}"
+        upload_path.parent.mkdir(parents=True, exist_ok=True)
+        final_path, dest = dest.with_suffix(".mp4"), upload_path
     size = 0
     with dest.open("wb") as out:
         while True:
@@ -157,5 +170,20 @@ async def upload_asset(template_id: str, file: UploadFile = File(...), kind: str
                 dest.unlink(missing_ok=True)
                 raise http_error(400, "File terlalu besar (maks. 500 MB)")
             out.write(chunk)
+    if companion:
+        from backend.agents.tools import ffmpeg_ops
+
+        try:
+            duration = await run_in_threadpool(ffmpeg_ops.normalize_companion, upload_path, final_path)
+        except ValueError as exc:
+            raise http_error(400, str(exc))
+        except Exception as exc:
+            logger.exception("Companion video import failed")
+            final_path.unlink(missing_ok=True)
+            raise http_error(400, f"Video pendamping gagal diproses: {exc}")
+        finally:
+            upload_path.unlink(missing_ok=True)
+        rel = get_paths().to_relative(final_path)
+        return {"value": f"asset://{rel}", "path": rel, "duration": duration}
     rel = get_paths().to_relative(dest)
     return {"value": f"asset://{rel}", "path": rel}

@@ -5,6 +5,9 @@
 //    frame and an optional source credit.
 //  - 'card': the source video inside a social-post style card (avatar, account name and handle, the
 //    title as the post text, then the video), over the same backgrounds.
+//  - 'split': the face-tracked clip (raw.mp4) on one part of the canvas and a silent companion video
+//    (gameplay, satisfying footage, the user's own B-roll; a Brand Template asset) looping on the
+//    other part. Each clip starts the loop at its own point.
 // Every mode can add a dynamic zoom (punch-in on AI keywords or every other sentence) and a speaker
 // name tag (lower third) shown for a few seconds.
 // Pure (no React, no DOM): the clip editor, the Brand Template preview and the Remotion render use
@@ -19,13 +22,14 @@ import { isFiller } from './captions';
 import { Ease, interpolate } from './anim';
 import type { CaptionWord } from './types';
 
-export type LayoutMode = 'full' | 'podcast' | 'card';
+export type LayoutMode = 'full' | 'podcast' | 'card' | 'split';
 export type FrameRatio = 'source' | '16:9' | '4:3' | '1:1' | '4:5';
 export type BackgroundType = 'blur' | 'color' | 'gradient' | 'image';
 export type HeaderSource = 'title' | 'custom';
 export type TextAlign = 'left' | 'center' | 'right';
 export type ZoomStyle = 'keywords' | 'sentences';
 export type SpeakerAlign = 'left' | 'center';
+export type CompanionPosition = 'bottom' | 'top';
 
 export interface LayoutFrame {
   /** Top edge of the video frame (design px from the top). */
@@ -126,6 +130,23 @@ export interface LayoutSpeaker {
   accentText: string;
 }
 
+/** The companion video ('split' mode). */
+export interface LayoutCompanion {
+  /** `asset://…` video, normalized by the engine on import (silent, 30 fps); '' = none yet. */
+  videoUrl: string;
+  /** Its length in seconds (set by the engine on import); the loop and each clip's start use it. */
+  duration: number;
+  /** Where the companion goes; the speaker takes the other part. */
+  position: CompanionPosition;
+  /** Share of the canvas height for the speaker part. */
+  split: number;
+  /** Vertical focus of the speaker video in its part (0 = top, 1 = bottom). */
+  focusY: number;
+  /** Line between the two parts (design px; 0 = none) and its color. */
+  divider: number;
+  dividerColor: string;
+}
+
 export interface Layout {
   mode: LayoutMode;
   frame: LayoutFrame;
@@ -135,6 +156,7 @@ export interface Layout {
   card: LayoutCard;
   zoom: LayoutZoom;
   speaker: LayoutSpeaker;
+  companion: LayoutCompanion;
 }
 
 /** Partial layout as stored (template layout_settings, clip layout_style): sections are partial too. */
@@ -147,9 +169,10 @@ export type LayoutPatch = {
   card?: Partial<LayoutCard>;
   zoom?: Partial<LayoutZoom>;
   speaker?: Partial<LayoutSpeaker>;
+  companion?: Partial<LayoutCompanion>;
 };
 
-const SECTIONS = ['frame', 'background', 'header', 'credit', 'card', 'zoom', 'speaker'] as const;
+const SECTIONS = ['frame', 'background', 'header', 'credit', 'card', 'zoom', 'speaker', 'companion'] as const;
 
 const W = DESIGN_CANVAS.width;
 const H = DESIGN_CANVAS.height;
@@ -208,6 +231,8 @@ export const DEFAULT_LAYOUT: Layout = {
     accent: '#FACC15',
     accentText: '#111111',
   },
+  // Speaker on top, a little below the eyes (raw.mp4 is a 9:16 crop: its middle band shows the face)
+  companion: { videoUrl: '', duration: 0, position: 'bottom', split: 0.5, focusY: 0.35, divider: 0, dividerColor: '#000000' },
 };
 
 /** Numeric limits (also enforced by the engine). */
@@ -226,9 +251,12 @@ export const LAYOUT_LIMITS = {
   speakerY: { min: 0, max: H - 30 },
   speakerStart: { min: 0, max: 30 },
   speakerDuration: { min: 1, max: 30 },
+  split: { min: 0.35, max: 0.65 },
+  divider: { min: 0, max: 8 },
+  companionDuration: { min: 0, max: 600 },
 };
 
-export const MODES: LayoutMode[] = ['full', 'podcast', 'card'];
+export const MODES: LayoutMode[] = ['full', 'podcast', 'card', 'split'];
 export const RATIO_VALUES: FrameRatio[] = ['source', '16:9', '4:3', '1:1', '4:5'];
 export const BACKGROUND_TYPES: BackgroundType[] = ['blur', 'color', 'gradient', 'image'];
 export const ZOOM_STYLES: ZoomStyle[] = ['keywords', 'sentences'];
@@ -277,6 +305,7 @@ export function resolveLayout(...patches: Array<LayoutPatch | Record<string, any
   const k = p.card || {};
   const z = p.zoom || {};
   const s = p.speaker || {};
+  const m = p.companion || {};
   const L = LAYOUT_LIMITS;
   return {
     mode: oneOf(p.mode, MODES, d.mode),
@@ -344,6 +373,15 @@ export function resolveLayout(...patches: Array<LayoutPatch | Record<string, any
       textColor: color(s.textColor, d.speaker.textColor),
       accent: color(s.accent, d.speaker.accent),
       accentText: color(s.accentText, d.speaker.accentText),
+    },
+    companion: {
+      videoUrl: text(m.videoUrl, d.companion.videoUrl, 1000),
+      duration: num(m.duration, L.companionDuration, d.companion.duration),
+      position: oneOf(m.position, ['bottom', 'top'] as const, d.companion.position),
+      split: num(m.split, L.split, d.companion.split),
+      focusY: num(m.focusY, { min: 0, max: 1 }, d.companion.focusY),
+      divider: num(m.divider, L.divider, d.companion.divider),
+      dividerColor: color(m.dividerColor, d.companion.dividerColor),
     },
   };
 }
@@ -569,6 +607,52 @@ export function cardGeometry(layout: Layout, aspect: number, title: string | nul
   };
 }
 
+// ---------------------------------------------------------------------------------------------
+// Companion video ('split' mode)
+// ---------------------------------------------------------------------------------------------
+
+export interface SplitGeometry {
+  /** The speaker part (raw.mp4) and the companion part, full width. */
+  speaker: Rect;
+  companion: Rect;
+  /** y of the line between them, and the line itself (null without a divider). */
+  seam: number;
+  divider: Rect | null;
+}
+
+export function splitGeometry(layout: Layout): SplitGeometry {
+  const c = layout.companion;
+  const speakerH = Math.round(H * c.split * 100) / 100;
+  const speakerOnTop = c.position === 'bottom';
+  const seam = speakerOnTop ? speakerH : H - speakerH;
+  return {
+    speaker: { left: 0, top: speakerOnTop ? 0 : seam, width: W, height: speakerH },
+    companion: { left: 0, top: speakerOnTop ? seam : 0, width: W, height: H - speakerH },
+    seam,
+    divider: c.divider > 0 ? { left: 0, top: seam - c.divider / 2, width: W, height: c.divider } : null,
+  };
+}
+
+/**
+ * Where a clip starts the companion loop (seconds): a fixed point picked from the clip's id, so the
+ * clips of one video do not all show the same footage, and the preview and the render agree.
+ */
+export function companionStart(key: string | null | undefined, duration: number): number {
+  if (!key || !(duration > 1)) return 0;
+  let hash = 0x811c9dc5; // FNV-1a
+  for (let i = 0; i < key.length; i++) {
+    hash ^= key.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return Math.floor((hash / 0x100000000) * duration * 30) / 30;
+}
+
+/** Companion time (seconds) at output time `t`: the loop from the clip's start point. */
+export function companionTime(start: number, duration: number, t: number): number {
+  if (!(duration > 0)) return 0;
+  return (((start + t) % duration) + duration) % duration;
+}
+
 /** The part of the layout dragged up and down on the Brand Template preview (podcast frame or card). */
 export function stageRect(layout: Layout, aspect: number, title: string | null | undefined): Rect | null {
   if (layout.mode === 'podcast') return frameRect(layout, aspect);
@@ -739,12 +823,24 @@ export const LAYOUT_PRESETS: LayoutPreset[] = [
       header: CARD_TEXT,
     },
   },
+  {
+    id: 'split',
+    name: 'Video pendamping',
+    description: 'Pembicara di atas, video pendamping tanpa suara di bawah.',
+    patch: { mode: 'split' },
+  },
+  {
+    id: 'split-line',
+    name: 'Pendamping + garis',
+    description: 'Pembicara lebih besar, garis putih di tengah.',
+    patch: { mode: 'split', companion: { split: 0.56, divider: 3, dividerColor: '#FFFFFF' } },
+  },
 ];
 
 /**
  * The layout after picking a preset: the preset's look on top of the defaults. What the user typed
  * or uploaded stays: the custom title, the credit, the account (name, handle, avatar), the
- * background image and the speaker tag.
+ * background image, the speaker tag and the companion video.
  */
 export function applyLayoutPreset(current: Layout, preset: LayoutPreset): Layout {
   const keep: LayoutPatch = {
@@ -753,6 +849,7 @@ export function applyLayoutPreset(current: Layout, preset: LayoutPreset): Layout
     card: { name: current.card.name, handle: current.card.handle, avatarUrl: current.card.avatarUrl },
     background: { imageUrl: current.background.imageUrl },
     speaker: current.speaker,
+    companion: { videoUrl: current.companion.videoUrl, duration: current.companion.duration },
   };
   return resolveLayout(DEFAULT_LAYOUT, preset.patch, keep);
 }

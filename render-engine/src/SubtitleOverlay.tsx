@@ -2,7 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   AbsoluteFill,
   Img,
+  Loop,
   OffthreadVideo,
+  Sequence,
   Series,
   continueRender,
   delayRender,
@@ -25,7 +27,7 @@ import { computeKeepSegments, frameSegments, isCut, resolveAi, sourceTimeAt } fr
 // @ts-ignore
 import { LayoutStage } from '../../frontend/lib/presets/LayoutStage';
 // @ts-ignore
-import { creditText, headerText, resolveLayout, usesSource } from '../../frontend/lib/presets/layout';
+import { companionStart, creditText, headerText, resolveLayout, usesSource } from '../../frontend/lib/presets/layout';
 // Bundled woff2 files (offline, deterministic). See scripts/gen-fonts.cjs.
 import { FONT_WEIGHTS } from './fonts';
 
@@ -47,6 +49,8 @@ export type OverlayProps = {
   /** The clip's title (hook text) and the YouTube channel, for the layout's header and credit. */
   title?: string;
   channel?: string;
+  /** The clip's id: picks where the companion video loop starts (split layout). */
+  clipId?: string;
 };
 
 export const FPS = 30;
@@ -74,19 +78,21 @@ export const SubtitleOverlay: React.FC<OverlayProps> = (props) => {
   const ai = useMemo(() => resolveAi(props.ai), [props.ai]);
   const layout = useMemo(() => resolveLayout(props.layout), [props.layout]);
   const { segments, cut } = useMemo(() => overlaySegments(props, fps), [props, fps]);
-  // Podcast and card layouts need the original-ratio source; without one the clip stays full-frame
+  // Podcast and card layouts need the original-ratio source and the split layout its companion
+  // video; without one the clip stays full-frame (the engine refuses such a render first)
   const framed = usesSource(layout.mode) && !!props.sourceUrl;
-  const stageLayout = framed ? layout : { ...layout, mode: 'full' as const };
+  const split = layout.mode === 'split' && !!layout.companion.videoUrl && layout.companion.duration > 0;
+  const stageLayout = framed || split ? layout : { ...layout, mode: 'full' as const };
 
   // Hold the frame until every font on screen (all bundled weights) is loaded from the local bundle.
   const families = useMemo(() => {
     const list = [primaryFamily(style.fontFamily)];
     const cardRow = layout.mode === 'card' && !!(layout.card.name.trim() || layout.card.handle.trim());
     if (framed && (headerText(layout, props.title) || cardRow)) list.push(primaryFamily(layout.header.fontFamily));
-    if (framed && creditText(layout, props.channel)) list.push('Plus Jakarta Sans');
+    if ((framed || split) && creditText(layout, props.channel)) list.push('Plus Jakarta Sans');
     if (layout.speaker.enabled && layout.speaker.name.trim()) list.push(primaryFamily(layout.speaker.fontFamily));
     return Array.from(new Set(list));
-  }, [style.fontFamily, framed, layout, props.title, props.channel]);
+  }, [style.fontFamily, framed, split, layout, props.title, props.channel]);
   const familyKey = families.join('|');
   const [handle] = useState(() => delayRender(`Memuat font ${familyKey}`, { timeoutInMilliseconds: 60000 }));
 
@@ -125,8 +131,21 @@ export const SubtitleOverlay: React.FC<OverlayProps> = (props) => {
   const sourceTime = cut ? sourceTimeAt(segments, frame, fps) : frame / fps;
   const FADE = 2; // frames of audio fade at each cut (avoids clicks)
 
-  // The same kept ranges for every video on screen (framed source and blurred background)
-  const renderVideo = (role: 'main' | 'background', videoStyle: React.CSSProperties) => {
+  // The companion loops on the OUTPUT timeline (cut pauses do not cut it), from the clip's own start
+  // point: a negative Sequence offset makes the loop's frame 0 land at that point.
+  const companionFrames = Math.max(1, Math.floor(layout.companion.duration * fps));
+  const companionFrom = Math.round(companionStart(props.clipId, layout.companion.duration) * fps) % companionFrames;
+  const companion = (videoStyle: React.CSSProperties) => (
+    <Sequence from={-companionFrom} layout="none" name="Video pendamping">
+      <Loop durationInFrames={companionFrames} layout="none">
+        <OffthreadVideo src={resolveSrc(layout.companion.videoUrl)} style={videoStyle} muted />
+      </Loop>
+    </Sequence>
+  );
+
+  // The same kept ranges for every clip video on screen (framed source and blurred background)
+  const renderVideo = (role: 'main' | 'background' | 'companion', videoStyle: React.CSSProperties) => {
+    if (role === 'companion') return split ? companion(videoStyle) : null;
     if (!src) return null;
     const muted = role === 'background';
     if (!cut) {

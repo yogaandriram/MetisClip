@@ -173,6 +173,18 @@ def test_render_slot_takes_the_tabs_that_fit(ram):
         assert tabs == 1  # sized when it started
 
 
+def test_render_slot_counts_the_companion_video(ram):
+    # Split layout: the companion is held on top of every tab count, and leaves less room for tabs
+    ram["available"] = 4300  # 4300 - (2500 + 300) - 1024 = 476 -> 1 tab
+    with resources.render_slot(extra_mb=resources.RENDER_COMPANION_MB) as tabs:
+        assert tabs == 1
+        assert next(iter(resources._holds.values())).need_mb == resources.render_need_mb(1) + resources.RENDER_COMPANION_MB
+    ram["available"] = 6300
+    with resources.render_slot(extra_mb=resources.RENDER_COMPANION_MB) as tabs:
+        assert tabs == 4
+        assert next(iter(resources._holds.values())).need_mb == resources.render_need_mb(4, resources.RENDER_COMPANION_MB)
+
+
 def test_clip_need():
     assert resources.clip_need_mb("h264_qsv") == resources.CLIP_TRACK_MB
     assert resources.clip_need_mb("libx264") == resources.CLIP_ENCODE_MB["libx264"]

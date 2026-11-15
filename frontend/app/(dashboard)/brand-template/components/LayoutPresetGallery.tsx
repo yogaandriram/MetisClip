@@ -13,6 +13,11 @@ const PERSON: React.CSSProperties = {
   ].join(', '),
 };
 
+/** A stand-in for the companion video (split layout): diagonal stripes, so it reads as other footage. */
+const COMPANION: React.CSSProperties = {
+  background: 'repeating-linear-gradient(135deg, var(--moss) 0 9%, var(--leaf-strong) 9% 18%)',
+};
+
 /** Thumbnails show the account row filled in, like a real card. */
 const SAMPLE_ACCOUNT = { name: 'Nama Akun', handle: '@namaakun' };
 
@@ -24,7 +29,7 @@ interface Props {
 /**
  * Ready-made layouts. Each thumbnail is the real layout component with a placeholder video, so it
  * looks like the result. Picking one keeps the account, the custom title, the credit, the background
- * image and the speaker tag.
+ * image, the speaker tag and the companion video.
  */
 export const LayoutPresetGallery: React.FC<Props> = ({ layout, onApply }) => {
   const active = matchingPreset(layout);
@@ -75,7 +80,7 @@ const PresetTile: React.FC<{ preset: LayoutPreset; layout: Layout; selected: boo
             aspect={16 / 9}
             title={SAMPLE_TITLE}
             channel="Channel contoh"
-            renderVideo={(_role, style) => <span style={{ ...style, ...PERSON, display: 'block' }} />}
+            renderVideo={(role, style) => <span style={{ ...style, ...(role === 'companion' ? COMPANION : PERSON), display: 'block' }} />}
           />
         </span>
         {result.zoom.enabled && (

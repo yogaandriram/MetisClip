@@ -63,6 +63,14 @@ const SAFE_AREA_OUTLINE: React.CSSProperties = {
   borderRadius: 'var(--r-xs)',
   pointerEvents: 'none',
 };
+// Stand-in for a video the preview does not have (source, speaker without a sample video, companion)
+const PLACEHOLDER: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  color: 'var(--on-ink)',
+  background: 'var(--ink-soft)',
+};
 const SNAP_LINE: React.CSSProperties = { position: 'absolute', background: 'var(--leaf)', zIndex: 10, pointerEvents: 'none' };
 const CAPTION_SNAP = 6; // design px
 const ALL_SAFE = toDesign(ALL_PLATFORMS_UI);
@@ -197,6 +205,8 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
 
   // Podcast frame or card: dragged up and down, saved on release
   const framed = usesSource(layoutSettings.mode);
+  const split = layoutSettings.mode === 'split';
+  const companionUrl = assetUrl(layoutSettings.companion.videoUrl);
   const [aspect, setAspect] = useState(16 / 9);
   const frameStart = useRef<{ py: number; y: number } | null>(null);
   const [frameDrag, setFrameDrag] = useState<number | null>(null);
@@ -364,7 +374,15 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
           time={clock}
           words={SAMPLE_WORDS}
           renderVideo={(role, style) =>
-            videoUrl ? (
+            role === 'companion' ? (
+              companionUrl ? (
+                <video key={companionUrl} src={companionUrl} autoPlay loop muted playsInline style={style} />
+              ) : (
+                <div className="mc-caption" style={{ ...style, ...PLACEHOLDER }}>
+                  Video pendamping
+                </div>
+              )
+            ) : videoUrl ? (
               <video
                 src={videoUrl}
                 autoPlay
@@ -380,14 +398,14 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
                 }}
                 style={{ ...style, opacity: framed ? 1 : 0.8 }}
               />
-            ) : role === 'main' && framed ? (
-              <div className="mc-caption" style={{ ...style, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-ink)', background: 'var(--ink-soft)' }}>
-                Video sumber
+            ) : role === 'main' && (framed || split) ? (
+              <div className="mc-caption" style={{ ...style, ...PLACEHOLDER }}>
+                {split ? 'Video pembicara' : 'Video sumber'}
               </div>
             ) : null
           }
         />
-        {!videoUrl && !framed && (
+        {!videoUrl && !framed && !split && (
           <div className="mc-caption mc-muted" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '0 30px' }}>
             Unggah &quot;Video contoh&quot; di bagian Logo & video contoh untuk melihat preview di atas video Anda.
           </div>

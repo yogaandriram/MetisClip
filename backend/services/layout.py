@@ -1,5 +1,6 @@
-"""Brand Template layout (frontend/lib/presets/layout.ts): validation, a clip's effective layout, and
-the clip's original-ratio video (`source.mp4`) that the podcast and card layouts show.
+"""Brand Template layout (frontend/lib/presets/layout.ts): validation, a clip's effective layout, the
+clip's original-ratio video (`source.mp4`) that the podcast and card layouts show, and the companion
+video of the split layout (a Brand Template asset, normalized on import).
 
 Layouts are stored as patches: a template's `layout_settings` (next to its preview-only `safeZone`)
 and a clip's `layout_style` (only the keys the user changed in the editor). The effective layout is
@@ -20,7 +21,7 @@ from backend.core.paths import get_paths
 
 logger = logging.getLogger(__name__)
 
-MODES = ("full", "podcast", "card")
+MODES = ("full", "podcast", "card", "split")
 SOURCE_MODES = ("podcast", "card")  # modes that show source.mp4
 RATIOS = ("source", "16:9", "4:3", "1:1", "4:5")
 BACKGROUNDS = ("blur", "color", "gradient", "image")
@@ -28,6 +29,7 @@ HEADER_SOURCES = ("title", "custom")
 ALIGNS = ("left", "center", "right")
 ZOOM_STYLES = ("keywords", "sentences")
 SPEAKER_ALIGNS = ("left", "center")
+COMPANION_POSITIONS = ("bottom", "top")
 SAFE_ZONES = ("none", "all", "tiktok", "reels", "shorts")
 DESIGN_HEIGHT = 533
 
@@ -101,6 +103,15 @@ SCHEMA: dict[str, dict[str, tuple[str, Any]]] = {
         "accent": ("color", None),
         "accentText": ("color", None),
     },
+    "companion": {
+        "videoUrl": ("asset", None),
+        "duration": ("num", (0, 600)),
+        "position": ("enum", COMPANION_POSITIONS),
+        "split": ("num", (0.35, 0.65)),
+        "focusY": ("num", (0, 1)),
+        "divider": ("num", (0, 8)),
+        "dividerColor": ("color", None),
+    },
 }
 
 
@@ -138,7 +149,7 @@ def _value(section: str, key: str, value: Any) -> Any:
     if kind == "asset":
         if value == "" or (isinstance(value, str) and value.startswith("asset://") and ".." not in value):
             return value
-        raise LayoutError(f"{where} harus gambar dari Brand Template")
+        raise LayoutError(f"{where} harus file dari Brand Template")
     raise AssertionError(kind)
 
 
@@ -194,6 +205,25 @@ def effective_layout(clip: dict[str, Any] | None, bt: dict[str, Any] | None) -> 
 def needs_source(layout: dict[str, Any]) -> bool:
     """Podcast and card layouts show the clip's original-ratio video (source.mp4)."""
     return layout.get("mode") in SOURCE_MODES
+
+
+def companion_problem(layout: dict[str, Any]) -> str | None:
+    """Why a split layout cannot render (Indonesian), or None. Other modes never have a problem."""
+    if layout.get("mode") != "split":
+        return None
+    comp = layout.get("companion") or {}
+    url = comp.get("videoUrl") or ""
+    if not url:
+        return "Layout video pendamping belum punya video. Unggah video pendamping di Brand Template → Layout."
+    try:
+        path: Path | None = get_paths().from_relative(url[len("asset://"):])
+    except ValueError:
+        path = None
+    if path is None or not path.is_file():
+        return "File video pendamping tidak ditemukan di folder data. Unggah lagi di Brand Template → Layout."
+    if not float(comp.get("duration") or 0) > 0:
+        return "Durasi video pendamping tidak diketahui. Unggah lagi di Brand Template → Layout."
+    return None
 
 
 # -- the clip's source video -----------------------------------------------------------------------

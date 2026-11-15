@@ -122,6 +122,7 @@ def build_props(clip: dict[str, Any]) -> dict[str, Any]:
         "durationInFrames": max(1, int(round(float(clip.get("duration_seconds") or 1) * FPS))),
         "layout": resolve_assets(lay),
         "title": clip.get("hook_text") or "",
+        "clipId": clip["_id"],  # picks where the companion loop starts (split layout)
     }
     # Podcast and card layouts: the original-ratio cut (same timeline as raw.mp4); without one it stays full
     if layout_svc.needs_source(lay) and (clip.get("files") or {}).get("source"):
@@ -211,6 +212,9 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
     status = "failed"
     try:
         lay = layout_svc.effective_layout(clip, template_for(clip))
+        problem = layout_svc.companion_problem(lay)
+        if problem:
+            raise RuntimeError(problem)
         if layout_svc.needs_source(lay) and not layout_svc.source_path(clip):
             # Clips made before the podcast and card layouts did not keep their original-ratio video
             def step(message: str) -> None:
@@ -240,7 +244,8 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
                             "status": "rendering", "progress_pct": 0.0, "message": info.message()})
 
         # The RAM guard sizes the render: Chrome tabs that fit, the lean encoder and frame cache
-        with resources.render_slot(cancel=cancel, on_wait=waiting) as tabs:
+        extra = resources.RENDER_COMPANION_MB if lay.get("mode") == "split" else 0
+        with resources.render_slot(cancel=cancel, on_wait=waiting, extra_mb=extra) as tabs:
             low = tabs is not None
             if tabs is not None:
                 cmd += ["--concurrency", str(tabs),

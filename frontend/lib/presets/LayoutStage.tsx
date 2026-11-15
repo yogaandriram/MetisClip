@@ -13,7 +13,9 @@ import {
   type LayoutSpeaker,
   type SpeakerFrame,
   cardGeometry,
+  creditText,
   podcastGeometry,
+  splitGeometry,
   speakerAt,
   zoomAt,
   zoomRanges,
@@ -26,10 +28,12 @@ import {
  *
  * The parent must be the 9:16 box with `container-type: inline-size` (sizes are in `cqw`).
  * `renderVideo` draws the video element for each role with the given style: 'main' is the clip
- * (full) or the framed source (podcast, card), 'background' the blurred copy behind it (muted).
+ * (full, split) or the framed source (podcast, card), 'background' the blurred copy behind it
+ * (muted), 'companion' the looping companion video of the split mode (muted; the caller loops it
+ * from the clip's start point, see companionStart).
  * `time` and `words` drive the dynamic zoom and the speaker tag (pure functions of time).
  */
-export type VideoRole = 'main' | 'background';
+export type VideoRole = 'main' | 'background' | 'companion';
 
 export interface LayoutStageProps {
   layout: Layout;
@@ -81,6 +85,7 @@ export const LayoutStage: React.FC<LayoutStageProps> = (props) => {
   let body: React.ReactNode;
   if (layout.mode === 'podcast') body = <PodcastBody {...props} zoomStyle={zoomed(layout.frame.focusX)} />;
   else if (layout.mode === 'card') body = <CardBody {...props} zoomStyle={zoomed(layout.frame.focusX)} />;
+  else if (layout.mode === 'split') body = <SplitBody {...props} zoomStyle={zoomed(0.5)} />;
   else body = renderVideo('main', { ...COVER, objectFit: props.fullFit || 'cover', ...zoomed(0.5) });
 
   return (
@@ -149,30 +154,33 @@ const FramedVideo: React.FC<BodyProps & { credit: string; creditTop?: boolean }>
       objectPosition: `${r4(layout.frame.focusX * 100)}% 50%`,
       ...zoomStyle,
     })}
-    {credit && (
-      <div
-        style={{
-          position: 'absolute',
-          right: cqw(6),
-          ...(creditTop ? { top: cqw(5) } : { bottom: cqw(5) }),
-          fontFamily: '"Plus Jakarta Sans", sans-serif',
-          fontWeight: 600,
-          fontSize: cqw(layout.credit.fontSize / 2),
-          lineHeight: 1.2,
-          color: layout.credit.color,
-          padding: '0.2em 0.5em',
-          borderRadius: '0.6em',
-          background: 'rgba(0,0,0,0.45)',
-          whiteSpace: 'nowrap',
-          maxWidth: '90%',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-        }}
-      >
-        {credit}
-      </div>
-    )}
+    {credit && <CreditBadge layout={layout} text={credit} top={creditTop} />}
   </>
+);
+
+/** "Sumber: {channel}" in the right corner of its box (top or bottom). */
+const CreditBadge: React.FC<{ layout: Layout; text: string; top?: boolean }> = ({ layout, text, top }) => (
+  <div
+    style={{
+      position: 'absolute',
+      right: cqw(6),
+      ...(top ? { top: cqw(5) } : { bottom: cqw(5) }),
+      fontFamily: '"Plus Jakarta Sans", sans-serif',
+      fontWeight: 600,
+      fontSize: cqw(layout.credit.fontSize / 2),
+      lineHeight: 1.2,
+      color: layout.credit.color,
+      padding: '0.2em 0.5em',
+      borderRadius: '0.6em',
+      background: 'rgba(0,0,0,0.45)',
+      whiteSpace: 'nowrap',
+      maxWidth: '90%',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+    }}
+  >
+    {text}
+  </div>
 );
 
 const PodcastBody: React.FC<BodyProps> = (props) => {
@@ -360,6 +368,48 @@ const CardBody: React.FC<BodyProps> = (props) => {
           <FramedVideo {...props} credit={g.credit} creditTop />
         </div>
       </div>
+    </>
+  );
+};
+
+/**
+ * Split screen: the face-tracked clip in the speaker part (cropped around focusY), the companion
+ * video in the other part. The credit sits in the speaker part's corner next to the seam, where no
+ * platform UI covers it.
+ */
+const SplitBody: React.FC<BodyProps> = (props) => {
+  const { layout, renderVideo, zoomStyle, channel } = props;
+  const g = splitGeometry(layout);
+  const credit = creditText(layout, channel);
+  const speakerOnTop = layout.companion.position === 'bottom';
+  const part = (r: { top: number; height: number }): React.CSSProperties => ({
+    position: 'absolute',
+    left: 0,
+    width: '100%',
+    top: pctY(r.top),
+    height: pctY(r.height),
+    overflow: 'hidden',
+    background: '#000',
+  });
+  return (
+    <>
+      <div style={part(g.speaker)}>
+        {renderVideo('main', { ...COVER, objectPosition: `50% ${r4(layout.companion.focusY * 100)}%`, ...zoomStyle })}
+        {credit && <CreditBadge layout={layout} text={credit} top={!speakerOnTop} />}
+      </div>
+      <div style={part(g.companion)}>{renderVideo('companion', COVER)}</div>
+      {g.divider && (
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            width: '100%',
+            top: pctY(g.divider.top),
+            height: pctY(g.divider.height),
+            background: layout.companion.dividerColor,
+          }}
+        />
+      )}
     </>
   );
 };

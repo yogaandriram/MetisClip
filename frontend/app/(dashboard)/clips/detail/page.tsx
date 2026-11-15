@@ -41,13 +41,26 @@ import {
   type LayoutPatch,
   type ZoomStyle,
   LAYOUT_LIMITS,
+  companionStart,
+  companionTime,
   mergeLayout,
   resolveLayout,
   sourceAspect,
   usesSource,
 } from '@/lib/presets/layout'
 import { type CaptionStyle, BASE_CAPTION_STYLE, getPreset, presetSwitch, resolveCaptionStyle } from '@/lib/presets/defaults'
-import { type AiCaptionSettings, type Segment, DEFAULT_AI_SETTINGS, computeKeepSegments, isCut, isFiller, keptDuration, nextKeptTime, resolveAi } from '@/lib/presets/captions'
+import {
+  type AiCaptionSettings,
+  type Segment,
+  DEFAULT_AI_SETTINGS,
+  computeKeepSegments,
+  isCut,
+  isFiller,
+  keptDuration,
+  nextKeptTime,
+  outputTimeAt,
+  resolveAi,
+} from '@/lib/presets/captions'
 import {
   Alert,
   Badge,
@@ -106,11 +119,13 @@ const LAYOUT_MODE_OPTIONS: { value: LayoutMode; label: string }[] = [
   { value: 'full', label: 'Penuh 9:16' },
   { value: 'podcast', label: 'Podcast' },
   { value: 'card', label: 'Kartu' },
+  { value: 'split', label: 'Pendamping' },
 ]
 const LAYOUT_MODE_HINTS: Record<LayoutMode, string> = {
   full: 'Video dipotong 9:16 mengikuti wajah pembicara.',
   podcast: 'Video tampil utuh dengan rasio aslinya, judul di atas. Latar dan gaya judul diatur di Brand Template.',
   card: 'Video di dalam kartu bergaya postingan, judul sebagai teks postingan. Nama akun dan warna kartu diatur di Brand Template.',
+  split: 'Pembicara dan video pendamping tanpa suara yang diputar berulang. Videonya diunggah di Brand Template.',
 }
 const ZOOM_STYLE_OPTIONS: { value: ZoomStyle; label: string }[] = [
   { value: 'keywords', label: 'Di kata kunci' },
@@ -211,6 +226,9 @@ function ClipEditor() {
   /** Blurred copy of the source behind the podcast frame (muted, follows videoRef) */
   const bgRef = useRef<HTMLVideoElement>(null)
   const timeRef = useRef(0)
+  // Companion video (split layout): its element and where this clip's loop starts
+  const compRef = useRef<HTMLVideoElement>(null)
+  const compLoop = useRef({ start: 0, duration: 0 })
   const containerRef = useRef<HTMLDivElement>(null)
 
   const [detail, setDetail] = useState<ClipDetail | null>(null)
@@ -435,12 +453,22 @@ function ClipEditor() {
         timeRef.current = v.currentTime
         const bg = bgRef.current
         if (bg && Math.abs(bg.currentTime - v.currentTime) > 0.25) bg.currentTime = v.currentTime
+        syncCompanion(v.currentTime)
       }
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
   }, [isPlaying])
+
+  /** Keep the companion loop at the clip's output time (it runs on through cut pauses, like the render). */
+  function syncCompanion(sourceTime: number, force = false) {
+    const c = compRef.current
+    const { start, duration: loop } = compLoop.current
+    if (!c || !(loop > 0)) return
+    const target = companionTime(start, loop, outputTimeAt(segmentsRef.current, sourceTime))
+    if (force || Math.abs(c.currentTime - target) > 0.3) c.currentTime = target
+  }
 
   const togglePlay = () => {
     const v = videoRef.current
@@ -456,6 +484,7 @@ function ClipEditor() {
     v.currentTime = clamped
     if (bgRef.current) bgRef.current.currentTime = clamped
     timeRef.current = clamped
+    syncCompanion(clamped, true)
     setCurrentTime(clamped)
   }
 
@@ -715,6 +744,9 @@ function ClipEditor() {
   const hasSource = !!clip.files.source
   // Podcast and card show source.mp4; until it exists the preview stays full
   const sourceView = usesSource(layout.mode) && hasSource
+  const split = layout.mode === 'split'
+  const companionSrc = split ? assetUrl(layout.companion.videoUrl) : ''
+  compLoop.current = { start: companionStart(clip.id, layout.companion.duration), duration: layout.companion.duration }
   const aspect = sourceAspect(clip.source_width, clip.source_height)
   const layoutOverridden = Object.keys(present.layout).length > 0
   const keywordCount = words.filter((w) => w.keyword).length
@@ -988,7 +1020,7 @@ function ClipEditor() {
               {clip.files.raw ? (
                 // Same layout component as the Remotion render (lib/presets/LayoutStage.tsx): preview == render
                 <LayoutStage
-                  layout={sourceView ? layout : { ...layout, mode: 'full' }}
+                  layout={sourceView || split ? layout : { ...layout, mode: 'full' }}
                   aspect={aspect}
                   title={present.title}
                   channel={detail.channel}
@@ -999,7 +1031,32 @@ function ClipEditor() {
                   words={words}
                   offsetMs={style.offsetTime}
                   renderVideo={(role, videoStyle) =>
-                    role === 'main' ? (
+                    role === 'companion' ? (
+                      companionSrc ? (
+                        <video
+                          key={companionSrc}
+                          ref={compRef}
+                          src={companionSrc}
+                          loop
+                          muted
+                          playsInline
+                          preload="auto"
+                          aria-hidden="true"
+                          onLoadedMetadata={(e) => {
+                            syncCompanion(timeRef.current, true)
+                            if (videoRef.current && !videoRef.current.paused) e.currentTarget.play().catch(() => undefined)
+                          }}
+                          style={videoStyle}
+                        />
+                      ) : (
+                        <div
+                          className="mc-caption"
+                          style={{ ...videoStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, textAlign: 'center', color: 'var(--on-ink)', background: 'var(--ink-soft)' }}
+                        >
+                          Video pendamping belum diunggah
+                        </div>
+                      )
+                    ) : role === 'main' ? (
                       <video
                         key={sourceView ? 'source' : 'raw'}
                         ref={videoRef}
@@ -1021,10 +1078,12 @@ function ClipEditor() {
                         onPlay={() => {
                           setIsPlaying(true)
                           bgRef.current?.play().catch(() => undefined)
+                          compRef.current?.play().catch(() => undefined)
                         }}
                         onPause={() => {
                           setIsPlaying(false)
                           bgRef.current?.pause()
+                          compRef.current?.pause()
                         }}
                         onEnded={() => setIsPlaying(false)}
                         playsInline
@@ -1194,6 +1253,43 @@ function ClipEditor() {
                       onChange={(focusX) => setLayout({ frame: { focusX } }, 'frame-focus')}
                     />
                   )}
+                </>
+              )}
+              {split && (
+                <>
+                  {!layout.companion.videoUrl && (
+                    <Alert
+                      tone="info"
+                      title="Video pendamping belum ada"
+                      icon={<Film size={18} aria-hidden="true" />}
+                      action={
+                        <Button size="sm" variant="secondary" onClick={() => leave('/brand-template/#layout')}>
+                          Unggah di Brand Template
+                        </Button>
+                      }
+                    >
+                      Layout ini memakai video pendamping dari Brand Template. Tanpa video itu, clip tidak bisa diekspor dengan layout ini.
+                    </Alert>
+                  )}
+                  <Slider
+                    label="Fokus vertikal pembicara"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={layout.companion.focusY}
+                    format={(v) => `${Math.round(v * 100)}%`}
+                    hint="Geser bila kepala terpotong."
+                    onChange={(focusY) => setLayout({ companion: { focusY } }, 'companion-focus')}
+                  />
+                  <Slider
+                    label="Tinggi bagian pembicara"
+                    min={LAYOUT_LIMITS.split.min}
+                    max={LAYOUT_LIMITS.split.max}
+                    step={0.01}
+                    value={layout.companion.split}
+                    format={(v) => `${Math.round(v * 100)}%`}
+                    onChange={(splitShare) => setLayout({ companion: { split: splitShare } }, 'companion-split')}
+                  />
                 </>
               )}
               <ToggleSwitch
