@@ -19,7 +19,7 @@ from backend.agents.context import JobContext, PipelineError
 from backend.agents.tools import caption_ai, clip_edges, ffmpeg_ops, whisper, ytdlp
 from backend.agents.tools.smart_crop import process_auto_tracking_video
 from backend.agents.tools.transcript import cached as cached_transcript
-from backend.core import events, llm
+from backend.core import events, llm, resources
 from backend.core.db import get_db, utcnow
 from backend.core.paths import get_paths
 from backend.core.procs import Cancelled
@@ -190,6 +190,17 @@ def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw
     return doc
 
 
+def clip_need_mb() -> int:
+    """Peak RAM of one clip (`core/resources.py`): face tracking, the encode, and local Whisper when
+    the clip's words will come from it (inside the clip, Whisper runs under the clip's hold)."""
+    whisper_mb = 0
+    if whisper.local_likely():
+        from backend.agents.tools import whisper_local
+
+        whisper_mb = resources.WHISPER_MB.get(whisper_local.chosen_model(True).id, 1000)
+    return resources.clip_need_mb(ffmpeg_ops.pick_encoder(), whisper_mb)
+
+
 def run(ctx: JobContext, segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
     from backend.core.settings_store import get_settings
 
@@ -216,14 +227,19 @@ def run(ctx: JobContext, segments: list[dict[str, Any]]) -> list[dict[str, Any]]
         if not Path(path).is_file():
             raise PipelineError(f"File video tidak ditemukan: {path}. Kembalikan file ke lokasi itu, lalu lanjutkan job ini.")
 
+    # At most `max_workers` clips at once; the RAM guard starts each one only when the PC has room
+    # for it, so on a busy PC fewer run in parallel
     workers = max(1, min(len(todo), int(get_settings()["processing"]["max_workers"])))
     failures: list[str] = []
+    need = clip_need_mb()
 
     def work(seg: dict[str, Any]) -> dict[str, Any] | None:
         nonlocal completed
         ctx.check()
         try:
-            clip = process_segment(ctx, seg)
+            with resources.hold("clip", need, label=f"Klip {seg['start_time']:.0f}s", cancel=ctx.cancel,
+                                on_wait=lambda info: ctx.progress(message=info.message())):
+                clip = process_segment(ctx, seg)
         except Cancelled:
             raise
         except Exception as exc:

@@ -242,7 +242,9 @@ function ClipEditor() {
 
   useEngineEvents((e) => {
     if (e.type === 'render.progress' && e.clip_id === clipId) {
-      setRender((prev) => (prev && prev.id === e.id ? { ...prev, status: e.status, progress_pct: e.progress_pct } : prev || null))
+      setRender((prev) =>
+        prev && prev.id === e.id ? { ...prev, status: e.status, progress_pct: e.progress_pct, message: e.message ?? null } : prev || null,
+      )
     } else if (e.type === 'render.status' && e.clip_id === clipId) {
       setRender((prev) =>
         prev && prev.id === e.id
@@ -1115,6 +1117,11 @@ function ClipEditor() {
             {renderActive && (
               <>
                 <ProgressBar value={render.progress_pct} label="Progres render" showValue />
+                {render.message && (
+                  <p className="mc-caption" role="status">
+                    {render.message}
+                  </p>
+                )}
                 <p className="mc-caption mc-muted">Anda boleh menutup jendela ini; render tetap berjalan di latar belakang.</p>
               </>
             )}

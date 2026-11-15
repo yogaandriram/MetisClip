@@ -35,6 +35,9 @@ def defaults() -> dict[str, Any]:
         "whisper": {"provider": "auto", "model": "whisper-large-v3-turbo", "local_model": "auto"},
         "processing": {"max_workers": _default_workers(), "encoder": "auto"},
         "render": {"concurrency": 1},
+        # RAM guard (core/resources.py): auto = heavy steps wait for free RAM and run at below-normal
+        # priority; reserve_gb = RAM kept free for Windows and other apps, 0 = automatic
+        "resources": {"auto": True, "reserve_gb": 0},
         "ytdlp": {"player_client": "default", "cookies_file": None},
         "db": {"wiredtiger_cache_gb": 0.25},
         "app": {"close_to_tray": False, "auto_update": True, "language": "id"},
@@ -103,6 +106,16 @@ def _validate(s: dict) -> None:
     except (TypeError, ValueError):
         raise SettingsError("Konkurensi render harus berupa angka")
     s["render"]["concurrency"] = max(1, min(4, c))
+    res = s["resources"]
+    if not isinstance(res.get("auto"), bool):
+        raise SettingsError("Hemat RAM otomatis harus aktif atau nonaktif")
+    try:
+        reserve = float(res.get("reserve_gb") or 0)
+    except (TypeError, ValueError):
+        raise SettingsError("Cadangan RAM harus berupa angka")
+    if not 0 <= reserve <= 16:
+        raise SettingsError("Cadangan RAM harus antara 0 (otomatis) dan 16 GB")
+    res["reserve_gb"] = round(reserve, 2)
     try:
         s["cache_limit_gb"] = max(1, float(s["cache_limit_gb"]))
         s["db"]["wiredtiger_cache_gb"] = min(4.0, max(0.25, float(s["db"]["wiredtiger_cache_gb"])))

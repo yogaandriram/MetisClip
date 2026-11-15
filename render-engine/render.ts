@@ -3,6 +3,7 @@
  *
  *   <node|MetisClip.exe> dist/render.js --props <props.json> --out <out.mp4>
  *       [--bundle <dir>] [--browser <chrome-headless-shell.exe>] [--concurrency <n|50%>] [--gl angle]
+ *       [--media-cache-mb <n>] [--encoder-threads <n>]
  *   env: ELECTRON_RUN_AS_NODE=1 when the executable is Electron.
  *
  * stdout carries JSON lines ONLY:
@@ -18,16 +19,32 @@ import path from 'node:path';
 /*
  * Memory guard (CLAUDE.md §1.5: 8 GB laptops). Remotion's defaults are about half the CPU threads as
  * parallel Chrome tabs and an OffthreadVideo frame cache of up to half the free RAM, which can push the
- * machine into memory pressure. Cap both; --concurrency still overrides the tab count.
+ * machine into memory pressure. Cap both. The engine sizes each render to the RAM free when it starts
+ * (backend/core/resources.py) and passes --concurrency, --media-cache-mb and --encoder-threads.
+ *
+ * Measured 2026-11-15 (60 s clip, 1080x1920, i5-13500H): about 2.7 GB for the render itself (the x264
+ * stitcher about 0.9 GB with its default threads, the frame cache 0.5 GB, Chrome's own processes)
+ * plus about 0.3-0.5 GB per Chrome tab: 3.2 GB with 1 tab, 3.6 GB with 2, 4.2 GB with 4.
  */
-const MEDIA_CACHE_BYTES = 512 * 1024 * 1024;
+const DEFAULT_MEDIA_CACHE_MB = 512;
 const GB = 1024 ** 3;
 
 function defaultConcurrency(): number {
   const threads = os.cpus().length || 2;
-  // ~0.5 GB per 1080x1920 tab, keeping 2 GB free for the UI, mongod and the pipeline
-  const byMemory = Math.floor(Math.max(0, os.freemem() / GB - 2) / 0.5);
+  // ~0.4 GB per 1080x1920 tab on top of ~2.7 GB, keeping 2 GB free for the UI, mongod and the pipeline
+  const byMemory = Math.floor(Math.max(0, os.freemem() / GB - 2 - 2.7) / 0.4);
   return Math.max(1, Math.min(4, Math.floor(threads / 2), byMemory));
+}
+
+/** Caps the threads of the pre-stitcher ffmpeg (the x264 encode of the frames), which lowers its RAM. */
+function withEncoderThreads(threads: number | null) {
+  if (!threads) return undefined;
+  return ({ type, args }: { type: 'pre-stitcher' | 'stitcher'; args: string[] }): string[] => {
+    if (type !== 'pre-stitcher') return args;
+    const at = args.lastIndexOf('-y'); // [...input and encoder args, '-y', output]
+    if (at < 0) return args;
+    return [...args.slice(0, at), '-threads', String(threads), ...args.slice(at)];
+  };
 }
 
 // Keep stdout clean for the engine: route every console method to stderr before Remotion loads.
@@ -89,6 +106,8 @@ interface Args {
   browser: string | null;
   concurrency: number | string | null;
   gl: string;
+  mediaCacheMb: number;
+  encoderThreads: number | null;
 }
 
 const ROOT = path.resolve(__dirname, '..');
@@ -108,7 +127,7 @@ function parseArgs(argv: string[]): Args {
       i++;
     }
   }
-  const known = new Set(['props', 'out', 'bundle', 'browser', 'concurrency', 'gl']);
+  const known = new Set(['props', 'out', 'bundle', 'browser', 'concurrency', 'gl', 'media-cache-mb', 'encoder-threads']);
   for (const k of map.keys()) if (!known.has(k)) throw new Error(`Argumen tidak dikenal: --${k}`);
   if (!map.get('props')) throw new Error('Argumen --props wajib diisi');
   if (!map.get('out')) throw new Error('Argumen --out wajib diisi');
@@ -116,6 +135,12 @@ function parseArgs(argv: string[]): Args {
   let concurrency: number | string | null = null;
   const c = map.get('concurrency');
   if (c) concurrency = /^\d+$/.test(c) ? Number(c) : c; // number or "50%"
+  const positive = (name: string): number | null => {
+    const v = map.get(name);
+    if (v === undefined) return null;
+    if (!/^\d+$/.test(v) || Number(v) < 1) throw new Error(`Argumen --${name} harus bilangan bulat positif`);
+    return Number(v);
+  };
 
   return {
     props: path.resolve(map.get('props')!),
@@ -124,6 +149,8 @@ function parseArgs(argv: string[]): Args {
     browser: map.get('browser') || null,
     concurrency,
     gl: map.get('gl') || 'angle',
+    mediaCacheMb: positive('media-cache-mb') ?? DEFAULT_MEDIA_CACHE_MB,
+    encoderThreads: positive('encoder-threads'),
   };
 }
 
@@ -178,8 +205,9 @@ async function main(): Promise<void> {
   process.on('SIGTERM', onSignal);
 
   const concurrency = args.concurrency ?? defaultConcurrency();
+  const mediaCacheBytes = args.mediaCacheMb * 1024 * 1024;
   process.stderr.write(
-    `[render] concurrency ${concurrency}, media cache ${MEDIA_CACHE_BYTES / 1024 ** 2} MB, free RAM ${(os.freemem() / GB).toFixed(1)} GB\n`,
+    `[render] concurrency ${concurrency}, media cache ${args.mediaCacheMb} MB, encoder threads ${args.encoderThreads ?? 'auto'}, free RAM ${(os.freemem() / GB).toFixed(1)} GB\n`,
   );
 
   const composition = await selectComposition({
@@ -188,7 +216,7 @@ async function main(): Promise<void> {
     inputProps,
     browserExecutable,
     chromiumOptions,
-    offthreadVideoCacheSizeInBytes: MEDIA_CACHE_BYTES,
+    offthreadVideoCacheSizeInBytes: mediaCacheBytes,
     logLevel: 'warn',
     onBrowserDownload: () => {
       process.stderr.write('[render] mengunduh Chrome Headless Shell...\n');
@@ -217,8 +245,9 @@ async function main(): Promise<void> {
     browserExecutable,
     chromiumOptions,
     concurrency,
-    offthreadVideoCacheSizeInBytes: MEDIA_CACHE_BYTES,
-    mediaCacheSizeInBytes: MEDIA_CACHE_BYTES,
+    offthreadVideoCacheSizeInBytes: mediaCacheBytes,
+    mediaCacheSizeInBytes: mediaCacheBytes,
+    ffmpegOverride: withEncoderThreads(args.encoderThreads),
     cancelSignal,
     logLevel: 'warn',
     timeoutInMilliseconds: 120000,

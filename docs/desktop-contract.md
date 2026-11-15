@@ -141,6 +141,7 @@ Rules:
 | GET | `/api/system/info` | — | `SystemInfo` |
 | GET | `/api/system/check` | — | `SystemCheck` |
 | GET | `/api/system/storage` | — | `StorageInfo` |
+| GET | `/api/system/resources` | — | `ResourceStatus`: total and available RAM, the reserve, and the heavy steps the RAM guard runs or holds back. The same shape is pushed as the `system.resources` event whenever a step starts, waits or ends |
 | POST | `/api/system/backup` | — | `{backup: BackupInfo}` |
 | GET | `/api/system/backups` | — | `{backups: BackupInfo[]}` |
 | POST | `/api/system/update-ytdlp` | — | `YtdlpUpdateResult` (409 while a job runs). Runs `yt-dlp -U` on the copy in `%LOCALAPPDATA%\MetisClip\bin` |
@@ -207,8 +208,17 @@ Started by the engine (cancel = tree-kill):
 ```
 <METISCLIP_NODE_PATH> <RENDER_DIR>\dist\render.js --props <props.json> --out <out.mp4>
     [--bundle <RENDER_DIR>\build] [--browser <chrome-headless-shell.exe>] [--concurrency <n>] [--gl angle]
+    [--media-cache-mb <n>] [--encoder-threads <n>]
 env: ELECTRON_RUN_AS_NODE=1 (when METISCLIP_NODE_PATH is Electron)
 ```
+
+With "Hemat RAM otomatis" on (`resources.auto`, the default), the engine sizes every render with the RAM guard (`backend/core/resources.py`):
+- It waits until about 2.5 GB can be spared.
+- It then passes `--concurrency` (the Chrome tabs that fit in the RAM, 1 to 4), `--encoder-threads 4` and `--media-cache-mb 256`.
+- It starts the worker at below-normal priority; Chrome and ffmpeg inherit it.
+- While the render waits, its `render.progress` events carry a `message` ("Menunggu RAM: …").
+
+With the guard off, none of these flags are passed and the worker sizes itself from the free RAM.
 
 When `METISCLIP_NODE_PATH` is not set (engine run standalone in dev), the engine uses `node` from `PATH`.
 

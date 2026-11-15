@@ -9,7 +9,7 @@ import { WhisperSection } from '@/components/settings/WhisperFields'
 import { AgentForm, toAgentInput, type AgentFormValue } from '@/components/agents/AgentForm'
 import { useAgent } from '@/contexts/AgentContext'
 import { useEngine } from '@/contexts/EngineContext'
-import { api, type EncoderSetting, type SecretName, type Settings } from '@/lib/engine'
+import { api, type EncoderSetting, type ResourceStatus, type SecretName, type Settings } from '@/lib/engine'
 import { errorMessage } from '@/lib/format'
 import { isDesktop } from '@/lib/media'
 
@@ -20,6 +20,11 @@ const ENCODER_LABELS: Record<EncoderSetting, string> = {
   h264_qsv: 'Intel Quick Sync',
   h264_amf: 'AMD (AMF)',
 }
+
+/** Fixed choices for "Sisakan RAM untuk aplikasi lain" (0 = automatic, backend/core/resources.py) */
+const RESERVE_GB = [1, 1.5, 2, 3, 4, 6]
+
+const gbLabel = (mb: number) => (mb / 1024).toFixed(1).replace('.', ',')
 
 /** A folder or file path shown read-only, with "Ubah…" and "Buka di Explorer" next to it. */
 function PathField({
@@ -81,6 +86,7 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null)
   const [savedSettings, setSavedSettings] = useState('')
   const [encoders, setEncoders] = useState<string[]>([])
+  const [ram, setRam] = useState<ResourceStatus | null>(null)
   const [secrets, setSecrets] = useState<Record<SecretName, boolean> | null>(null)
   const [secretValues, setSecretValues] = useState<Partial<Record<SecretName, string>>>({})
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -100,6 +106,10 @@ export default function SettingsPage() {
       .check()
       .then((c) => setEncoders(c.encoders))
       .catch(() => setEncoders([]))
+    api.system
+      .resources()
+      .then(setRam)
+      .catch(() => setRam(null))
   }, [])
 
   useEffect(() => {
@@ -161,6 +171,14 @@ export default function SettingsPage() {
   const encoderOptions = (['auto', 'libx264', 'h264_nvenc', 'h264_qsv', 'h264_amf'] as EncoderSetting[])
     .filter((e) => e === 'auto' || e === 'libx264' || encoders.includes(e) || settings?.processing.encoder === e)
     .map((e) => ({ value: e, label: ENCODER_LABELS[e] }))
+
+  const reserveOptions = [
+    { value: '0', label: ram ? `Otomatis (${gbLabel(ram.auto_reserve_mb)} GB)` : 'Otomatis' },
+    ...RESERVE_GB.filter((gb) => !ram || gb * 1024 < ram.total_mb / 2).map((gb) => ({ value: String(gb), label: `${String(gb).replace('.', ',')} GB` })),
+  ]
+  if (settings && settings.resources.reserve_gb && !reserveOptions.some((o) => o.value === String(settings.resources.reserve_gb))) {
+    reserveOptions.push({ value: String(settings.resources.reserve_gb), label: `${String(settings.resources.reserve_gb).replace('.', ',')} GB` })
+  }
 
   return (
     <>
@@ -257,9 +275,9 @@ export default function SettingsPage() {
                   containerClassName="mc-col-6"
                   type="number"
                   min={1}
-                  max={16}
+                  max={8}
                   label="Worker pemrosesan paralel"
-                  hint="Jumlah clip yang dipotong bersamaan. Naikkan jika CPU kuat."
+                  hint="Batas clip yang dipotong bersamaan. Naikkan jika CPU kuat."
                   value={settings.processing.max_workers}
                   mono
                   onChange={(e) => patch('processing', { ...settings.processing, max_workers: Math.max(1, parseInt(e.target.value) || 1) })}
@@ -282,6 +300,24 @@ export default function SettingsPage() {
                 value={settings.processing.encoder}
                 options={encoderOptions}
                 onChange={(e) => patch('processing', { ...settings.processing, encoder: e.target.value as EncoderSetting })}
+              />
+              <ToggleSwitch
+                label="Hemat RAM otomatis"
+                hint="Potong clip, Whisper lokal, dan render baru dimulai jika RAM cukup, lalu berjalan dengan prioritas rendah. Komputer tetap lancar dipakai untuk aplikasi lain; jika RAM penuh, proses menunggu lalu lanjut sendiri."
+                checked={settings.resources.auto}
+                onChange={(v) => patch('resources', { ...settings.resources, auto: v })}
+              />
+              <SelectField
+                label="Sisakan RAM untuk aplikasi lain"
+                hint={
+                  ram
+                    ? `RAM komputer ${gbLabel(ram.total_mb)} GB, tersedia ${gbLabel(ram.available_mb)} GB saat ini. Proses berat menunggu bila RAM yang tersisa untuk aplikasi lain akan kurang dari ini.`
+                    : 'Proses berat menunggu bila RAM yang tersisa untuk aplikasi lain akan kurang dari ini.'
+                }
+                value={String(settings.resources.reserve_gb || 0)}
+                options={reserveOptions}
+                disabled={!settings.resources.auto}
+                onChange={(e) => patch('resources', { ...settings.resources, reserve_gb: Number(e.target.value) })}
               />
             </div>
           )}

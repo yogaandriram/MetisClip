@@ -12,7 +12,7 @@ from starlette.concurrency import run_in_threadpool
 from backend.agents.tools import ffmpeg_ops, whisper_local, ytdlp
 from backend.api.dto import http_error
 from backend.core import db as dbm
-from backend.core import procs
+from backend.core import procs, resources
 from backend.core.config import config, deno_path, mongod_path, node_command
 from backend.core.db import get_db
 from backend.core.paths import get_paths
@@ -163,6 +163,12 @@ async def update_ytdlp():
 @router.get("/storage")
 async def storage():
     return await run_in_threadpool(_storage)
+
+
+@router.get("/resources")
+async def resource_status():
+    """RAM, the reserve, and the heavy steps the RAM guard runs or holds back (core/resources.py)."""
+    return await run_in_threadpool(resources.status)
 
 
 @router.post("/backup")

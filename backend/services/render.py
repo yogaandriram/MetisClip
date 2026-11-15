@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from backend.core import events, procs, workload
+from backend.core import events, procs, resources, workload
 from backend.core.config import config, node_command
 from backend.core.db import get_db, utcnow
 from backend.core.logging_setup import redactor
@@ -195,8 +195,20 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
             cmd += ["--bundle", str(bundle)]
         if config.browser_path and Path(config.browser_path).exists():
             cmd += ["--browser", config.browser_path]
-        with workload.rendering():  # local Whisper waits until the export is done
-            error, ok = _run_worker(cmd, extra_env, render_id, clip_id, cancel)
+
+        def waiting(info: resources.WaitInfo) -> None:
+            events.publish({"type": "render.progress", "id": render_id, "clip_id": clip_id,
+                            "status": "rendering", "progress_pct": 0.0, "message": info.message()})
+
+        # The RAM guard sizes the render: Chrome tabs that fit, the lean encoder and frame cache
+        with resources.render_slot(cancel=cancel, on_wait=waiting) as tabs:
+            low = tabs is not None
+            if tabs is not None:
+                cmd += ["--concurrency", str(tabs),
+                        "--encoder-threads", str(resources.RENDER_ENCODER_THREADS),
+                        "--media-cache-mb", str(resources.RENDER_MEDIA_CACHE_MB)]
+            with workload.rendering():  # local Whisper waits until the export is done
+                error, ok = _run_worker(cmd, extra_env, render_id, clip_id, cancel, low_priority=low)
         cancel.check()
         if ok and tmp_out.exists() and tmp_out.stat().st_size > 0:
             _finish(render_id, clip, tmp_out)
@@ -222,11 +234,12 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
 
 
 def _run_worker(cmd: list[str], extra_env: dict[str, str], render_id: str, clip_id: str,
-                cancel: procs.CancelToken) -> tuple[str | None, bool]:
+                cancel: procs.CancelToken, low_priority: bool = False) -> tuple[str | None, bool]:
     rlog = _rlog()
     rlog.info("[%s] start: %s", render_id, " ".join(cmd))
+    # Below-normal priority is inherited by Chrome and the encoder the worker starts
     proc = procs.popen(cmd, cancel=cancel, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                       env=extra_env, cwd=get_paths().render_dir)
+                       env=extra_env, cwd=get_paths().render_dir, low_priority=low_priority)
     stderr_tail: deque[str] = deque(maxlen=40)
 
     def drain() -> None:

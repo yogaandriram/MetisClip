@@ -260,6 +260,11 @@ def get_db() -> Database:
     return _db
 
 
+def connected() -> bool:
+    """Whether a database is set up (without trying to connect, which can wait up to 30 s)."""
+    return _db is not None
+
+
 def set_db(db: Database, client: MongoClient | None = None) -> None:
     """Used by tests."""
     global _db, _client

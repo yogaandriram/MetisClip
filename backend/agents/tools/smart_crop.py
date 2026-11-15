@@ -13,7 +13,7 @@ from pathlib import Path
 
 import numpy as np
 
-from backend.core import procs
+from backend.core import procs, resources
 from backend.core.config import ffmpeg_path
 
 logger = logging.getLogger(__name__)
@@ -98,7 +98,8 @@ def process_auto_tracking_video(input_path: str, output_path: str, cancel: procs
             "-c:v", "libx264", "-preset", "superfast", "-crf", "10", "-pix_fmt", "yuv420p",
             output_path,
         ]
-        proc = procs.popen(cmd, cancel=cancel, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        proc = procs.popen(cmd, cancel=cancel, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                           low_priority=resources.enabled())
         try:
             cap = cv2.VideoCapture(input_path)
             idx = 0
