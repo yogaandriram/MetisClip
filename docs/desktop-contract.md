@@ -174,14 +174,25 @@ Rules:
 | PUT | `/api/clips/{id}/subtitles` | `{words?, style?, reset_style?, brand_template_id?}` (`brand_template_id: null` = follow the agent's default) | `{clip: Clip}` |
 | DELETE | `/api/clips/{id}` | `?delete_files=true\|false` | `{ok: true}` |
 | GET | `/api/clips/{id}/media/{raw\|final\|thumbnail}` | `?token=&v=` | media bytes (Range) |
-| POST | `/api/clips/{id}/render` | — | `{render_job: RenderJob}` |
-| POST | `/api/clips/export` | `{clip_ids, dest_dir?}` | `{dest_dir, exported: [{clip_id, path}], skipped: [{clip_id, reason}]}` |
+| POST | `/api/clips/{id}/render` | — | `{render_job: RenderJob}` (see "Render output" below) |
+| POST | `/api/clips/export` | `{clip_ids, dest_dir?}` (`dest_dir` empty = the export folder) | `{dest_dir, exported: [{clip_id, path}], skipped: [{clip_id, reason}]}` |
 | GET | `/api/render-jobs` | `?clip_id=&status=` | `{render_jobs: RenderJob[]}` |
 | GET | `/api/render-jobs/{id}` | — | `{render_job: RenderJob}` |
 | POST | `/api/render-jobs/{id}/cancel` | — | `{render_job: RenderJob}` |
 | GET | `/api/dashboard/stats` | `?agent_id=` | `DashboardStats` |
 | WS | `/ws/events` | `?token=` | stream of `EngineEvent` JSON messages |
 | POST | `/internal/shutdown` | — | `{ok: true}` |
+
+### Render output
+
+A finished render is written to `<clip dir>\final.mp4` (`output_path`) and then copied to the export folder (`settings.export_dir`, default `<DATA_ROOT>\exports`) as `<hook text> - <clip id, 8 chars>.mp4`. A re-render of the same clip replaces that copy. `RenderJob` and the completed `render.status` event carry:
+
+- `output_path`: the file in the library
+- `exported_path`: the copy in the export folder (null when the copy failed)
+- `export_dir`: the export folder used
+- `export_error`: why the copy failed (Indonesian). The render still counts as `completed`, and the editor offers to copy again.
+
+`/api/clips/export` uses the same file name. Neither accepts the data folder itself, `db\`, `cache\` or `.metisclip\` as destination ("Folder tujuan tidak diizinkan").
 
 ### Asset values
 

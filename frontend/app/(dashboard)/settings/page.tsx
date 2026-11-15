@@ -332,7 +332,7 @@ export default function SettingsPage() {
               />
               <PathField
                 label="Folder ekspor"
-                hint="Tujuan default saat mengekspor clip."
+                hint="Setiap hasil render otomatis disalin ke sini. Juga tujuan default saat mengekspor clip."
                 value={settings.export_dir}
                 onPick={
                   desktop

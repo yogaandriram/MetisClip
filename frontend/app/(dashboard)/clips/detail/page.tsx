@@ -91,6 +91,12 @@ function aiOverrides(ai: AiCaptionSettings, tpl: BrandTemplate | null): Partial<
   return out
 }
 
+/** `C:\a\b\clip.mp4` → [`C:\a\b`, `clip.mp4`] (Windows or POSIX separators). */
+function splitPath(p: string): [string, string] {
+  const i = Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/'))
+  return i < 0 ? ['', p] : [p.slice(0, i), p.slice(i + 1)]
+}
+
 const isTypingTarget = (t: EventTarget | null) => {
   const el = t as HTMLElement | null
   if (!el) return false
@@ -237,10 +243,39 @@ function ClipEditor() {
     if (e.type === 'render.progress' && e.clip_id === clipId) {
       setRender((prev) => (prev && prev.id === e.id ? { ...prev, status: e.status, progress_pct: e.progress_pct } : prev || null))
     } else if (e.type === 'render.status' && e.clip_id === clipId) {
-      setRender((prev) => (prev && prev.id === e.id ? { ...prev, status: e.status, output_path: e.output_path ?? prev.output_path, error: e.error ?? prev.error } : prev))
+      setRender((prev) =>
+        prev && prev.id === e.id
+          ? {
+              ...prev,
+              status: e.status,
+              output_path: e.output_path ?? prev.output_path,
+              exported_path: e.exported_path ?? prev.exported_path,
+              export_dir: e.export_dir ?? prev.export_dir,
+              export_error: e.export_error ?? prev.export_error,
+              error: e.error ?? prev.error,
+            }
+          : prev,
+      )
       if (e.status === 'completed') {
-        toast.success('Render selesai')
-        window.metis?.notify('MetisClip', 'Render clip selesai')
+        if (e.exported_path) {
+          const [folder] = splitPath(e.exported_path)
+          toast.success(
+            <span>
+              Render selesai, tersimpan di{' '}
+              <span className="mc-mono" style={{ wordBreak: 'break-all' }}>
+                {folder}
+              </span>
+            </span>,
+            { duration: 6000 },
+          )
+          window.metis?.notify('MetisClip', `Render selesai. Tersimpan di ${folder}`)
+        } else if (e.export_error) {
+          toast.error(`Render selesai, tapi belum tersalin ke folder ekspor. ${e.export_error}`, { duration: 8000 })
+          window.metis?.notify('MetisClip', 'Render clip selesai')
+        } else {
+          toast.success('Render selesai')
+          window.metis?.notify('MetisClip', 'Render clip selesai')
+        }
         // Refresh clip (files.final / updated_at) without touching unsaved edits
         api.clips
           .get(clipId)
@@ -570,6 +605,9 @@ function ClipEditor() {
   const emojiCount = words.filter((w) => w.emoji).length
   const cutSeconds = cutActive ? Math.max(0, sourceDuration - keptDuration(segments)) : 0
   const renderActive = !!render && (render.status === 'queued' || render.status === 'rendering')
+  /** The finished file outside the library: a copy from "Ekspor ke…", else the automatic one in the export folder */
+  const savedPath = render?.status === 'completed' ? exportedPath || render.exported_path || null : null
+  const [savedFolder, savedName] = savedPath ? splitPath(savedPath) : ['', '']
   const canUndo = history.current.past.length > 0
   const canRedo = history.current.future.length > 0
   const fontWeights = FONT_WEIGHTS_MAP[style.fontFamily] || ['Regular']
@@ -610,24 +648,26 @@ function ClipEditor() {
           variant="secondary"
           icon={<FolderOpen size={16} />}
           onClick={() => {
-            const p = exportedPath || render.output_path
+            const p = savedPath || render.output_path
             if (p) window.metis?.showItemInFolder(p)
           }}
         >
           Buka folder
         </Button>
-        <Button variant="secondary" loading={exporting} onClick={() => exportClip(false)}>
-          Salin ke folder ekspor
-        </Button>
+        {!savedPath && (
+          <Button variant="secondary" loading={exporting} onClick={() => exportClip(false)}>
+            {render.export_error ? 'Coba salin lagi' : 'Salin ke folder ekspor'}
+          </Button>
+        )}
         <Button variant="primary" icon={<Download size={16} />} loading={exporting} onClick={() => exportClip(true)}>
           Ekspor ke…
         </Button>
       </>
-    ) : (
+    ) : !savedPath ? (
       <Button variant="primary" loading={exporting} onClick={() => exportClip(false)}>
         Salin ke folder ekspor
       </Button>
-    )
+    ) : undefined
   ) : render.status === 'failed' || render.status === 'cancelled' ? (
     <Button variant="primary" onClick={() => startRender()}>
       Coba render lagi
@@ -1077,19 +1117,30 @@ function ClipEditor() {
                 {render.error}
               </Alert>
             )}
-            {render.status === 'completed' && render.output_path && (
+            {savedPath && (
+              <Alert tone="success" title={exportedPath ? 'Disalin ke folder' : 'Tersimpan di folder ekspor'}>
+                <span className="mc-mono" style={{ display: 'block', wordBreak: 'break-all' }}>
+                  {savedFolder}
+                </span>
+                <span className="mc-caption" style={{ display: 'block', wordBreak: 'break-all' }}>
+                  {savedName}
+                </span>
+              </Alert>
+            )}
+            {savedPath && !exportedPath && (
+              <p className="mc-caption mc-muted">Folder ini bisa diganti di Pengaturan → Folder ekspor.</p>
+            )}
+            {render.status === 'completed' && !savedPath && render.export_error && (
+              <Alert tone="error" title="Belum tersalin ke folder ekspor" style={{ wordBreak: 'break-word' }}>
+                {render.export_error}
+              </Alert>
+            )}
+            {render.status === 'completed' && !savedPath && render.output_path && (
               <Card tone="dew" padding="sm">
                 <span className="mc-mono mc-caption" style={{ wordBreak: 'break-all' }}>
                   {render.output_path}
                 </span>
               </Card>
-            )}
-            {render.status === 'completed' && exportedPath && (
-              <Alert tone="success" title="Disalin ke">
-                <span className="mc-mono" style={{ wordBreak: 'break-all' }}>
-                  {exportedPath}
-                </span>
-              </Alert>
             )}
           </div>
         ) : (

@@ -166,8 +166,14 @@ export interface RenderJob {
   clip_id: string
   status: RenderStatus
   progress_pct: number
-  /** Absolute path of the rendered file when completed */
+  /** Absolute path of the rendered file in the library (<clip>\final.mp4) when completed */
   output_path: string | null
+  /** The copy in the export folder (Pengaturan → Folder ekspor), made when the render finishes */
+  exported_path?: string | null
+  /** The export folder used for that copy */
+  export_dir?: string | null
+  /** Why the copy failed (the render itself still completed) */
+  export_error?: string | null
   error: string | null
   created_at: ISODate
   finished_at: ISODate | null
@@ -326,7 +332,17 @@ export type EngineEvent =
   | { type: 'brand_template.updated'; id: string }
   | { type: 'brand_template.deleted'; id: string }
   | { type: 'render.progress'; id: string; clip_id: string; status: RenderStatus; progress_pct: number }
-  | { type: 'render.status'; id: string; clip_id: string; status: RenderStatus; output_path?: string | null; error?: string | null }
+  | {
+      type: 'render.status'
+      id: string
+      clip_id: string
+      status: RenderStatus
+      output_path?: string | null
+      exported_path?: string | null
+      export_dir?: string | null
+      export_error?: string | null
+      error?: string | null
+    }
   | { type: 'system.notice'; level: 'info' | 'warning' | 'error'; message: string }
   | { type: 'whisper.download'; id: WhisperModelId; status: 'downloading' | 'completed' | 'failed' | 'cancelled'; progress: number; message: string | null }
 

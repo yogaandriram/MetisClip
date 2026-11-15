@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import shutil
-from pathlib import Path
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter
@@ -17,7 +16,7 @@ from backend.core.db import get_db, new_id, utcnow
 from backend.core.paths import get_paths
 from backend.core.queue import runner
 from backend.models.documents import RenderJobDoc
-from backend.services import brand_templates
+from backend.services import brand_templates, exports
 from backend.services.render import clean_ai, effective_ai, effective_style
 
 router = APIRouter(tags=["clips"])
@@ -171,24 +170,12 @@ class ExportBody(BaseModel):
     dest_dir: Optional[str] = None
 
 
-def _export_dir() -> Path:
-    from backend.core.settings_store import get_settings
-
-    return Path(get_settings()["export_dir"])
-
-
 @router.post("/api/clips/export")
 def export_clips(body: ExportBody):
-    dest = Path(body.dest_dir).expanduser() if body.dest_dir else _export_dir()
     try:
-        dest = dest.resolve()
-        dest.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        raise http_error(400, f"Folder tujuan tidak dapat dibuat: {exc}")
-    paths = get_paths()
-    if dest == paths.data_root.resolve() or paths.db_dir.resolve() in [dest, *dest.parents] \
-            or paths.private_dir.resolve() in [dest, *dest.parents]:
-        raise http_error(400, "Folder tujuan tidak diizinkan")
+        dest = exports.check_dest(body.dest_dir)
+    except exports.ExportError as exc:
+        raise http_error(400, str(exc))
     exported, skipped = [], []
     db = get_db()
     for cid in body.clip_ids:
@@ -196,22 +183,10 @@ def export_clips(body: ExportBody):
         if not clip:
             skipped.append({"clip_id": cid, "reason": "Klip tidak ditemukan"})
             continue
-        rel = (clip.get("files") or {}).get("final")
-        if not rel:
-            skipped.append({"clip_id": cid, "reason": "Belum dirender"})
-            continue
-        src = paths.from_relative(rel)
-        if not src.exists():
-            skipped.append({"clip_id": cid, "reason": "File hasil render hilang"})
-            continue
-        base = "".join(ch for ch in (clip.get("hook_text") or "")[:50] if ch.isalnum() or ch in " -_").strip() or "metisclip"
-        target = dest / f"{base} - {cid[:8]}.mp4"
         try:
-            shutil.copy2(src, target)
-        except OSError as exc:
-            skipped.append({"clip_id": cid, "reason": f"Gagal menyalin: {exc}"})
-            continue
-        exported.append({"clip_id": cid, "path": str(target)})
+            exported.append({"clip_id": cid, "path": str(exports.copy_final(clip, dest))})
+        except exports.ExportError as exc:
+            skipped.append({"clip_id": cid, "reason": str(exc)})
     return {"dest_dir": str(dest), "exported": exported, "skipped": skipped}
 
 
