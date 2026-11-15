@@ -286,3 +286,21 @@ def test_subtitle_update_and_effective_style(client, db):
     assert detail["effective_style"] == {"mode": "lumina", "fontSize": 80}
     client.put(f"/api/clips/{cid}/subtitles", json={"reset_style": True})
     assert client.get(f"/api/clips/{cid}").json()["effective_style"] == {"mode": "lumina", "fontSize": 60}
+
+
+def test_system_resources_and_setting(client):
+    import time
+
+    t0 = time.monotonic()
+    r = client.get("/api/system/resources")
+    assert r.status_code == 200, r.text
+    assert time.monotonic() - t0 < 5
+    st = r.json()
+    assert st["auto"] is True and st["total_mb"] > 0 and st["running"] == [] and st["waiting"] == []
+    r = client.put("/api/settings", json={"resources": {"auto": False, "reserve_gb": 2}})
+    assert r.status_code == 200, r.text
+    assert r.json()["settings"]["resources"] == {"auto": False, "reserve_gb": 2}
+    st = client.get("/api/system/resources").json()
+    assert st["auto"] is False and st["reserve_mb"] == 2048
+    assert client.put("/api/settings", json={"resources": {"reserve_gb": 99}}).status_code in (400, 422)
+    client.put("/api/settings", json={"resources": {"auto": True, "reserve_gb": 0}})

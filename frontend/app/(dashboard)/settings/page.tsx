@@ -264,7 +264,7 @@ export default function SettingsPage() {
           )}
         </Card>
 
-        <Card>
+        <Card id="pemrosesan">
           <CardHeader size="sm" icon={headerIcon(Cpu)} title="Pemrosesan video" subtitle="Atur seberapa banyak sumber daya komputer yang dipakai." />
           {!settings ? (
             <SettingsSkeleton rows={3} />
