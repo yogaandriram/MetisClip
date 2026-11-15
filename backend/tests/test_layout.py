@@ -228,3 +228,108 @@ def test_background_image_asset_is_kept_while_used(client, paths):
     assert paths.from_relative(asset["path"]).exists()  # the duplicate still uses it
     client.delete(f"/api/brand-templates/{dup['id']}")
     assert not paths.from_relative(asset["path"]).exists()
+
+
+# -- card mode, dynamic zoom, speaker tag ------------------------------------------------------------
+
+def test_clean_layout_card_zoom_and_speaker():
+    out = layout.clean_layout({
+        "mode": "card",
+        "card": {"name": "Klip Bisnis", "handle": "@klipbisnis", "avatarUrl": "", "color": "#16181C", "radius": 99},
+        "zoom": {"enabled": True, "style": "sentences", "amount": 0.9},
+        "speaker": {"enabled": True, "name": "dr. Andi", "role": "Dokter", "y": 999, "align": "center",
+                    "duration": 0.2, "accent": "#FACC15", "extra": 1},
+    })
+    assert out == {
+        "mode": "card",
+        "card": {"name": "Klip Bisnis", "handle": "@klipbisnis", "avatarUrl": "", "color": "#16181C", "radius": 40},
+        "zoom": {"enabled": True, "style": "sentences", "amount": 0.3},
+        "speaker": {"enabled": True, "name": "dr. Andi", "role": "Dokter", "y": 503, "align": "center",
+                    "duration": 1, "accent": "#FACC15"},
+    }
+    for bad in ({"zoom": {"style": "pulse"}}, {"zoom": {"enabled": 1}}, {"speaker": {"align": "right"}},
+                {"speaker": {"color": "kuning"}}, {"card": {"avatarUrl": "C:/a.png"}}, {"card": {"name": 5}}):
+        with pytest.raises(layout.LayoutError):
+            layout.clean_layout(bad)
+    assert layout.needs_source({"mode": "card"}) and layout.needs_source({"mode": "podcast"})
+    assert not layout.needs_source({"mode": "full"}) and not layout.needs_source({})
+
+
+def test_clip_speaker_override_merges_with_the_template():
+    bt = {"layout_settings": {"speaker": {"enabled": True, "accent": "#22C55E"}, "zoom": {"enabled": True}}}
+    clip = {"layout_style": {"speaker": {"name": "Rina", "role": "Psikolog"}}}
+    assert layout.effective_layout(clip, bt) == {
+        "speaker": {"enabled": True, "accent": "#22C55E", "name": "Rina", "role": "Psikolog"},
+        "zoom": {"enabled": True}}
+
+
+def test_build_props_card_uses_the_source(db, paths):
+    clip = _clip(db, paths, source=True)
+    db.clips.update_one({"_id": clip["_id"]}, {"$set": {"layout_style": {
+        "mode": "card", "card": {"avatarUrl": "asset://library/_brand/x/avatar.png"}}}})
+    props = render.build_props(db.clips.find_one({"_id": clip["_id"]}))
+    assert props["sourceUrl"].endswith(f"/api/clips/{clip['_id']}/media/source?token={config.token}")
+    assert props["layout"]["card"]["avatarUrl"].startswith(f"{config.base_url}/api/files/library/_brand/x/avatar.png")
+
+
+def test_card_render_fails_clearly_without_a_source(db, paths, monkeypatch):
+    from backend.agents.tools import ytdlp
+
+    monkeypatch.setattr(render.events, "publish", lambda e: None)
+    monkeypatch.setattr(ytdlp, "download_section", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("HTTP Error 403")))
+    clip = _clip(db, paths)
+    db.clips.update_one({"_id": clip["_id"]}, {"$set": {"layout_style": {"mode": "card"}}})
+    rid = new_id()
+    db.render_jobs.insert_one({"_id": rid, "clip_id": clip["_id"], "status": "queued", "progress_pct": 0,
+                               "created_at": utcnow()})
+    render.run_render(rid, procs.CancelToken())
+    assert db.render_jobs.find_one({"_id": rid})["error"].startswith("Layout kartu butuh video sumber")
+
+
+def test_speaker_names_must_appear_in_the_source():
+    from backend.agents.tools.speaker_ai import _tokens, grounded
+
+    hay = set(_tokens("Dr. Andi Pratama bongkar mitos diet | Podcast Sehat — kata Bu Rina"))
+    assert grounded("dr. Andi Pratama", hay) and grounded("Rina", hay) and grounded("Andi", hay)
+    assert not grounded("Budi Santoso", hay)  # never mentioned
+    assert not grounded("dr. Budi", hay)
+    assert not grounded("Dr.", hay)  # an honorific alone proves nothing
+
+
+def test_speaker_suggest_endpoint(client, db, paths, monkeypatch):
+    from backend.agents.tools import speaker_ai
+    from backend.core import llm
+
+    sv_id = new_id()
+    db.source_videos.insert_one({"_id": sv_id, "job_id": "j", "agent_id": None, "youtube_id": "yt123",
+                                 "title": "dr. Andi Pratama: Cara Diet yang Benar", "channel_name": "Podcast Sehat",
+                                 "created_at": utcnow()})
+    clip = _clip(db, paths, source_video_id=sv_id)
+    db.clips.update_one({"_id": clip["_id"]}, {"$set": {"subtitle": {"words": [
+        {"word": "Halo", "start": 0, "end": 0.3}, {"word": "Rina,", "start": 0.3, "end": 0.6}]}}})
+    seen: dict = {}
+
+    def fake_chat(system, user, **kw):
+        seen["user"] = user
+        return {"speakers": [
+            {"name": "dr. Andi Pratama", "role": "  Dokter   gizi "},
+            {"name": "Budi Santoso", "role": "Host"},  # not in the title, channel or words: dropped
+            {"name": "DR. ANDI PRATAMA", "role": ""},  # duplicate
+            {"name": "Rina", "role": "x" * 80},
+            "bukan objek",
+        ]}
+
+    monkeypatch.setattr(speaker_ai.llm, "chat_json", fake_chat)
+    r = client.post(f"/api/clips/{clip['_id']}/speaker/suggest")
+    assert r.status_code == 200, r.text
+    assert r.json()["speakers"] == [{"name": "dr. Andi Pratama", "role": "Dokter gizi"}, {"name": "Rina", "role": "x" * 40}]
+    assert "Podcast Sehat" in seen["user"] and "Halo Rina," in seen["user"]
+
+    def boom(*a, **kw):
+        raise llm.LLMNotConfigured("API key LLM belum diisi di Pengaturan")
+
+    monkeypatch.setattr(speaker_ai.llm, "chat_json", boom)
+    r = client.post(f"/api/clips/{clip['_id']}/speaker/suggest")
+    assert r.status_code == 400 and "API key LLM" in r.text
+    bare = _clip(db, paths, youtube_id=None)
+    assert client.post(f"/api/clips/{bare['_id']}/speaker/suggest").status_code == 400

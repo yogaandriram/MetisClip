@@ -25,7 +25,7 @@ import { computeKeepSegments, frameSegments, isCut, resolveAi, sourceTimeAt } fr
 // @ts-ignore
 import { LayoutStage } from '../../frontend/lib/presets/LayoutStage';
 // @ts-ignore
-import { headerText, resolveLayout } from '../../frontend/lib/presets/layout';
+import { creditText, headerText, resolveLayout, usesSource } from '../../frontend/lib/presets/layout';
 // Bundled woff2 files (offline, deterministic). See scripts/gen-fonts.cjs.
 import { FONT_WEIGHTS } from './fonts';
 
@@ -40,7 +40,7 @@ export type OverlayProps = {
   durationInFrames?: number;
   /** Effective layout (brand template ⊕ clip override), lib/presets/layout.ts. */
   layout?: any;
-  /** The clip in its original ratio (source.mp4, same timeline as raw.mp4), for the podcast layout. */
+  /** The clip in its original ratio (source.mp4, same timeline as raw.mp4), for the podcast and card layouts. */
   sourceUrl?: string;
   /** Width / height of sourceUrl. */
   sourceAspect?: number;
@@ -74,16 +74,19 @@ export const SubtitleOverlay: React.FC<OverlayProps> = (props) => {
   const ai = useMemo(() => resolveAi(props.ai), [props.ai]);
   const layout = useMemo(() => resolveLayout(props.layout), [props.layout]);
   const { segments, cut } = useMemo(() => overlaySegments(props, fps), [props, fps]);
-  // Podcast layout needs the original-ratio source; without one the clip stays full-frame
-  const podcast = layout.mode === 'podcast' && !!props.sourceUrl;
-  const stageLayout = podcast ? layout : { ...layout, mode: 'full' as const };
+  // Podcast and card layouts need the original-ratio source; without one the clip stays full-frame
+  const framed = usesSource(layout.mode) && !!props.sourceUrl;
+  const stageLayout = framed ? layout : { ...layout, mode: 'full' as const };
 
   // Hold the frame until every font on screen (all bundled weights) is loaded from the local bundle.
   const families = useMemo(() => {
     const list = [primaryFamily(style.fontFamily)];
-    if (podcast && headerText(layout, props.title)) list.push(primaryFamily(layout.header.fontFamily));
+    const cardRow = layout.mode === 'card' && !!(layout.card.name.trim() || layout.card.handle.trim());
+    if (framed && (headerText(layout, props.title) || cardRow)) list.push(primaryFamily(layout.header.fontFamily));
+    if (framed && creditText(layout, props.channel)) list.push('Plus Jakarta Sans');
+    if (layout.speaker.enabled && layout.speaker.name.trim()) list.push(primaryFamily(layout.speaker.fontFamily));
     return Array.from(new Set(list));
-  }, [style.fontFamily, podcast, layout, props.title]);
+  }, [style.fontFamily, framed, layout, props.title, props.channel]);
   const familyKey = families.join('|');
   const [handle] = useState(() => delayRender(`Memuat font ${familyKey}`, { timeoutInMilliseconds: 60000 }));
 
@@ -117,7 +120,7 @@ export const SubtitleOverlay: React.FC<OverlayProps> = (props) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [familyKey, handle]);
 
-  const src = resolveSrc(podcast ? props.sourceUrl : props.videoUrl);
+  const src = resolveSrc(framed ? props.sourceUrl : props.videoUrl);
   // Caption time follows the SOURCE timeline, so cut pauses do not shift the subtitles.
   const sourceTime = cut ? sourceTimeAt(segments, frame, fps) : frame / fps;
   const FADE = 2; // frames of audio fade at each cut (avoids clicks)
@@ -167,8 +170,12 @@ export const SubtitleOverlay: React.FC<OverlayProps> = (props) => {
         title={props.title}
         channel={props.channel}
         backgroundImageUrl={resolveSrc(layout.background.imageUrl)}
+        avatarUrl={resolveSrc(layout.card.avatarUrl)}
         renderVideo={renderVideo}
         ImgComponent={Img}
+        time={sourceTime}
+        words={words}
+        offsetMs={style.offsetTime || 0}
       />
 
       <LogoOverlay src={brandSettings?.overlayUrl || ''} brand={brandSettings} ImgComponent={Img} />

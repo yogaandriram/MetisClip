@@ -26,6 +26,7 @@ import {
   Trash2,
   Type,
   Undo2,
+  UserRound,
   X,
   XCircle,
 } from 'lucide-react'
@@ -34,7 +35,17 @@ import { presets } from '@/lib/presets'
 import { CaptionLayer } from '@/lib/presets/CaptionLayer'
 import { LogoOverlay } from '@/lib/presets/BrandOverlay'
 import { LayoutStage } from '@/lib/presets/LayoutStage'
-import { type FrameRatio, type LayoutMode, type LayoutPatch, LAYOUT_LIMITS, mergeLayout, resolveLayout, sourceAspect } from '@/lib/presets/layout'
+import {
+  type FrameRatio,
+  type LayoutMode,
+  type LayoutPatch,
+  type ZoomStyle,
+  LAYOUT_LIMITS,
+  mergeLayout,
+  resolveLayout,
+  sourceAspect,
+  usesSource,
+} from '@/lib/presets/layout'
 import { type CaptionStyle, BASE_CAPTION_STYLE, getPreset, presetSwitch, resolveCaptionStyle } from '@/lib/presets/defaults'
 import { type AiCaptionSettings, type Segment, DEFAULT_AI_SETTINGS, computeKeepSegments, isCut, isFiller, keptDuration, nextKeptTime, resolveAi } from '@/lib/presets/captions'
 import {
@@ -51,6 +62,7 @@ import {
   EmptyState,
   Field,
   IconButton,
+  InputField,
   Kbd,
   KeyValueList,
   Modal,
@@ -93,6 +105,16 @@ type Snapshot = {
 const LAYOUT_MODE_OPTIONS: { value: LayoutMode; label: string }[] = [
   { value: 'full', label: 'Penuh 9:16' },
   { value: 'podcast', label: 'Podcast' },
+  { value: 'card', label: 'Kartu' },
+]
+const LAYOUT_MODE_HINTS: Record<LayoutMode, string> = {
+  full: 'Video dipotong 9:16 mengikuti wajah pembicara.',
+  podcast: 'Video tampil utuh dengan rasio aslinya, judul di atas. Latar dan gaya judul diatur di Brand Template.',
+  card: 'Video di dalam kartu bergaya postingan, judul sebagai teks postingan. Nama akun dan warna kartu diatur di Brand Template.',
+}
+const ZOOM_STYLE_OPTIONS: { value: ZoomStyle; label: string }[] = [
+  { value: 'keywords', label: 'Di kata kunci' },
+  { value: 'sentences', label: 'Tiap kalimat' },
 ]
 const RATIO_OPTIONS: { value: FrameRatio; label: string }[] = [
   { value: 'source', label: 'Asli' },
@@ -504,6 +526,22 @@ function ClipEditor() {
 
   const [enriching, setEnriching] = useState(false)
   const [preparing, setPreparing] = useState(false)
+  const [suggesting, setSuggesting] = useState(false)
+  /** Speaker names the AI found in the video title, channel and words (null = not asked yet) */
+  const [speakerIdeas, setSpeakerIdeas] = useState<{ name: string; role: string }[] | null>(null)
+  const suggestSpeaker = async () => {
+    if (!clipId || suggesting) return
+    setSuggesting(true)
+    try {
+      const { speakers } = await api.clips.suggestSpeaker(clipId)
+      setSpeakerIdeas(speakers)
+      if (!speakers.length) toast('AI tidak menemukan nama pembicara di judul video atau ucapan. Isi namanya sendiri.')
+    } catch (err) {
+      toast.error(errorMessage(err, 'Usulan nama gagal'))
+    } finally {
+      setSuggesting(false)
+    }
+  }
   /** Fetch the original-ratio video for a clip made before the podcast layout (for the preview). */
   const prepareSource = async () => {
     if (!clipId || preparing) return
@@ -675,7 +713,8 @@ function ClipEditor() {
   // Layout: template ⊕ this clip's override. Podcast shows source.mp4; until it exists, the clip stays full
   const layout = resolveLayout(activeTemplate?.layout_settings, present.layout)
   const hasSource = !!clip.files.source
-  const podcastView = layout.mode === 'podcast' && hasSource
+  // Podcast and card show source.mp4; until it exists the preview stays full
+  const sourceView = usesSource(layout.mode) && hasSource
   const aspect = sourceAspect(clip.source_width, clip.source_height)
   const layoutOverridden = Object.keys(present.layout).length > 0
   const keywordCount = words.filter((w) => w.keyword).length
@@ -949,19 +988,23 @@ function ClipEditor() {
               {clip.files.raw ? (
                 // Same layout component as the Remotion render (lib/presets/LayoutStage.tsx): preview == render
                 <LayoutStage
-                  layout={podcastView ? layout : { ...layout, mode: 'full' }}
+                  layout={sourceView ? layout : { ...layout, mode: 'full' }}
                   aspect={aspect}
                   title={present.title}
                   channel={detail.channel}
                   backgroundImageUrl={assetUrl(layout.background.imageUrl)}
+                  avatarUrl={assetUrl(layout.card.avatarUrl)}
                   fullFit="contain"
+                  time={currentTime}
+                  words={words}
+                  offsetMs={style.offsetTime}
                   renderVideo={(role, videoStyle) =>
                     role === 'main' ? (
                       <video
-                        key={podcastView ? 'source' : 'raw'}
+                        key={sourceView ? 'source' : 'raw'}
                         ref={videoRef}
-                        src={podcastView ? mediaUrl(clip.id, 'source') : mediaUrl(clip.id, 'raw', clip.updated_at)}
-                        poster={!podcastView && clip.files.thumbnail ? mediaUrl(clip.id, 'thumbnail', clip.updated_at) : undefined}
+                        src={sourceView ? mediaUrl(clip.id, 'source') : mediaUrl(clip.id, 'raw', clip.updated_at)}
+                        poster={!sourceView && clip.files.thumbnail ? mediaUrl(clip.id, 'thumbnail', clip.updated_at) : undefined}
                         onLoadedMetadata={(e) => {
                           const v = e.currentTarget
                           setDuration(v.duration || clip.duration_seconds)
@@ -1078,7 +1121,11 @@ function ClipEditor() {
                   <button type="button" className="mc-link" onClick={() => update({ ...present, layout: {} })}>
                     Ikuti template
                   </button>
-                ) : undefined
+                ) : (
+                  <button type="button" className="mc-link" onClick={() => leave('/brand-template/#layout')}>
+                    Atur gaya
+                  </button>
+                )
               }
             >
               <ChoiceChips<LayoutMode>
@@ -1088,12 +1135,8 @@ function ClipEditor() {
                 value={layout.mode}
                 onChange={(mode) => setLayout({ mode })}
               />
-              <p className="mc-caption mc-muted">
-                {layout.mode === 'podcast'
-                  ? 'Video tampil utuh dengan rasio aslinya, judul di atas. Latar dan gaya judul diatur di Brand Template.'
-                  : 'Video dipotong 9:16 mengikuti wajah pembicara.'}
-              </p>
-              {layout.mode === 'podcast' && (
+              <p className="mc-caption mc-muted">{LAYOUT_MODE_HINTS[layout.mode]}</p>
+              {usesSource(layout.mode) && (
                 <>
                   {!hasSource && (
                     <Alert
@@ -1106,26 +1149,26 @@ function ClipEditor() {
                         </Button>
                       }
                     >
-                      Clip ini dibuat sebelum layout podcast. Video rasio aslinya disiapkan otomatis saat ekspor, atau siapkan sekarang untuk melihat preview.
+                      Clip ini dibuat sebelum video rasio aslinya disimpan. Video itu disiapkan otomatis saat ekspor, atau siapkan sekarang untuk melihat preview.
                     </Alert>
                   )}
                   {layout.header.enabled && layout.header.source === 'title' ? (
                     <TextAreaField
-                      label="Judul di atas video"
+                      label={layout.mode === 'card' ? 'Teks postingan' : 'Judul di atas video'}
                       value={present.title}
                       maxLength={300}
                       rows={3}
                       onChange={(e) => setTitle(e.target.value)}
-                      hint="Kutipan pembuka dari AI. Judul panjang otomatis mengecil supaya muat."
+                      hint="Kutipan pembuka dari AI. Teks panjang otomatis mengecil supaya muat."
                     />
                   ) : (
                     <p className="mc-caption mc-muted">
                       {layout.header.enabled ? 'Judul memakai teks tetap dari Brand Template.' : 'Judul dimatikan di Brand Template.'}
                     </p>
                   )}
-                  <Field label="Rasio bingkai">
+                  <Field label="Rasio video">
                     <ChoiceChips<FrameRatio>
-                      ariaLabel="Rasio bingkai"
+                      ariaLabel="Rasio video"
                       size="sm"
                       options={RATIO_OPTIONS}
                       value={layout.frame.ratio}
@@ -1133,7 +1176,7 @@ function ClipEditor() {
                     />
                   </Field>
                   <Slider
-                    label="Posisi video"
+                    label={layout.mode === 'card' ? 'Posisi kartu' : 'Posisi video'}
                     min={LAYOUT_LIMITS.frameY.min}
                     max={LAYOUT_LIMITS.frameY.max}
                     value={layout.frame.y}
@@ -1151,6 +1194,79 @@ function ClipEditor() {
                       onChange={(focusX) => setLayout({ frame: { focusX } }, 'frame-focus')}
                     />
                   )}
+                </>
+              )}
+              <ToggleSwitch
+                label="Zoom dinamis"
+                hint="Video membesar sebentar untuk memberi penekanan."
+                checked={layout.zoom.enabled}
+                onChange={(enabled) => setLayout({ zoom: { enabled } })}
+              />
+              {layout.zoom.enabled && (
+                <>
+                  <ChoiceChips<ZoomStyle>
+                    ariaLabel="Kapan zoom"
+                    size="sm"
+                    options={ZOOM_STYLE_OPTIONS}
+                    value={layout.zoom.style}
+                    onChange={(zoomStyle) => setLayout({ zoom: { style: zoomStyle } })}
+                  />
+                  {layout.zoom.style === 'keywords' && keywordCount === 0 && (
+                    <p className="mc-caption mc-muted">
+                      Belum ada kata kunci di clip ini. Tandai lewat AI subtitle atau ikon bintang di tiap kata, atau pilih &quot;Tiap kalimat&quot;.
+                    </p>
+                  )}
+                </>
+              )}
+            </PanelSection>
+
+            <Divider />
+
+            <PanelSection title="Nama pembicara">
+              <ToggleSwitch
+                label="Tampilkan nama pembicara"
+                hint="Label nama muncul beberapa detik di awal clip. Gaya dan posisinya diatur di Brand Template."
+                checked={layout.speaker.enabled}
+                onChange={(enabled) => setLayout({ speaker: { enabled } })}
+              />
+              {layout.speaker.enabled && (
+                <>
+                  <InputField
+                    label="Nama"
+                    value={layout.speaker.name}
+                    maxLength={60}
+                    placeholder="Misal: dr. Andi Pratama"
+                    onChange={(e) => setLayout({ speaker: { name: e.target.value } }, 'speaker-name')}
+                  />
+                  <InputField
+                    label="Keterangan"
+                    value={layout.speaker.role}
+                    maxLength={60}
+                    placeholder="Misal: Dokter gizi"
+                    onChange={(e) => setLayout({ speaker: { role: e.target.value } }, 'speaker-role')}
+                  />
+                  <div>
+                    <Button variant="secondary" size="sm" loading={suggesting} onClick={suggestSpeaker} icon={<UserRound size={16} />}>
+                      Usulkan dengan AI
+                    </Button>
+                  </div>
+                  {speakerIdeas && speakerIdeas.length > 0 && (
+                    <Field label="Usulan AI" hint="Diambil dari judul video, nama channel dan ucapan. Periksa sebelum dipakai.">
+                      <div className="mc-row mc-gap-8" style={{ flexWrap: 'wrap' }}>
+                        {speakerIdeas.map((idea) => (
+                          <Chip
+                            key={`${idea.name}|${idea.role}`}
+                            size="sm"
+                            selected={layout.speaker.name === idea.name && layout.speaker.role === idea.role}
+                            onClick={() => setLayout({ speaker: { name: idea.name, role: idea.role } })}
+                          >
+                            {idea.role ? `${idea.name} · ${idea.role}` : idea.name}
+                          </Chip>
+                        ))}
+                      </div>
+                    </Field>
+                  )}
+                  {!layout.speaker.name.trim() && <p className="mc-caption mc-muted">Label tidak tampil selama nama kosong.</p>}
                 </>
               )}
             </PanelSection>

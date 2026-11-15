@@ -123,8 +123,8 @@ def build_props(clip: dict[str, Any]) -> dict[str, Any]:
         "layout": resolve_assets(lay),
         "title": clip.get("hook_text") or "",
     }
-    # Podcast layout: the original-ratio cut (same timeline as raw.mp4); without one it stays full
-    if layout_svc.is_podcast(lay) and (clip.get("files") or {}).get("source"):
+    # Podcast and card layouts: the original-ratio cut (same timeline as raw.mp4); without one it stays full
+    if layout_svc.needs_source(lay) and (clip.get("files") or {}).get("source"):
         props["sourceUrl"] = media_url(clip["_id"], "source")
         props["sourceAspect"] = source_aspect(clip)
         props["channel"] = channel_name(clip)
@@ -210,8 +210,9 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
     error: str | None = None
     status = "failed"
     try:
-        if layout_svc.is_podcast(layout_svc.effective_layout(clip, template_for(clip))) and not layout_svc.source_path(clip):
-            # Clips made before the podcast layout did not keep their original-ratio video
+        lay = layout_svc.effective_layout(clip, template_for(clip))
+        if layout_svc.needs_source(lay) and not layout_svc.source_path(clip):
+            # Clips made before the podcast and card layouts did not keep their original-ratio video
             def step(message: str) -> None:
                 events.publish({"type": "render.progress", "id": render_id, "clip_id": clip_id,
                                 "status": "rendering", "progress_pct": 0.0, "message": message})
@@ -219,7 +220,8 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
             try:
                 clip = layout_svc.prepare_source(clip, cancel, on_step=step)
             except layout_svc.SourceError as exc:
-                raise RuntimeError(f"Layout podcast butuh video sumber: {exc}") from exc
+                name = "kartu" if lay.get("mode") == "card" else "podcast"
+                raise RuntimeError(f"Layout {name} butuh video sumber: {exc}") from exc
             cancel.check()
         props_path.write_text(json.dumps(build_props(clip), ensure_ascii=False), encoding="utf-8")
         script = paths.render_dir / "dist" / "render.js"

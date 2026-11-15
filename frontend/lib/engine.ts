@@ -680,6 +680,8 @@ export const api = {
     render: (id: string) => request<{ render_job: RenderJob }>('POST', `/api/clips/${id}/render`),
     /** Fetch the clip's original-ratio video again (clips made before the podcast layout). */
     prepareSource: (id: string) => request<{ clip: Clip }>('POST', `/api/clips/${id}/source`),
+    /** Speaker names for the layout's name tag, from the video title, channel and clip words (not saved). */
+    suggestSpeaker: (id: string) => request<{ speakers: { name: string; role: string }[] }>('POST', `/api/clips/${id}/speaker/suggest`),
     export: (clipIds: string[], destDir?: string) => request<ExportResult>('POST', '/api/clips/export', { body: { clip_ids: clipIds, dest_dir: destDir } }),
   },
 

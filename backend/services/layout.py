@@ -1,5 +1,5 @@
 """Brand Template layout (frontend/lib/presets/layout.ts): validation, a clip's effective layout, and
-the clip's original-ratio video (`source.mp4`) that the podcast layout shows.
+the clip's original-ratio video (`source.mp4`) that the podcast and card layouts show.
 
 Layouts are stored as patches: a template's `layout_settings` (next to its preview-only `safeZone`)
 and a clip's `layout_style` (only the keys the user changed in the editor). The effective layout is
@@ -20,11 +20,14 @@ from backend.core.paths import get_paths
 
 logger = logging.getLogger(__name__)
 
-MODES = ("full", "podcast")
+MODES = ("full", "podcast", "card")
+SOURCE_MODES = ("podcast", "card")  # modes that show source.mp4
 RATIOS = ("source", "16:9", "4:3", "1:1", "4:5")
 BACKGROUNDS = ("blur", "color", "gradient", "image")
 HEADER_SOURCES = ("title", "custom")
 ALIGNS = ("left", "center", "right")
+ZOOM_STYLES = ("keywords", "sentences")
+SPEAKER_ALIGNS = ("left", "center")
 SAFE_ZONES = ("none", "all", "tiktok", "reels", "shorts")
 DESIGN_HEIGHT = 533
 
@@ -67,6 +70,36 @@ SCHEMA: dict[str, dict[str, tuple[str, Any]]] = {
         "text": ("text", 80),
         "fontSize": ("num", (10, 32)),
         "color": ("color", None),
+    },
+    "card": {
+        "name": ("text", 60),
+        "handle": ("text", 40),
+        "avatarUrl": ("asset", None),
+        "color": ("color", None),
+        "textColor": ("color", None),
+        "mutedColor": ("color", None),
+        "margin": ("num", (0, 60)),
+        "radius": ("num", (0, 40)),
+    },
+    "zoom": {
+        "enabled": ("bool", None),
+        "style": ("enum", ZOOM_STYLES),
+        "amount": ("num", (0.05, 0.3)),
+    },
+    "speaker": {
+        "enabled": ("bool", None),
+        "name": ("text", 60),
+        "role": ("text", 60),
+        "fontFamily": ("text", 80),
+        "fontSize": ("num", (14, 48)),
+        "y": ("num", (0, DESIGN_HEIGHT - 30)),
+        "align": ("enum", SPEAKER_ALIGNS),
+        "start": ("num", (0, 30)),
+        "duration": ("num", (1, 30)),
+        "color": ("color", None),
+        "textColor": ("color", None),
+        "accent": ("color", None),
+        "accentText": ("color", None),
     },
 }
 
@@ -158,8 +191,9 @@ def effective_layout(clip: dict[str, Any] | None, bt: dict[str, Any] | None) -> 
     return merge(tpl, (clip or {}).get("layout_style") or {})
 
 
-def is_podcast(layout: dict[str, Any]) -> bool:
-    return layout.get("mode") == "podcast"
+def needs_source(layout: dict[str, Any]) -> bool:
+    """Podcast and card layouts show the clip's original-ratio video (source.mp4)."""
+    return layout.get("mode") in SOURCE_MODES
 
 
 # -- the clip's source video -----------------------------------------------------------------------
@@ -222,7 +256,7 @@ def prepare_source(clip: dict[str, Any], cancel: procs.CancelToken | None = None
     try:
         if local:
             if not Path(local).is_file():
-                raise SourceError(f"File video asli tidak ditemukan: {local}. Kembalikan file itu untuk memakai layout podcast.")
+                raise SourceError(f"File video asli tidak ditemukan: {local}. Kembalikan file itu untuk memakai layout podcast atau kartu.")
             tmp = ffmpeg_ops.cut_section(Path(local), start, end, work / "source.mp4", cancel)
         elif clip.get("youtube_id"):
             try:

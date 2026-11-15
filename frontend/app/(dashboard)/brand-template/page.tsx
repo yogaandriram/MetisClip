@@ -185,6 +185,16 @@ export default function BrandTemplatePage() {
     loadAll(null)
   }, [isAgentLoading, loadAll])
 
+  // A link to /brand-template/#layout (e.g. from the clip editor) opens that section and scrolls to it.
+  // Read once the library has loaded: by then a client-side navigation has committed the URL.
+  useEffect(() => {
+    const id = window.location.hash.slice(1)
+    if (!loaded || !Object.prototype.hasOwnProperty.call(openPanels, id)) return
+    setOpenPanels((open) => ({ ...open, [id]: true }))
+    requestAnimationFrame(() => document.getElementById(`brand-template-section-${id}-title`)?.scrollIntoView({ block: 'start' }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded])
+
   // Engine restarted: refresh names and usage only
   const epochRef = useRef(epoch)
   useEffect(() => {
@@ -488,6 +498,8 @@ export default function BrandTemplatePage() {
                   layout={config.layout_settings}
                   caption={mergedCaptionSettings}
                   emoji={config.ai_settings.emojis}
+                  keywordsOn={config.ai_settings.keywords}
+                  brandLogoUrl={config.brand_settings.overlayUrl || ''}
                   aspect={sampleAspect}
                   updateLayout={updateLayout}
                   updateCaption={(updates) => updateConfig('caption_settings', updates)}

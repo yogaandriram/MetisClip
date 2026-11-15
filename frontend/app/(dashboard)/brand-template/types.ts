@@ -20,6 +20,9 @@ export const SAFE_ZONE_OPTIONS: { value: SafeZone; label: string }[] = [
   { value: 'none', label: 'Tidak ada' },
 ];
 
+/** Sample title for the Brand Template previews (clips use their own hook text). */
+export const SAMPLE_TITLE = 'Rahasia konten viral yang jarang orang tahu';
+
 export function safeZoneLabel(zone: SafeZone | undefined): string {
   return SAFE_ZONE_OPTIONS.find((o) => o.value === (zone || 'none'))?.label || '';
 }

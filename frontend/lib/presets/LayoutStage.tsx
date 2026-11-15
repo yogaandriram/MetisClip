@@ -1,8 +1,23 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { DESIGN_CANVAS } from './position';
 import { r4 } from './anim';
 import { cssWeight, primaryFamily } from './style';
-import { HEADER_LINE_HEIGHT, HEADER_PAD, type Layout, podcastGeometry } from './layout';
+import type { CaptionWord } from './types';
+import {
+  CARD,
+  HEADER_LINE_HEIGHT,
+  HEADER_PAD,
+  SPEAKER_ROLE_SCALE,
+  SPEAKER_SIDE,
+  type Layout,
+  type LayoutSpeaker,
+  type SpeakerFrame,
+  cardGeometry,
+  podcastGeometry,
+  speakerAt,
+  zoomAt,
+  zoomRanges,
+} from './layout';
 
 /**
  * The video layer of the 9:16 canvas, laid out by the Brand Template layout (lib/presets/layout.ts).
@@ -11,13 +26,14 @@ import { HEADER_LINE_HEIGHT, HEADER_PAD, type Layout, podcastGeometry } from './
  *
  * The parent must be the 9:16 box with `container-type: inline-size` (sizes are in `cqw`).
  * `renderVideo` draws the video element for each role with the given style: 'main' is the clip
- * (full) or the framed source (podcast), 'background' the blurred copy behind the frame (muted).
+ * (full) or the framed source (podcast, card), 'background' the blurred copy behind it (muted).
+ * `time` and `words` drive the dynamic zoom and the speaker tag (pure functions of time).
  */
 export type VideoRole = 'main' | 'background';
 
 export interface LayoutStageProps {
   layout: Layout;
-  /** Width / height of the source video (podcast mode). */
+  /** Width / height of the source video (podcast and card modes). */
   aspect: number;
   /** The clip's title (hook text), for a header with source 'title'. */
   title?: string | null;
@@ -25,10 +41,18 @@ export interface LayoutStageProps {
   channel?: string | null;
   /** URL of the background image (type 'image'), already resolved from `asset://`. */
   backgroundImageUrl?: string;
+  /** URL of the card avatar, already resolved from `asset://`. */
+  avatarUrl?: string;
   renderVideo: (role: VideoRole, style: React.CSSProperties) => React.ReactNode;
   ImgComponent?: React.ComponentType<{ src: string; style?: React.CSSProperties }>;
   /** Fit of the video in full mode (the editor uses 'contain'). */
   fullFit?: 'cover' | 'contain';
+  /** Playback time of the source video (seconds). */
+  time?: number;
+  /** Subtitle words (AI keywords and sentences drive the zoom). */
+  words?: CaptionWord[];
+  /** Caption sync offset in ms (a word is heard at start + offset), like the caption style's. */
+  offsetMs?: number;
 }
 
 const W = DESIGN_CANVAS.width;
@@ -41,31 +65,41 @@ const pctY = (px: number) => `${r4((px / H) * 100)}%`;
 const BG_SCALE = 0.25;
 /** Overscan of the blurred background, so its soft edges stay outside the canvas. */
 const BG_OVERSCAN = 1.15;
+const COVER: React.CSSProperties = { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' };
+const fontStack = (family: string) => `"${primaryFamily(family)}", sans-serif`;
 
-export const LayoutStage: React.FC<LayoutStageProps> = ({
-  layout,
-  aspect,
-  title,
-  channel,
-  backgroundImageUrl,
-  renderVideo,
-  ImgComponent,
-  fullFit = 'cover',
-}) => {
-  if (layout.mode !== 'podcast') {
-    return <>{renderVideo('main', { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: fullFit })}</>;
-  }
+export const LayoutStage: React.FC<LayoutStageProps> = (props) => {
+  const { layout, words, time = 0, offsetMs = 0, renderVideo } = props;
+  const zoom = layout.zoom;
+  const ranges = useMemo(() => (zoom.enabled ? zoomRanges(words, zoom.style) : []), [words, zoom.enabled, zoom.style]);
+  const scale = zoomAt(zoom, ranges, time - offsetMs / 1000);
+  const speaker = speakerAt(layout.speaker, time);
+  /** Zoom of the main video, around a point a little above the middle (where faces usually are). */
+  const zoomed = (originX: number): React.CSSProperties =>
+    scale > 1.0001 ? { transform: `scale(${r4(scale)})`, transformOrigin: `${r4(originX * 100)}% 40%` } : {};
 
-  const g = podcastGeometry(layout, aspect, title, channel);
+  let body: React.ReactNode;
+  if (layout.mode === 'podcast') body = <PodcastBody {...props} zoomStyle={zoomed(layout.frame.focusX)} />;
+  else if (layout.mode === 'card') body = <CardBody {...props} zoomStyle={zoomed(layout.frame.focusX)} />;
+  else body = renderVideo('main', { ...COVER, objectFit: props.fullFit || 'cover', ...zoomed(0.5) });
+
+  return (
+    <>
+      {body}
+      {speaker && <SpeakerTag sp={layout.speaker} f={speaker} />}
+    </>
+  );
+};
+
+type BodyProps = LayoutStageProps & { zoomStyle: React.CSSProperties };
+
+/** Background of the podcast and card modes: blurred video, image, color or gradient, then the dim. */
+const Backdrop: React.FC<BodyProps> = ({ layout, backgroundImageUrl, renderVideo, ImgComponent }) => {
   const bg = layout.background;
-  const h = layout.header;
-  const Img = ImgComponent;
-  const cover: React.CSSProperties = { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' };
   const growth = BG_OVERSCAN / BG_SCALE;
-
-  let background: React.ReactNode;
+  let content: React.ReactNode = null;
   if (bg.type === 'blur') {
-    background = (
+    content = (
       <div
         style={{
           position: 'absolute',
@@ -78,30 +112,79 @@ export const LayoutStage: React.FC<LayoutStageProps> = ({
           filter: bg.blur > 0 ? `blur(${cqw(bg.blur / growth)})` : undefined,
         }}
       >
-        {renderVideo('background', { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' })}
+        {renderVideo('background', COVER)}
       </div>
     );
   } else if (bg.type === 'image' && backgroundImageUrl) {
-    background = Img ? (
-      <Img src={backgroundImageUrl} style={cover} />
+    content = ImgComponent ? (
+      <ImgComponent src={backgroundImageUrl} style={COVER} />
     ) : (
       // eslint-disable-next-line @next/next/no-img-element
-      <img src={backgroundImageUrl} alt="" style={cover} />
+      <img src={backgroundImageUrl} alt="" style={COVER} />
     );
   }
+  const fill = bg.type === 'gradient' ? `linear-gradient(180deg, ${bg.color} 0%, ${bg.color2} 100%)` : bg.color;
+  return (
+    <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: fill }}>
+      {content}
+      {bg.dim > 0 && <div style={{ position: 'absolute', inset: 0, background: `rgba(0,0,0,${r4(bg.dim)})` }} />}
+    </div>
+  );
+};
 
-  const fill =
-    bg.type === 'gradient' ? `linear-gradient(180deg, ${bg.color} 0%, ${bg.color2} 100%)` : bg.color;
+/**
+ * The source video in its frame: cropped to the frame ratio around focusX, zoomed, with the credit
+ * (bottom corner; top corner in a card, whose bottom edge sits next to the default caption).
+ */
+const FramedVideo: React.FC<BodyProps & { credit: string; creditTop?: boolean }> = ({
+  layout,
+  renderVideo,
+  zoomStyle,
+  credit,
+  creditTop,
+}) => (
+  <>
+    {renderVideo('main', {
+      ...COVER,
+      objectPosition: `${r4(layout.frame.focusX * 100)}% 50%`,
+      ...zoomStyle,
+    })}
+    {credit && (
+      <div
+        style={{
+          position: 'absolute',
+          right: cqw(6),
+          ...(creditTop ? { top: cqw(5) } : { bottom: cqw(5) }),
+          fontFamily: '"Plus Jakarta Sans", sans-serif',
+          fontWeight: 600,
+          fontSize: cqw(layout.credit.fontSize / 2),
+          lineHeight: 1.2,
+          color: layout.credit.color,
+          padding: '0.2em 0.5em',
+          borderRadius: '0.6em',
+          background: 'rgba(0,0,0,0.45)',
+          whiteSpace: 'nowrap',
+          maxWidth: '90%',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}
+      >
+        {credit}
+      </div>
+    )}
+  </>
+);
 
+const PodcastBody: React.FC<BodyProps> = (props) => {
+  const { layout, aspect, title, channel } = props;
+  const g = podcastGeometry(layout, aspect, title, channel);
+  const h = layout.header;
   const fontPx = (h.fontSize / 2) * g.scale;
   const justify = h.align === 'left' ? 'flex-start' : h.align === 'right' ? 'flex-end' : 'center';
 
   return (
     <>
-      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: fill }}>
-        {background}
-        {bg.dim > 0 && <div style={{ position: 'absolute', inset: 0, background: `rgba(0,0,0,${r4(bg.dim)})` }} />}
-      </div>
+      <Backdrop {...props} />
 
       <div
         style={{
@@ -115,37 +198,7 @@ export const LayoutStage: React.FC<LayoutStageProps> = ({
           background: '#000',
         }}
       >
-        {renderVideo('main', {
-          position: 'absolute',
-          inset: 0,
-          width: '100%',
-          height: '100%',
-          objectFit: 'cover',
-          objectPosition: `${r4(layout.frame.focusX * 100)}% 50%`,
-        })}
-        {g.credit && (
-          <div
-            style={{
-              position: 'absolute',
-              right: cqw(6),
-              bottom: cqw(5),
-              fontFamily: '"Plus Jakarta Sans", sans-serif',
-              fontWeight: 600,
-              fontSize: cqw(layout.credit.fontSize / 2),
-              lineHeight: 1.2,
-              color: layout.credit.color,
-              padding: '0.2em 0.5em',
-              borderRadius: '0.6em',
-              background: 'rgba(0,0,0,0.45)',
-              whiteSpace: 'nowrap',
-              maxWidth: '90%',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {g.credit}
-          </div>
-        )}
+        <FramedVideo {...props} credit={g.credit} />
       </div>
 
       {g.header && (
@@ -162,7 +215,7 @@ export const LayoutStage: React.FC<LayoutStageProps> = ({
         >
           <div
             style={{
-              fontFamily: `"${primaryFamily(h.fontFamily)}", sans-serif`,
+              fontFamily: fontStack(h.fontFamily),
               fontWeight: cssWeight(h.fontWeight, 800),
               fontSize: cqw(fontPx),
               lineHeight: HEADER_LINE_HEIGHT,
@@ -183,5 +236,189 @@ export const LayoutStage: React.FC<LayoutStageProps> = ({
         </div>
       )}
     </>
+  );
+};
+
+const ELLIPSIS: React.CSSProperties = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+
+/** Social-post card: avatar, name and handle, the post text (the title), then the video. */
+const CardBody: React.FC<BodyProps> = (props) => {
+  const { layout, aspect, title, channel, avatarUrl, ImgComponent } = props;
+  const g = cardGeometry(layout, aspect, title, channel);
+  const c = layout.card;
+  const h = layout.header;
+  const family = fontStack(h.fontFamily);
+  const fontPx = (h.fontSize / 2) * g.scale;
+  const initial = (Array.from(c.name.trim() || c.handle.replace(/^@/, '').trim())[0] || '').toUpperCase();
+  const abs = (r: { left: number; top: number; width: number; height: number }): React.CSSProperties => ({
+    position: 'absolute',
+    left: cqw(r.left),
+    top: cqw(r.top),
+    width: cqw(r.width),
+    height: cqw(r.height),
+  });
+
+  return (
+    <>
+      <Backdrop {...props} />
+
+      <div
+        style={{
+          position: 'absolute',
+          left: pctX(g.card.left),
+          top: pctY(g.card.top),
+          width: pctX(g.card.width),
+          height: pctY(g.card.height),
+          background: c.color,
+          borderRadius: c.radius > 0 ? cqw(c.radius) : undefined,
+          boxShadow: `0 ${cqw(2)} ${cqw(10)} rgba(0,0,0,0.28)`,
+          overflow: 'hidden',
+        }}
+      >
+        {g.row && (
+          <>
+            <div
+              style={{
+                ...abs({ left: g.row.left, top: g.row.top, width: CARD.avatar, height: CARD.avatar }),
+                borderRadius: '50%',
+                overflow: 'hidden',
+                background: c.mutedColor,
+                color: c.color,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontFamily: family,
+                fontWeight: 700,
+                fontSize: cqw(CARD.avatar * 0.45),
+                lineHeight: 1,
+              }}
+            >
+              {avatarUrl ? (
+                ImgComponent ? (
+                  <ImgComponent src={avatarUrl} style={COVER} />
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={avatarUrl} alt="" style={COVER} />
+                )
+              ) : (
+                initial
+              )}
+            </div>
+            <div
+              style={{
+                ...abs({
+                  left: g.row.left + CARD.avatar + CARD.nameGap,
+                  top: g.row.top,
+                  width: g.row.width - CARD.avatar - CARD.nameGap,
+                  height: g.row.height,
+                }),
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                fontFamily: family,
+                lineHeight: 1.25,
+              }}
+            >
+              {c.name.trim() && (
+                <div style={{ ...ELLIPSIS, fontWeight: 700, fontSize: cqw(CARD.nameSize), color: c.textColor }}>{c.name.trim()}</div>
+              )}
+              {c.handle.trim() && (
+                <div style={{ ...ELLIPSIS, fontWeight: 400, fontSize: cqw(CARD.handleSize), color: c.mutedColor }}>{c.handle.trim()}</div>
+              )}
+            </div>
+          </>
+        )}
+
+        {g.text && (
+          <div
+            style={{
+              ...abs(g.text),
+              fontFamily: family,
+              fontWeight: cssWeight(h.fontWeight, 500),
+              fontSize: cqw(fontPx),
+              lineHeight: CARD.lineHeight,
+              color: c.textColor,
+              textAlign: h.align,
+            }}
+          >
+            {g.lines.map((line, i) => (
+              <div key={i} style={{ whiteSpace: 'nowrap' }}>
+                {line}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div
+          style={{
+            ...abs(g.video),
+            overflow: 'hidden',
+            borderRadius: layout.frame.radius > 0 ? cqw(layout.frame.radius) : undefined,
+            background: '#000',
+          }}
+        >
+          <FramedVideo {...props} credit={g.credit} creditTop />
+        </div>
+      </div>
+    </>
+  );
+};
+
+/** Speaker name tag: a name box and an optional role box, wiped in from the left, faded out. */
+const SpeakerTag: React.FC<{ sp: LayoutSpeaker; f: SpeakerFrame }> = ({ sp, f }) => {
+  const left = sp.align === 'left';
+  const fontPx = sp.fontSize / 2;
+  const wipe = (p: number) => (left ? `inset(0 ${r4((1 - p) * 100)}% 0 0)` : `inset(0 ${r4((1 - p) * 50)}% 0 ${r4((1 - p) * 50)}%)`);
+  const box: React.CSSProperties = {
+    ...ELLIPSIS,
+    maxWidth: '100%',
+    lineHeight: 1.2,
+    padding: '0.3em 0.55em',
+    borderRadius: '0.25em',
+    fontFamily: fontStack(sp.fontFamily),
+  };
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: pctY(sp.y),
+        left: pctX(SPEAKER_SIDE),
+        width: pctX(W - 2 * SPEAKER_SIDE),
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: left ? 'flex-start' : 'center',
+        gap: cqw(2),
+        opacity: r4(f.opacity),
+        pointerEvents: 'none',
+        zIndex: 3,
+      }}
+    >
+      <div
+        style={{
+          ...box,
+          fontWeight: 800,
+          fontSize: cqw(fontPx),
+          background: sp.color,
+          color: sp.textColor,
+          clipPath: f.name < 1 ? wipe(f.name) : undefined,
+        }}
+      >
+        {sp.name.trim()}
+      </div>
+      {sp.role.trim() && (
+        <div
+          style={{
+            ...box,
+            fontWeight: 600,
+            fontSize: cqw(fontPx * SPEAKER_ROLE_SCALE),
+            background: sp.accent,
+            color: sp.accentText,
+            clipPath: f.role < 1 ? wipe(f.role) : undefined,
+          }}
+        >
+          {sp.role.trim()}
+        </div>
+      )}
+    </div>
   );
 };

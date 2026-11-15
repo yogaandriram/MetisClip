@@ -4,7 +4,7 @@ import { Stage } from '@/components/ui';
 import { assetUrl } from '@/lib/media';
 import { CaptionLayer } from '@/lib/presets/CaptionLayer';
 import { LayoutStage } from '@/lib/presets/LayoutStage';
-import { LAYOUT_LIMITS, type LayoutPatch, frameRect } from '@/lib/presets/layout';
+import { LAYOUT_LIMITS, type LayoutPatch, stageRect, usesSource } from '@/lib/presets/layout';
 import { LOGO_BASE_SIZE, logoPosition, logoScale } from '@/lib/presets/BrandOverlay';
 import type { CaptionWord } from '@/lib/presets/types';
 import {
@@ -17,8 +17,7 @@ import {
   captionRect,
   toDesign,
 } from '@/lib/presets/position';
-import { AiSettings, CaptionSettings, BrandSettings, LayoutSettings, SafeZone, safeZoneLabel } from '../types';
-import { SAMPLE_TITLE } from './LayoutSettingsPanel';
+import { AiSettings, CaptionSettings, BrandSettings, LayoutSettings, SAMPLE_TITLE, SafeZone, safeZoneLabel } from '../types';
 
 interface TemplatePreviewCanvasProps {
   caption: CaptionSettings;
@@ -26,7 +25,7 @@ interface TemplatePreviewCanvasProps {
   brandSettings?: BrandSettings;
   layoutSettings: LayoutSettings;
   onUpdateBrand?: (updates: Partial<BrandSettings>) => void;
-  /** Podcast frame dragged on the preview */
+  /** Podcast frame or card dragged on the preview */
   onUpdateLayout?: (patch: LayoutPatch) => void;
   /** Width / height of the sample video once it is loaded (the frame uses it like a clip's source) */
   onSampleAspect?: (aspect: number) => void;
@@ -196,13 +195,18 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
     }
   };
 
-  // Podcast frame: dragged up and down, saved on release
-  const podcast = layoutSettings.mode === 'podcast';
+  // Podcast frame or card: dragged up and down, saved on release
+  const framed = usesSource(layoutSettings.mode);
   const [aspect, setAspect] = useState(16 / 9);
   const frameStart = useRef<{ py: number; y: number } | null>(null);
   const [frameDrag, setFrameDrag] = useState<number | null>(null);
-  const shownLayout: LayoutSettings = frameDrag !== null ? { ...layoutSettings, frame: { ...layoutSettings.frame, y: frameDrag } } : layoutSettings;
-  const frame = frameRect(shownLayout, aspect);
+  const draggedLayout: LayoutSettings = frameDrag !== null ? { ...layoutSettings, frame: { ...layoutSettings.frame, y: frameDrag } } : layoutSettings;
+  // The speaker name is usually set per clip: show a sample so the tag's style can be judged here
+  const sp = draggedLayout.speaker;
+  const shownLayout: LayoutSettings = sp.enabled
+    ? { ...draggedLayout, speaker: { ...sp, name: sp.name.trim() || 'Nama Pembicara', role: sp.name.trim() ? sp.role : sp.role || 'Keterangan' } }
+    : draggedLayout;
+  const frame = stageRect(shownLayout, aspect, SAMPLE_TITLE);
 
   const handleFramePointerDown = (e: React.PointerEvent) => {
     if (!onUpdateLayout) return;
@@ -216,7 +220,7 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
     if (!start || !containerRef.current) return;
     const scale = containerRef.current.getBoundingClientRect().width / CANVAS_WIDTH;
     const y = start.y + (e.clientY - start.py) / scale;
-    setFrameDrag(Math.round(Math.max(LAYOUT_LIMITS.frameY.min, Math.min(LAYOUT_LIMITS.frameY.max, CANVAS_HEIGHT - 40 - frame.height, y))));
+    setFrameDrag(Math.round(Math.max(LAYOUT_LIMITS.frameY.min, Math.min(LAYOUT_LIMITS.frameY.max, CANVAS_HEIGHT - 40 - (frame?.height || 0), y))));
   };
   const handleFramePointerUp = (e: React.PointerEvent) => {
     const start = frameStart.current;
@@ -356,6 +360,9 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
           title={SAMPLE_TITLE}
           channel="Channel contoh"
           backgroundImageUrl={assetUrl(layoutSettings.background.imageUrl)}
+          avatarUrl={assetUrl(layoutSettings.card.avatarUrl)}
+          time={clock}
+          words={SAMPLE_WORDS}
           renderVideo={(role, style) =>
             videoUrl ? (
               <video
@@ -371,25 +378,25 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
                     onSampleAspect?.(v.videoWidth / v.videoHeight);
                   }
                 }}
-                style={{ ...style, opacity: podcast ? 1 : 0.8 }}
+                style={{ ...style, opacity: framed ? 1 : 0.8 }}
               />
-            ) : role === 'main' && podcast ? (
+            ) : role === 'main' && framed ? (
               <div className="mc-caption" style={{ ...style, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-ink)', background: 'var(--ink-soft)' }}>
                 Video sumber
               </div>
             ) : null
           }
         />
-        {!videoUrl && !podcast && (
+        {!videoUrl && !framed && (
           <div className="mc-caption mc-muted" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '0 30px' }}>
             Unggah &quot;Video contoh&quot; di bagian Logo & video contoh untuk melihat preview di atas video Anda.
           </div>
         )}
-        {podcast && onUpdateLayout && (
+        {frame && onUpdateLayout && (
           <div
             role="button"
             tabIndex={0}
-            aria-label="Posisi video. Geser ke atas atau ke bawah, atau pakai tombol panah (Shift untuk langkah besar)."
+            aria-label={`Posisi ${layoutSettings.mode === 'card' ? 'kartu' : 'video'}. Geser ke atas atau ke bawah, atau pakai tombol panah (Shift untuk langkah besar).`}
             className={frameDrag !== null ? 'mc-drag-target is-dragging' : 'mc-drag-target'}
             onPointerDown={handleFramePointerDown}
             onPointerMove={handleFramePointerMove}
@@ -499,7 +506,7 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
 
       <p className="mc-caption mc-muted" style={{ maxWidth: `${CANVAS_WIDTH}px` }}>
         Geser caption untuk memindahkannya.
-        {podcast && ' Geser video ke atas atau ke bawah.'}
+        {framed && (layoutSettings.mode === 'card' ? ' Geser kartu ke atas atau ke bawah.' : ' Geser video ke atas atau ke bawah.')}
         {overlaySrc && ' Geser logo untuk memindahkan, tarik titik di sudutnya untuk mengubah ukuran.'}
       </p>
     </Stage>

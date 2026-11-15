@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from backend.api.dto import brand_template_dto, clip_dto, http_error, render_dto
 from backend.api.routes.files import serve_relative
-from backend.agents.tools import caption_ai
+from backend.agents.tools import caption_ai, speaker_ai
 from backend.agents.tools.caption_ai import valid_emoji
 from backend.core import events, llm
 from backend.core.db import get_db, new_id, utcnow
@@ -77,7 +77,7 @@ class SubtitleUpdate(BaseModel):
     # Per-clip layout override (patch of the template's layout_settings) and its reset
     layout: Optional[dict[str, Any]] = None
     reset_layout: bool = False
-    # The clip's title (shown by the podcast layout's header)
+    # The clip's title (shown by the podcast layout's header and the card's post text)
     hook_text: Optional[str] = Field(default=None, max_length=300)
     # Switch the clip's brand template (null = follow the agent's default)
     brand_template_id: Optional[str] = None
@@ -158,6 +158,24 @@ def enrich_subtitles(clip_id: str, body: EnrichBody):
     return {"clip": clip_dto(_get(clip_id)), "keywords": n_kw, "emojis": n_emoji}
 
 
+@router.post("/api/clips/{clip_id}/speaker/suggest")
+def suggest_speaker(clip_id: str):
+    """Names for the speaker tag, from the video title, the channel and the clip's words (not saved)."""
+    clip = _get(clip_id)
+    sv = get_db().source_videos.find_one({"_id": clip["source_video_id"]}) if clip.get("source_video_id") else None
+    title = str((sv or {}).get("title") or "")
+    words = (clip.get("subtitle") or {}).get("words") or []
+    if not title and not words:
+        raise http_error(400, "Klip ini belum punya judul video atau subtitle")
+    try:
+        speakers = speaker_ai.suggest_speakers(title, channel_name(clip), words, clip.get("hook_text") or "")
+    except llm.LLMNotConfigured as exc:
+        raise http_error(400, str(exc))
+    except llm.LLMError as exc:
+        raise http_error(502, f"Usulan nama gagal: {exc}")
+    return {"speakers": speakers}
+
+
 @router.get("/api/clips/{clip_id}/media/{kind}")
 def clip_media(clip_id: str, kind: Literal["raw", "final", "thumbnail", "thumb", "source"]):
     clip = _get(clip_id)
@@ -170,7 +188,7 @@ def clip_media(clip_id: str, kind: Literal["raw", "final", "thumbnail", "thumb",
 
 @router.post("/api/clips/{clip_id}/source")
 def prepare_clip_source(clip_id: str):
-    """The clip in its original ratio (podcast layout): fetched again for clips made before it was kept."""
+    """The clip in its original ratio (podcast and card layouts): fetched again for clips made before it was kept."""
     clip = _get(clip_id)
     if layout_svc.source_path(clip):
         return {"clip": clip_dto(clip)}

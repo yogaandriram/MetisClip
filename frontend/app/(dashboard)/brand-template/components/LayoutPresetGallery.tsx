@@ -1,0 +1,94 @@
+import React from 'react';
+import { Check, ZoomIn } from 'lucide-react';
+import { LayoutStage } from '@/lib/presets/LayoutStage';
+import { type Layout, LAYOUT_PRESETS, type LayoutPreset, applyLayoutPreset, matchingPreset } from '@/lib/presets/layout';
+import { SAMPLE_TITLE } from '../types';
+
+/** A stand-in for the video in the thumbnails: a person on a green backdrop. */
+const PERSON: React.CSSProperties = {
+  background: [
+    'radial-gradient(circle at 50% 40%, var(--sage) 0 11%, transparent 11.5%)',
+    'radial-gradient(ellipse 34% 26% at 50% 86%, var(--sage) 0 99%, transparent 100%)',
+    'linear-gradient(165deg, var(--leaf-strong) 0%, var(--moss) 100%)',
+  ].join(', '),
+};
+
+/** Thumbnails show the account row filled in, like a real card. */
+const SAMPLE_ACCOUNT = { name: 'Nama Akun', handle: '@namaakun' };
+
+interface Props {
+  layout: Layout;
+  onApply: (layout: Layout) => void;
+}
+
+/**
+ * Ready-made layouts. Each thumbnail is the real layout component with a placeholder video, so it
+ * looks like the result. Picking one keeps the account, the custom title, the credit, the background
+ * image and the speaker tag.
+ */
+export const LayoutPresetGallery: React.FC<Props> = ({ layout, onApply }) => {
+  const active = matchingPreset(layout);
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))', gap: 'var(--s-4)' }}>
+      {LAYOUT_PRESETS.map((p) => (
+        <PresetTile key={p.id} preset={p} layout={layout} selected={active?.id === p.id} onApply={onApply} />
+      ))}
+    </div>
+  );
+};
+
+const PresetTile: React.FC<{ preset: LayoutPreset; layout: Layout; selected: boolean; onApply: (l: Layout) => void }> = ({
+  preset,
+  layout,
+  selected,
+  onApply,
+}) => {
+  const result = applyLayoutPreset(layout, preset);
+  const shown: Layout = {
+    ...result,
+    card: { ...result.card, name: result.card.name || SAMPLE_ACCOUNT.name, handle: result.card.handle || SAMPLE_ACCOUNT.handle },
+    speaker: { ...result.speaker, enabled: false },
+  };
+  return (
+    <div className="mc-stack mc-gap-8">
+      <button
+        type="button"
+        className="mc-thumb"
+        aria-pressed={selected}
+        aria-label={`${preset.name}: ${preset.description}`}
+        title={preset.description}
+        onClick={() => onApply(result)}
+        style={{
+          display: 'block',
+          width: '100%',
+          aspectRatio: '9 / 16',
+          padding: 0,
+          border: 0,
+          cursor: 'pointer',
+          containerType: 'inline-size',
+          boxShadow: selected ? '0 0 0 2px var(--surface), 0 0 0 4px var(--ink)' : undefined,
+        }}
+      >
+        <span aria-hidden="true" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+          <LayoutStage
+            layout={shown}
+            aspect={16 / 9}
+            title={SAMPLE_TITLE}
+            channel="Channel contoh"
+            renderVideo={(_role, style) => <span style={{ ...style, ...PERSON, display: 'block' }} />}
+          />
+        </span>
+        {result.zoom.enabled && (
+          <span className="mc-thumb__corner mc-thumb__corner--tr mc-overlay-glass" style={{ borderRadius: 'var(--r-full)', padding: 4, display: 'flex' }}>
+            <ZoomIn size={12} aria-hidden="true" />
+          </span>
+        )}
+      </button>
+      <span className={selected ? 'mc-row mc-gap-4 mc-caption' : 'mc-row mc-gap-4 mc-caption mc-muted'}>
+        {selected && <Check size={14} aria-hidden="true" />}
+        {preset.name}
+        {selected && <span className="mc-sr-only">(dipilih)</span>}
+      </span>
+    </div>
+  );
+};
