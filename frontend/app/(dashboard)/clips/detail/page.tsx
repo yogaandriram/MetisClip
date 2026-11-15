@@ -36,6 +36,7 @@ import { CaptionLayer } from '@/lib/presets/CaptionLayer'
 import { LogoOverlay } from '@/lib/presets/BrandOverlay'
 import { LayoutStage } from '@/lib/presets/LayoutStage'
 import {
+  type DuoTop,
   type FrameRatio,
   type LayoutMode,
   type LayoutPatch,
@@ -43,6 +44,7 @@ import {
   LAYOUT_LIMITS,
   companionStart,
   companionTime,
+  duoSeconds,
   mergeLayout,
   resolveLayout,
   sourceAspect,
@@ -120,12 +122,18 @@ const LAYOUT_MODE_OPTIONS: { value: LayoutMode; label: string }[] = [
   { value: 'podcast', label: 'Podcast' },
   { value: 'card', label: 'Kartu' },
   { value: 'split', label: 'Pendamping' },
+  { value: 'duo', label: 'Dua orang' },
+]
+const DUO_TOP_OPTIONS: { value: DuoTop; label: string }[] = [
+  { value: 'left', label: 'Orang kiri' },
+  { value: 'right', label: 'Orang kanan' },
 ]
 const LAYOUT_MODE_HINTS: Record<LayoutMode, string> = {
   full: 'Video dipotong 9:16 mengikuti wajah pembicara.',
   podcast: 'Video tampil utuh dengan rasio aslinya, judul di atas. Latar dan gaya judul diatur di Brand Template.',
   card: 'Video di dalam kartu bergaya postingan, judul sebagai teks postingan. Nama akun dan warna kartu diatur di Brand Template.',
   split: 'Pembicara dan video pendamping tanpa suara yang diputar berulang. Videonya diunggah di Brand Template.',
+  duo: 'Dua orang dalam satu frame dipisah jadi panel atas dan bawah, masing-masing mengikuti wajahnya. Adegan lain tampil penuh 9:16.',
 }
 const ZOOM_STYLE_OPTIONS: { value: ZoomStyle; label: string }[] = [
   { value: 'keywords', label: 'Di kata kunci' },
@@ -229,6 +237,9 @@ function ClipEditor() {
   // Companion video (split layout): its element and where this clip's loop starts
   const compRef = useRef<HTMLVideoElement>(null)
   const compLoop = useRef({ start: 0, duration: 0 })
+  // The two panels of the duo layout (source.mp4, muted, follow videoRef)
+  const duoTopRef = useRef<HTMLVideoElement>(null)
+  const duoBottomRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
   const [detail, setDetail] = useState<ClipDetail | null>(null)
@@ -454,12 +465,27 @@ function ClipEditor() {
         const bg = bgRef.current
         if (bg && Math.abs(bg.currentTime - v.currentTime) > 0.25) bg.currentTime = v.currentTime
         syncCompanion(v.currentTime)
+        syncDuo(v.currentTime)
       }
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
   }, [isPlaying])
+
+  /** Keep the duo panels on the clip's time (tighter than the blurred background: faces must stay in sync). */
+  function syncDuo(t: number, force = false) {
+    for (const d of [duoTopRef.current, duoBottomRef.current]) {
+      if (d && (force || Math.abs(d.currentTime - t) > 0.12)) d.currentTime = t
+    }
+  }
+  const playDuo = (play: boolean) => {
+    for (const d of [duoTopRef.current, duoBottomRef.current]) {
+      if (!d) continue
+      if (play) d.play().catch(() => undefined)
+      else d.pause()
+    }
+  }
 
   /** Keep the companion loop at the clip's output time (it runs on through cut pauses, like the render). */
   function syncCompanion(sourceTime: number, force = false) {
@@ -485,6 +511,7 @@ function ClipEditor() {
     if (bgRef.current) bgRef.current.currentTime = clamped
     timeRef.current = clamped
     syncCompanion(clamped, true)
+    syncDuo(clamped, true)
     setCurrentTime(clamped)
   }
 
@@ -587,6 +614,25 @@ function ClipEditor() {
       toast.error(errorMessage(err, 'Video sumber gagal disiapkan'), { id })
     } finally {
       setPreparing(false)
+    }
+  }
+  const [analyzing, setAnalyzing] = useState(false)
+  /** Face scan for the duo layout, for a clip made before it was kept (fetches source.mp4 too). */
+  const prepareFaces = async () => {
+    if (!clipId || analyzing) return
+    setAnalyzing(true)
+    const id = toast.loading('Menganalisis wajah… Bisa butuh beberapa puluh detik.')
+    try {
+      const { clip, duo } = await api.clips.prepareFaces(clipId)
+      // Only the scan fields: unsaved edits stay as they are
+      setDetail((d) =>
+        d ? { ...d, duo, clip: { ...d.clip, files: clip.files, source_width: clip.source_width, source_height: clip.source_height } } : d,
+      )
+      toast.success(duo?.shots.length ? `Ditemukan ${duo.shots.length} adegan dua orang` : 'Analisis selesai: tidak ada adegan dua orang', { id })
+    } catch (err) {
+      toast.error(errorMessage(err, 'Analisis wajah gagal'), { id })
+    } finally {
+      setAnalyzing(false)
     }
   }
   const enrich = async () => {
@@ -745,6 +791,10 @@ function ClipEditor() {
   // Podcast and card show source.mp4; until it exists the preview stays full
   const sourceView = usesSource(layout.mode) && hasSource
   const split = layout.mode === 'split'
+  // Duo: two panels from source.mp4 in two-speaker shots; needs the source and the face scan
+  const duoData = detail.duo || null
+  const duoView = layout.mode === 'duo' && hasSource && !!duoData
+  const duoShown = duoSeconds(duoData)
   const companionSrc = split ? assetUrl(layout.companion.videoUrl) : ''
   compLoop.current = { start: companionStart(clip.id, layout.companion.duration), duration: layout.companion.duration }
   const aspect = sourceAspect(clip.source_width, clip.source_height)
@@ -1020,7 +1070,8 @@ function ClipEditor() {
               {clip.files.raw ? (
                 // Same layout component as the Remotion render (lib/presets/LayoutStage.tsx): preview == render
                 <LayoutStage
-                  layout={sourceView || split ? layout : { ...layout, mode: 'full' }}
+                  layout={sourceView || split || duoView ? layout : { ...layout, mode: 'full' }}
+                  duo={duoView ? duoData : null}
                   aspect={aspect}
                   title={present.title}
                   channel={detail.channel}
@@ -1030,8 +1081,22 @@ function ClipEditor() {
                   time={currentTime}
                   words={words}
                   offsetMs={style.offsetTime}
-                  renderVideo={(role, videoStyle) =>
-                    role === 'companion' ? (
+                  renderVideo={(role, videoStyle, hidden) =>
+                    role === 'duoTop' || role === 'duoBottom' ? (
+                      <video
+                        ref={role === 'duoTop' ? duoTopRef : duoBottomRef}
+                        src={mediaUrl(clip.id, 'source')}
+                        muted
+                        playsInline
+                        preload="auto"
+                        aria-hidden="true"
+                        onLoadedMetadata={(e) => {
+                          e.currentTarget.currentTime = timeRef.current
+                          if (videoRef.current && !videoRef.current.paused) e.currentTarget.play().catch(() => undefined)
+                        }}
+                        style={{ ...videoStyle, visibility: hidden ? 'hidden' : undefined }}
+                      />
+                    ) : role === 'companion' ? (
                       companionSrc ? (
                         <video
                           key={companionSrc}
@@ -1079,16 +1144,21 @@ function ClipEditor() {
                           setIsPlaying(true)
                           bgRef.current?.play().catch(() => undefined)
                           compRef.current?.play().catch(() => undefined)
+                          syncDuo(videoRef.current?.currentTime || 0, true)
+                          playDuo(true)
                         }}
                         onPause={() => {
                           setIsPlaying(false)
                           bgRef.current?.pause()
                           compRef.current?.pause()
+                          playDuo(false)
+                          syncDuo(videoRef.current?.currentTime || 0, true)
                         }}
                         onEnded={() => setIsPlaying(false)}
                         playsInline
                         preload="auto"
-                        style={videoStyle}
+                        // Duo mode: out of sight in two-speaker shots, still playing (it carries the sound)
+                        style={{ ...videoStyle, visibility: hidden ? 'hidden' : undefined }}
                       />
                     ) : (
                       <video
@@ -1195,6 +1265,62 @@ function ClipEditor() {
                 onChange={(mode) => setLayout({ mode })}
               />
               <p className="mc-caption mc-muted">{LAYOUT_MODE_HINTS[layout.mode]}</p>
+              {layout.mode === 'duo' && (
+                <>
+                  {!duoData ? (
+                    <Alert
+                      tone="info"
+                      title="Wajah belum dianalisis"
+                      icon={<Film size={18} aria-hidden="true" />}
+                      action={
+                        <Button size="sm" variant="secondary" loading={analyzing} onClick={prepareFaces}>
+                          Analisis sekarang
+                        </Button>
+                      }
+                    >
+                      Clip ini dibuat sebelum hasil face tracking disimpan. Analisis berjalan otomatis saat ekspor, atau jalankan sekarang untuk melihat
+                      preview.
+                    </Alert>
+                  ) : duoData.shots.length === 0 ? (
+                    <Alert tone="info" title="Tidak ada adegan dua orang">
+                      Tidak ada adegan dengan dua orang berdampingan dalam satu frame. Clip ini tampil seperti layout Penuh 9:16.
+                    </Alert>
+                  ) : (
+                    <p className="mc-caption mc-muted">
+                      Dua panel tampil di {duoData.shots.length} adegan ({Math.round(duoShown)} dari {Math.round(sourceDuration)} dtk). Adegan lain tampil
+                      penuh 9:16.
+                    </p>
+                  )}
+                  <Field label="Panel atas" hint="Orang di sisi kiri atau kanan video sumber.">
+                    <ChoiceChips<DuoTop>
+                      ariaLabel="Orang di panel atas"
+                      size="sm"
+                      options={DUO_TOP_OPTIONS}
+                      value={layout.duo.top}
+                      onChange={(top) => setLayout({ duo: { top } })}
+                    />
+                  </Field>
+                  <Slider
+                    label="Ukuran wajah"
+                    min={LAYOUT_LIMITS.faceSize.min}
+                    max={LAYOUT_LIMITS.faceSize.max}
+                    step={0.01}
+                    value={layout.duo.faceSize}
+                    format={(v) => `${Math.round(v * 100)}%`}
+                    hint="Tinggi wajah dibanding panelnya."
+                    onChange={(faceSize) => setLayout({ duo: { faceSize } }, 'duo-face')}
+                  />
+                  <Slider
+                    label="Tinggi panel atas"
+                    min={LAYOUT_LIMITS.split.min}
+                    max={LAYOUT_LIMITS.split.max}
+                    step={0.01}
+                    value={layout.duo.split}
+                    format={(v) => `${Math.round(v * 100)}%`}
+                    onChange={(splitShare) => setLayout({ duo: { split: splitShare } }, 'duo-split')}
+                  />
+                </>
+              )}
               {usesSource(layout.mode) && (
                 <>
                   {!hasSource && (

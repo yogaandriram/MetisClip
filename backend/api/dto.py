@@ -82,7 +82,7 @@ def clip_dto(doc: dict[str, Any]) -> dict[str, Any]:
         "rationale": doc.get("rationale", ""),
         "status": doc.get("status", "ready"),
         "files": {"raw": files.get("raw"), "final": files.get("final"), "thumbnail": files.get("thumbnail"),
-                  "source": files.get("source")},
+                  "source": files.get("source"), "faces": files.get("faces")},
         "source_width": doc.get("source_width"),
         "source_height": doc.get("source_height"),
         "subtitle_data": {"clip_id": doc["_id"], "words": (doc.get("subtitle") or {}).get("words") or []},

@@ -1,6 +1,7 @@
 """Brand Template layout (frontend/lib/presets/layout.ts): validation, a clip's effective layout, the
-clip's original-ratio video (`source.mp4`) that the podcast and card layouts show, and the companion
-video of the split layout (a Brand Template asset, normalized on import).
+clip's original-ratio video (`source.mp4`) that the podcast, card and duo layouts show, the clip's
+face scan (`faces.json`) that the duo layout crops by, and the companion video of the split layout
+(a Brand Template asset, normalized on import).
 
 Layouts are stored as patches: a template's `layout_settings` (next to its preview-only `safeZone`)
 and a clip's `layout_style` (only the keys the user changed in the editor). The effective layout is
@@ -21,8 +22,8 @@ from backend.core.paths import get_paths
 
 logger = logging.getLogger(__name__)
 
-MODES = ("full", "podcast", "card", "split")
-SOURCE_MODES = ("podcast", "card")  # modes that show source.mp4
+MODES = ("full", "podcast", "card", "split", "duo")
+SOURCE_MODES = ("podcast", "card", "duo")  # modes that show source.mp4
 RATIOS = ("source", "16:9", "4:3", "1:1", "4:5")
 BACKGROUNDS = ("blur", "color", "gradient", "image")
 HEADER_SOURCES = ("title", "custom")
@@ -30,6 +31,7 @@ ALIGNS = ("left", "center", "right")
 ZOOM_STYLES = ("keywords", "sentences")
 SPEAKER_ALIGNS = ("left", "center")
 COMPANION_POSITIONS = ("bottom", "top")
+DUO_TOPS = ("left", "right")
 SAFE_ZONES = ("none", "all", "tiktok", "reels", "shorts")
 DESIGN_HEIGHT = 533
 
@@ -109,6 +111,13 @@ SCHEMA: dict[str, dict[str, tuple[str, Any]]] = {
         "position": ("enum", COMPANION_POSITIONS),
         "split": ("num", (0.35, 0.65)),
         "focusY": ("num", (0, 1)),
+        "divider": ("num", (0, 8)),
+        "dividerColor": ("color", None),
+    },
+    "duo": {
+        "top": ("enum", DUO_TOPS),
+        "split": ("num", (0.35, 0.65)),
+        "faceSize": ("num", (0.15, 0.5)),
         "divider": ("num", (0, 8)),
         "dividerColor": ("color", None),
     },
@@ -203,8 +212,16 @@ def effective_layout(clip: dict[str, Any] | None, bt: dict[str, Any] | None) -> 
 
 
 def needs_source(layout: dict[str, Any]) -> bool:
-    """Podcast and card layouts show the clip's original-ratio video (source.mp4)."""
+    """Podcast, card and duo layouts show the clip's original-ratio video (source.mp4)."""
     return layout.get("mode") in SOURCE_MODES
+
+
+def needs_faces(layout: dict[str, Any]) -> bool:
+    """The duo layout crops source.mp4 around the faces of the clip's face scan."""
+    return layout.get("mode") == "duo"
+
+
+MODE_NAMES = {"podcast": "podcast", "card": "kartu", "duo": "dua pembicara"}
 
 
 def companion_problem(layout: dict[str, Any]) -> str | None:
@@ -286,7 +303,7 @@ def prepare_source(clip: dict[str, Any], cancel: procs.CancelToken | None = None
     try:
         if local:
             if not Path(local).is_file():
-                raise SourceError(f"File video asli tidak ditemukan: {local}. Kembalikan file itu untuk memakai layout podcast atau kartu.")
+                raise SourceError(f"File video asli tidak ditemukan: {local}. Kembalikan file itu untuk memakai layout ini.")
             tmp = ffmpeg_ops.cut_section(Path(local), start, end, work / "source.mp4", cancel)
         elif clip.get("youtube_id"):
             try:
@@ -304,4 +321,49 @@ def prepare_source(clip: dict[str, Any], cancel: procs.CancelToken | None = None
         shutil.rmtree(work, ignore_errors=True)
     fields = source_fields(dest)
     db.clips.update_one({"_id": clip["_id"]}, {"$set": {**fields, "updated_at": utcnow()}})
+    return db.clips.find_one({"_id": clip["_id"]}) or clip
+
+
+# -- the clip's face scan --------------------------------------------------------------------------
+
+def faces_path(clip: dict[str, Any]) -> Path | None:
+    rel = (clip.get("files") or {}).get("faces")
+    if not rel:
+        return None
+    p = get_paths().from_relative(rel)
+    return p if p.is_file() else None
+
+
+def duo_info(clip: dict[str, Any]) -> dict[str, Any] | None:
+    """The duo layout's data for this clip ({width, height, shots}), or None before its face scan."""
+    from backend.agents.tools import faces
+
+    return faces.duo_data(faces.load(faces_path(clip)))
+
+
+def prepare_faces(clip: dict[str, Any], cancel: procs.CancelToken | None = None,
+                  on_step: Callable[[str], None] | None = None) -> dict[str, Any]:
+    """Make sure the clip has its face scan (clips made before it was kept do not): source.mp4 first,
+    then a scan of it into faces.json next to it. Returns the updated clip document."""
+    from backend.agents.tools import faces
+    from backend.core import resources
+
+    if faces.load(faces_path(clip)):
+        return clip
+    clip = prepare_source(clip, cancel, on_step)
+    src = source_path(clip)
+    if src is None:
+        raise SourceError("Video sumber klip tidak ada")
+    if on_step:
+        on_step("Menganalisis wajah…")
+    try:
+        with resources.hold("clip", resources.CLIP_TRACK_MB, label="Analisis wajah", cancel=cancel):
+            doc = faces.scan(src, cancel)
+    except procs.Cancelled:
+        raise
+    except Exception as exc:
+        raise SourceError(f"Analisis wajah gagal: {exc}") from exc
+    dest = faces.save(doc, src.parent / "faces.json")
+    db = get_db()
+    db.clips.update_one({"_id": clip["_id"]}, {"$set": {"files.faces": get_paths().to_relative(dest), "updated_at": utcnow()}})
     return db.clips.find_one({"_id": clip["_id"]}) or clip

@@ -10,6 +10,7 @@ import {
   LAYOUT_LIMITS,
   type BackgroundType,
   type CompanionPosition,
+  type DuoTop,
   type FrameRatio,
   type HeaderSource,
   type Layout,
@@ -19,6 +20,7 @@ import {
   type TextAlign,
   type ZoomStyle,
   captionUnderFrame,
+  duoGeometry,
   frameRect,
   headerCoveredBy,
   headerLines,
@@ -52,6 +54,13 @@ export const MODE_OPTIONS: { value: LayoutMode; label: string }[] = [
   { value: 'podcast', label: 'Podcast (rasio asli)' },
   { value: 'card', label: 'Kartu postingan' },
   { value: 'split', label: 'Video pendamping' },
+  { value: 'duo', label: 'Dua pembicara' },
+];
+
+/** Which speaker goes in the top panel (duo layout), as seen in the source video. */
+export const DUO_TOP_OPTIONS: { value: DuoTop; label: string }[] = [
+  { value: 'left', label: 'Orang kiri' },
+  { value: 'right', label: 'Orang kanan' },
 ];
 
 const COMPANION_POSITION_OPTIONS: { value: CompanionPosition; label: string }[] = [
@@ -100,6 +109,7 @@ const MODE_HINTS: Record<LayoutMode, string> = {
   podcast: 'Video tampil utuh dengan rasio aslinya di tengah, judul di atas, caption di bawah. Cocok untuk podcast dan wawancara.',
   card: 'Video di dalam kartu bergaya postingan: foto profil, nama akun, judul sebagai teks postingan, lalu videonya.',
   split: 'Layar dibagi dua: pembicara (mengikuti wajah) dan video pendamping tanpa suara yang diputar berulang, misalnya gameplay atau B-roll.',
+  duo: 'Dua orang yang duduk berdampingan dipisah jadi panel atas dan bawah, masing-masing mengikuti wajahnya. Adegan lain (close-up satu orang, shot lebar) tampil penuh 9:16.',
 };
 
 const TABS: Record<LayoutMode, { id: string; label: string }[]> = {
@@ -121,6 +131,10 @@ const TABS: Record<LayoutMode, { id: string; label: string }[]> = {
     { id: 'companion', label: 'Pendamping' },
     { id: 'credit', label: 'Kredit' },
   ],
+  duo: [
+    { id: 'duo', label: 'Panel' },
+    { id: 'credit', label: 'Kredit' },
+  ],
 };
 
 const px = (v: number) => `${Math.round(v)}px`;
@@ -136,7 +150,9 @@ export function layoutSummary(layout: LayoutSettings): string {
         ? `Kartu · ${bg}`
         : layout.mode === 'split'
           ? 'Video pendamping'
-          : 'Penuh 9:16',
+          : layout.mode === 'duo'
+            ? 'Dua pembicara'
+            : 'Penuh 9:16',
   ];
   if (layout.zoom.enabled) parts.push('Zoom');
   if (layout.speaker.enabled) parts.push('Nama pembicara');
@@ -173,6 +189,7 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
   const sp = layout.speaker;
   const c = layout.card;
   const m = layout.companion;
+  const d = layout.duo;
 
   const upload = async (file: File, kind: 'background' | 'avatar') => {
     if (file.type && !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
@@ -219,9 +236,9 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
     }
   };
 
-  // Caption centered on the line between the speaker and the companion
+  // Caption centered on the line between the two parts (speaker and companion, or the two speakers)
   const captionOnSeam = () => {
-    const g = splitGeometry(layout);
+    const g = mode === 'duo' ? duoGeometry(layout) : splitGeometry(layout);
     const y = Math.round(DESIGN_CANVAS.height - g.seam - captionHeight(caption, emoji) / 2);
     updateCaption({ positionY: Math.max(POSITION_LIMITS.y.min, Math.min(POSITION_LIMITS.y.max, y)), positionX: 150 });
   };
@@ -248,7 +265,9 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
           tabs={tabs}
           activeTab={activeTab}
           onChange={setTab}
-          ariaLabel={card ? 'Pengaturan kartu' : mode === 'split' ? 'Pengaturan video pendamping' : 'Pengaturan layout podcast'}
+          ariaLabel={
+            card ? 'Pengaturan kartu' : mode === 'split' ? 'Pengaturan video pendamping' : mode === 'duo' ? 'Pengaturan dua pembicara' : 'Pengaturan layout podcast'
+          }
           size="sm"
           block
         />
@@ -366,6 +385,50 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
           />
           {m.divider > 0 && (
             <ColorPicker label="Warna garis" color={m.dividerColor} onChange={(dividerColor) => updateLayout({ companion: { dividerColor } })} />
+          )}
+          <Button variant="secondary" size="sm" icon={<SeparatorHorizontal size={16} aria-hidden="true" />} onClick={captionOnSeam}>
+            Taruh caption di garis tengah
+          </Button>
+        </div>
+      )}
+
+      {activeTab === 'duo' && (
+        <div className="mc-stack">
+          <p className="mc-caption mc-muted">
+            Butuh adegan dengan dua orang dalam satu frame. Editor klip menunjukkan berapa detik klip yang tampil sebagai dua panel.
+          </p>
+          <Field label="Panel atas" hint="Orang di sisi kiri atau kanan video sumber. Bisa ditukar per klip di editor.">
+            <ChoiceChips<DuoTop> ariaLabel="Orang di panel atas" size="sm" options={DUO_TOP_OPTIONS} value={d.top} onChange={(top) => updateLayout({ duo: { top } })} />
+          </Field>
+          <Slider
+            label="Tinggi panel atas"
+            min={LAYOUT_LIMITS.split.min}
+            max={LAYOUT_LIMITS.split.max}
+            step={0.01}
+            value={d.split}
+            format={pct}
+            onChange={(split) => updateLayout({ duo: { split } })}
+          />
+          <Slider
+            label="Ukuran wajah"
+            min={LAYOUT_LIMITS.faceSize.min}
+            max={LAYOUT_LIMITS.faceSize.max}
+            step={0.01}
+            value={d.faceSize}
+            format={pct}
+            hint="Tinggi wajah dibanding panelnya. Video sumber tidak diperbesar lebih dari 2,2 kali, jadi wajah yang kecil di video bisa tampil lebih kecil."
+            onChange={(faceSize) => updateLayout({ duo: { faceSize } })}
+          />
+          <Slider
+            label="Garis tengah"
+            min={LAYOUT_LIMITS.divider.min}
+            max={LAYOUT_LIMITS.divider.max}
+            value={d.divider}
+            format={(v) => (v > 0 ? px(v) : 'Tidak ada')}
+            onChange={(divider) => updateLayout({ duo: { divider } })}
+          />
+          {d.divider > 0 && (
+            <ColorPicker label="Warna garis" color={d.dividerColor} onChange={(dividerColor) => updateLayout({ duo: { dividerColor } })} />
           )}
           <Button variant="secondary" size="sm" icon={<SeparatorHorizontal size={16} aria-hidden="true" />} onClick={captionOnSeam}>
             Taruh caption di garis tengah

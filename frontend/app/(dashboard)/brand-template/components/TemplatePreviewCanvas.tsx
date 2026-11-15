@@ -4,7 +4,8 @@ import { Stage } from '@/components/ui';
 import { assetUrl } from '@/lib/media';
 import { CaptionLayer } from '@/lib/presets/CaptionLayer';
 import { LayoutStage } from '@/lib/presets/LayoutStage';
-import { LAYOUT_LIMITS, type LayoutPatch, stageRect, usesSource } from '@/lib/presets/layout';
+import { LAYOUT_LIMITS, type LayoutPatch, SAMPLE_DUO, stageRect, usesSource } from '@/lib/presets/layout';
+import { DUO_PLACEHOLDER } from './LayoutPresetGallery';
 import { LOGO_BASE_SIZE, logoPosition, logoScale } from '@/lib/presets/BrandOverlay';
 import type { CaptionWord } from '@/lib/presets/types';
 import {
@@ -206,6 +207,7 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
   // Podcast frame or card: dragged up and down, saved on release
   const framed = usesSource(layoutSettings.mode);
   const split = layoutSettings.mode === 'split';
+  const duo = layoutSettings.mode === 'duo';
   const companionUrl = assetUrl(layoutSettings.companion.videoUrl);
   const [aspect, setAspect] = useState(16 / 9);
   const frameStart = useRef<{ py: number; y: number } | null>(null);
@@ -373,8 +375,11 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
           avatarUrl={assetUrl(layoutSettings.card.avatarUrl)}
           time={clock}
           words={SAMPLE_WORDS}
+          duo={SAMPLE_DUO}
           renderVideo={(role, style) =>
-            role === 'companion' ? (
+            (role === 'duoTop' || role === 'duoBottom') && !videoUrl ? (
+              <div style={{ ...style, ...DUO_PLACEHOLDER }} />
+            ) : role === 'companion' ? (
               companionUrl ? (
                 <video key={companionUrl} src={companionUrl} autoPlay loop muted playsInline style={style} />
               ) : (
@@ -405,7 +410,7 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
             ) : null
           }
         />
-        {!videoUrl && !framed && !split && (
+        {!videoUrl && !framed && !split && !duo && (
           <div className="mc-caption mc-muted" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '0 30px' }}>
             Unggah &quot;Video contoh&quot; di bagian Logo & video contoh untuk melihat preview di atas video Anda.
           </div>

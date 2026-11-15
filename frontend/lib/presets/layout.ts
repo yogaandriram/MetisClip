@@ -8,6 +8,9 @@
 //  - 'split': the face-tracked clip (raw.mp4) on one part of the canvas and a silent companion video
 //    (gameplay, satisfying footage, the user's own B-roll; a Brand Template asset) looping on the
 //    other part. Each clip starts the loop at its own point.
+//  - 'duo': two speakers sitting side by side in the source picture, one above the other, each in
+//    its own panel cropped from source.mp4 around their face (the clip's face scan, faces.json). In
+//    shots without two speakers (a close-up, a wide shot) the clip shows full-frame like 'full'.
 // Every mode can add a dynamic zoom (punch-in on AI keywords or every other sentence) and a speaker
 // name tag (lower third) shown for a few seconds.
 // Pure (no React, no DOM): the clip editor, the Brand Template preview and the Remotion render use
@@ -22,7 +25,7 @@ import { isFiller } from './captions';
 import { Ease, interpolate } from './anim';
 import type { CaptionWord } from './types';
 
-export type LayoutMode = 'full' | 'podcast' | 'card' | 'split';
+export type LayoutMode = 'full' | 'podcast' | 'card' | 'split' | 'duo';
 export type FrameRatio = 'source' | '16:9' | '4:3' | '1:1' | '4:5';
 export type BackgroundType = 'blur' | 'color' | 'gradient' | 'image';
 export type HeaderSource = 'title' | 'custom';
@@ -30,6 +33,7 @@ export type TextAlign = 'left' | 'center' | 'right';
 export type ZoomStyle = 'keywords' | 'sentences';
 export type SpeakerAlign = 'left' | 'center';
 export type CompanionPosition = 'bottom' | 'top';
+export type DuoTop = 'left' | 'right';
 
 export interface LayoutFrame {
   /** Top edge of the video frame (design px from the top). */
@@ -147,6 +151,19 @@ export interface LayoutCompanion {
   dividerColor: string;
 }
 
+/** Two speakers ('duo' mode). */
+export interface LayoutDuo {
+  /** Which speaker of the source picture (the left or the right one) goes in the top panel. */
+  top: DuoTop;
+  /** Share of the canvas height for the top panel. */
+  split: number;
+  /** Face height as a share of its panel's height: the crop zooms to it (up to DUO_MAX_UPSCALE). */
+  faceSize: number;
+  /** Line between the panels (design px; 0 = none) and its color. */
+  divider: number;
+  dividerColor: string;
+}
+
 export interface Layout {
   mode: LayoutMode;
   frame: LayoutFrame;
@@ -157,6 +174,7 @@ export interface Layout {
   zoom: LayoutZoom;
   speaker: LayoutSpeaker;
   companion: LayoutCompanion;
+  duo: LayoutDuo;
 }
 
 /** Partial layout as stored (template layout_settings, clip layout_style): sections are partial too. */
@@ -170,9 +188,10 @@ export type LayoutPatch = {
   zoom?: Partial<LayoutZoom>;
   speaker?: Partial<LayoutSpeaker>;
   companion?: Partial<LayoutCompanion>;
+  duo?: Partial<LayoutDuo>;
 };
 
-const SECTIONS = ['frame', 'background', 'header', 'credit', 'card', 'zoom', 'speaker', 'companion'] as const;
+const SECTIONS = ['frame', 'background', 'header', 'credit', 'card', 'zoom', 'speaker', 'companion', 'duo'] as const;
 
 const W = DESIGN_CANVAS.width;
 const H = DESIGN_CANVAS.height;
@@ -233,6 +252,8 @@ export const DEFAULT_LAYOUT: Layout = {
   },
   // Speaker on top, a little below the eyes (raw.mp4 is a 9:16 crop: its middle band shows the face)
   companion: { videoUrl: '', duration: 0, position: 'bottom', split: 0.5, focusY: 0.35, divider: 0, dividerColor: '#000000' },
+  // A face 30 % of its panel's height: a podcast face (~15 % of a 1080p frame) shown about 1.8x
+  duo: { top: 'left', split: 0.5, faceSize: 0.3, divider: 0, dividerColor: '#000000' },
 };
 
 /** Numeric limits (also enforced by the engine). */
@@ -254,9 +275,10 @@ export const LAYOUT_LIMITS = {
   split: { min: 0.35, max: 0.65 },
   divider: { min: 0, max: 8 },
   companionDuration: { min: 0, max: 600 },
+  faceSize: { min: 0.15, max: 0.5 },
 };
 
-export const MODES: LayoutMode[] = ['full', 'podcast', 'card', 'split'];
+export const MODES: LayoutMode[] = ['full', 'podcast', 'card', 'split', 'duo'];
 export const RATIO_VALUES: FrameRatio[] = ['source', '16:9', '4:3', '1:1', '4:5'];
 export const BACKGROUND_TYPES: BackgroundType[] = ['blur', 'color', 'gradient', 'image'];
 export const ZOOM_STYLES: ZoomStyle[] = ['keywords', 'sentences'];
@@ -306,6 +328,7 @@ export function resolveLayout(...patches: Array<LayoutPatch | Record<string, any
   const z = p.zoom || {};
   const s = p.speaker || {};
   const m = p.companion || {};
+  const u = p.duo || {};
   const L = LAYOUT_LIMITS;
   return {
     mode: oneOf(p.mode, MODES, d.mode),
@@ -382,6 +405,13 @@ export function resolveLayout(...patches: Array<LayoutPatch | Record<string, any
       focusY: num(m.focusY, { min: 0, max: 1 }, d.companion.focusY),
       divider: num(m.divider, L.divider, d.companion.divider),
       dividerColor: color(m.dividerColor, d.companion.dividerColor),
+    },
+    duo: {
+      top: oneOf(u.top, ['left', 'right'] as const, d.duo.top),
+      split: num(u.split, L.split, d.duo.split),
+      faceSize: num(u.faceSize, L.faceSize, d.duo.faceSize),
+      divider: num(u.divider, L.divider, d.duo.divider),
+      dividerColor: color(u.dividerColor, d.duo.dividerColor),
     },
   };
 }
@@ -620,17 +650,22 @@ export interface SplitGeometry {
   divider: Rect | null;
 }
 
+/** Two full-width parts: `share` of the height for the first one, on top or at the bottom. */
+function stackParts(share: number, firstOnTop: boolean, divider: number) {
+  const firstH = Math.round(H * share * 100) / 100;
+  const seam = firstOnTop ? firstH : H - firstH;
+  return {
+    first: { left: 0, top: firstOnTop ? 0 : seam, width: W, height: firstH },
+    second: { left: 0, top: firstOnTop ? seam : 0, width: W, height: H - firstH },
+    seam,
+    divider: divider > 0 ? { left: 0, top: seam - divider / 2, width: W, height: divider } : null,
+  };
+}
+
 export function splitGeometry(layout: Layout): SplitGeometry {
   const c = layout.companion;
-  const speakerH = Math.round(H * c.split * 100) / 100;
-  const speakerOnTop = c.position === 'bottom';
-  const seam = speakerOnTop ? speakerH : H - speakerH;
-  return {
-    speaker: { left: 0, top: speakerOnTop ? 0 : seam, width: W, height: speakerH },
-    companion: { left: 0, top: speakerOnTop ? seam : 0, width: W, height: H - speakerH },
-    seam,
-    divider: c.divider > 0 ? { left: 0, top: seam - c.divider / 2, width: W, height: c.divider } : null,
-  };
+  const g = stackParts(c.split, c.position === 'bottom', c.divider);
+  return { speaker: g.first, companion: g.second, seam: g.seam, divider: g.divider };
 }
 
 /**
@@ -652,6 +687,104 @@ export function companionTime(start: number, duration: number, t: number): numbe
   if (!(duration > 0)) return 0;
   return (((start + t) % duration) + duration) % duration;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Two speakers ('duo' mode)
+// ---------------------------------------------------------------------------------------------
+
+/** A face in the source picture: center and height as fractions of the frame. */
+export interface DuoFace {
+  x: number;
+  y: number;
+  h: number;
+}
+
+/** A shot with two speakers (source time, seconds): faces = [left, right]. */
+export interface DuoShot {
+  start: number;
+  end: number;
+  faces: DuoFace[];
+}
+
+/** The duo data of a clip, from its face scan (GET /api/clips/{id} → duo; render props → duo). */
+export interface DuoData {
+  /** Size of source.mp4 in px. */
+  width: number;
+  height: number;
+  shots: DuoShot[];
+}
+
+/** Most the source is blown up in a panel (output px per source px); covering the panel wins. */
+export const DUO_MAX_UPSCALE = 2.2;
+/** The face's center sits this far down its panel (headroom above, shoulders below). */
+export const DUO_FACE_Y = 0.42;
+/** Output px per design px (the render is 1080×1920). */
+const OUT_PER_DESIGN = 1920 / H;
+
+/**
+ * Shot times in faces.json are frame times rounded to 1 ms, so the first frame of a shot can sit up to
+ * 0.5 ms before its rounded start. A frame counts from this much earlier: more than the rounding,
+ * less than half a frame even at 120 fps.
+ */
+const DUO_EPS = 0.004;
+
+/** The two-speaker shot at source time `t`, or null (the clip shows full-frame then). */
+export function duoShotAt(data: DuoData | null | undefined, t: number): DuoShot | null {
+  if (!data || !Array.isArray(data.shots)) return null;
+  const u = t + DUO_EPS;
+  for (const s of data.shots) if (u >= s.start && u < s.end && s.faces?.length === 2) return s;
+  return null;
+}
+
+export interface DuoGeometry {
+  /** The top and the bottom panel, full width. */
+  top: Rect;
+  bottom: Rect;
+  seam: number;
+  divider: Rect | null;
+}
+
+export function duoGeometry(layout: Layout): DuoGeometry {
+  const d = layout.duo;
+  const g = stackParts(d.split, true, d.divider);
+  return { top: g.first, bottom: g.second, seam: g.seam, divider: g.divider };
+}
+
+/** The face for each panel: [top, bottom], from the shot's [left, right] and the layout's choice. */
+export function duoFaces(layout: Layout, shot: DuoShot): [DuoFace, DuoFace] {
+  const [left, right] = shot.faces;
+  return layout.duo.top === 'left' ? [left, right] : [right, left];
+}
+
+/**
+ * Where the whole source picture goes, relative to its panel (design px), so that `face` is framed:
+ * the face takes `faceSize` of the panel's height (no more than DUO_MAX_UPSCALE), centered across and
+ * DUO_FACE_Y down, the picture always covering the panel (no bars; a face near the edge goes off-center).
+ */
+export function duoCrop(face: DuoFace, panel: { width: number; height: number }, source: { width: number; height: number }, faceSize: number): Rect {
+  const aspect = source.width > 0 && source.height > 0 ? source.width / source.height : 16 / 9;
+  let vh = (faceSize * panel.height) / Math.max(face.h, 0.01);
+  if (source.height > 0) vh = Math.min(vh, (DUO_MAX_UPSCALE * source.height) / OUT_PER_DESIGN);
+  vh = Math.max(vh, panel.height, panel.width / aspect);
+  const vw = vh * aspect;
+  return {
+    left: clamp(panel.width / 2 - face.x * vw, panel.width - vw, 0),
+    top: clamp(panel.height * DUO_FACE_Y - face.y * vh, panel.height - vh, 0),
+    width: vw,
+    height: vh,
+  };
+}
+
+/** Seconds of the clip shown as two panels. */
+export const duoSeconds = (data: DuoData | null | undefined): number =>
+  (data?.shots || []).reduce((sum, s) => sum + Math.max(0, s.end - s.start), 0);
+
+/** Stand-in duo data for previews without a clip (Brand Template): two people at a third and two thirds. */
+export const SAMPLE_DUO: DuoData = {
+  width: 1920,
+  height: 1080,
+  shots: [{ start: 0, end: 1e9, faces: [{ x: 0.3, y: 0.42, h: 0.18 }, { x: 0.7, y: 0.42, h: 0.18 }] }],
+};
 
 /** The part of the layout dragged up and down on the Brand Template preview (podcast frame or card). */
 export function stageRect(layout: Layout, aspect: number, title: string | null | undefined): Rect | null {
@@ -834,6 +967,18 @@ export const LAYOUT_PRESETS: LayoutPreset[] = [
     name: 'Pendamping + garis',
     description: 'Pembicara lebih besar, garis putih di tengah.',
     patch: { mode: 'split', companion: { split: 0.56, divider: 3, dividerColor: '#FFFFFF' } },
+  },
+  {
+    id: 'duo',
+    name: 'Dua pembicara',
+    description: 'Dua orang dalam satu frame dipisah atas dan bawah.',
+    patch: { mode: 'duo' },
+  },
+  {
+    id: 'duo-line',
+    name: 'Dua pembicara + garis',
+    description: 'Dua panel dengan garis putih di tengah.',
+    patch: { mode: 'duo', duo: { divider: 3, dividerColor: '#FFFFFF' } },
   },
 ];
 

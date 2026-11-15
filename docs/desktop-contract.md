@@ -176,6 +176,7 @@ Rules:
 | DELETE | `/api/clips/{id}` | `?delete_files=true\|false` | `{ok: true}` |
 | GET | `/api/clips/{id}/media/{raw\|final\|thumbnail\|source}` | `?token=&v=` | media bytes (Range); `source` = the clip in the source video's own ratio (404 for clips made before it was kept) |
 | POST | `/api/clips/{id}/source` | — | `{clip: Clip}`: fetches the original-ratio video again for an older clip (yt-dlp section of its exact edges, or a cut of the uploaded file); 400 with an Indonesian message when it cannot |
+| POST | `/api/clips/{id}/faces` | — | `{clip: Clip, duo: DuoData}`: the face scan for an older clip (its `source.mp4` first when that is missing too), kept as `files.faces`; 400 with an Indonesian message when it cannot |
 | POST | `/api/clips/{id}/speaker/suggest` | — | `{speakers: [{name, role}]}`: up to 3 names for the speaker tag from the video title, the channel and the clip's words; only names whose words all appear there are returned. Not saved. 400 without a title or words, or without an LLM key; 502 on an LLM error |
 | POST | `/api/clips/{id}/render` | — | `{render_job: RenderJob}` (see "Render output" below) |
 | POST | `/api/clips/export` | `{clip_ids, dest_dir?}` (`dest_dir` empty = the export folder) | `{dest_dir, exported: [{clip_id, path}], skipped: [{clip_id, reason}]}` |
@@ -197,21 +198,24 @@ A finished render is written to `<clip dir>\final.mp4` (`output_path`) and then 
 
 `/api/clips/export` uses the same file name. Neither accepts the data folder itself, `db\`, `cache\` or `.metisclip\` as destination ("Folder tujuan tidak diizinkan").
 
-### Layout (podcast, card and split modes, zoom, speaker tag)
+### Layout (podcast, card, split and duo modes, zoom, speaker tag)
 
 The Brand Template "Layout" section (`layout_settings`, next to the preview-only `safeZone`) and a clip's override (`layout_style`) are patches of the layout model in `frontend/lib/presets/layout.ts`; `backend/services/layout.py` validates them with the same enums and limits:
 
-- `mode`: `full` (default: the face-tracked raw.mp4 fills 9:16), `podcast` (the clip's `source.mp4` in its own ratio inside a frame) `card` (`source.mp4` inside a social-post card) or `split` (raw.mp4 over a looping companion video).
+- `mode`: `full` (default: the face-tracked raw.mp4 fills 9:16), `podcast` (the clip's `source.mp4` in its own ratio inside a frame) `card` (`source.mp4` inside a social-post card) `split` (raw.mp4 over a looping companion video) or `duo` (in shots with two people side by side, one panel per person cropped from `source.mp4` around their face; raw.mp4 full-frame in every other shot).
 - `frame`: `y` (top edge, design px of the 300×533 canvas), `ratio` (`source`, `16:9`, `4:3`, `1:1`, `4:5`), `margin`, `radius`, `focusX` (0–1).
 - `background`: `type` (`blur`, `color`, `gradient`, `image`), `color`, `color2`, `imageUrl` (`asset://…`), `blur`, `dim` (0–0.9).
 - `header`: `enabled`, `source` (`title` = the clip's `hook_text`, `custom` = `text`), `text`, `fontFamily`, `fontWeight`, `fontSize` (caption units), `color`, `boxColor` (`''` = none), `align`, `isUppercase`, `gap`, `maxLines` (1–4).
-- `credit`: `enabled`, `text` (`{channel}` = the YouTube channel; hidden for uploads), `fontSize`, `color`. Drawn in the video's bottom-right corner, top-right in card mode, and in split mode in the speaker part's corner next to the seam.
+- `credit`: `enabled`, `text` (`{channel}` = the YouTube channel; hidden for uploads), `fontSize`, `color`. Drawn in the video's bottom-right corner, top-right in card mode, and in split and duo mode in the top part's corner next to the seam.
 - `card`: `name`, `handle` (the user's own account; the top row is hidden while both are empty), `avatarUrl` (`asset://…`; '' = first letter), `color`, `textColor`, `mutedColor`, `margin`, `radius`. The post text is the header (title) with the header's font, size and lines; `frame.y` places the card, `frame.ratio` / `focusX` / `radius` shape its video.
 - `zoom`: `enabled`, `style` (`keywords` = punch-in on AI keywords, `sentences` = every other sentence), `amount` (0.05–0.3).
 - `speaker`: `enabled`, `name`, `role` (usually set per clip), `fontFamily`, `fontSize`, `y`, `align` (`left`, `center`), `start`, `duration` (seconds of clip time), `color`, `textColor`, `accent`, `accentText`. Hidden while `name` is empty.
 - `companion` (split mode): `videoUrl` (`asset://…` from an upload with `kind: "companion"`), `duration` (seconds, from that upload), `position` (`bottom` = companion below the speaker, `top`), `split` (0.35–0.65, the speaker part's share of the height), `focusY` (0–1, vertical focus of the speaker video), `divider` (0–8 design px), `dividerColor`. A split render without `videoUrl`, or with its file missing, fails with "Layout video pendamping belum punya video. …" or "File video pendamping tidak ditemukan …".
+- `duo` (duo mode): `top` (`left` or `right`: which person of the source goes in the top panel), `split` (0.35–0.65, the top panel's share of the height), `faceSize` (0.15–0.5, face height as a share of its panel; the source is never scaled up more than 2.2×), `divider` (0–8 design px, drawn only in two-speaker shots), `dividerColor`.
 
 Effective layout = template ⊕ clip, merged per section (`GET /api/clips/{id}` returns it as `effective_layout`, with `channel`). Every new clip keeps `files.source` (`<clip dir>\source.mp4`, same timeline as raw.mp4) and `source_width` / `source_height`. A podcast or card render of a clip without one first prepares it ("Menyiapkan video sumber…" in `render.progress.message`); if that fails, the render fails with "Layout podcast butuh video sumber: …" (or "Layout kartu …").
+
+New clips also keep their face scan, `files.faces` (`<clip dir>aces.json`, same timeline): the faces MediaPipe found about 5 times a second and the camera-cut candidates (`backend/agents/tools/faces.py`). `GET /api/clips/{id}` returns `duo` = `{width, height, shots: [{start, end, faces: [left, right]}]}` (faces `{x, y, h}` as fractions of the source frame; shots of at least 0.8 s), or `null` before the scan. A duo render of a clip without a scan first runs it ("Menganalisis wajah…"); if that fails, the render fails with "Layout dua pembicara butuh analisis wajah: …". The render props carry the same `duo` object.
 
 ### Asset values
 
@@ -240,7 +244,7 @@ With the guard off, none of these flags are passed and the worker sizes itself f
 
 When `METISCLIP_NODE_PATH` is not set (engine run standalone in dev), the engine uses `node` from `PATH`.
 
-- `props.json` = `{ "videoUrl": "http://127.0.0.1:<port>/api/clips/<id>/media/raw?token=…", "words": [...], "style": {...}, "brandSettings": {... asset values already resolved to http URLs ...}, "ai": {...}, "durationInFrames": <int>, "layout": {... effective layout, asset values resolved ...}, "title": "<hook text>" }`, plus for a podcast or card layout `"sourceUrl"` (`media/source`), `"sourceAspect"` (width / height) and `"channel"`. Without `sourceUrl` the composition renders the full 9:16 layout.
+- `props.json` = `{ "videoUrl": "http://127.0.0.1:<port>/api/clips/<id>/media/raw?token=…", "words": [...], "style": {...}, "brandSettings": {... asset values already resolved to http URLs ...}, "ai": {...}, "durationInFrames": <int>, "layout": {... effective layout, asset values resolved ...}, "title": "<hook text>" }`, plus `"clipId"`, for a podcast, card or duo layout `"sourceUrl"` (`media/source`), `"sourceAspect"` (width / height) and `"channel"`, and for a duo layout `"duo"` (the clip's two-speaker shots, see Layout). Without `sourceUrl` the composition renders the full 9:16 layout.
 - Composition id `SubtitleOverlay`, 1080×1920, 30 fps (unchanged).
 - stdout: **JSON lines only**
   - `{"type":"progress","stage":"preparing"|"rendering"|"encoding","progress":0.42}` (0–1, overall)

@@ -60,6 +60,11 @@ RENDER_MEDIA_CACHE_MB = 256
 # A split layout decodes its companion video next to the clip. Measured 2026-11-15 (15 s clip, 4 tabs,
 # worker tree working set): 4.51 GB against 4.22 GB for the same render in full mode
 RENDER_COMPANION_MB = 300
+# A duo layout decodes the original-ratio source twice (one copy per panel) in two-speaker shots.
+# Measured 2026-11-15 (15 s of a 1080p two-host podcast, 4 tabs): 4.85 GB against 4.09 GB in full mode
+RENDER_DUO_MB = 800
+# What a layout adds to a render (RAM guard), whatever the tab count
+LAYOUT_RENDER_MB = {"split": RENDER_COMPANION_MB, "duo": RENDER_DUO_MB}
 
 ALONE_RESERVE_MB = 768
 ALONE_MAX_WAIT_S = 90.0
@@ -320,7 +325,7 @@ def render_slot(
     """Hold RAM for an export render. Waits (with priority) for one Chrome tab's worth, then takes as
     many more tabs as the RAM free at that moment allows. Yields the tab count, or None with the
     guard off (the worker then sizes itself). `extra_mb`: what the layout adds whatever the tab count
-    (RENDER_COMPANION_MB for a split layout)."""
+    (LAYOUT_RENDER_MB for the split and duo layouts)."""
     with hold("render", render_need_mb(1, extra_mb), label="Ekspor video", cancel=cancel, on_wait=on_wait,
               priority=True) as h:
         if h is None:

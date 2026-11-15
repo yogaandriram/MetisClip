@@ -1,7 +1,7 @@
 import React from 'react';
 import { Check, ZoomIn } from 'lucide-react';
 import { LayoutStage } from '@/lib/presets/LayoutStage';
-import { type Layout, LAYOUT_PRESETS, type LayoutPreset, applyLayoutPreset, matchingPreset } from '@/lib/presets/layout';
+import { type Layout, LAYOUT_PRESETS, type LayoutPreset, SAMPLE_DUO, applyLayoutPreset, matchingPreset } from '@/lib/presets/layout';
 import { SAMPLE_TITLE } from '../types';
 
 /** A stand-in for the video in the thumbnails: a person on a green backdrop. */
@@ -16,6 +16,20 @@ const PERSON: React.CSSProperties = {
 /** A stand-in for the companion video (split layout): diagonal stripes, so it reads as other footage. */
 const COMPANION: React.CSSProperties = {
   background: 'repeating-linear-gradient(135deg, var(--moss) 0 9%, var(--leaf-strong) 9% 18%)',
+};
+
+/**
+ * A stand-in for a source picture with two people side by side (duo layout): heads at a third and two
+ * thirds, where SAMPLE_DUO puts the faces.
+ */
+export const DUO_PLACEHOLDER: React.CSSProperties = {
+  background: [
+    'radial-gradient(circle at 30% 42%, var(--sage) 0 6.5%, transparent 7%)',
+    'radial-gradient(circle at 70% 42%, var(--sage) 0 6.5%, transparent 7%)',
+    'radial-gradient(ellipse 12% 24% at 30% 96%, var(--sage) 0 99%, transparent 100%)',
+    'radial-gradient(ellipse 12% 24% at 70% 96%, var(--sage) 0 99%, transparent 100%)',
+    'linear-gradient(165deg, var(--leaf-strong) 0%, var(--moss) 100%)',
+  ].join(', '),
 };
 
 /** Thumbnails show the account row filled in, like a real card. */
@@ -80,7 +94,16 @@ const PresetTile: React.FC<{ preset: LayoutPreset; layout: Layout; selected: boo
             aspect={16 / 9}
             title={SAMPLE_TITLE}
             channel="Channel contoh"
-            renderVideo={(role, style) => <span style={{ ...style, ...(role === 'companion' ? COMPANION : PERSON), display: 'block' }} />}
+            duo={SAMPLE_DUO}
+            renderVideo={(role, style) => (
+              <span
+                style={{
+                  ...style,
+                  ...(role === 'companion' ? COMPANION : role === 'duoTop' || role === 'duoBottom' ? DUO_PLACEHOLDER : PERSON),
+                  display: 'block',
+                }}
+              />
+            )}
           />
         </span>
         {result.zoom.enabled && (

@@ -427,3 +427,92 @@ def test_companion_upload_is_converted(client, paths, tmp_path):
                     data={"kind": "companion"})
     assert r.status_code == 400 and "tidak bisa dibaca" in r.json()["detail"]
     assert not list(paths.cache_dir.glob("upload-*"))
+
+
+# -- duo layout (two speakers, from the face scan) -------------------------------------------------
+
+def _faces_doc(seconds: float = 4.0) -> dict:
+    """0-2 s two people side by side, 2-4 s a close-up (25 fps, a sample every 0.2 s)."""
+    from backend.agents.tools import faces
+
+    duo = [[0.3, 0.42, 0.09, 0.16, 0.9], [0.7, 0.4, 0.09, 0.15, 0.9]]
+    solo = [[0.5, 0.4, 0.2, 0.4, 0.95]]
+    frames = int(seconds * 25)
+    return {"version": faces.VERSION, "width": 1920, "height": 1080, "fps": 25.0, "frames": frames, "interval": 5,
+            "samples": [[i / 25, duo if i < 50 else solo] for i in range(0, frames, 5)], "cuts": [[2.0, 50.0]]}
+
+
+def test_clean_layout_duo():
+    out = layout.clean_layout({"mode": "duo", "duo": {"top": "right", "split": 0.9, "faceSize": 0.1, "divider": 3,
+                                                      "dividerColor": "#FFFFFF", "junk": 1}})
+    assert out == {"mode": "duo", "duo": {"top": "right", "split": 0.65, "faceSize": 0.15, "divider": 3,
+                                          "dividerColor": "#FFFFFF"}}
+    with pytest.raises(layout.LayoutError):
+        layout.clean_layout({"duo": {"top": "middle"}})
+    assert layout.needs_source({"mode": "duo"}) and layout.needs_faces({"mode": "duo"})
+    assert not layout.needs_faces({"mode": "podcast"})
+
+
+def test_build_props_duo(db, paths):
+    from backend.agents.tools import faces
+
+    clip = _clip(db, paths, source=True)
+    db.clips.update_one({"_id": clip["_id"]}, {"$set": {"layout_style": {"mode": "duo"}}})
+    # Before the face scan: no shots (the render prepares them first, see run_render)
+    props = render.build_props(db.clips.find_one({"_id": clip["_id"]}))
+    assert props["layout"]["mode"] == "duo" and props["duo"] is None
+    assert props["sourceUrl"].endswith(f"/api/clips/{clip['_id']}/media/source?token={config.token}")
+
+    dest = faces.save(_faces_doc(), paths.from_relative(clip["files"]["source"]).parent / "faces.json")
+    db.clips.update_one({"_id": clip["_id"]}, {"$set": {"files.faces": paths.to_relative(dest)}})
+    props = render.build_props(db.clips.find_one({"_id": clip["_id"]}))
+    assert props["duo"]["width"] == 1920 and props["duo"]["height"] == 1080
+    assert [(s["start"], s["end"]) for s in props["duo"]["shots"]] == [(0.0, 2.0)]
+    assert props["duo"]["shots"][0]["faces"][0]["x"] == pytest.approx(0.3)
+
+
+def test_faces_endpoint_scans_once(client, db, paths, monkeypatch):
+    from backend.agents.tools import faces
+
+    calls: list[Path] = []
+
+    def fake_scan(video, cancel=None):
+        calls.append(Path(video))
+        return _faces_doc()
+
+    monkeypatch.setattr(faces, "scan", fake_scan)
+    clip = _clip(db, paths, source=True)
+    assert client.get(f"/api/clips/{clip['_id']}").json()["duo"] is None
+    r = client.post(f"/api/clips/{clip['_id']}/faces")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["clip"]["files"]["faces"] == clip["files"]["raw"].replace("raw.mp4", "faces.json")
+    assert [(s["start"], s["end"]) for s in body["duo"]["shots"]] == [(0.0, 2.0)]
+    assert calls == [paths.from_relative(clip["files"]["source"])]
+    # Kept: the detail carries it and a second call does not scan again
+    assert client.get(f"/api/clips/{clip['_id']}").json()["duo"]["shots"]
+    client.post(f"/api/clips/{clip['_id']}/faces")
+    assert len(calls) == 1
+
+
+def test_duo_render_fails_clearly_when_the_scan_fails(db, paths, monkeypatch):
+    from backend.agents.tools import faces
+
+    seen: list[dict] = []
+    monkeypatch.setattr(render.events, "publish", seen.append)
+
+    def broken(video, cancel=None):
+        raise faces.FacesError("Video tidak bisa dibuka")
+
+    monkeypatch.setattr(faces, "scan", broken)
+    clip = _clip(db, paths, source=True)
+    db.clips.update_one({"_id": clip["_id"]}, {"$set": {"layout_style": {"mode": "duo"}}})
+    rid = new_id()
+    db.render_jobs.insert_one({"_id": rid, "clip_id": clip["_id"], "status": "queued", "progress_pct": 0,
+                               "created_at": utcnow()})
+    render.run_render(rid, procs.CancelToken())
+    rj = db.render_jobs.find_one({"_id": rid})
+    assert rj["status"] == "failed"
+    assert rj["error"] == "Layout dua pembicara butuh analisis wajah: Analisis wajah gagal: Video tidak bisa dibuka"
+    assert any(e.get("message") == "Menganalisis wajah…" for e in seen)
+    assert db.clips.find_one({"_id": clip["_id"]})["status"] == "ready"

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   AbsoluteFill,
+  Html5Audio,
   Img,
   Loop,
   OffthreadVideo,
@@ -51,6 +52,8 @@ export type OverlayProps = {
   channel?: string;
   /** The clip's id: picks where the companion video loop starts (split layout). */
   clipId?: string;
+  /** Two-speaker shots from the clip's face scan (duo layout): {width, height, shots}. */
+  duo?: any;
 };
 
 export const FPS = 30;
@@ -82,17 +85,19 @@ export const SubtitleOverlay: React.FC<OverlayProps> = (props) => {
   // video; without one the clip stays full-frame (the engine refuses such a render first)
   const framed = usesSource(layout.mode) && !!props.sourceUrl;
   const split = layout.mode === 'split' && !!layout.companion.videoUrl && layout.companion.duration > 0;
-  const stageLayout = framed || split ? layout : { ...layout, mode: 'full' as const };
+  // Duo: panels from source.mp4 in two-speaker shots, raw.mp4 elsewhere (main stays raw.mp4)
+  const duo = layout.mode === 'duo' && !!props.sourceUrl;
+  const stageLayout = framed || split || duo ? layout : { ...layout, mode: 'full' as const };
 
   // Hold the frame until every font on screen (all bundled weights) is loaded from the local bundle.
   const families = useMemo(() => {
     const list = [primaryFamily(style.fontFamily)];
     const cardRow = layout.mode === 'card' && !!(layout.card.name.trim() || layout.card.handle.trim());
     if (framed && (headerText(layout, props.title) || cardRow)) list.push(primaryFamily(layout.header.fontFamily));
-    if ((framed || split) && creditText(layout, props.channel)) list.push('Plus Jakarta Sans');
+    if ((framed || split || duo) && creditText(layout, props.channel)) list.push('Plus Jakarta Sans');
     if (layout.speaker.enabled && layout.speaker.name.trim()) list.push(primaryFamily(layout.speaker.fontFamily));
     return Array.from(new Set(list));
-  }, [style.fontFamily, framed, split, layout, props.title, props.channel]);
+  }, [style.fontFamily, framed, split, duo, layout, props.title, props.channel]);
   const familyKey = families.join('|');
   const [handle] = useState(() => delayRender(`Memuat font ${familyKey}`, { timeoutInMilliseconds: 60000 }));
 
@@ -143,42 +148,55 @@ export const SubtitleOverlay: React.FC<OverlayProps> = (props) => {
     </Sequence>
   );
 
-  // The same kept ranges for every clip video on screen (framed source and blurred background)
-  const renderVideo = (role: 'main' | 'background' | 'companion', videoStyle: React.CSSProperties) => {
-    if (role === 'companion') return split ? companion(videoStyle) : null;
-    if (!src) return null;
-    const muted = role === 'background';
+  /** Volume of kept segment i: a short fade at each cut (avoids clicks). */
+  const fade = (i: number) => (f: number) => {
+    const s = segments[i];
+    const fadeIn = s.startFrame > 0 ? interpolate(f, [0, FADE], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }) : 1;
+    const fadeOut =
+      i < segments.length - 1
+        ? interpolate(f, [s.durationInFrames - FADE, s.durationInFrames], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
+        : 1;
+    return Math.min(fadeIn, fadeOut);
+  };
+
+  // A clip video over the kept ranges (the same for every clip video on screen)
+  const clipVideo = (url: string, videoStyle: React.CSSProperties, muted: boolean) => {
     if (!cut) {
       // OffthreadVideo: frame-exact extraction by the Remotion compositor (no browser seeking)
-      return <OffthreadVideo src={src} style={videoStyle} muted={muted} />;
+      return <OffthreadVideo src={url} style={videoStyle} muted={muted} />;
     }
     return (
       <Series>
         {segments.map((s, i) => (
           <Series.Sequence key={`${s.startFrame}-${i}`} durationInFrames={s.durationInFrames}>
-            <OffthreadVideo
-              src={src}
-              trimBefore={s.startFrame}
-              trimAfter={s.endFrame}
-              style={videoStyle}
-              muted={muted}
-              volume={
-                muted
-                  ? 0
-                  : (f) => {
-                      const fadeIn = s.startFrame > 0 ? interpolate(f, [0, FADE], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }) : 1;
-                      const fadeOut =
-                        i < segments.length - 1
-                          ? interpolate(f, [s.durationInFrames - FADE, s.durationInFrames], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
-                          : 1;
-                      return Math.min(fadeIn, fadeOut);
-                    }
-              }
-            />
+            <OffthreadVideo src={url} trimBefore={s.startFrame} trimAfter={s.endFrame} style={videoStyle} muted={muted} volume={muted ? 0 : fade(i)} />
           </Series.Sequence>
         ))}
       </Series>
     );
+  };
+
+  // Duo: the picture switches between raw.mp4 and the two source panels per shot, so the sound comes
+  // from its own uninterrupted track (raw.mp4 and source.mp4 share the same audio and timeline)
+  const duoAudio = !duo ? null : !cut ? (
+    <Html5Audio src={src} />
+  ) : (
+    <Series>
+      {segments.map((s, i) => (
+        <Series.Sequence key={`a-${s.startFrame}-${i}`} durationInFrames={s.durationInFrames}>
+          <Html5Audio src={src} trimBefore={s.startFrame} trimAfter={s.endFrame} volume={fade(i)} />
+        </Series.Sequence>
+      ))}
+    </Series>
+  );
+
+  const renderVideo = (role: 'main' | 'background' | 'companion' | 'duoTop' | 'duoBottom', videoStyle: React.CSSProperties, hidden?: boolean) => {
+    // Off screen at this frame (duo mode): nothing to extract
+    if (hidden) return null;
+    if (role === 'companion') return split ? companion(videoStyle) : null;
+    if (role === 'duoTop' || role === 'duoBottom') return duo ? clipVideo(resolveSrc(props.sourceUrl), videoStyle, true) : null;
+    if (!src) return null;
+    return clipVideo(src, videoStyle, role === 'background' || duo);
   };
 
   return (
@@ -195,7 +213,9 @@ export const SubtitleOverlay: React.FC<OverlayProps> = (props) => {
         time={sourceTime}
         words={words}
         offsetMs={style.offsetTime || 0}
+        duo={duo ? props.duo : null}
       />
+      {duoAudio}
 
       <LogoOverlay src={brandSettings?.overlayUrl || ''} brand={brandSettings} ImgComponent={Img} />
 

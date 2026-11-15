@@ -125,6 +125,8 @@ class ClipFiles(BaseModel):
     thumbnail: Optional[str] = None
     # The clip in the source video's own ratio, same timeline as raw (podcast layout)
     source: Optional[str] = None
+    # Face scan of source.mp4 (agents/tools/faces.py), for layouts that crop at render time (duo)
+    faces: Optional[str] = None
 
 
 class ClipDoc(Doc):

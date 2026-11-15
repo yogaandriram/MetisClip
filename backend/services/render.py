@@ -124,11 +124,14 @@ def build_props(clip: dict[str, Any]) -> dict[str, Any]:
         "title": clip.get("hook_text") or "",
         "clipId": clip["_id"],  # picks where the companion loop starts (split layout)
     }
-    # Podcast and card layouts: the original-ratio cut (same timeline as raw.mp4); without one it stays full
+    # Podcast, card and duo layouts: the original-ratio cut (same timeline as raw.mp4); without one the
+    # clip stays full. Duo also needs the shots with two speakers from the face scan.
     if layout_svc.needs_source(lay) and (clip.get("files") or {}).get("source"):
         props["sourceUrl"] = media_url(clip["_id"], "source")
         props["sourceAspect"] = source_aspect(clip)
         props["channel"] = channel_name(clip)
+        if layout_svc.needs_faces(lay):
+            props["duo"] = layout_svc.duo_info(clip)
     return props
 
 
@@ -215,17 +218,23 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
         problem = layout_svc.companion_problem(lay)
         if problem:
             raise RuntimeError(problem)
-        if layout_svc.needs_source(lay) and not layout_svc.source_path(clip):
-            # Clips made before the podcast and card layouts did not keep their original-ratio video
-            def step(message: str) -> None:
-                events.publish({"type": "render.progress", "id": render_id, "clip_id": clip_id,
-                                "status": "rendering", "progress_pct": 0.0, "message": message})
+        def step(message: str) -> None:
+            events.publish({"type": "render.progress", "id": render_id, "clip_id": clip_id,
+                            "status": "rendering", "progress_pct": 0.0, "message": message})
 
+        # Clips made before these layouts did not keep their original-ratio video or their face scan
+        name = layout_svc.MODE_NAMES.get(str(lay.get("mode")), "ini")
+        if layout_svc.needs_source(lay) and not layout_svc.source_path(clip):
             try:
                 clip = layout_svc.prepare_source(clip, cancel, on_step=step)
             except layout_svc.SourceError as exc:
-                name = "kartu" if lay.get("mode") == "card" else "podcast"
                 raise RuntimeError(f"Layout {name} butuh video sumber: {exc}") from exc
+            cancel.check()
+        if layout_svc.needs_faces(lay) and not layout_svc.duo_info(clip):
+            try:
+                clip = layout_svc.prepare_faces(clip, cancel, on_step=step)
+            except layout_svc.SourceError as exc:
+                raise RuntimeError(f"Layout {name} butuh analisis wajah: {exc}") from exc
             cancel.check()
         props_path.write_text(json.dumps(build_props(clip), ensure_ascii=False), encoding="utf-8")
         script = paths.render_dir / "dist" / "render.js"
@@ -244,7 +253,7 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
                             "status": "rendering", "progress_pct": 0.0, "message": info.message()})
 
         # The RAM guard sizes the render: Chrome tabs that fit, the lean encoder and frame cache
-        extra = resources.RENDER_COMPANION_MB if lay.get("mode") == "split" else 0
+        extra = resources.LAYOUT_RENDER_MB.get(str(lay.get("mode")), 0)
         with resources.render_slot(cancel=cancel, on_wait=waiting, extra_mb=extra) as tabs:
             low = tabs is not None
             if tabs is not None:

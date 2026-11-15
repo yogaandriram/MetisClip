@@ -140,7 +140,8 @@ def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw
         src, words, start, end = _source(ctx, seg, work)
         ctx.check()
         tracked = work / "tracked.mp4"
-        if process_auto_tracking_video(str(src), str(tracked), ctx.cancel):
+        faces_tmp = work / "faces.json"
+        if process_auto_tracking_video(str(src), str(tracked), ctx.cancel, faces_out=faces_tmp):
             ffmpeg_ops.finish_vertical(tracked, src, raw, ctx.cancel)
         else:
             ctx.error("processing", f"Face tracking gagal untuk klip {seg['start_time']:.0f}s, memakai center crop")
@@ -152,6 +153,10 @@ def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw
         source = raw.parent / "source.mp4"
         shutil.move(str(src), str(source))
         source_info = layout.source_fields(source)
+        # The face scan (same timeline as source.mp4) for layouts that crop at render time
+        faces_file = raw.parent / "faces.json"
+        if faces_tmp.is_file():
+            shutil.move(str(faces_tmp), str(faces_file))
         if words is None:
             words = (words_from_transcript(_transcript_key(seg), start, end)
                      or mock_words(seg.get("hook_text") or "", end - start))
@@ -179,6 +184,7 @@ def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw
             "final": None,
             "thumbnail": paths.to_relative(thumb) if thumb.exists() else None,
             "source": source_info["files.source"],
+            "faces": paths.to_relative(faces_file) if faces_file.is_file() else None,
         },
         source_width=source_info.get("source_width"),
         source_height=source_info.get("source_height"),
