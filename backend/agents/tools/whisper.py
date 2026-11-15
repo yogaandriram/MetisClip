@@ -95,6 +95,16 @@ def available() -> bool:
     return bool(get_secret("groq_api_key")) or _local_ready()
 
 
+def local_likely() -> bool:
+    """Whether the next transcription will most likely run on the local engine (RAM planning)."""
+    p = provider()
+    if p == "groq":
+        return False
+    if p == "local":
+        return _local_ready()
+    return _local_ready() and (not get_secret("groq_api_key") or _groq_paused())
+
+
 def unavailable_reason() -> str:
     """Indonesian explanation for when `available()` is False."""
     if provider() == "groq":

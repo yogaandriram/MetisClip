@@ -2,11 +2,14 @@ import React, { useId, useState } from 'react';
 import { Check, ChevronDown, RotateCcw } from 'lucide-react';
 import { Button, ColorPicker, Divider, Dropdown, Field, InputField, SelectField, Slider, Tabs, ToggleSwitch } from '@/components/ui';
 import { presets } from '@/lib/presets';
+import { CaptionPositionControls } from '@/components/captions/CaptionPositionControls';
 import { CaptionSettings } from '../types';
 import { SUPPORTED_FONTS, FONT_WEIGHTS_MAP } from '@/lib/constants';
 
 interface CaptionSettingsPanelProps {
   caption: CaptionSettings;
+  /** AI emojis are on (the caption is taller), for the safe-area check */
+  emoji: boolean;
   updateCaption: (updates: Partial<CaptionSettings>, replace?: boolean) => void;
 }
 
@@ -45,13 +48,13 @@ const CollapsibleSection: React.FC<{ title: string; children: React.ReactNode; d
   );
 };
 
-export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ caption, updateCaption }) => {
+export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ caption, emoji, updateCaption }) => {
   const [captionTab, setCaptionTab] = useState('presets');
 
   const handlePresetSelect = (presetId: string) => {
     // Picking a preset (or "reset") drops the font overrides, so the preset's own default font
     // settings apply; position and sync offset are kept.
-    updateCaption({ mode: presetId, positionY: caption.positionY, offsetTime: caption.offsetTime }, true);
+    updateCaption({ mode: presetId, positionY: caption.positionY, positionX: caption.positionX, offsetTime: caption.offsetTime }, true);
   };
 
   const weights = FONT_WEIGHTS_MAP[caption.fontFamily || 'Montserrat'] || ['Regular'];
@@ -63,7 +66,8 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
       <Tabs
         tabs={[
           { id: 'presets', label: 'Preset' },
-          { id: 'font', label: 'Font' }
+          { id: 'font', label: 'Font' },
+          { id: 'position', label: 'Posisi' }
         ]}
         activeTab={captionTab}
         onChange={setCaptionTab}
@@ -101,6 +105,16 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
               )
             })}
           </div>
+        </div>
+      )}
+
+      {captionTab === 'position' && (
+        <div className="mc-stack">
+          <p className="mc-caption mc-muted">
+            Posisi bawaan sudah di area aman semua platform. Geser caption langsung di preview, atau atur di sini.
+            Berlaku untuk semua preset.
+          </p>
+          <CaptionPositionControls style={caption} emoji={emoji} onChange={(updates) => updateCaption(updates)} />
         </div>
       )}
 
@@ -173,15 +187,7 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
             <ColorPicker label="Highlight (aktif)" color={caption.highlightColor} onChange={(c) => updateCaption({ highlightColor: c })} />
           </div>
 
-          <CollapsibleSection title="Posisi & jarak">
-            <Slider
-              label="Posisi vertikal"
-              min={0}
-              max={400}
-              value={caption.positionY || 80}
-              format={px}
-              onChange={(val) => updateCaption({ positionY: val })}
-            />
+          <CollapsibleSection title="Jarak huruf & baris">
             <Slider
               label="Jarak antar-huruf"
               min={-5}

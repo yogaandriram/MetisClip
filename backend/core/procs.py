@@ -154,6 +154,7 @@ def run(
     env: dict[str, str] | None = None,
     check: bool = True,
     input_bytes: bytes | None = None,
+    low_priority: bool = False,
 ) -> subprocess.CompletedProcess:
     """Run to completion, capturing output. Raises Cancelled / ProcessError / TimeoutExpired."""
     p = popen(
@@ -164,6 +165,7 @@ def run(
         stderr=subprocess.PIPE,
         cwd=cwd,
         env=env,
+        low_priority=low_priority,
     )
     try:
         out, err = p.communicate(input=input_bytes, timeout=timeout)

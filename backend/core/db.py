@@ -260,6 +260,11 @@ def get_db() -> Database:
     return _db
 
 
+def connected() -> bool:
+    """Whether a database is set up (without trying to connect, which can wait up to 30 s)."""
+    return _db is not None
+
+
 def set_db(db: Database, client: MongoClient | None = None) -> None:
     """Used by tests."""
     global _db, _client
@@ -322,6 +327,7 @@ def _migrations():
         m005_remove_keyword_search,
         m006_local_video_upload,
         m007_local_whisper,
+        m008_caption_safe_position,
     )
 
     return [
@@ -332,6 +338,7 @@ def _migrations():
         (5, "remove_keyword_search", m005_remove_keyword_search.up),
         (6, "local_video_upload", m006_local_video_upload.up),
         (7, "local_whisper", m007_local_whisper.up),
+        (8, "caption_safe_position", m008_caption_safe_position.up),
     ]
 
 

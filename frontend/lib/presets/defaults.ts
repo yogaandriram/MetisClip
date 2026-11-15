@@ -2,11 +2,16 @@
 // Effective style = BASE_CAPTION_STYLE ⊕ preset defaults ⊕ (brand caption_settings ⊕ clip subtitle_style).
 import type { PresetConfig, SubtitlePreset } from './types';
 import { presets } from './index';
+import { CENTER_X, DEFAULT_POSITION_Y, DESIGN_CANVAS, POSITION_LIMITS } from './position';
+
+export { DESIGN_CANVAS };
 
 export interface CaptionStyle extends PresetConfig {
   mode: string;
   /** Distance of the caption's bottom edge from the bottom of a 300×533 canvas (design px). */
   positionY: number;
+  /** Horizontal center of the caption on that canvas (design px; 150 = centered). */
+  positionX: number;
   /** Caption sync offset in milliseconds (positive = captions later). */
   offsetTime: number;
 }
@@ -30,12 +35,11 @@ export const BASE_CAPTION_STYLE: CaptionStyle = {
   highlightColor: '#07CA6B',
   letterSpacing: 0,
   lineHeight: 1.2,
-  positionY: 80,
+  // Centered, just above the bottom area every platform covers (lib/presets/position.ts)
+  positionY: DEFAULT_POSITION_Y,
+  positionX: CENTER_X,
   offsetTime: 0,
 };
-
-/** Canvas the design px refer to (the Brand Template preview size). */
-export const DESIGN_CANVAS = { width: 300, height: 533 };
 
 // Older clips stored some keys in snake_case
 const LEGACY_KEYS: Record<string, keyof CaptionStyle> = {
@@ -57,10 +61,11 @@ const LEGACY_KEYS: Record<string, keyof CaptionStyle> = {
   letter_spacing: 'letterSpacing',
   line_height: 'lineHeight',
   position_y: 'positionY',
+  position_x: 'positionX',
   offset_time: 'offsetTime',
 };
 
-const NUMERIC: (keyof CaptionStyle)[] = ['fontSize', 'strokeWidth', 'shadowX', 'shadowY', 'shadowBlur', 'letterSpacing', 'lineHeight', 'positionY', 'offsetTime'];
+const NUMERIC: (keyof CaptionStyle)[] = ['fontSize', 'strokeWidth', 'shadowX', 'shadowY', 'shadowBlur', 'letterSpacing', 'lineHeight', 'positionY', 'positionX', 'offsetTime'];
 const BOOLEAN: (keyof CaptionStyle)[] = ['isItalic', 'isUnderline', 'isUppercase', 'hasShadow'];
 
 /** Only known caption keys, camelCase, with sane types. Unknown keys (e.g. `ai`) are dropped. */
@@ -85,6 +90,8 @@ export function normalizeCaptionStyle(raw: Record<string, any> | null | undefine
   }
   for (const k of BOOLEAN) if (k in out) out[k] = !!out[k];
   if (out.fontSize !== undefined) out.fontSize = Math.min(300, Math.max(6, out.fontSize));
+  if (out.positionX !== undefined) out.positionX = Math.min(POSITION_LIMITS.x.max, Math.max(POSITION_LIMITS.x.min, out.positionX));
+  if (out.positionY !== undefined) out.positionY = Math.min(POSITION_LIMITS.y.max, Math.max(POSITION_LIMITS.y.min, out.positionY));
   return out as Partial<CaptionStyle>;
 }
 
@@ -102,5 +109,12 @@ export function resolveCaptionStyle(effective: Record<string, any> | null | unde
 /** Defaults applied when the user picks another preset (keeps position and sync offset). */
 export function presetSwitch(style: CaptionStyle, mode: string): CaptionStyle {
   const preset = getPreset(mode);
-  return { ...BASE_CAPTION_STYLE, ...(preset.getDefaultConfig() as Partial<CaptionStyle>), mode: preset.id, positionY: style.positionY, offsetTime: style.offsetTime };
+  return {
+    ...BASE_CAPTION_STYLE,
+    ...(preset.getDefaultConfig() as Partial<CaptionStyle>),
+    mode: preset.id,
+    positionY: style.positionY,
+    positionX: style.positionX,
+    offsetTime: style.offsetTime,
+  };
 }

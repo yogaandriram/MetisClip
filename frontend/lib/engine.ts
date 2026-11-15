@@ -166,11 +166,19 @@ export interface RenderJob {
   clip_id: string
   status: RenderStatus
   progress_pct: number
-  /** Absolute path of the rendered file when completed */
+  /** Absolute path of the rendered file in the library (<clip>\final.mp4) when completed */
   output_path: string | null
+  /** The copy in the export folder (Pengaturan → Folder ekspor), made when the render finishes */
+  exported_path?: string | null
+  /** The export folder used for that copy */
+  export_dir?: string | null
+  /** Why the copy failed (the render itself still completed) */
+  export_error?: string | null
   error: string | null
   created_at: ISODate
   finished_at: ISODate | null
+  /** Live status from render.progress, e.g. while it waits for free RAM (not stored) */
+  message?: string | null
 }
 
 export interface ExportResult {
@@ -196,6 +204,8 @@ export interface Settings {
   whisper: { provider: WhisperProvider; model: string; local_model: WhisperLocalModelSetting }
   processing: { max_workers: number; encoder: EncoderSetting }
   render: { concurrency: number }
+  /** RAM guard (backend/core/resources.py): auto = heavy steps wait for free RAM; reserve_gb 0 = automatic */
+  resources: { auto: boolean; reserve_gb: number }
   ytdlp: { player_client: string; cookies_file: string | null }
   db: { wiredtiger_cache_gb: number }
   app: { close_to_tray: boolean; auto_update: boolean; language: 'id' }
@@ -301,6 +311,24 @@ export interface BackupInfo {
 }
 
 /** Same shape as the old Next.js /api/dashboard/stats route */
+/** GET /api/system/resources: RAM and the heavy steps the RAM guard runs or holds back */
+export interface ResourceTask {
+  kind: 'clip' | 'render' | 'whisper' | string
+  label: string
+  need_mb: number
+}
+
+export interface ResourceStatus {
+  auto: boolean
+  total_mb: number
+  available_mb: number
+  /** RAM kept free for Windows and other apps (the setting, or the automatic value) */
+  reserve_mb: number
+  auto_reserve_mb: number
+  running: ResourceTask[]
+  waiting: ResourceTask[]
+}
+
 export interface DashboardStats {
   videosProcessed: number
   clipsGenerated: number
@@ -325,9 +353,20 @@ export type EngineEvent =
   | { type: 'clip.deleted'; id: string }
   | { type: 'brand_template.updated'; id: string }
   | { type: 'brand_template.deleted'; id: string }
-  | { type: 'render.progress'; id: string; clip_id: string; status: RenderStatus; progress_pct: number }
-  | { type: 'render.status'; id: string; clip_id: string; status: RenderStatus; output_path?: string | null; error?: string | null }
+  | { type: 'render.progress'; id: string; clip_id: string; status: RenderStatus; progress_pct: number; message?: string }
+  | {
+      type: 'render.status'
+      id: string
+      clip_id: string
+      status: RenderStatus
+      output_path?: string | null
+      exported_path?: string | null
+      export_dir?: string | null
+      export_error?: string | null
+      error?: string | null
+    }
   | { type: 'system.notice'; level: 'info' | 'warning' | 'error'; message: string }
+  | ({ type: 'system.resources' } & ResourceStatus)
   | { type: 'whisper.download'; id: WhisperModelId; status: 'downloading' | 'completed' | 'failed' | 'cancelled'; progress: number; message: string | null }
 
 // ---------------------------------------------------------------------------
@@ -544,6 +583,7 @@ export const api = {
     info: () => request<SystemInfo>('GET', '/api/system/info'),
     check: () => request<SystemCheck>('GET', '/api/system/check'),
     storage: () => request<StorageInfo>('GET', '/api/system/storage'),
+    resources: () => request<ResourceStatus>('GET', '/api/system/resources'),
     backup: () => request<{ backup: BackupInfo }>('POST', '/api/system/backup'),
     backups: () => request<{ backups: BackupInfo[] }>('GET', '/api/system/backups'),
     updateYtdlp: () => request<YtdlpUpdateResult>('POST', '/api/system/update-ytdlp'),

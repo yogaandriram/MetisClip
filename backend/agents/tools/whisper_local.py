@@ -2,8 +2,9 @@
 
 Models are not in the installer. Each one is downloaded once, on first use or from Pengaturan, into
 `<DATA_ROOT>\\models\\whisper\\`, resumed after a broken connection and checked against a pinned
-SHA256. Transcription runs one at a time, at below-normal priority, on about half the CPU threads,
-and does not start while an export render runs (`core/workload.py`).
+SHA256. Transcription runs one at a time, at below-normal priority, on about half the CPU threads.
+It does not start while an export render runs (`core/workload.py`), nor before the RAM its model
+needs is free (`core/resources.py`).
 
 whisper-cli takes paths as narrow strings, which breaks on non-ASCII folder names (a Windows user
 name such as `C:\\Users\\Dédé`). It therefore runs with the data folder as its working directory and
@@ -26,7 +27,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from backend.agents.tools.whisper import WhisperError
-from backend.core import events, procs, workload
+from backend.core import events, procs, resources, workload
 from backend.core.config import ffmpeg_path, whisper_cli_path
 from backend.core.paths import get_paths
 
@@ -390,15 +391,19 @@ def transcribe(
             on_status(f"Mengunduh model Whisper lokal {model.label} ({model.size_bytes / 1024**2:.0f} MB, sekali saja)…")
         ensure_model(model, cancel, (lambda pct: on_status(f"Mengunduh model Whisper lokal: {pct:.0f}%")) if on_status else None)
 
-    if _run_lock.locked() and on_status:
-        on_status("Menunggu Whisper lokal selesai mentranskripsi bagian lain…")
-    with _run_lock:
-        workload.wait_for_renders(cancel, (lambda: on_status("Whisper lokal menunggu export video selesai…")) if on_status else None)
-        _active_model = model.id
-        try:
-            return _run(exe, model, audio_path, cancel, on_status)
-        finally:
-            _active_model = None
+    # RAM first, then the one-at-a-time lock: a Processor clip takes them in that order too (its clip
+    # hold covers this one, holds being re-entrant), so the two can never wait on each other
+    with resources.hold("whisper", resources.WHISPER_MB.get(model.id, 1000), label=f"Whisper lokal {model.label}",
+                        cancel=cancel, on_wait=(lambda info: on_status(info.message())) if on_status else None):
+        if _run_lock.locked() and on_status:
+            on_status("Menunggu Whisper lokal selesai mentranskripsi bagian lain…")
+        with _run_lock:
+            workload.wait_for_renders(cancel, (lambda: on_status("Whisper lokal menunggu export video selesai…")) if on_status else None)
+            _active_model = model.id
+            try:
+                return _run(exe, model, audio_path, cancel, on_status)
+            finally:
+                _active_model = None
 
 
 def _run(exe: Path, model: LocalModel, audio_path: Path, cancel: procs.CancelToken | None,

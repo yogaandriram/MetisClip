@@ -6,7 +6,7 @@ import re
 import threading
 from pathlib import Path
 
-from backend.core import procs
+from backend.core import procs, resources
 from backend.core.config import ffmpeg_path
 
 logger = logging.getLogger(__name__)
@@ -60,33 +60,50 @@ def pick_encoder() -> str:
     return "libx264"
 
 
-def encoder_args(encoder: str) -> list[str]:
+# libx264 threads while RAM is tight: about half the encode RAM of the default (one thread per
+# logical CPU, 0.85 GB for a 1080x1920 clip on 16 threads), at about 1.5x the encode time
+LEAN_X264_THREADS = 4
+
+
+def encoder_args(encoder: str, lean: bool = False) -> list[str]:
     if encoder == "h264_nvenc":
         return ["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "vbr", "-cq", "19", "-b:v", "0", "-profile:v", "high", "-pix_fmt", "yuv420p"]
     if encoder == "h264_qsv":
         return ["-c:v", "h264_qsv", "-preset", "medium", "-global_quality", "20", "-pix_fmt", "nv12"]
     if encoder == "h264_amf":
         return ["-c:v", "h264_amf", "-quality", "quality", "-rc", "cqp", "-qp_i", "19", "-qp_p", "21", "-pix_fmt", "yuv420p"]
-    return ["-c:v", "libx264", "-preset", "fast", "-crf", "18", "-profile:v", "high", "-pix_fmt", "yuv420p"]
+    args = ["-c:v", "libx264", "-preset", "fast", "-crf", "18", "-profile:v", "high", "-pix_fmt", "yuv420p"]
+    return args + ["-threads", str(LEAN_X264_THREADS)] if lean else args
 
 
 def _encode_with_fallback(build, cancel: procs.CancelToken | None) -> str:
-    """Run an ffmpeg command built by `build(encoder_args)`; on a hardware-encoder error fall back to libx264."""
+    """Run an ffmpeg command built by `build(encoder_args)`; on a hardware-encoder error fall back to libx264.
+
+    With "Hemat RAM otomatis" on, encodes run at below-normal priority (the user's apps stay
+    responsive) and libx264 uses fewer threads when RAM is tight (`core/resources.py`)."""
     enc = pick_encoder()
+    lean = resources.tight()
+    low = resources.enabled()
     try:
-        procs.run(build(encoder_args(enc)), cancel=cancel, timeout=1800)
+        procs.run(build(encoder_args(enc, lean)), cancel=cancel, timeout=1800, low_priority=low)
         return enc
     except procs.ProcessError as exc:
         if enc == "libx264":
             raise
         logger.warning("Encoder %s failed, falling back to libx264: %s", enc, exc)
-        procs.run(build(encoder_args("libx264")), cancel=cancel, timeout=1800)
+        procs.run(build(encoder_args("libx264", lean)), cancel=cancel, timeout=1800, low_priority=low)
         return "libx264"
 
 
 def finish_vertical(tracked_video: Path, source_with_audio: Path, out_path: Path, cancel: procs.CancelToken | None) -> str:
-    """Tracked (cropped, silent) video + original audio -> 1080x1920 H.264/AAC mp4."""
+    """Tracked (cropped, silent) video + original audio -> 1080x1920 H.264/AAC mp4.
+
+    The output length is the tracked video's, set with `-t`. `-shortest` would do the same but makes
+    ffmpeg 7 buffer far more frames: measured 2026-11-15, it doubled the peak RAM of this encode
+    (QSV 1.16 GB -> 0.26 GB, libx264 1.75 GB -> 0.85 GB)."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    length = probe_duration(tracked_video)
+    until = ["-t", f"{length:.3f}"] if length else ["-shortest"]
 
     def build(venc: list[str]) -> list[str]:
         return [
@@ -96,7 +113,7 @@ def finish_vertical(tracked_video: Path, source_with_audio: Path, out_path: Path
             "-vf", "scale=1080:1920:flags=bicubic,setsar=1",
             *venc,
             "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
-            "-movflags", "+faststart", "-shortest",
+            "-movflags", "+faststart", *until,
             str(out_path),
         ]
 
@@ -166,9 +183,10 @@ def cut_section(source: Path, start: float, end: float, out_path: Path, cancel: 
          "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn",
          "-vf", "scale=w='min(iw,1920)':h='min(ih,1920)':force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1",
          "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p",
+         *(["-threads", str(LEAN_X264_THREADS)] if resources.tight() else []),
          "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
          "-movflags", "+faststart", str(out_path)],
-        cancel=cancel, timeout=1800,
+        cancel=cancel, timeout=1800, low_priority=resources.enabled(),
     )
     if not out_path.exists() or out_path.stat().st_size == 0:
         raise RuntimeError("Potongan video kosong")

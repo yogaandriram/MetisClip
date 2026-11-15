@@ -3,8 +3,10 @@
 // Pure functions (no DOM), so the editor, the Brand Template preview and the Remotion render agree.
 import type { PresetConfig } from './types';
 import { cssWeight, em, primaryFamily } from './style';
+import { captionWidth } from './position';
 
-type Cfg = Partial<PresetConfig>;
+/** Preset config, plus the caption position (it sets the width of the caption box). */
+type Cfg = Partial<PresetConfig> & { positionX?: number };
 
 /**
  * Average glyph advance in em for Indonesian caption text: [uppercase, lowercase] at weight 400 and
@@ -31,8 +33,8 @@ const FONT_WIDTH: Record<string, [number, number, number, number]> = {
   'Courier New': [0.6, 0.6, 0.6, 0.6],
 };
 
-/** Caption box width in em of the caption font: 80% of the video width, font = fontSize/6 cqw. */
-export const lineWidthEm = (c: Cfg): number => 480 / Math.max(6, c.fontSize || 36);
+/** Caption box width in em of the caption font (font = fontSize/6 cqw = fontSize/2 design px). */
+export const lineWidthEm = (c: Cfg): number => (2 * captionWidth(c)) / Math.max(6, c.fontSize || 36);
 
 /** Average advance of one character in em, including letter spacing. */
 export function charWidthEm(c: Cfg): number {

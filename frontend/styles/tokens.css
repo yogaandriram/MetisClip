@@ -63,6 +63,8 @@
   --shadow-2: 0 32px 80px -16px rgb(22 36 15 / 0.32);
   --scrim: rgb(22 36 15 / 0.4);
   --ink-glass: rgb(22 36 15 / 0.55);
+  /* Lighter veil: platform UI areas drawn over a video preview */
+  --ink-veil: rgb(22 36 15 / 0.3);
 
   /* Motion */
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);

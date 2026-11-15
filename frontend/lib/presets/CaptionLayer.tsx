@@ -3,6 +3,7 @@ import type { CaptionWord } from './types';
 import { type CaptionStyle, DESIGN_CANVAS, getPreset } from './defaults';
 import { type AiCaptionSettings, buildPages, captionAt, displayWords, resolveAi } from './captions';
 import { fitScale, lineChars } from './metrics';
+import { captionCenterX, captionWidth } from './position';
 import { Ease, interpolate, r4 } from './anim';
 
 /**
@@ -37,6 +38,8 @@ export const CaptionLayer: React.FC<CaptionLayerProps> = ({ words, time, style, 
   const t = time - (style.offsetTime || 0) / 1000;
   const frame = captionAt(pages, t);
   const fit = frame ? fitScale(frame.page.words, style) : 1;
+  const width = captionWidth(style);
+  const left = captionCenterX(style) - width / 2;
 
   let emoji: { char: string; start: number } | null = null;
   if (frame) {
@@ -53,8 +56,8 @@ export const CaptionLayer: React.FC<CaptionLayerProps> = ({ words, time, style, 
     <div
       style={{
         position: 'absolute',
-        left: '10%',
-        width: '80%',
+        left: `${r4((left / DESIGN_CANVAS.width) * 100)}%`,
+        width: `${r4((width / DESIGN_CANVAS.width) * 100)}%`,
         bottom: `${r4((style.positionY / DESIGN_CANVAS.height) * 100)}%`,
         textAlign: 'center',
         fontSize: `calc(${style.fontSize}cqw / 6)`,

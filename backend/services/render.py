@@ -1,7 +1,8 @@
 """Export render: Remotion worker (render-engine/dist/render.js) run via Electron-as-Node.
 
 Contract: docs/desktop-contract.md §7. Output lands in
-<DATA_ROOT>\\library\\<agent>\\<clip_id>\\final.mp4.
+<DATA_ROOT>\\library\\<agent>\\<clip_id>\\final.mp4 and is then copied to the export folder
+(Pengaturan → Folder ekspor), see `services.exports`.
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from backend.core import events, procs, workload
+from backend.core import events, procs, resources, workload
 from backend.core.config import config, node_command
 from backend.core.db import get_db, utcnow
 from backend.core.logging_setup import redactor
@@ -118,6 +119,44 @@ def _publish(render_id: str, clip_id: str, status: str, **extra: Any) -> None:
     events.publish({"type": "render.status", "id": render_id, "clip_id": clip_id, "status": status, **extra})
 
 
+def _finish(render_id: str, clip: dict[str, Any], rendered: Path) -> None:
+    """Move the rendered file to the clip's final.mp4, copy it to the export folder, mark the job completed.
+
+    A failed copy (folder gone, no space, file open in a player) does not fail the render: the job is
+    completed with `export_error`, and the editor offers to copy again or to pick another folder."""
+    from backend.services import exports
+
+    db = get_db()
+    paths = get_paths()
+    clip_id = clip["_id"]
+    out_dir = _clip_out_dir(clip)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    final = out_dir / "final.mp4"
+    os.replace(rendered, final)
+    rel = paths.to_relative(final)
+    db.clips.update_one({"_id": clip_id}, {"$set": {"files.final": rel, "status": "exported", "updated_at": utcnow()}})
+
+    exported_path: str | None = None
+    export_error: str | None = None
+    export_dir = str(exports.default_dir())
+    try:
+        folder = exports.check_dest(None)
+        export_dir = str(folder)
+        exported_path = str(exports.copy_final({**clip, "files": {**(clip.get("files") or {}), "final": rel}}, folder))
+    except exports.ExportError as exc:
+        export_error = str(exc)
+        logger.warning("Render %s: copy to the export folder failed: %s", render_id, exc)
+
+    result = {"output_path": str(final), "exported_path": exported_path, "export_dir": export_dir,
+              "export_error": export_error}
+    db.render_jobs.update_one(
+        {"_id": render_id},
+        {"$set": {"status": "completed", "progress_pct": 100.0, "finished_at": utcnow(), **result}},
+    )
+    events.publish({"type": "clip.updated", "id": clip_id})
+    _publish(render_id, clip_id, "completed", **result)
+
+
 def run_render(render_id: str, cancel: procs.CancelToken) -> None:
     db = get_db()
     rj = db.render_jobs.find_one_and_update(
@@ -156,25 +195,23 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
             cmd += ["--bundle", str(bundle)]
         if config.browser_path and Path(config.browser_path).exists():
             cmd += ["--browser", config.browser_path]
-        with workload.rendering():  # local Whisper waits until the export is done
-            error, ok = _run_worker(cmd, extra_env, render_id, clip_id, cancel)
+
+        def waiting(info: resources.WaitInfo) -> None:
+            events.publish({"type": "render.progress", "id": render_id, "clip_id": clip_id,
+                            "status": "rendering", "progress_pct": 0.0, "message": info.message()})
+
+        # The RAM guard sizes the render: Chrome tabs that fit, the lean encoder and frame cache
+        with resources.render_slot(cancel=cancel, on_wait=waiting) as tabs:
+            low = tabs is not None
+            if tabs is not None:
+                cmd += ["--concurrency", str(tabs),
+                        "--encoder-threads", str(resources.RENDER_ENCODER_THREADS),
+                        "--media-cache-mb", str(resources.RENDER_MEDIA_CACHE_MB)]
+            with workload.rendering():  # local Whisper waits until the export is done
+                error, ok = _run_worker(cmd, extra_env, render_id, clip_id, cancel, low_priority=low)
         cancel.check()
         if ok and tmp_out.exists() and tmp_out.stat().st_size > 0:
-            out_dir = _clip_out_dir(clip)
-            out_dir.mkdir(parents=True, exist_ok=True)
-            final = out_dir / "final.mp4"
-            os.replace(tmp_out, final)
-            now = utcnow()
-            db.clips.update_one(
-                {"_id": clip_id},
-                {"$set": {"files.final": paths.to_relative(final), "status": "exported", "updated_at": now}},
-            )
-            db.render_jobs.update_one(
-                {"_id": render_id},
-                {"$set": {"status": "completed", "progress_pct": 100.0, "output_path": str(final), "finished_at": now}},
-            )
-            events.publish({"type": "clip.updated", "id": clip_id})
-            _publish(render_id, clip_id, "completed", output_path=str(final))
+            _finish(render_id, clip, tmp_out)
             status = "completed"
             return
         error = error or "Render gagal tanpa pesan error"
@@ -197,11 +234,12 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
 
 
 def _run_worker(cmd: list[str], extra_env: dict[str, str], render_id: str, clip_id: str,
-                cancel: procs.CancelToken) -> tuple[str | None, bool]:
+                cancel: procs.CancelToken, low_priority: bool = False) -> tuple[str | None, bool]:
     rlog = _rlog()
     rlog.info("[%s] start: %s", render_id, " ".join(cmd))
+    # Below-normal priority is inherited by Chrome and the encoder the worker starts
     proc = procs.popen(cmd, cancel=cancel, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                       env=extra_env, cwd=get_paths().render_dir)
+                       env=extra_env, cwd=get_paths().render_dir, low_priority=low_priority)
     stderr_tail: deque[str] = deque(maxlen=40)
 
     def drain() -> None:

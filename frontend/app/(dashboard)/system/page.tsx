@@ -1,15 +1,73 @@
 'use client'
 
 import React, { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, Archive, Check, Cpu, Database, FolderOpen, HardDrive, Info, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Archive, Check, Cpu, Database, FolderOpen, HardDrive, Info, MemoryStick, RefreshCw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, IconButton, KeyValueList, PageHeader, ProgressRow, Skeleton } from '@/components/ui'
 import { useEngine } from '@/contexts/EngineContext'
-import { api, type BackupInfo, type StorageInfo, type SystemCheck } from '@/lib/engine'
+import { useEngineEvents } from '@/hooks/useEngineEvents'
+import { api, type BackupInfo, type ResourceStatus, type ResourceTask, type StorageInfo, type SystemCheck } from '@/lib/engine'
 import { errorMessage, formatBytes, formatDateTime } from '@/lib/format'
 import { isDesktop } from '@/lib/media'
 
 const headerIcon = (Icon: React.ElementType) => <Icon size={18} aria-hidden="true" />
+
+const gb = (mb: number) => `${(mb / 1024).toLocaleString('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} GB`
+
+/** RAM, the reserve, and the heavy steps the RAM guard runs or holds back (backend/core/resources.py). */
+function RamCard({ ram, error }: { ram: ResourceStatus | null; error: string | null }) {
+  const task = (t: ResourceTask, i: number) => (
+    <li key={`${t.kind}-${i}`} className="mc-row mc-row--between mc-gap-8">
+      <span className="mc-caption">{t.label || t.kind}</span>
+      <span className="mc-mono mc-caption">{gb(t.need_mb)}</span>
+    </li>
+  )
+  const used = ram ? ram.total_mb - ram.available_mb : 0
+  return (
+    <Card>
+      <CardHeader size="sm" icon={headerIcon(MemoryStick)} title="Memori (RAM)" />
+      {error ? (
+        <Alert tone="error" title="Status RAM tidak dapat dimuat">
+          {error}
+        </Alert>
+      ) : !ram ? (
+        <Skeleton height={96} radius="md" />
+      ) : (
+        <div className="mc-stack mc-gap-12">
+          <ProgressRow label="RAM terpakai" value={`${gb(used)} / ${gb(ram.total_mb)}`} percent={pct(used, ram.total_mb)} highlight />
+          <div className="mc-row mc-row--wrap mc-gap-8">
+            <Badge tone={ram.auto ? 'success' : 'neutral'} size="sm">
+              Hemat RAM otomatis {ram.auto ? 'aktif' : 'nonaktif'}
+            </Badge>
+            {ram.auto && (
+              <Badge tone="neutral" size="sm">
+                Cadangan untuk aplikasi lain {gb(ram.reserve_mb)}
+              </Badge>
+            )}
+          </div>
+          {!ram.auto && <p className="mc-caption mc-muted">Proses berat langsung berjalan tanpa melihat sisa RAM. Aktifkan lagi di Pengaturan, bagian Pemrosesan video.</p>}
+          {ram.running.length > 0 && (
+            <div className="mc-stack mc-gap-4">
+              <span className="mc-label">Sedang berjalan</span>
+              <ul className="mc-stack mc-gap-4" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                {ram.running.map(task)}
+              </ul>
+            </div>
+          )}
+          {ram.waiting.length > 0 && (
+            <div className="mc-stack mc-gap-4">
+              <span className="mc-label">Menunggu RAM cukup</span>
+              <ul className="mc-stack mc-gap-4" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                {ram.waiting.map(task)}
+              </ul>
+            </div>
+          )}
+          {ram.auto && !ram.running.length && !ram.waiting.length && <p className="mc-caption mc-muted">Tidak ada proses berat yang berjalan.</p>}
+        </div>
+      )}
+    </Card>
+  )
+}
 
 function HealthBadge({ ok }: { ok: boolean }) {
   return ok ? (
@@ -36,6 +94,14 @@ export default function SystemPage() {
   const [backups, setBackups] = useState<BackupInfo[] | null>(null)
   const [backingUp, setBackingUp] = useState(false)
   const [updatingYtdlp, setUpdatingYtdlp] = useState(false)
+  const [ram, setRam] = useState<ResourceStatus | null>(null)
+  const [ramError, setRamError] = useState<string | null>(null)
+
+  useEngineEvents((e) => {
+    if (e.type !== 'system.resources') return
+    const { type: _type, ...status } = e
+    setRam(status)
+  })
 
   const runCheck = useCallback(async () => {
     setChecking(true)
@@ -66,6 +132,11 @@ export default function SystemPage() {
     runCheck()
     loadStorage()
     refreshSystemInfo()
+    setRamError(null)
+    api.system
+      .resources()
+      .then(setRam)
+      .catch((err) => setRamError(errorMessage(err)))
   }, [runCheck, loadStorage, refreshSystemInfo, epoch])
 
   const backupNow = async () => {
@@ -110,7 +181,7 @@ export default function SystemPage() {
     <>
       <PageHeader
         title="Sistem"
-        subtitle="Status komponen, penggunaan disk, dan backup database lokal."
+        subtitle="Status komponen, RAM, penggunaan disk, dan backup database lokal."
         actions={
           desktop && systemInfo ? (
             <>
@@ -268,6 +339,8 @@ export default function SystemPage() {
         </div>
 
         <div className="mc-col-5 mc-stack mc-gap-20">
+          <RamCard ram={ram} error={ramError} />
+
           <Card tone="leaf">
             <CardHeader size="sm" icon={headerIcon(HardDrive)} title="Penyimpanan" />
             {storageError ? (

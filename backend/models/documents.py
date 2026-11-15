@@ -152,6 +152,10 @@ class RenderJobDoc(Doc):
     status: RenderStatus = "queued"
     progress_pct: float = 0.0
     output_path: Optional[str] = None
+    # Copy in the export folder, made when the render finishes (export_error: why it failed)
+    exported_path: Optional[str] = None
+    export_dir: Optional[str] = None
+    export_error: Optional[str] = None
     error: Optional[str] = None
     created_at: datetime = Field(default_factory=_now)
     started_at: Optional[datetime] = None

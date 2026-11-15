@@ -5,7 +5,17 @@ import { assetUrl } from '@/lib/media';
 import { CaptionLayer } from '@/lib/presets/CaptionLayer';
 import { LOGO_BASE_SIZE, logoPosition, logoScale } from '@/lib/presets/BrandOverlay';
 import type { CaptionWord } from '@/lib/presets/types';
-import { AiSettings, CaptionSettings, BrandSettings, LayoutSettings, safeZoneLabel } from '../types';
+import {
+  ALL_PLATFORMS_UI,
+  CENTER_X,
+  DEFAULT_POSITION_Y,
+  PLATFORM_UI,
+  POSITION_LIMITS,
+  captionCenterX,
+  captionRect,
+  toDesign,
+} from '@/lib/presets/position';
+import { AiSettings, CaptionSettings, BrandSettings, LayoutSettings, SafeZone, safeZoneLabel } from '../types';
 
 interface TemplatePreviewCanvasProps {
   caption: CaptionSettings;
@@ -13,6 +23,8 @@ interface TemplatePreviewCanvasProps {
   brandSettings?: BrandSettings;
   layoutSettings: LayoutSettings;
   onUpdateBrand?: (updates: Partial<BrandSettings>) => void;
+  /** Caption dragged (or moved with the arrow keys) on the preview */
+  onUpdateCaption?: (updates: Partial<CaptionSettings>) => void;
 }
 
 // Sample sentence for the preview loop. "eh" shows the filler-word setting; the marked words show
@@ -29,17 +41,42 @@ const SAMPLE_WORDS: CaptionWord[] = [
 const SAMPLE_LOOP = 4.3; // seconds, includes a short silence so the fade-out is visible
 
 // Platform UI areas drawn over the preview (guides only)
-const SAFE_ZONE_BOX: React.CSSProperties = {
+const SAFE_ZONE_BAND: React.CSSProperties = {
   position: 'absolute',
-  background: 'var(--ink-glass)',
-  border: '1px solid var(--on-ink-muted)',
-  borderRadius: 'var(--r-xs)',
+  background: 'var(--ink-veil)',
   color: 'var(--on-ink)',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
   fontSize: '10px',
   pointerEvents: 'none',
+};
+const SAFE_AREA_OUTLINE: React.CSSProperties = {
+  position: 'absolute',
+  border: '1px dashed var(--leaf)',
+  borderRadius: 'var(--r-xs)',
+  pointerEvents: 'none',
+};
+const SNAP_LINE: React.CSSProperties = { position: 'absolute', background: 'var(--leaf)', zIndex: 10, pointerEvents: 'none' };
+const CAPTION_SNAP = 6; // design px
+const ALL_SAFE = toDesign(ALL_PLATFORMS_UI);
+
+/**
+ * Areas the chosen platform (or any platform, for 'all') covers with its own UI, from the same
+ * figures as the caption safety check (lib/presets/position.ts). Drawn on the preview only.
+ */
+const SafeZoneGuide: React.FC<{ zone: SafeZone }> = ({ zone }) => {
+  if (zone === 'none') return null;
+  const z = zone === 'all' ? ALL_SAFE : toDesign(PLATFORM_UI[zone]);
+  return (
+    <div aria-hidden="true" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 5 }}>
+      <div style={{ ...SAFE_ZONE_BAND, left: 0, right: 0, top: 0, height: z.top }}>Tab & menu</div>
+      <div style={{ ...SAFE_ZONE_BAND, left: 0, right: 0, bottom: 0, height: z.bottom }}>Judul & keterangan</div>
+      <div style={{ ...SAFE_ZONE_BAND, right: 0, top: z.top, bottom: z.bottom, width: z.right, writingMode: 'vertical-rl' }}>Tombol</div>
+      <div style={{ ...SAFE_ZONE_BAND, left: 0, top: z.top, bottom: z.bottom, width: z.left }} />
+      <div style={{ ...SAFE_AREA_OUTLINE, left: z.left, right: z.right, top: z.top, bottom: z.bottom }} />
+    </div>
+  );
 };
 
 /** Seconds since mount, looping, on requestAnimationFrame (same time-based animation as the render). */
@@ -58,7 +95,7 @@ function useLoopClock(period: number): number {
   return time;
 }
 
-export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ caption, ai, brandSettings, layoutSettings, onUpdateBrand }) => {
+export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ caption, ai, brandSettings, layoutSettings, onUpdateBrand, onUpdateCaption }) => {
   // Brand assets are stored as asset://<path>; no remote sample video (the app must work offline)
   const videoUrl = assetUrl(brandSettings?.sampleVideoUrl);
   const overlaySrc = assetUrl(brandSettings?.overlayUrl);
@@ -80,6 +117,68 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
 
   // Caption animation clock (the sample sentence loops)
   const clock = useLoopClock(SAMPLE_LOOP);
+
+  // Caption dragging: the position follows the pointer locally and is saved on release
+  const capStart = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
+  const [capDrag, setCapDrag] = useState<{ x: number; y: number } | null>(null);
+  const [capSnap, setCapSnap] = useState({ x: false, y: false });
+  const shownCaption: CaptionSettings = capDrag ? { ...caption, positionX: capDrag.x, positionY: capDrag.y } : caption;
+  const capRect = captionRect(shownCaption, !!ai.emojis);
+  const capHeight = capRect.top - capRect.bottom;
+
+  const handleCaptionPointerDown = (e: React.PointerEvent) => {
+    if (!onUpdateCaption) return;
+    e.stopPropagation();
+    const x = captionCenterX(caption);
+    capStart.current = { px: e.clientX, py: e.clientY, x, y: caption.positionY };
+    setCapDrag({ x, y: caption.positionY });
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const handleCaptionPointerMove = (e: React.PointerEvent) => {
+    const start = capStart.current;
+    if (!start || !containerRef.current) return;
+    const scale = containerRef.current.getBoundingClientRect().width / CANVAS_WIDTH;
+    let x = start.x + (e.clientX - start.px) / scale;
+    let y = start.y - (e.clientY - start.py) / scale;
+    x = Math.max(POSITION_LIMITS.x.min, Math.min(POSITION_LIMITS.x.max, x));
+    y = Math.max(POSITION_LIMITS.y.min, Math.min(POSITION_LIMITS.y.max, CANVAS_HEIGHT - capHeight, y));
+    // Snap to the center line and to the default height (the lowest spot that is safe everywhere)
+    const snapX = Math.abs(x - CENTER_X) < CAPTION_SNAP;
+    const snapY = Math.abs(y - DEFAULT_POSITION_Y) < CAPTION_SNAP;
+    setCapSnap({ x: snapX, y: snapY });
+    setCapDrag({ x: snapX ? CENTER_X : Math.round(x), y: snapY ? DEFAULT_POSITION_Y : Math.round(y) });
+  };
+
+  const handleCaptionPointerUp = (e: React.PointerEvent) => {
+    const start = capStart.current;
+    if (!start) return;
+    e.stopPropagation();
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    capStart.current = null;
+    if (capDrag && onUpdateCaption && (capDrag.x !== Math.round(start.x) || capDrag.y !== Math.round(start.y))) {
+      onUpdateCaption({ positionX: capDrag.x, positionY: capDrag.y });
+    }
+    setCapDrag(null);
+    setCapSnap({ x: false, y: false });
+  };
+
+  const handleCaptionKeyDown = (e: React.KeyboardEvent) => {
+    if (!onUpdateCaption) return;
+    const step = e.shiftKey ? 10 : 2;
+    const x = captionCenterX(caption);
+    const y = caption.positionY;
+    const moves: Record<string, Partial<CaptionSettings>> = {
+      ArrowUp: { positionY: Math.min(POSITION_LIMITS.y.max, y + step) },
+      ArrowDown: { positionY: Math.max(POSITION_LIMITS.y.min, y - step) },
+      ArrowLeft: { positionX: Math.max(POSITION_LIMITS.x.min, x - step) },
+      ArrowRight: { positionX: Math.min(POSITION_LIMITS.x.max, x + step) },
+    };
+    if (moves[e.key]) {
+      e.preventDefault();
+      onUpdateCaption(moves[e.key]);
+    }
+  };
 
   // Sync state with props if it changes externally
   useEffect(() => {
@@ -208,25 +307,14 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
           </div>
         )}
 
-        {/* Safe zone overlays (guides only, never rendered) */}
-        {layoutSettings.safeZone === 'tiktok' && (
-          <>
-            <div style={{ ...SAFE_ZONE_BOX, right: '10px', bottom: '150px', width: '40px', height: '200px', writingMode: 'vertical-rl' }}>TikTok UI</div>
-            <div style={{ ...SAFE_ZONE_BOX, left: '10px', bottom: '20px', width: '200px', height: '80px' }}>Caption & Sound</div>
-          </>
+        {/* Safe zone overlays (guides only, never rendered). While the caption is dragged, the
+            area that is safe on every platform is always outlined. */}
+        <SafeZoneGuide zone={layoutSettings.safeZone || 'none'} />
+        {capDrag && layoutSettings.safeZone !== 'all' && (
+          <div aria-hidden="true" style={{ ...SAFE_AREA_OUTLINE, left: ALL_SAFE.left, right: ALL_SAFE.right, top: ALL_SAFE.top, bottom: ALL_SAFE.bottom, zIndex: 6 }} />
         )}
-        {layoutSettings.safeZone === 'reels' && (
-          <>
-            <div style={{ ...SAFE_ZONE_BOX, right: '10px', bottom: '120px', width: '40px', height: '200px', writingMode: 'vertical-rl' }}>Reels UI</div>
-            <div style={{ ...SAFE_ZONE_BOX, left: '10px', bottom: '20px', width: '200px', height: '80px' }}>Caption & Audio</div>
-          </>
-        )}
-        {layoutSettings.safeZone === 'shorts' && (
-          <>
-            <div style={{ ...SAFE_ZONE_BOX, right: '10px', bottom: '80px', width: '40px', height: '240px', writingMode: 'vertical-rl' }}>Shorts UI</div>
-            <div style={{ ...SAFE_ZONE_BOX, left: '10px', bottom: '20px', width: '220px', height: '60px' }}>Channel & Title</div>
-          </>
-        )}
+        {capDrag && capSnap.x && <div aria-hidden="true" style={{ ...SNAP_LINE, left: '50%', top: 0, bottom: 0, width: '1px', transform: 'translateX(-50%)' }} />}
+        {capDrag && capSnap.y && <div aria-hidden="true" style={{ ...SNAP_LINE, left: 0, right: 0, bottom: DEFAULT_POSITION_Y, height: '1px' }} />}
 
         {/* Snap Guides */}
         {isDragging && snapGuides.x && (
@@ -291,7 +379,21 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
         )}
 
         {/* Caption: the same component and sizing as the clip editor and the exported video */}
-        <CaptionLayer words={SAMPLE_WORDS} time={clock} style={{ ...caption, offsetTime: 0 }} ai={ai} />
+        <CaptionLayer words={SAMPLE_WORDS} time={clock} style={{ ...shownCaption, offsetTime: 0 }} ai={ai} />
+        {onUpdateCaption && (
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label="Posisi caption. Geser untuk memindahkan, atau pakai tombol panah (Shift untuk langkah besar)."
+            className={capDrag ? 'mc-drag-target is-dragging' : 'mc-drag-target'}
+            onPointerDown={handleCaptionPointerDown}
+            onPointerMove={handleCaptionPointerMove}
+            onPointerUp={handleCaptionPointerUp}
+            onPointerCancel={handleCaptionPointerUp}
+            onKeyDown={handleCaptionKeyDown}
+            style={{ left: capRect.left, width: capRect.right - capRect.left, bottom: capRect.bottom, height: capHeight, zIndex: 15 }}
+          />
+        )}
 
         {/* Mock player bar */}
         <div aria-hidden="true" style={{ position: 'absolute', left: '12px', right: '12px', bottom: '12px', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--on-ink)', pointerEvents: 'none' }}>
@@ -302,11 +404,10 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
         </div>
       </div>
 
-      {overlaySrc && (
-        <p className="mc-caption mc-muted" style={{ maxWidth: `${CANVAS_WIDTH}px` }}>
-          Geser logo untuk memindahkan, tarik titik di sudutnya untuk mengubah ukuran.
-        </p>
-      )}
+      <p className="mc-caption mc-muted" style={{ maxWidth: `${CANVAS_WIDTH}px` }}>
+        Geser caption untuk memindahkannya.
+        {overlaySrc && ' Geser logo untuk memindahkan, tarik titik di sudutnya untuk mengubah ukuran.'}
+      </p>
     </Stage>
   );
 };

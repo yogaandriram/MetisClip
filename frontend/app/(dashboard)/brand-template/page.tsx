@@ -433,7 +433,11 @@ export default function BrandTemplatePage() {
               open={openPanels.caption}
               onToggle={() => togglePanel('caption')}
             >
-              <CaptionSettingsPanel caption={mergedCaptionSettings} updateCaption={(updates, replace) => updateConfig('caption_settings', updates, replace)} />
+              <CaptionSettingsPanel
+                caption={mergedCaptionSettings}
+                emoji={config.ai_settings.emojis}
+                updateCaption={(updates, replace) => updateConfig('caption_settings', updates, replace)}
+              />
             </SettingsSection>
 
             <SettingsSection
@@ -479,6 +483,7 @@ export default function BrandTemplatePage() {
               brandSettings={config.brand_settings}
               layoutSettings={config.layout_settings}
               onUpdateBrand={(updates) => updateConfig('brand_settings', updates)}
+              onUpdateCaption={(updates) => updateConfig('caption_settings', updates)}
             />
           </div>
         </div>

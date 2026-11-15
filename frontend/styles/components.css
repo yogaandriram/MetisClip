@@ -2199,3 +2199,27 @@ input[type='color'].mc-input {
 .mc-card--leaf .mc-subtle {
   color: var(--ink);
 }
+
+/* Draggable element on a video preview (the caption in the Brand Template preview) */
+.mc-drag-target {
+  position: absolute;
+  border-radius: var(--r-xs);
+  cursor: grab;
+  touch-action: none;
+  outline: 1px dashed transparent;
+  outline-offset: 2px;
+  transition: outline-color var(--dur-base) var(--ease-out);
+}
+
+.mc-drag-target:hover,
+.mc-drag-target.is-dragging {
+  outline-color: var(--leaf);
+}
+
+.mc-drag-target.is-dragging {
+  cursor: grabbing;
+}
+
+.mc-drag-target:focus-visible {
+  outline: 2px solid var(--leaf);
+}

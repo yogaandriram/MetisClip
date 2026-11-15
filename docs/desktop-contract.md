@@ -141,6 +141,7 @@ Rules:
 | GET | `/api/system/info` | — | `SystemInfo` |
 | GET | `/api/system/check` | — | `SystemCheck` |
 | GET | `/api/system/storage` | — | `StorageInfo` |
+| GET | `/api/system/resources` | — | `ResourceStatus`: total and available RAM, the reserve, and the heavy steps the RAM guard runs or holds back. The same shape is pushed as the `system.resources` event whenever a step starts, waits or ends |
 | POST | `/api/system/backup` | — | `{backup: BackupInfo}` |
 | GET | `/api/system/backups` | — | `{backups: BackupInfo[]}` |
 | POST | `/api/system/update-ytdlp` | — | `YtdlpUpdateResult` (409 while a job runs). Runs `yt-dlp -U` on the copy in `%LOCALAPPDATA%\MetisClip\bin` |
@@ -174,14 +175,25 @@ Rules:
 | PUT | `/api/clips/{id}/subtitles` | `{words?, style?, reset_style?, brand_template_id?}` (`brand_template_id: null` = follow the agent's default) | `{clip: Clip}` |
 | DELETE | `/api/clips/{id}` | `?delete_files=true\|false` | `{ok: true}` |
 | GET | `/api/clips/{id}/media/{raw\|final\|thumbnail}` | `?token=&v=` | media bytes (Range) |
-| POST | `/api/clips/{id}/render` | — | `{render_job: RenderJob}` |
-| POST | `/api/clips/export` | `{clip_ids, dest_dir?}` | `{dest_dir, exported: [{clip_id, path}], skipped: [{clip_id, reason}]}` |
+| POST | `/api/clips/{id}/render` | — | `{render_job: RenderJob}` (see "Render output" below) |
+| POST | `/api/clips/export` | `{clip_ids, dest_dir?}` (`dest_dir` empty = the export folder) | `{dest_dir, exported: [{clip_id, path}], skipped: [{clip_id, reason}]}` |
 | GET | `/api/render-jobs` | `?clip_id=&status=` | `{render_jobs: RenderJob[]}` |
 | GET | `/api/render-jobs/{id}` | — | `{render_job: RenderJob}` |
 | POST | `/api/render-jobs/{id}/cancel` | — | `{render_job: RenderJob}` |
 | GET | `/api/dashboard/stats` | `?agent_id=` | `DashboardStats` |
 | WS | `/ws/events` | `?token=` | stream of `EngineEvent` JSON messages |
 | POST | `/internal/shutdown` | — | `{ok: true}` |
+
+### Render output
+
+A finished render is written to `<clip dir>\final.mp4` (`output_path`) and then copied to the export folder (`settings.export_dir`, default `<DATA_ROOT>\exports`) as `<hook text> - <clip id, 8 chars>.mp4`. A re-render of the same clip replaces that copy. `RenderJob` and the completed `render.status` event carry:
+
+- `output_path`: the file in the library
+- `exported_path`: the copy in the export folder (null when the copy failed)
+- `export_dir`: the export folder used
+- `export_error`: why the copy failed (Indonesian). The render still counts as `completed`, and the editor offers to copy again.
+
+`/api/clips/export` uses the same file name. Neither accepts the data folder itself, `db\`, `cache\` or `.metisclip\` as destination ("Folder tujuan tidak diizinkan").
 
 ### Asset values
 
@@ -196,8 +208,17 @@ Started by the engine (cancel = tree-kill):
 ```
 <METISCLIP_NODE_PATH> <RENDER_DIR>\dist\render.js --props <props.json> --out <out.mp4>
     [--bundle <RENDER_DIR>\build] [--browser <chrome-headless-shell.exe>] [--concurrency <n>] [--gl angle]
+    [--media-cache-mb <n>] [--encoder-threads <n>]
 env: ELECTRON_RUN_AS_NODE=1 (when METISCLIP_NODE_PATH is Electron)
 ```
+
+With "Hemat RAM otomatis" on (`resources.auto`, the default), the engine sizes every render with the RAM guard (`backend/core/resources.py`):
+- It waits until about 2.5 GB can be spared.
+- It then passes `--concurrency` (the Chrome tabs that fit in the RAM, 1 to 4), `--encoder-threads 4` and `--media-cache-mb 256`.
+- It starts the worker at below-normal priority; Chrome and ffmpeg inherit it.
+- While the render waits, its `render.progress` events carry a `message` ("Menunggu RAM: …").
+
+With the guard off, none of these flags are passed and the worker sizes itself from the free RAM.
 
 When `METISCLIP_NODE_PATH` is not set (engine run standalone in dev), the engine uses `node` from `PATH`.
 

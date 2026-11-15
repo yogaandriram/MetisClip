@@ -1,4 +1,15 @@
-"""Analyzer Agent: transcript -> viral segments (LLM in JSON mode + Critic pass)."""
+"""Analyzer Agent: transcript -> viral segments.
+
+1. The transcript is regrouped into numbered sentences (`tools.sentences`), so clip edges are chosen per
+   sentence instead of per caption line or per whole second.
+2. Scan: the LLM reads the whole video in overlapping ~10-minute parts and proposes candidate clips as
+   sentence ranges, scored on a fixed rubric (hook, value, standalone, payoff, shareability, 1-10 each).
+3. Rank: one more call shows the best candidates side by side, with context sentences around each. The
+   LLM fixes the edges and re-scores them against each other, so scores from different parts compare.
+4. Code keeps every clip inside the duration range at sentence edges (never a hard cut mid-sentence),
+   applies the intro ban, drops overlaps and keeps the best `max_clips_per_video`.
+The Processor then snaps both edges to the clip's own Whisper words (`tools.clip_edges`).
+"""
 from __future__ import annotations
 
 import logging
@@ -6,6 +17,7 @@ import uuid
 from typing import Any
 
 from backend.agents.context import JobContext, PipelineError
+from backend.agents.tools.sentences import Unit, build_units
 from backend.agents.tools.transcript import cache_key, get_transcript
 from backend.core import llm
 from backend.core.config import config
@@ -15,7 +27,16 @@ logger = logging.getLogger(__name__)
 
 INTRO_BAN_SECONDS = 90.0
 CHUNK_SECONDS = 10 * 60
-CRITIC_MAX_SHIFT = 30.0
+CHUNK_OVERLAP = 60.0            # a moment on a part boundary is seen whole by one of the two parts
+CANDIDATES_PER_CHUNK = 4
+RANK_MAX_CANDIDATES = 10        # candidates shown side by side in the rank pass
+RANK_CONTEXT = 5                # sentences shown before and after each candidate (edges may move there)
+DURATION_TOLERANCE = 3.0        # a clip may run this much over the chosen range to end on a full sentence
+LEAD_IN = 0.15                  # seconds kept before the first sentence (the Processor refines the edges)
+TAIL = 0.25                     # seconds kept after the last sentence
+
+# Rubric weights for viral_score (0-100) from the five 1-10 scores
+WEIGHTS = {"hook": 0.25, "value": 0.25, "standalone": 0.20, "payoff": 0.15, "shareability": 0.15}
 
 
 def parse_duration_range(value: str) -> tuple[float, float]:
@@ -57,101 +78,160 @@ def fmt_ts(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
 
 
-def format_transcript(entries: list[dict[str, Any]]) -> str:
-    return "\n".join(f"[{fmt_ts(e['start'])}] {e['text']}" for e in entries)
+def format_units(units: list[Unit], marked: tuple[int, int] | None = None) -> str:
+    lines = []
+    for u in units:
+        prefix = "" if marked is None else ("> " if marked[0] <= u.id <= marked[1] else "  ")
+        lines.append(f"{prefix}[{u.id} {fmt_ts(u.start)}] {u.text}")
+    return "\n".join(lines)
 
 
-def chunk_transcript(transcript: list[dict[str, Any]], chunk_seconds: float = CHUNK_SECONDS) -> list[list[dict[str, Any]]]:
-    chunks: list[list[dict[str, Any]]] = []
-    current: list[dict[str, Any]] = []
-    elapsed = 0.0
-    for e in transcript:
-        current.append(e)
-        elapsed += float(e.get("duration", 0) or 0)
-        if elapsed >= chunk_seconds:
-            chunks.append(current)
-            current, elapsed = [], 0.0
-    if current:
-        chunks.append(current)
+def chunk_units(units: list[Unit], chunk_seconds: float = CHUNK_SECONDS,
+                overlap: float = CHUNK_OVERLAP) -> list[list[Unit]]:
+    """Consecutive parts of about `chunk_seconds`, each starting `overlap` seconds before the previous one ends."""
+    if not units:
+        return []
+    chunks: list[list[Unit]] = []
+    begin = units[0].start
+    last = units[-1].end
+    while True:
+        part = [u for u in units if begin <= u.start < begin + chunk_seconds]
+        if part:
+            chunks.append(part)
+        if begin + chunk_seconds >= last:
+            break
+        begin += chunk_seconds - overlap
     return chunks
 
 
-def scoring_prompt(lo: float, hi: float) -> str:
-    return (
-        "You are a 10-year experienced viral media growth specialist and expert editor.\n"
-        "Your task is to scan the following video transcript chunk and locate the exact timestamps "
-        "of segments with the highest potential to go viral as short-form vertical video.\n\n"
-        "CRITICAL INSTRUCTION 1 (ABSOLUTELY NO INTROS): It is ABSOLUTELY FORBIDDEN to select any clips that start "
-        "within the first 90 seconds of the video. The intro is boring and must be skipped.\n\n"
-        f"CRITICAL INSTRUCTION 2 (DURATION & COMPLETE SENTENCES): The length of each segment MUST be STRICTLY between {lo:g} and {hi:g} seconds. "
-        "The segment MUST start at the beginning of a sentence and end exactly at a punctuation mark (., ?, !). "
-        "Do not cut off sentences mid-way. If needed, expand the segment to finish the sentence.\n\n"
-        "CRITICAL INSTRUCTION 3 (VIRALITY & SKIPPING BORING CHUNKS): You must ONLY extract segments with extremely high engaging "
-        "potential (arguments, high emotion, shocking facts). If the entire transcript chunk is boring, generic introduction, "
-        "or sponsor reads, YOU MUST RETURN AN EMPTY ARRAY. Do not force a clip if there is none.\n\n"
-        "Evaluate segments on:\n"
-        "1. Hook Strength (first 3 seconds grab immediate attention)\n"
-        "2. Emotional Intensity (shock, controversy, extreme value, laughter, or deep inspiration)\n"
-        "3. Standalone Clarity (the clip makes full sense without context)\n"
-        "4. Shareability (relatable or controversial, likely to be reposted)\n\n"
-        "Write hook_text and rationale in the same language as the transcript.\n"
-        "Output EXACTLY one valid JSON object, no other text:\n"
-        "{\n"
-        '  "segments": [\n'
-        "    {\n"
-        '      "start_time": "MM:SS or HH:MM:SS",\n'
-        '      "end_time": "MM:SS or HH:MM:SS",\n'
-        '      "viral_score": 0-100 (integer),\n'
-        '      "hook_text": "short, punchy viral title for this clip (max 60 characters)",\n'
-        '      "tags": ["controversial", "inspirational", "humor"],\n'
-        '      "rationale": "why this clip has huge virality potential"\n'
-        "    }\n"
-        "  ]\n"
-        "}"
-    )
+def duration(units: list[Unit], i: int, j: int) -> float:
+    return units[j].end - units[i].start
 
 
-def critic_prompt(lo: float, hi: float, start: float, end: float) -> str:
-    return (
-        "You are an AI Video Editor Critic. A previous AI proposed a video clip from the transcript below.\n"
-        "Fix two things:\n"
-        "1. The clip must NOT start or end in the middle of a sentence. Expand timestamps to include the full sentence if needed.\n"
-        f"2. The total duration must be STRICTLY between {lo:g} and {hi:g} seconds. If it is too short, expand end_time forward "
-        f"until the duration reaches at least {lo:g} seconds.\n\n"
-        f"Proposed Start: {fmt_ts(start)}, Proposed End: {fmt_ts(end)}\n\n"
-        'Output EXACTLY one valid JSON object: {"start_time": "MM:SS", "end_time": "MM:SS"}'
-    )
+def fit_duration(units: list[Unit], i: int, j: int, lo: float, hi: float,
+                 tol: float = DURATION_TOLERANCE) -> tuple[int, int]:
+    """Sentence range i..j moved so it lasts lo..hi+tol and, when possible, ends on a complete sentence.
+
+    Only whole sentences are added or dropped: a clip is never cut in the middle of one."""
+    n = len(units)
+    while duration(units, i, j) < lo and j + 1 < n:
+        j += 1
+    while duration(units, i, j) < lo and i > 0:  # the video ends: grow backwards
+        i -= 1
+    limit = hi + tol
+    if units[j].complete and duration(units, i, j) <= limit:
+        return i, j
+    fits: list[int] = []
+    for k in range(i, n):
+        d = duration(units, i, k)
+        if d > limit:
+            break
+        if d >= lo:
+            fits.append(k)
+    if not fits:  # one sentence longer than the range: the longest end under the limit, else the first
+        under = [k for k in range(i, min(n, j + 1)) if duration(units, i, k) <= limit]
+        return i, (under[-1] if under else i)
+    pool = [k for k in fits if units[k].complete] or fits
+    return i, min(pool, key=lambda k: (abs(k - j), -k))
 
 
-def apply_critic(start: float, end: float, critic: dict[str, Any]) -> tuple[float, float]:
-    """Accept the critic's boundaries only when both edges move less than 30 s."""
-    ns, ne = ts_to_seconds(critic.get("start_time")), ts_to_seconds(critic.get("end_time"))
-    if ns is None or ne is None or ne <= ns:
-        return start, end
-    if abs(ns - start) < CRITIC_MAX_SHIFT and abs(ne - end) < CRITIC_MAX_SHIFT:
-        return ns, ne
-    return start, end
-
-
-def enforce_duration(start: float, end: float, lo: float, hi: float, transcript: list[dict[str, Any]],
-                     video_duration: float | None = None) -> tuple[float, float]:
-    """Expand to sentence ends until >= lo, trim when absurdly long, clamp to the video length."""
-    if end - start < lo:
-        target = start + lo
-        last_end = end
-        for e in transcript:
-            e_end = float(e["start"]) + float(e.get("duration", 2.0) or 2.0)
-            if e_end <= end:
-                continue
-            last_end = max(last_end, e_end)
-            if last_end >= target:
-                break
-        end = max(last_end, target) if last_end < target else last_end
-    if end - start > hi + 30:
-        end = start + hi
+def clip_times(units: list[Unit], i: int, j: int, video_duration: float | None) -> tuple[float, float]:
+    start = max(0.0, units[i].start - LEAD_IN)
+    end = units[j].end + TAIL
     if video_duration and video_duration > 0:
-        end = min(end, video_duration)
+        end = min(end, float(video_duration))
     return round(start, 2), round(end, 2)
+
+
+def score_of(raw: dict[str, Any]) -> tuple[int, dict[str, float]]:
+    """viral_score 0-100 from the rubric scores (1-10 each); falls back to a bare viral_score, then 50."""
+    scores: dict[str, float] = {}
+    for key in WEIGHTS:
+        try:
+            scores[key] = max(1.0, min(10.0, float(raw.get(key))))
+        except (TypeError, ValueError):
+            continue
+    if len(scores) >= 3:
+        weight = sum(WEIGHTS[k] for k in scores)
+        return round(10 * sum(WEIGHTS[k] * v for k, v in scores.items()) / weight), scores
+    try:
+        return max(0, min(100, int(float(raw.get("viral_score"))))), {}
+    except (TypeError, ValueError):
+        return 50, {}
+
+
+def _int(value: Any) -> int | None:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+RUBRIC = (
+    "Score with integers from 1 to 10:\n"
+    "- hook: do the first ~3 seconds make a scrolling viewer stop (tension, surprise, a bold claim, a question)?\n"
+    "- value: how strong is the content: insight, a practical tip, a story, humor, emotion, controversy?\n"
+    "- standalone: does it make full sense to someone who has not seen the rest of the video?\n"
+    "- payoff: does it end on a satisfying landing (conclusion, punchline, answer) rather than trailing off?\n"
+    "- shareability: would people comment on it, save it, or send it to a friend?\n"
+    "Use the whole scale: 3 = weak, 5 = decent but forgettable, 7 = strong, most viewers watch to the end, "
+    "9-10 = rare, would stop almost anyone. Most clips land between 4 and 7. A high score must be earned.\n"
+)
+
+
+def _edge_rules(lo: float, hi: float) -> str:
+    return (
+        "Edges matter most: a clip that starts or ends mid-thought is useless.\n"
+        "- start_id is the sentence where the thought begins. A viewer who missed what came before must "
+        "understand it. Never start on a reaction (\"iya\", \"betul\", \"nah itu dia\"), on an answer to a "
+        "question that is not in the clip, or on a reference to earlier talk (\"yang tadi\", \"seperti yang "
+        "gua bilang\"). Start on the strongest line you can (a bold claim, a question, a story opener) and "
+        "skip warm-up.\n"
+        "- end_id is the sentence where the point lands: the conclusion, punchline, answer or lesson. Never "
+        "stop before it, and stop before the talk moves on to something else.\n"
+        f"- Length: from the start of start_id to the start of the sentence after end_id, {lo:g} to {hi:g} seconds.\n"
+        "Automatic captions may lack punctuation, so judge where sentences end by their meaning as well.\n"
+    )
+
+
+def scan_prompt(lo: float, hi: float, n: int = CANDIDATES_PER_CHUNK) -> str:
+    return (
+        "You pick moments from a long video (podcast, interview, talk) to cut into vertical short clips "
+        "for TikTok, Instagram Reels and YouTube Shorts, mostly watched by an Indonesian audience.\n\n"
+        "The transcript part below is split into numbered sentences: \"[id mm:ss] text\". The time is when "
+        "the sentence starts; it lasts until the next sentence starts.\n\n"
+        f"Pick up to {n} clips that do not overlap. A clip is a run of consecutive sentences, start_id to "
+        "end_id inclusive.\n\n"
+        + _edge_rules(lo, hi)
+        + "- Never start before 01:30 (the intro).\n\n"
+        + RUBRIC
+        + "\nIf nothing in this part deserves a clip (small talk, intro, a sponsor read, logistics), return an "
+        "empty list. Do not force clips.\n"
+        "Write hook_text (a short, punchy title, max 60 characters) and rationale (one or two sentences on "
+        "why it works) in the language of the transcript.\n\n"
+        "Output exactly one JSON object and nothing else:\n"
+        '{"clips": [{"start_id": 0, "end_id": 0, "hook": 0, "value": 0, "standalone": 0, "payoff": 0, '
+        '"shareability": 0, "hook_text": "...", "tags": ["..."], "rationale": "..."}]}'
+    )
+
+
+def rank_prompt(lo: float, hi: float) -> str:
+    return (
+        "You are the final editor of short vertical clips (TikTok, Reels, Shorts; mostly an Indonesian "
+        "audience) cut from one long video. Below are the candidate clips. Each shows its sentences marked "
+        "with \">\" and a few sentences of context before and after, as \"[id mm:ss] text\" (the time is when "
+        "the sentence starts).\n\n"
+        "For every candidate:\n"
+        "1. Fix its edges. You may move start_id and end_id to any sentence shown for that candidate.\n"
+        + _edge_rules(lo, hi)
+        + "2. Score it again, comparing the candidates with each other. Spread the scores: the best candidate "
+        "must clearly outscore an average one.\n"
+        + RUBRIC
+        + "3. Improve hook_text if a better title fits (max 60 characters, language of the transcript).\n\n"
+        "Return every candidate exactly once. Output exactly one JSON object and nothing else:\n"
+        '{"clips": [{"candidate": 1, "start_id": 0, "end_id": 0, "hook": 0, "value": 0, "standalone": 0, '
+        '"payoff": 0, "shareability": 0, "hook_text": "...", "rationale": "..."}]}'
+    )
 
 
 def segment_id(job_id: str, source: str, start: float, end: float) -> str:
@@ -162,84 +242,156 @@ def segment_id(job_id: str, source: str, start: float, end: float) -> str:
 
 
 MOCK_SEGMENTS = [
-    {"start_time": "00:13", "end_time": "00:58", "viral_score": 96, "hook_text": "[DEV] Rahasia Gelap AI yang Tidak Anda Ketahui!",
-     "tags": ["controversial", "tech-future"], "rationale": "Dev mock segment"},
-    {"start_time": "00:58", "end_time": "01:21", "viral_score": 85, "hook_text": "[DEV] AI Kini Makin Gila!",
-     "tags": ["mind-blowing"], "rationale": "Dev mock segment"},
+    {"start": 13.0, "end": 58.0, "hook_text": "[DEV] Rahasia Gelap AI yang Tidak Anda Ketahui!",
+     "tags": ["controversial", "tech-future"], "viral_score": 96},
+    {"start": 58.0, "end": 81.0, "hook_text": "[DEV] AI Kini Makin Gila!", "tags": ["mind-blowing"], "viral_score": 85},
 ]
+
+
+def _overlaps(a: dict[str, Any], b: dict[str, Any], min_ratio: float = 0.0) -> bool:
+    shared = min(a["j"], b["j"]) - max(a["i"], b["i"]) + 1
+    if shared <= 0:
+        return False
+    shorter = min(a["j"] - a["i"], b["j"] - b["i"]) + 1
+    return shared / shorter > min_ratio
+
+
+def _candidate(raw: dict[str, Any], units: list[Unit], lo: float, hi: float,
+               allowed: tuple[int, int]) -> dict[str, Any] | None:
+    """A validated LLM proposal: sentence range inside `allowed`, fitted to the duration range."""
+    i, j = _int(raw.get("start_id")), _int(raw.get("end_id"))
+    if i is None or j is None:
+        return None
+    i, j = max(i, allowed[0]), min(j, allowed[1])
+    if j < i:
+        return None
+    i, j = fit_duration(units, i, j, lo, hi)
+    if units[i].start < INTRO_BAN_SECONDS:
+        logger.info("Intro ban: rejected a clip starting at %.0fs", units[i].start)
+        return None
+    score, scores = score_of(raw)
+    tags = raw.get("tags") if isinstance(raw.get("tags"), list) else []
+    return {
+        "i": i, "j": j, "viral_score": score, "scores": scores,
+        "hook_text": str(raw.get("hook_text") or "")[:120],
+        "tags": [str(t)[:40] for t in tags][:10],
+        "rationale": str(raw.get("rationale") or "")[:1000],
+    }
+
+
+def _scan(ctx: JobContext, title: str, units: list[Unit], lo: float, hi: float) -> list[dict[str, Any]]:
+    chunks = chunk_units(units)
+    found: list[dict[str, Any]] = []
+    failures = 0
+    for k, chunk in enumerate(chunks):
+        ctx.check()
+        ctx.progress(message=f"Menganalisis '{title[:40]}' bagian {k + 1}/{len(chunks)}…")
+        try:
+            res = llm.chat_json(
+                scan_prompt(lo, hi),
+                f"Video title: {title}\n\nTranscript part {k + 1}/{len(chunks)}:\n{format_units(chunk)}",
+                temperature=0.2, max_tokens=3000,  # reasoning models spend part of it thinking
+                on_retry=lambda m: ctx.progress(message=m), should_stop=lambda: ctx.cancel.cancelled,
+            )
+        except (llm.LLMNotConfigured, llm.LLMQuotaExhausted):
+            raise  # the next parts would fail the same way
+        except llm.LLMError as exc:
+            failures += 1
+            ctx.error("analysis", f"Bagian {k + 1} gagal dianalisis: {exc}")
+            if failures >= 3 and failures == k + 1:
+                raise PipelineError(f"Analisis LLM gagal berulang kali: {exc}") from exc
+            continue
+        allowed = (chunk[0].id, min(len(units) - 1, chunk[-1].id + 3))  # the end may run a little past the part
+        for raw in res.get("clips") or res.get("segments") or []:
+            if isinstance(raw, dict) and (cand := _candidate(raw, units, lo, hi, allowed)):
+                # Neighbouring parts overlap, so the same moment can come back twice: keep the better one
+                twin = next((c for c in found if _overlaps(c, cand, 0.5)), None)
+                if twin is None:
+                    found.append(cand)
+                elif cand["viral_score"] > twin["viral_score"]:
+                    found[found.index(twin)] = cand
+    return found
+
+
+def _rank(ctx: JobContext, title: str, units: list[Unit], cands: list[dict[str, Any]],
+          lo: float, hi: float) -> list[dict[str, Any]]:
+    """One side-by-side pass: better edges and comparable scores. Keeps the scan results on any failure."""
+    if len(cands) < 2:
+        return cands
+    ctx.check()
+    ctx.progress(message=f"Membandingkan dan merapikan {len(cands)} kandidat klip…")
+    windows: list[tuple[int, int]] = []
+    blocks: list[str] = []
+    for n, c in enumerate(cands, 1):
+        w = (max(0, c["i"] - RANK_CONTEXT), min(len(units) - 1, c["j"] + RANK_CONTEXT))
+        windows.append(w)
+        blocks.append(f"Candidate {n} (now {c['i']}-{c['j']}, {duration(units, c['i'], c['j']):.0f} s)\n"
+                      + format_units(units[w[0]:w[1] + 1], marked=(c["i"], c["j"])))
+    try:
+        res = llm.chat_json(
+            rank_prompt(lo, hi),
+            f"Video title: {title}\n\n" + "\n\n".join(blocks),
+            temperature=0.2, max_tokens=5000,
+            on_retry=lambda m: ctx.progress(message=m), should_stop=lambda: ctx.cancel.cancelled,
+        )
+    except llm.LLMError as exc:  # quota, network, refusal: the scan results stand on their own
+        ctx.error("analysis", f"Penilaian ulang kandidat dilewati, memakai skor awal: {exc}")
+        return cands
+    ranked = list(cands)
+    for raw in res.get("clips") or []:
+        n = _int(raw.get("candidate")) if isinstance(raw, dict) else None
+        if n is None or not 1 <= n <= len(cands):
+            continue
+        old = cands[n - 1]
+        base = {"start_id": old["i"], "end_id": old["j"], "viral_score": old["viral_score"], **old["scores"],
+                "hook_text": old["hook_text"], "tags": old["tags"], "rationale": old["rationale"]}
+        update = {k: v for k, v in raw.items() if v not in (None, "", [])}
+        # An edit that breaks a rule (e.g. moves into the intro) leaves the candidate as the scan found it
+        if cand := _candidate({**base, **update}, units, lo, hi, windows[n - 1]):
+            ranked[n - 1] = cand
+    return ranked
+
+
+def _mock(units: list[Unit], lo: float, hi: float) -> list[dict[str, Any]]:
+    out = []
+    for m in MOCK_SEGMENTS:
+        inside = [u.id for u in units if m["start"] - 0.5 <= u.start <= m["end"]]
+        if inside:
+            i, j = fit_duration(units, inside[0], inside[-1], lo, hi)
+            out.append({"i": i, "j": j, "viral_score": m["viral_score"], "scores": {}, "hook_text": m["hook_text"],
+                        "tags": m["tags"], "rationale": "Dev mock segment"})
+    return out
 
 
 def _analyze_video(ctx: JobContext, video: dict[str, Any], lo: float, hi: float, per_video: int,
                    transcript: list[dict[str, Any]], use_llm: bool) -> list[dict[str, Any]]:
     title = video.get("title") or video.get("youtube_id") or "video"
-    proposals: list[dict[str, Any]] = []
+    units = build_units(transcript)
+    if not units:
+        return []
     if use_llm:
-        chunks = chunk_transcript(transcript)
-        failures = 0
-        for i, chunk in enumerate(chunks):
-            ctx.check()
-            ctx.progress(message=f"Menganalisis '{title[:40]}' bagian {i + 1}/{len(chunks)}…")
-            try:
-                res = llm.chat_json(
-                    scoring_prompt(lo, hi),
-                    f"Video Title: {title}\n\nTranscript Chunk:\n{format_transcript(chunk)}",
-                    temperature=0.2, max_tokens=2000,
-                    on_retry=lambda m: ctx.progress(message=m), should_stop=lambda: ctx.cancel.cancelled,
-                )
-            except (llm.LLMNotConfigured, llm.LLMQuotaExhausted):
-                raise  # the next chunks would fail the same way
-            except llm.LLMError as exc:
-                failures += 1
-                ctx.error("analysis", f"Bagian {i + 1} gagal dianalisis: {exc}")
-                if failures >= 3 and failures == i + 1:
-                    raise PipelineError(f"Analisis LLM gagal berulang kali: {exc}") from exc
-                continue
-            for seg in res.get("segments") or []:
-                if not isinstance(seg, dict):
-                    continue
-                s = ts_to_seconds(seg.get("start_time"))
-                e = ts_to_seconds(seg.get("end_time"))
-                if s is None or e is None or e <= s:
-                    continue
-                if s < INTRO_BAN_SECONDS:
-                    logger.info("Intro ban: rejected segment starting at %.0fs", s)
-                    continue
-                proposals.append({**seg, "_start": s, "_end": e})
-            if per_video > 0 and len(proposals) >= per_video:
-                break
+        cands = _scan(ctx, title, units, lo, hi)
+        cands.sort(key=lambda c: c["viral_score"], reverse=True)
+        # The best candidates are compared side by side; the rest (only kept when max clips is 0) keep their scan score
+        cands = _rank(ctx, title, units, cands[:RANK_MAX_CANDIDATES], lo, hi) + cands[RANK_MAX_CANDIDATES:]
     else:
-        for seg in MOCK_SEGMENTS:
-            proposals.append({**seg, "_start": ts_to_seconds(seg["start_time"]), "_end": ts_to_seconds(seg["end_time"])})
+        cands = _mock(units, lo, hi)
+
+    # Best first; a clip never overlaps a better one
+    cands.sort(key=lambda c: c["viral_score"], reverse=True)
+    kept: list[dict[str, Any]] = []
+    for c in cands:
+        if not any(_overlaps(c, k) for k in kept):
+            kept.append(c)
+    if per_video > 0:
+        kept = kept[:per_video]
 
     out: list[dict[str, Any]] = []
-    critic_on = use_llm
-    for seg in proposals:
-        ctx.check()
-        start, end = float(seg["_start"]), float(seg["_end"])
-        if critic_on:
-            context_entries = [e for e in transcript if start - 30 <= e["start"] <= end + hi + 30]
-            try:
-                critic = llm.chat_json(
-                    critic_prompt(lo, hi, start, end),
-                    f"Transcript Context:\n{format_transcript(context_entries)}",
-                    temperature=0.1, max_tokens=200, retries=1,
-                    should_stop=lambda: ctx.cancel.cancelled,
-                )
-                start, end = apply_critic(start, end, critic)
-            except llm.LLMQuotaExhausted as exc:
-                # The segments are already found; keep them with the code-side boundary fixes only
-                critic_on = False
-                logger.info("Critic pass skipped for the remaining segments: %s", exc)
-            except llm.LLMError as exc:
-                logger.info("Critic pass skipped: %s", exc)
-        start, end = enforce_duration(start, end, lo, hi, transcript, video.get("duration_seconds"))
+    for c in kept:
+        start, end = clip_times(units, c["i"], c["j"], video.get("duration_seconds"))
         if end - start < 5:
             continue
-        try:
-            score = int(float(seg.get("viral_score", 70)))
-        except (TypeError, ValueError):
-            score = 70
-        tags = seg.get("tags") if isinstance(seg.get("tags"), list) else []
+        logger.info("Clip %s-%s score %s %s", fmt_ts(start), fmt_ts(end), c["viral_score"], c["scores"])
         out.append({
             "segment_id": segment_id(ctx.id, video.get("youtube_id") or video["_id"], start, end),
             "source_video_id": video["_id"],
@@ -249,19 +401,12 @@ def _analyze_video(ctx: JobContext, video: dict[str, Any], lo: float, hi: float,
             "start_time": start,
             "end_time": end,
             "duration_seconds": round(end - start, 2),
-            "viral_score": max(0, min(100, score)),
-            "hook_text": str(seg.get("hook_text") or "")[:120],
-            "tags": [str(t)[:40] for t in tags][:10],
-            "rationale": str(seg.get("rationale") or "")[:1000],
+            "viral_score": c["viral_score"],
+            "hook_text": c["hook_text"],
+            "tags": c["tags"],
+            "rationale": c["rationale"],
         })
-    # Drop overlapping duplicates, keep the higher score
-    out.sort(key=lambda x: x["viral_score"], reverse=True)
-    kept: list[dict[str, Any]] = []
-    for seg in out:
-        if any(seg["start_time"] < k["end_time"] and k["start_time"] < seg["end_time"] for k in kept):
-            continue
-        kept.append(seg)
-    return kept
+    return out
 
 
 def run(ctx: JobContext, videos: list[dict[str, Any]]) -> list[dict[str, Any]]:
