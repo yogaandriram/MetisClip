@@ -1,11 +1,13 @@
 import type { CaptionStyle } from '@/lib/presets/defaults';
 import { resolveCaptionStyle } from '@/lib/presets/defaults';
 import { type AiCaptionSettings, DEFAULT_AI_SETTINGS } from '@/lib/presets/captions';
+import { DEFAULT_LAYOUT, type Layout } from '@/lib/presets/layout';
 
 /** 'all' = the area any of TikTok, IG Reels and YT Shorts covers (lib/presets/position.ts). */
 export type SafeZone = 'none' | 'all' | 'tiktok' | 'reels' | 'shorts';
 
-export interface LayoutSettings {
+/** How the video sits on the canvas (lib/presets/layout.ts), plus the preview-only safe-zone guide. */
+export interface LayoutSettings extends Layout {
   /** Platform UI guide drawn on the preview only (never rendered into the clip). */
   safeZone?: SafeZone;
 }
@@ -48,6 +50,7 @@ export interface TemplateConfig {
 
 export const DEFAULT_TEMPLATE_CONFIG: TemplateConfig = {
   layout_settings: {
+    ...DEFAULT_LAYOUT,
     safeZone: 'all'
   },
   caption_settings: resolveCaptionStyle({ mode: 'popshadow' }),

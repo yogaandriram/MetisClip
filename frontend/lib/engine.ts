@@ -115,6 +115,8 @@ export interface ClipFiles {
   raw: string | null
   final: string | null
   thumbnail: string | null
+  /** The clip in the source video's own ratio (podcast layout); null for clips made before it was kept */
+  source?: string | null
 }
 
 export interface Clip {
@@ -135,6 +137,11 @@ export interface Clip {
   subtitle_data: { clip_id: string; words: SubtitleWord[] }
   /** Per-clip override of the brand caption settings ({} = inherit) */
   subtitle_style: Record<string, any>
+  /** Per-clip override of the brand layout_settings ({} = inherit; lib/presets/layout.ts) */
+  layout_style?: Record<string, any>
+  /** Size of files.source */
+  source_width?: number | null
+  source_height?: number | null
   /** The clip's brand template (null = its agent's default) */
   brand_template_id: string | null
   created_at: ISODate
@@ -147,6 +154,10 @@ export interface ClipDetail {
   effective_style: Record<string, any>
   /** brand ai_settings merged with clip.subtitle_style.ai */
   effective_ai: AiSubtitleSettings
+  /** brand layout_settings merged with clip.layout_style (without safeZone) */
+  effective_layout?: Record<string, any>
+  /** YouTube channel of the source video ('' for uploads), for the layout credit */
+  channel?: string
   /** The template in effect (the clip's own choice, else its agent's default); null = built-in */
   brand_template: BrandTemplate | null
 }
@@ -155,6 +166,11 @@ export interface SubtitleUpdate {
   words?: SubtitleWord[]
   style?: Record<string, any>
   reset_style?: boolean
+  /** Per-clip layout override (replaces the stored one) / back to the template's layout */
+  layout?: Record<string, any>
+  reset_layout?: boolean
+  /** The clip's title (podcast layout header) */
+  hook_text?: string
   /** Switch the clip's brand template (null = follow the agent's default) */
   brand_template_id?: string | null
 }
@@ -469,7 +485,7 @@ async function request<T>(method: string, path: string, opts: { query?: Query; b
 // ---------------------------------------------------------------------------
 
 /** URL for a clip media file. `version` busts the browser cache (use clip.updated_at). */
-export function clipMediaUrl(clipId: string, kind: 'raw' | 'final' | 'thumbnail', version?: string | number): string {
+export function clipMediaUrl(clipId: string, kind: 'raw' | 'final' | 'thumbnail' | 'source', version?: string | number): string {
   const info = requireInfo()
   return `${info.baseUrl}/api/clips/${encodeURIComponent(clipId)}/media/${kind}${qs({ token: info.token, v: version })}`
 }
@@ -662,6 +678,8 @@ export const api = {
       request<{ clip: Clip; keywords: number; emojis: number }>('POST', `/api/clips/${id}/subtitles/enrich`, { body: opts }),
     remove: (id: string, deleteFiles = true) => request<{ ok: true }>('DELETE', `/api/clips/${id}`, { query: { delete_files: deleteFiles } }),
     render: (id: string) => request<{ render_job: RenderJob }>('POST', `/api/clips/${id}/render`),
+    /** Fetch the clip's original-ratio video again (clips made before the podcast layout). */
+    prepareSource: (id: string) => request<{ clip: Clip }>('POST', `/api/clips/${id}/source`),
     export: (clipIds: string[], destDir?: string) => request<ExportResult>('POST', '/api/clips/export', { body: { clip_ids: clipIds, dest_dir: destDir } }),
   },
 

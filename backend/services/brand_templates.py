@@ -60,6 +60,10 @@ def asset_dir(template_id: str) -> Path:
     return get_paths().library_dir / ASSETS_DIRNAME / template_id
 
 
+# Settings sections that may reference imported assets (logo, sample video; background image)
+ASSET_SECTIONS = ("brand_settings", "layout_settings")
+
+
 def asset_refs(value: Any) -> set[str]:
     """Relative paths of every asset://… string inside a settings value."""
     out: set[str] = set()
@@ -84,13 +88,13 @@ def delete_unused_assets(deleted: dict[str, Any]) -> int:
     folder = asset_dir(deleted["_id"])
     if folder.is_dir():
         candidates |= {f for f in folder.iterdir() if f.is_file()}
-    for rel in asset_refs(deleted.get("brand_settings")):
+    for rel in asset_refs([deleted.get(k) for k in ASSET_SECTIONS]):
         f = paths.from_relative(rel)
         if f.is_file():
             candidates.add(f)
     used: set[str] = set()
-    for other in get_db().brand_templates.find({"_id": {"$ne": deleted["_id"]}}, {"brand_settings": 1}):
-        used |= asset_refs(other.get("brand_settings"))
+    for other in get_db().brand_templates.find({"_id": {"$ne": deleted["_id"]}}, {k: 1 for k in ASSET_SECTIONS}):
+        used |= asset_refs([other.get(k) for k in ASSET_SECTIONS])
     removed = 0
     for f in candidates:
         if brand_root not in f.resolve().parents or paths.to_relative(f) in used:

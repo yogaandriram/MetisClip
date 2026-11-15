@@ -16,8 +16,10 @@ from backend.core.db import get_db, new_id, utcnow
 from backend.core.paths import get_paths
 from backend.core.queue import runner
 from backend.models.documents import RenderJobDoc
+from backend.core.procs import Cancelled, CancelToken
 from backend.services import brand_templates, exports
-from backend.services.render import clean_ai, effective_ai, effective_style
+from backend.services import layout as layout_svc
+from backend.services.render import channel_name, clean_ai, effective_ai, effective_style
 
 router = APIRouter(tags=["clips"])
 
@@ -51,6 +53,9 @@ def get_clip(clip_id: str):
         "clip": clip_dto(clip),
         "effective_style": effective_style(clip, bt),
         "effective_ai": effective_ai(clip, bt),
+        # Template layout ⊕ the clip's layout_style (the editor fills in the defaults)
+        "effective_layout": layout_svc.effective_layout(clip, bt),
+        "channel": channel_name(clip),
         # The template in effect (the clip's own choice, else its agent's default); null = built-in
         "brand_template": brand_template_dto(tpl),
     }
@@ -69,6 +74,11 @@ class SubtitleUpdate(BaseModel):
     words: Optional[list[Word]] = None
     style: Optional[dict[str, Any]] = None
     reset_style: bool = False
+    # Per-clip layout override (patch of the template's layout_settings) and its reset
+    layout: Optional[dict[str, Any]] = None
+    reset_layout: bool = False
+    # The clip's title (shown by the podcast layout's header)
+    hook_text: Optional[str] = Field(default=None, max_length=300)
     # Switch the clip's brand template (null = follow the agent's default)
     brand_template_id: Optional[str] = None
 
@@ -109,6 +119,15 @@ def update_subtitles(clip_id: str, body: SubtitleUpdate):
             if ai:
                 style["ai"] = ai
         sets["subtitle_style"] = style
+    if body.reset_layout:
+        sets["layout_style"] = {}
+    elif body.layout is not None:
+        try:
+            sets["layout_style"] = layout_svc.clean_layout(body.layout)
+        except layout_svc.LayoutError as exc:
+            raise http_error(400, str(exc))
+    if body.hook_text is not None:
+        sets["hook_text"] = " ".join(body.hook_text.split())
     get_db().clips.update_one({"_id": clip_id}, {"$set": sets, **({"$unset": unsets} if unsets else {})})
     events.publish({"type": "clip.updated", "id": clip_id})
     return {"clip": clip_dto(_get(clip_id))}
@@ -140,13 +159,31 @@ def enrich_subtitles(clip_id: str, body: EnrichBody):
 
 
 @router.get("/api/clips/{clip_id}/media/{kind}")
-def clip_media(clip_id: str, kind: Literal["raw", "final", "thumbnail", "thumb"]):
+def clip_media(clip_id: str, kind: Literal["raw", "final", "thumbnail", "thumb", "source"]):
     clip = _get(clip_id)
     key = "thumbnail" if kind == "thumb" else kind
     rel = (clip.get("files") or {}).get(key)
     if not rel:
         raise http_error(404, "File belum tersedia")
     return serve_relative(rel)
+
+
+@router.post("/api/clips/{clip_id}/source")
+def prepare_clip_source(clip_id: str):
+    """The clip in its original ratio (podcast layout): fetched again for clips made before it was kept."""
+    clip = _get(clip_id)
+    if layout_svc.source_path(clip):
+        return {"clip": clip_dto(clip)}
+    try:
+        clip = layout_svc.prepare_source(clip, CancelToken())
+    except layout_svc.SourceError as exc:
+        raise http_error(400, str(exc))
+    except Cancelled:
+        raise http_error(409, "Dibatalkan")
+    except Exception as exc:
+        raise http_error(502, f"Video sumber gagal disiapkan: {exc}")
+    events.publish({"type": "clip.updated", "id": clip_id})
+    return {"clip": clip_dto(clip)}
 
 
 @router.post("/api/clips/{clip_id}/render")

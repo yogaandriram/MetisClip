@@ -123,6 +123,8 @@ class ClipFiles(BaseModel):
     raw: Optional[str] = None
     final: Optional[str] = None
     thumbnail: Optional[str] = None
+    # The clip in the source video's own ratio, same timeline as raw (podcast layout)
+    source: Optional[str] = None
 
 
 class ClipDoc(Doc):
@@ -140,6 +142,10 @@ class ClipDoc(Doc):
     files: ClipFiles = Field(default_factory=ClipFiles)
     subtitle: dict[str, Any] = Field(default_factory=lambda: {"words": []})
     subtitle_style: dict[str, Any] = Field(default_factory=dict)
+    # Per-clip override of the template's layout_settings (only changed keys; services/layout.py)
+    layout_style: dict[str, Any] = Field(default_factory=dict)
+    source_width: Optional[int] = None
+    source_height: Optional[int] = None
     # Brand template of this clip (set from the agent's default at creation, switchable in the editor)
     brand_template_id: Optional[str] = None
     status: ClipStatus = "processing"

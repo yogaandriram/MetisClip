@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Captions, ChevronDown, Image as ImageIcon, Redo, RefreshCw, RotateCcw, Save, Smartphone, Trash2, Type, Undo } from 'lucide-react'
+import { Captions, ChevronDown, Image as ImageIcon, LayoutTemplate, Redo, RefreshCw, RotateCcw, Save, Trash2, Type, Undo } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAgent } from '@/contexts/AgentContext'
 import { useEngine } from '@/contexts/EngineContext'
@@ -11,9 +11,10 @@ import { errorMessage, formatDateTime } from '@/lib/format'
 import { presets } from '@/lib/presets'
 import { resolveCaptionStyle } from '@/lib/presets/defaults'
 import { resolveAi } from '@/lib/presets/captions'
+import { type LayoutPatch, mergeLayout, resolveLayout } from '@/lib/presets/layout'
 
-import { TemplateConfig, DEFAULT_TEMPLATE_CONFIG, safeZoneLabel } from './types'
-import { LayoutSettingsPanel } from './components/LayoutSettingsPanel'
+import { TemplateConfig, DEFAULT_TEMPLATE_CONFIG, LayoutSettings } from './types'
+import { LayoutSettingsPanel, layoutSummary } from './components/LayoutSettingsPanel'
 import { CaptionSettingsPanel, presetLabel } from './components/CaptionSettingsPanel'
 import { AiSettingsPanel } from './components/AiSettingsPanel'
 import { BrandSettingsPanel } from './components/BrandSettingsPanel'
@@ -51,7 +52,7 @@ function toConfig(tpl: BrandTemplate | null): TemplateConfig {
   // Intro/outro, music and aspect/fit were removed (never applied to clips): drop them from old templates
   const { introUrl: _intro, musicUrl: _music, ...brand } = (tpl?.brand_settings || {}) as Record<string, any>
   return {
-    layout_settings: { safeZone: layout.safeZone || DEFAULT_TEMPLATE_CONFIG.layout_settings.safeZone },
+    layout_settings: { ...resolveLayout(layout), safeZone: layout.safeZone || DEFAULT_TEMPLATE_CONFIG.layout_settings.safeZone },
     // Caption keeps only what the user set; preset defaults are merged at display time
     caption_settings: { ...(tpl ? caption : { mode: 'popshadow' }), mode } as TemplateConfig['caption_settings'],
     ai_settings: resolveAi(tpl?.ai_settings as Partial<TemplateConfig['ai_settings']> | undefined),
@@ -125,6 +126,8 @@ export default function BrandTemplatePage() {
   const [isSaving, setIsSaving] = useState(false)
   const [openPanels, setOpenPanels] = useState<Record<PanelId, boolean>>({ caption: true, ai: true, overlay: false, layout: false })
   const [confirmDefaults, setConfirmDefaults] = useState(false)
+  // Ratio of the template's sample video (the preview frame uses it like a clip's source)
+  const [sampleAspect, setSampleAspect] = useState(16 / 9)
   const savedRef = useRef<string>('')
 
   const [history, setHistory] = useState<TemplateConfig[]>([config])
@@ -317,6 +320,13 @@ export default function BrandTemplatePage() {
     setConfig(next)
   }
 
+  /** Layout sections are nested: merge the patch into the full layout, keep the safe-zone guide. */
+  const updateLayout = (patch: LayoutPatch & { safeZone?: LayoutSettings['safeZone'] }) => {
+    const current = config.layout_settings
+    const next: LayoutSettings = { ...resolveLayout(mergeLayout(current, patch)), safeZone: patch.safeZone ?? current.safeZone }
+    updateConfig('layout_settings', next, true)
+  }
+
   const handleUndo = () => {
     if (historyIndex > 0) {
       setHistoryIndex(historyIndex - 1)
@@ -466,13 +476,23 @@ export default function BrandTemplatePage() {
 
             <SettingsSection
               id="layout"
-              title="Safe zone"
-              icon={<Smartphone size={20} aria-hidden="true" />}
-              summary={safeZoneLabel(config.layout_settings.safeZone)}
+              title="Layout"
+              icon={<LayoutTemplate size={20} aria-hidden="true" />}
+              summary={layoutSummary(config.layout_settings)}
               open={openPanels.layout}
               onToggle={() => togglePanel('layout')}
             >
-              <LayoutSettingsPanel layout={config.layout_settings} updateLayout={(updates) => updateConfig('layout_settings', updates)} />
+              {selected && (
+                <LayoutSettingsPanel
+                  templateId={selected.id}
+                  layout={config.layout_settings}
+                  caption={mergedCaptionSettings}
+                  emoji={config.ai_settings.emojis}
+                  aspect={sampleAspect}
+                  updateLayout={updateLayout}
+                  updateCaption={(updates) => updateConfig('caption_settings', updates)}
+                />
+              )}
             </SettingsSection>
           </div>
 
@@ -482,6 +502,8 @@ export default function BrandTemplatePage() {
               ai={config.ai_settings}
               brandSettings={config.brand_settings}
               layoutSettings={config.layout_settings}
+              onSampleAspect={setSampleAspect}
+              onUpdateLayout={updateLayout}
               onUpdateBrand={(updates) => updateConfig('brand_settings', updates)}
               onUpdateCaption={(updates) => updateConfig('caption_settings', updates)}
             />

@@ -14,6 +14,7 @@ from backend.core.db import get_db, utcnow
 from backend.core.paths import get_paths
 from backend.models.documents import BrandTemplateDoc
 from backend.services import brand_templates as bts
+from backend.services import layout as layout_svc
 
 router = APIRouter(tags=["brand-templates"])
 
@@ -102,6 +103,11 @@ def update_template(template_id: str, body: TemplateUpdate):
     data = body.model_dump(exclude_unset=True)
     if "name" in data:
         current["name"] = _name(data.pop("name"))
+    if data.get("layout_settings") is not None:
+        try:
+            data["layout_settings"] = layout_svc.clean_layout(data["layout_settings"], keep_safe_zone=True)
+        except layout_svc.LayoutError as exc:
+            raise http_error(400, str(exc))
     for key, value in data.items():
         if value is not None:
             current[key] = value  # each section replaces the stored one

@@ -24,7 +24,7 @@ from backend.core.db import get_db, utcnow
 from backend.core.paths import get_paths
 from backend.core.procs import Cancelled
 from backend.models.documents import ClipDoc
-from backend.services import brand_templates
+from backend.services import brand_templates, layout
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +148,10 @@ def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw
         ctx.check()
         duration = ffmpeg_ops.probe_duration(raw) or (end - start)
         ffmpeg_ops.thumbnail(raw, thumb, duration / 2, ctx.cancel)
+        # Keep the original-ratio cut next to raw.mp4 (same timeline) for the podcast layout
+        source = raw.parent / "source.mp4"
+        shutil.move(str(src), str(source))
+        source_info = layout.source_fields(source)
         if words is None:
             words = (words_from_transcript(_transcript_key(seg), start, end)
                      or mock_words(seg.get("hook_text") or "", end - start))
@@ -174,7 +178,10 @@ def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw
             "raw": paths.to_relative(raw),
             "final": None,
             "thumbnail": paths.to_relative(thumb) if thumb.exists() else None,
+            "source": source_info["files.source"],
         },
+        source_width=source_info.get("source_width"),
+        source_height=source_info.get("source_height"),
         subtitle={"words": words},
         subtitle_style={},
         brand_template_id=(ctx.agent or {}).get("default_brand_template_id"),

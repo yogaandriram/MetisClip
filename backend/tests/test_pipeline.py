@@ -87,6 +87,10 @@ def test_link_job_clips_its_video_and_resume_is_idempotent(db, fake_world):
         raw = get_paths().from_relative(c["files"]["raw"])
         assert raw.exists() and raw.stat().st_size > 0
         assert c["files"]["raw"].startswith("library/agen/")
+        # The original-ratio cut is kept next to raw.mp4 (podcast layout)
+        source = get_paths().from_relative(c["files"]["source"])
+        assert source.parent == raw.parent and source.name == "source.mp4" and source.stat().st_size > 0
+        assert (c["source_width"], c["source_height"]) == (640, 360)
         assert c["subtitle"]["words"], "word timings derived from the transcript"
     assert job["processed_scenes"] == 2 and job["total_scenes"] == 2
     assert job["progress_pct"] == 100 and job["current_step"] == "processing"
@@ -154,6 +158,10 @@ def test_upload_job_clips_the_local_file(db, secrets, monkeypatch, tmp_path):
         info = ffmpeg_ops.probe_media(raw)
         assert info["width"] == 1080 and info["height"] == 1920 and info["has_audio"]
         assert info["duration"] == pytest.approx(c["end_time"] - c["start_time"], abs=1.5)
+        source = ffmpeg_ops.probe_media(get_paths().from_relative(c["files"]["source"]))
+        assert (source["width"], source["height"]) == (64, 64) == (c["source_width"], c["source_height"])
+        # Same timeline as raw (both start at the clip's start); lengths may differ by one frame (1 s here)
+        assert source["duration"] == pytest.approx(info["duration"], abs=1.01)
         # Trimmed at the sentence boundaries of the clip's own words: it starts on the first word of a
         # sentence and ends right after a word with a full stop
         words = c["subtitle"]["words"]

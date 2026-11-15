@@ -3,6 +3,8 @@ import { Play } from 'lucide-react';
 import { Stage } from '@/components/ui';
 import { assetUrl } from '@/lib/media';
 import { CaptionLayer } from '@/lib/presets/CaptionLayer';
+import { LayoutStage } from '@/lib/presets/LayoutStage';
+import { LAYOUT_LIMITS, type LayoutPatch, frameRect } from '@/lib/presets/layout';
 import { LOGO_BASE_SIZE, logoPosition, logoScale } from '@/lib/presets/BrandOverlay';
 import type { CaptionWord } from '@/lib/presets/types';
 import {
@@ -16,6 +18,7 @@ import {
   toDesign,
 } from '@/lib/presets/position';
 import { AiSettings, CaptionSettings, BrandSettings, LayoutSettings, SafeZone, safeZoneLabel } from '../types';
+import { SAMPLE_TITLE } from './LayoutSettingsPanel';
 
 interface TemplatePreviewCanvasProps {
   caption: CaptionSettings;
@@ -23,6 +26,10 @@ interface TemplatePreviewCanvasProps {
   brandSettings?: BrandSettings;
   layoutSettings: LayoutSettings;
   onUpdateBrand?: (updates: Partial<BrandSettings>) => void;
+  /** Podcast frame dragged on the preview */
+  onUpdateLayout?: (patch: LayoutPatch) => void;
+  /** Width / height of the sample video once it is loaded (the frame uses it like a clip's source) */
+  onSampleAspect?: (aspect: number) => void;
   /** Caption dragged (or moved with the arrow keys) on the preview */
   onUpdateCaption?: (updates: Partial<CaptionSettings>) => void;
 }
@@ -95,7 +102,16 @@ function useLoopClock(period: number): number {
   return time;
 }
 
-export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ caption, ai, brandSettings, layoutSettings, onUpdateBrand, onUpdateCaption }) => {
+export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
+  caption,
+  ai,
+  brandSettings,
+  layoutSettings,
+  onUpdateBrand,
+  onUpdateLayout,
+  onSampleAspect,
+  onUpdateCaption,
+}) => {
   // Brand assets are stored as asset://<path>; no remote sample video (the app must work offline)
   const videoUrl = assetUrl(brandSettings?.sampleVideoUrl);
   const overlaySrc = assetUrl(brandSettings?.overlayUrl);
@@ -177,6 +193,48 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
     if (moves[e.key]) {
       e.preventDefault();
       onUpdateCaption(moves[e.key]);
+    }
+  };
+
+  // Podcast frame: dragged up and down, saved on release
+  const podcast = layoutSettings.mode === 'podcast';
+  const [aspect, setAspect] = useState(16 / 9);
+  const frameStart = useRef<{ py: number; y: number } | null>(null);
+  const [frameDrag, setFrameDrag] = useState<number | null>(null);
+  const shownLayout: LayoutSettings = frameDrag !== null ? { ...layoutSettings, frame: { ...layoutSettings.frame, y: frameDrag } } : layoutSettings;
+  const frame = frameRect(shownLayout, aspect);
+
+  const handleFramePointerDown = (e: React.PointerEvent) => {
+    if (!onUpdateLayout) return;
+    e.stopPropagation();
+    frameStart.current = { py: e.clientY, y: layoutSettings.frame.y };
+    setFrameDrag(layoutSettings.frame.y);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const handleFramePointerMove = (e: React.PointerEvent) => {
+    const start = frameStart.current;
+    if (!start || !containerRef.current) return;
+    const scale = containerRef.current.getBoundingClientRect().width / CANVAS_WIDTH;
+    const y = start.y + (e.clientY - start.py) / scale;
+    setFrameDrag(Math.round(Math.max(LAYOUT_LIMITS.frameY.min, Math.min(LAYOUT_LIMITS.frameY.max, CANVAS_HEIGHT - 40 - frame.height, y))));
+  };
+  const handleFramePointerUp = (e: React.PointerEvent) => {
+    const start = frameStart.current;
+    if (!start) return;
+    e.stopPropagation();
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    frameStart.current = null;
+    if (frameDrag !== null && onUpdateLayout && frameDrag !== start.y) onUpdateLayout({ frame: { y: frameDrag } });
+    setFrameDrag(null);
+  };
+  const handleFrameKeyDown = (e: React.KeyboardEvent) => {
+    if (!onUpdateLayout) return;
+    const step = e.shiftKey ? 10 : 2;
+    const y = layoutSettings.frame.y;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      const next = e.key === 'ArrowUp' ? y - step : y + step;
+      onUpdateLayout({ frame: { y: Math.max(LAYOUT_LIMITS.frameY.min, Math.min(LAYOUT_LIMITS.frameY.max, next)) } });
     }
   };
 
@@ -292,19 +350,54 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
           overflow: 'hidden',
         }}
       >
-        {videoUrl ? (
-          <video
-            src={videoUrl}
-            autoPlay
-            loop
-            muted
-            playsInline
-            style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.8 }}
-          />
-        ) : (
-          <div className="mc-caption mc-muted" style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '0 30px' }}>
+        <LayoutStage
+          layout={shownLayout}
+          aspect={aspect}
+          title={SAMPLE_TITLE}
+          channel="Channel contoh"
+          backgroundImageUrl={assetUrl(layoutSettings.background.imageUrl)}
+          renderVideo={(role, style) =>
+            videoUrl ? (
+              <video
+                src={videoUrl}
+                autoPlay
+                loop
+                muted
+                playsInline
+                onLoadedMetadata={(e) => {
+                  const v = e.currentTarget;
+                  if (role === 'main' && v.videoWidth > 0 && v.videoHeight > 0) {
+                    setAspect(v.videoWidth / v.videoHeight);
+                    onSampleAspect?.(v.videoWidth / v.videoHeight);
+                  }
+                }}
+                style={{ ...style, opacity: podcast ? 1 : 0.8 }}
+              />
+            ) : role === 'main' && podcast ? (
+              <div className="mc-caption" style={{ ...style, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-ink)', background: 'var(--ink-soft)' }}>
+                Video sumber
+              </div>
+            ) : null
+          }
+        />
+        {!videoUrl && !podcast && (
+          <div className="mc-caption mc-muted" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '0 30px' }}>
             Unggah &quot;Video contoh&quot; di bagian Logo & video contoh untuk melihat preview di atas video Anda.
           </div>
+        )}
+        {podcast && onUpdateLayout && (
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label="Posisi video. Geser ke atas atau ke bawah, atau pakai tombol panah (Shift untuk langkah besar)."
+            className={frameDrag !== null ? 'mc-drag-target is-dragging' : 'mc-drag-target'}
+            onPointerDown={handleFramePointerDown}
+            onPointerMove={handleFramePointerMove}
+            onPointerUp={handleFramePointerUp}
+            onPointerCancel={handleFramePointerUp}
+            onKeyDown={handleFrameKeyDown}
+            style={{ left: frame.left, top: frame.top, width: frame.width, height: frame.height, cursor: 'ns-resize', zIndex: 12 }}
+          />
         )}
 
         {/* Safe zone overlays (guides only, never rendered). While the caption is dragged, the
@@ -406,6 +499,7 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
 
       <p className="mc-caption mc-muted" style={{ maxWidth: `${CANVAS_WIDTH}px` }}>
         Geser caption untuk memindahkannya.
+        {podcast && ' Geser video ke atas atau ke bawah.'}
         {overlaySrc && ' Geser logo untuk memindahkan, tarik titik di sudutnya untuk mengubah ukuran.'}
       </p>
     </Stage>

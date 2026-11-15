@@ -160,7 +160,7 @@ Rules:
 | GET | `/api/brand-templates` | — | `{brand_templates: BrandTemplate[]}` (oldest first, with `used_by_agents` and `clip_count`) |
 | POST | `/api/brand-templates` | `{name, copy_from?}` (`copy_from` duplicates that template's settings; asset files are shared) | `{brand_template: BrandTemplate}` |
 | GET | `/api/brand-templates/{id}` | — | `{brand_template: BrandTemplate}` |
-| PUT | `/api/brand-templates/{id}` | `Partial<BrandTemplateInput>` (`name`, or sections; each section replaces the stored one) | `{brand_template: BrandTemplate}` |
+| PUT | `/api/brand-templates/{id}` | `Partial<BrandTemplateInput>` (`name`, or sections; each section replaces the stored one). `layout_settings` is validated (see "Layout" below): unknown keys are dropped, numbers clamped, a wrong type is a 400 | `{brand_template: BrandTemplate}` |
 | DELETE | `/api/brand-templates/{id}` | — | `{ok: true}`; 400 for the last template. Its clips fall back to their agent's default, agents using it get the oldest template, and asset copies no other template uses are deleted |
 | POST | `/api/brand-templates/{id}/assets` | multipart: `file`, `kind` | `{value: "asset://library/_brand/<template id>/<file>", path}` |
 | GET | `/api/files/{relative path}` | `?token=` | file bytes (Range supported), only under the data root |
@@ -172,9 +172,10 @@ Rules:
 | DELETE | `/api/jobs/{id}` | — | `{ok: true}` |
 | GET | `/api/clips` | `?agent_id=&job_id=&status=` | `{clips: Clip[]}` |
 | GET | `/api/clips/{id}` | — | `ClipDetail` |
-| PUT | `/api/clips/{id}/subtitles` | `{words?, style?, reset_style?, brand_template_id?}` (`brand_template_id: null` = follow the agent's default) | `{clip: Clip}` |
+| PUT | `/api/clips/{id}/subtitles` | `{words?, style?, reset_style?, layout?, reset_layout?, hook_text?, brand_template_id?}` (`brand_template_id: null` = follow the agent's default; `layout` replaces the clip's `layout_style` override; `hook_text` is the title the podcast layout shows) | `{clip: Clip}` |
 | DELETE | `/api/clips/{id}` | `?delete_files=true\|false` | `{ok: true}` |
-| GET | `/api/clips/{id}/media/{raw\|final\|thumbnail}` | `?token=&v=` | media bytes (Range) |
+| GET | `/api/clips/{id}/media/{raw\|final\|thumbnail\|source}` | `?token=&v=` | media bytes (Range); `source` = the clip in the source video's own ratio (404 for clips made before it was kept) |
+| POST | `/api/clips/{id}/source` | — | `{clip: Clip}`: fetches the original-ratio video again for an older clip (yt-dlp section of its exact edges, or a cut of the uploaded file); 400 with an Indonesian message when it cannot |
 | POST | `/api/clips/{id}/render` | — | `{render_job: RenderJob}` (see "Render output" below) |
 | POST | `/api/clips/export` | `{clip_ids, dest_dir?}` (`dest_dir` empty = the export folder) | `{dest_dir, exported: [{clip_id, path}], skipped: [{clip_id, reason}]}` |
 | GET | `/api/render-jobs` | `?clip_id=&status=` | `{render_jobs: RenderJob[]}` |
@@ -195,9 +196,21 @@ A finished render is written to `<clip dir>\final.mp4` (`output_path`) and then 
 
 `/api/clips/export` uses the same file name. Neither accepts the data folder itself, `db\`, `cache\` or `.metisclip\` as destination ("Folder tujuan tidak diizinkan").
 
+### Layout (podcast mode)
+
+The Brand Template "Layout" section (`layout_settings`, next to the preview-only `safeZone`) and a clip's override (`layout_style`) are patches of the layout model in `frontend/lib/presets/layout.ts`; `backend/services/layout.py` validates them with the same enums and limits:
+
+- `mode`: `full` (default: the face-tracked raw.mp4 fills 9:16) or `podcast` (the clip's `source.mp4` in its own ratio inside a frame).
+- `frame`: `y` (top edge, design px of the 300×533 canvas), `ratio` (`source`, `16:9`, `4:3`, `1:1`, `4:5`), `margin`, `radius`, `focusX` (0–1).
+- `background`: `type` (`blur`, `color`, `gradient`, `image`), `color`, `color2`, `imageUrl` (`asset://…`), `blur`, `dim` (0–0.9).
+- `header`: `enabled`, `source` (`title` = the clip's `hook_text`, `custom` = `text`), `text`, `fontFamily`, `fontWeight`, `fontSize` (caption units), `color`, `boxColor` (`''` = none), `align`, `isUppercase`, `gap`, `maxLines` (1–4).
+- `credit`: `enabled`, `text` (`{channel}` = the YouTube channel; hidden for uploads), `fontSize`, `color`.
+
+Effective layout = template ⊕ clip, merged per section (`GET /api/clips/{id}` returns it as `effective_layout`, with `channel`). Every new clip keeps `files.source` (`<clip dir>\source.mp4`, same timeline as raw.mp4) and `source_width` / `source_height`. A podcast render of a clip without one first prepares it ("Menyiapkan video sumber…" in `render.progress.message`); if that fails, the render fails with "Layout podcast butuh video sumber: …".
+
 ### Asset values
 
-Brand settings fields that point at files (`overlayUrl`, `introUrl`, `musicUrl`, `sampleVideoUrl`, and any future `*Url`) store **`asset://<path relative to DATA_ROOT>`**, never an http URL (ports and tokens change every launch). The UI turns them into URLs with `resolveAsset()`; the engine does the same when building render props.
+Brand settings fields that point at files (`overlayUrl`, `sampleVideoUrl`, the layout's `background.imageUrl`, and any future `*Url`) store **`asset://<path relative to DATA_ROOT>`**, never an http URL (ports and tokens change every launch). The UI turns them into URLs with `resolveAsset()`; the engine does the same when building render props.
 
 ---
 
@@ -222,7 +235,7 @@ With the guard off, none of these flags are passed and the worker sizes itself f
 
 When `METISCLIP_NODE_PATH` is not set (engine run standalone in dev), the engine uses `node` from `PATH`.
 
-- `props.json` = `{ "videoUrl": "http://127.0.0.1:<port>/api/clips/<id>/media/raw?token=…", "words": [...], "style": {...}, "brandSettings": {... asset values already resolved to http URLs ...}, "durationInFrames": <int> }`
+- `props.json` = `{ "videoUrl": "http://127.0.0.1:<port>/api/clips/<id>/media/raw?token=…", "words": [...], "style": {...}, "brandSettings": {... asset values already resolved to http URLs ...}, "ai": {...}, "durationInFrames": <int>, "layout": {... effective layout, asset values resolved ...}, "title": "<hook text>" }`, plus for a podcast layout `"sourceUrl"` (`media/source`), `"sourceAspect"` (width / height) and `"channel"`. Without `sourceUrl` the composition renders the full 9:16 layout.
 - Composition id `SubtitleOverlay`, 1080×1920, 30 fps (unchanged).
 - stdout: **JSON lines only**
   - `{"type":"progress","stage":"preparing"|"rendering"|"encoding","progress":0.42}` (0–1, overall)

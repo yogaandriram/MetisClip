@@ -37,7 +37,7 @@ interface UploaderProps {
 }
 
 /** One asset slot: the chosen file with "Hapus", or a compact drop target that opens the file dialog. */
-function AssetUploader({ title, description, accept, formats, current, previewImage, busy, disabled, onFile, onClear }: UploaderProps) {
+export function AssetUploader({ title, description, accept, formats, current, previewImage, busy, disabled, onFile, onClear }: UploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [over, setOver] = useState(false)
   const fileName = current ? decodeURIComponent(current.split('/').pop() || '') : ''

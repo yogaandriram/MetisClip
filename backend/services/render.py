@@ -24,6 +24,7 @@ from backend.core.config import config, node_command
 from backend.core.db import get_db, utcnow
 from backend.core.logging_setup import redactor
 from backend.core.paths import get_paths, slugify
+from backend.services import layout as layout_svc
 
 logger = logging.getLogger(__name__)
 FPS = 30
@@ -92,17 +93,42 @@ def effective_ai(clip: dict[str, Any] | None, bt: dict[str, Any] | None) -> dict
     return {**DEFAULT_AI_SETTINGS, **clean_ai((bt or {}).get("ai_settings")), **clean_ai(clip_ai)}
 
 
+def media_url(clip_id: str, kind: str) -> str:
+    return f"{config.base_url}/api/clips/{clip_id}/media/{kind}?token={config.token}"
+
+
+def source_aspect(clip: dict[str, Any]) -> float:
+    w, h = clip.get("source_width"), clip.get("source_height")
+    return round(w / h, 5) if isinstance(w, int) and isinstance(h, int) and w > 0 and h > 0 else round(16 / 9, 5)
+
+
+def channel_name(clip: dict[str, Any]) -> str:
+    if not clip.get("source_video_id"):
+        return ""
+    sv = get_db().source_videos.find_one({"_id": clip["source_video_id"]}, {"channel_name": 1})
+    return str((sv or {}).get("channel_name") or "")
+
+
 def build_props(clip: dict[str, Any]) -> dict[str, Any]:
     bt = template_for(clip)
-    return {
-        "videoUrl": f"{config.base_url}/api/clips/{clip['_id']}/media/raw?token={config.token}",
+    lay = layout_svc.effective_layout(clip, bt)
+    props: dict[str, Any] = {
+        "videoUrl": media_url(clip["_id"], "raw"),
         "words": (clip.get("subtitle") or {}).get("words") or [],
         "style": effective_style(clip, bt),
         "brandSettings": resolve_assets(bt.get("brand_settings") or {}),
         "ai": effective_ai(clip, bt),
         # Source length; the composition shortens itself when pauses/filler words are cut
         "durationInFrames": max(1, int(round(float(clip.get("duration_seconds") or 1) * FPS))),
+        "layout": resolve_assets(lay),
+        "title": clip.get("hook_text") or "",
     }
+    # Podcast layout: the original-ratio cut (same timeline as raw.mp4); without one it stays full
+    if layout_svc.is_podcast(lay) and (clip.get("files") or {}).get("source"):
+        props["sourceUrl"] = media_url(clip["_id"], "source")
+        props["sourceAspect"] = source_aspect(clip)
+        props["channel"] = channel_name(clip)
+    return props
 
 
 def _clip_out_dir(clip: dict[str, Any]) -> Path:
@@ -184,6 +210,17 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
     error: str | None = None
     status = "failed"
     try:
+        if layout_svc.is_podcast(layout_svc.effective_layout(clip, template_for(clip))) and not layout_svc.source_path(clip):
+            # Clips made before the podcast layout did not keep their original-ratio video
+            def step(message: str) -> None:
+                events.publish({"type": "render.progress", "id": render_id, "clip_id": clip_id,
+                                "status": "rendering", "progress_pct": 0.0, "message": message})
+
+            try:
+                clip = layout_svc.prepare_source(clip, cancel, on_step=step)
+            except layout_svc.SourceError as exc:
+                raise RuntimeError(f"Layout podcast butuh video sumber: {exc}") from exc
+            cancel.check()
         props_path.write_text(json.dumps(build_props(clip), ensure_ascii=False), encoding="utf-8")
         script = paths.render_dir / "dist" / "render.js"
         if not script.exists():

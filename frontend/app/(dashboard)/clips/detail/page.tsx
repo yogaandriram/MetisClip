@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Download,
+  Film,
   FolderOpen,
   Keyboard,
   Maximize,
@@ -32,6 +33,8 @@ import toast from 'react-hot-toast'
 import { presets } from '@/lib/presets'
 import { CaptionLayer } from '@/lib/presets/CaptionLayer'
 import { LogoOverlay } from '@/lib/presets/BrandOverlay'
+import { LayoutStage } from '@/lib/presets/LayoutStage'
+import { type FrameRatio, type LayoutMode, type LayoutPatch, LAYOUT_LIMITS, mergeLayout, resolveLayout, sourceAspect } from '@/lib/presets/layout'
 import { type CaptionStyle, BASE_CAPTION_STYLE, getPreset, presetSwitch, resolveCaptionStyle } from '@/lib/presets/defaults'
 import { type AiCaptionSettings, type Segment, DEFAULT_AI_SETTINGS, computeKeepSegments, isCut, isFiller, keptDuration, nextKeptTime, resolveAi } from '@/lib/presets/captions'
 import {
@@ -46,6 +49,7 @@ import {
   Divider,
   Dropdown,
   EmptyState,
+  Field,
   IconButton,
   Kbd,
   KeyValueList,
@@ -58,6 +62,8 @@ import {
   Slider,
   Spinner,
   Stage,
+  ChoiceChips,
+  TextAreaField,
   ToggleSwitch,
   Tooltip,
 } from '@/components/ui'
@@ -72,8 +78,29 @@ import { RENDER_STATUS, errorMessage, formatClock } from '@/lib/format'
 
 // Style model: lib/presets/defaults.ts (shared with the Brand Template page and the render).
 // `ai` is the clip's AI subtitle settings (brand ai_settings unless overridden; saved in subtitle_style.ai).
-/** templateId: the brand template in effect (null = built-in defaults) */
-type Snapshot = { words: SubtitleWord[]; style: CaptionStyle; ai: AiCaptionSettings; templateId: string | null }
+/** templateId: the brand template in effect (null = built-in defaults); layout: the clip's override
+ * of the template layout (lib/presets/layout.ts, saved as layout_style); title: the clip's hook text,
+ * shown above the video by the podcast layout */
+type Snapshot = {
+  words: SubtitleWord[]
+  style: CaptionStyle
+  ai: AiCaptionSettings
+  templateId: string | null
+  layout: LayoutPatch
+  title: string
+}
+
+const LAYOUT_MODE_OPTIONS: { value: LayoutMode; label: string }[] = [
+  { value: 'full', label: 'Penuh 9:16' },
+  { value: 'podcast', label: 'Podcast' },
+]
+const RATIO_OPTIONS: { value: FrameRatio; label: string }[] = [
+  { value: 'source', label: 'Asli' },
+  { value: '16:9', label: '16:9' },
+  { value: '4:3', label: '4:3' },
+  { value: '1:1', label: '1:1' },
+  { value: '4:5', label: '4:5' },
+]
 
 /** Caption style keys that differ from the template (all keys when the preset differs), so later
  * template edits still reach the clip for everything it did not change. */
@@ -159,6 +186,9 @@ function ClipEditor() {
   const { epoch, systemInfo } = useEngine()
 
   const videoRef = useRef<HTMLVideoElement>(null)
+  /** Blurred copy of the source behind the podcast frame (muted, follows videoRef) */
+  const bgRef = useRef<HTMLVideoElement>(null)
+  const timeRef = useRef(0)
   const containerRef = useRef<HTMLDivElement>(null)
 
   const [detail, setDetail] = useState<ClipDetail | null>(null)
@@ -192,6 +222,8 @@ function ClipEditor() {
       style: resolveCaptionStyle(d.effective_style || {}),
       ai: resolveAi(d.effective_ai),
       templateId: d.brand_template?.id ?? null,
+      layout: (d.clip.layout_style || {}) as LayoutPatch,
+      title: d.clip.hook_text || '',
     }
     setDetail(d)
     setPresent(snap)
@@ -338,6 +370,14 @@ function ClipEditor() {
   const setAi = (patch: Partial<AiCaptionSettings>) => {
     if (present) update({ ...present, ai: { ...present.ai, ...patch } })
   }
+  const setLayout = (patch: LayoutPatch, key?: string) => {
+    if (present) update({ ...present, layout: mergeLayout(present.layout, patch) }, key)
+  }
+
+  const setTitle = (title: string) => {
+    if (present) update({ ...present, title }, 'title')
+  }
+
 
   const dirty = present ? JSON.stringify(present) !== savedJson : false
 
@@ -370,6 +410,9 @@ function ClipEditor() {
           else if (next > v.currentTime + 0.01) v.currentTime = next
         }
         setCurrentTime(v.currentTime)
+        timeRef.current = v.currentTime
+        const bg = bgRef.current
+        if (bg && Math.abs(bg.currentTime - v.currentTime) > 0.25) bg.currentTime = v.currentTime
       }
       raf = requestAnimationFrame(tick)
     }
@@ -389,6 +432,8 @@ function ClipEditor() {
     if (!v) return
     const clamped = Math.max(0, Math.min(t, v.duration || duration || t))
     v.currentTime = clamped
+    if (bgRef.current) bgRef.current.currentTime = clamped
+    timeRef.current = clamped
     setCurrentTime(clamped)
   }
 
@@ -406,13 +451,17 @@ function ClipEditor() {
         .map((w) => ({ ...w, start: Number(w.start) || 0, end: Math.max(Number(w.end) || 0, Number(w.start) || 0) }))
       const tpl = templateById(present.templateId)
       const aiDiff = aiOverrides(present.ai, tpl)
-      const savedTemplateId = savedJson ? (JSON.parse(savedJson) as Snapshot).templateId : null
+      const saved = savedJson ? (JSON.parse(savedJson) as Snapshot) : null
+      const savedTemplateId = saved ? saved.templateId : null
+      const title = present.title.replace(/\s+/g, ' ').trim()
       const { clip } = await api.clips.updateSubtitles(clipId, {
         words: cleanWords,
         style: { ...styleOverrides(present.style, tpl), ...(Object.keys(aiDiff).length ? { ai: aiDiff } : {}) },
+        layout: present.layout as Record<string, any>,
+        ...(title !== (saved?.title ?? '') ? { hook_text: title } : {}),
         ...(present.templateId !== savedTemplateId ? { brand_template_id: present.templateId } : {}),
       })
-      const snap = { ...present, words: cleanWords }
+      const snap = { ...present, words: cleanWords, title }
       setDetail((d) => (d ? { ...d, clip } : d))
       setPresent(snap)
       setSavedJson(JSON.stringify(snap))
@@ -440,7 +489,7 @@ function ClipEditor() {
     const tpl = templateById(id)
     if (!tpl) return
     const style = resolveCaptionStyle(tpl.caption_settings || {})
-    update({ ...present, templateId: id, style: { ...style, offsetTime: present.style.offsetTime }, ai: resolveAi(tpl.ai_settings) })
+    update({ ...present, templateId: id, style: { ...style, offsetTime: present.style.offsetTime }, ai: resolveAi(tpl.ai_settings), layout: {} })
     toast.success(`Memakai template "${tpl.name}". Klik Simpan untuk menyimpan.`)
   }
 
@@ -448,12 +497,31 @@ function ClipEditor() {
   const resetToTemplate = () => {
     if (!present) return
     const tpl = templateById(present.templateId)
-    update({ ...present, style: resolveCaptionStyle(tpl?.caption_settings || {}), ai: resolveAi(tpl?.ai_settings) })
+    update({ ...present, style: resolveCaptionStyle(tpl?.caption_settings || {}), ai: resolveAi(tpl?.ai_settings), layout: {} })
     setConfirmReset(false)
     toast.success(`Gaya dikembalikan ke template "${tpl?.name || 'bawaan'}". Klik Simpan untuk menyimpan.`)
   }
 
   const [enriching, setEnriching] = useState(false)
+  const [preparing, setPreparing] = useState(false)
+  /** Fetch the original-ratio video for a clip made before the podcast layout (for the preview). */
+  const prepareSource = async () => {
+    if (!clipId || preparing) return
+    setPreparing(true)
+    const id = toast.loading('Menyiapkan video sumber…')
+    try {
+      const { clip } = await api.clips.prepareSource(clipId)
+      // Only the source fields: unsaved edits stay as they are
+      setDetail((d) =>
+        d ? { ...d, clip: { ...d.clip, files: clip.files, source_width: clip.source_width, source_height: clip.source_height } } : d,
+      )
+      toast.success('Video sumber siap', { id })
+    } catch (err) {
+      toast.error(errorMessage(err, 'Video sumber gagal disiapkan'), { id })
+    } finally {
+      setPreparing(false)
+    }
+  }
   const enrich = async () => {
     if (!present || !clipId || enriching) return
     if (!present.ai.keywords && !present.ai.emojis) {
@@ -604,6 +672,12 @@ function ClipEditor() {
   const brand = activeTemplate?.brand_settings || null
   const agentDefaultId = templates.find((t) => (t.used_by_agents || []).some((a) => a.id === clip.agent_id))?.id || null
   const overlaySrc = brand?.overlayUrl ? assetUrl(brand.overlayUrl) : ''
+  // Layout: template ⊕ this clip's override. Podcast shows source.mp4; until it exists, the clip stays full
+  const layout = resolveLayout(activeTemplate?.layout_settings, present.layout)
+  const hasSource = !!clip.files.source
+  const podcastView = layout.mode === 'podcast' && hasSource
+  const aspect = sourceAspect(clip.source_width, clip.source_height)
+  const layoutOverridden = Object.keys(present.layout).length > 0
   const keywordCount = words.filter((w) => w.keyword).length
   const emojiCount = words.filter((w) => w.emoji).length
   const cutSeconds = cutActive ? Math.max(0, sourceDuration - keptDuration(segments)) : 0
@@ -873,18 +947,62 @@ function ClipEditor() {
               }}
             >
               {clip.files.raw ? (
-                <video
-                  ref={videoRef}
-                  src={mediaUrl(clip.id, 'raw', clip.updated_at)}
-                  poster={clip.files.thumbnail ? mediaUrl(clip.id, 'thumbnail', clip.updated_at) : undefined}
-                  onLoadedMetadata={() => setDuration(videoRef.current?.duration || clip.duration_seconds)}
-                  onTimeUpdate={() => !isPlaying && setCurrentTime(videoRef.current?.currentTime || 0)}
-                  onPlay={() => setIsPlaying(true)}
-                  onPause={() => setIsPlaying(false)}
-                  onEnded={() => setIsPlaying(false)}
-                  playsInline
-                  preload="auto"
-                  style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }}
+                // Same layout component as the Remotion render (lib/presets/LayoutStage.tsx): preview == render
+                <LayoutStage
+                  layout={podcastView ? layout : { ...layout, mode: 'full' }}
+                  aspect={aspect}
+                  title={present.title}
+                  channel={detail.channel}
+                  backgroundImageUrl={assetUrl(layout.background.imageUrl)}
+                  fullFit="contain"
+                  renderVideo={(role, videoStyle) =>
+                    role === 'main' ? (
+                      <video
+                        key={podcastView ? 'source' : 'raw'}
+                        ref={videoRef}
+                        src={podcastView ? mediaUrl(clip.id, 'source') : mediaUrl(clip.id, 'raw', clip.updated_at)}
+                        poster={!podcastView && clip.files.thumbnail ? mediaUrl(clip.id, 'thumbnail', clip.updated_at) : undefined}
+                        onLoadedMetadata={(e) => {
+                          const v = e.currentTarget
+                          setDuration(v.duration || clip.duration_seconds)
+                          // Switching between raw and source keeps the playhead
+                          if (timeRef.current > 0 && timeRef.current < (v.duration || Infinity)) v.currentTime = timeRef.current
+                          setIsPlaying(!v.paused)
+                        }}
+                        onTimeUpdate={() => {
+                          if (isPlaying) return
+                          const t = videoRef.current?.currentTime || 0
+                          timeRef.current = t
+                          setCurrentTime(t)
+                        }}
+                        onPlay={() => {
+                          setIsPlaying(true)
+                          bgRef.current?.play().catch(() => undefined)
+                        }}
+                        onPause={() => {
+                          setIsPlaying(false)
+                          bgRef.current?.pause()
+                        }}
+                        onEnded={() => setIsPlaying(false)}
+                        playsInline
+                        preload="auto"
+                        style={videoStyle}
+                      />
+                    ) : (
+                      <video
+                        ref={bgRef}
+                        src={mediaUrl(clip.id, 'source')}
+                        muted
+                        playsInline
+                        preload="auto"
+                        aria-hidden="true"
+                        onLoadedMetadata={(e) => {
+                          e.currentTarget.currentTime = timeRef.current
+                        }}
+                        style={videoStyle}
+                      />
+                    )
+                  }
                 />
               ) : (
                 <div
@@ -949,6 +1067,92 @@ function ClipEditor() {
                   Reset ke template
                 </Button>
               </div>
+            </PanelSection>
+
+            <Divider />
+
+            <PanelSection
+              title="Layout"
+              action={
+                layoutOverridden ? (
+                  <button type="button" className="mc-link" onClick={() => update({ ...present, layout: {} })}>
+                    Ikuti template
+                  </button>
+                ) : undefined
+              }
+            >
+              <ChoiceChips<LayoutMode>
+                ariaLabel="Tampilan video"
+                size="sm"
+                options={LAYOUT_MODE_OPTIONS}
+                value={layout.mode}
+                onChange={(mode) => setLayout({ mode })}
+              />
+              <p className="mc-caption mc-muted">
+                {layout.mode === 'podcast'
+                  ? 'Video tampil utuh dengan rasio aslinya, judul di atas. Latar dan gaya judul diatur di Brand Template.'
+                  : 'Video dipotong 9:16 mengikuti wajah pembicara.'}
+              </p>
+              {layout.mode === 'podcast' && (
+                <>
+                  {!hasSource && (
+                    <Alert
+                      tone="info"
+                      title="Video sumber belum ada"
+                      icon={<Film size={18} aria-hidden="true" />}
+                      action={
+                        <Button size="sm" variant="secondary" loading={preparing} onClick={prepareSource}>
+                          Siapkan sekarang
+                        </Button>
+                      }
+                    >
+                      Clip ini dibuat sebelum layout podcast. Video rasio aslinya disiapkan otomatis saat ekspor, atau siapkan sekarang untuk melihat preview.
+                    </Alert>
+                  )}
+                  {layout.header.enabled && layout.header.source === 'title' ? (
+                    <TextAreaField
+                      label="Judul di atas video"
+                      value={present.title}
+                      maxLength={300}
+                      rows={3}
+                      onChange={(e) => setTitle(e.target.value)}
+                      hint="Kutipan pembuka dari AI. Judul panjang otomatis mengecil supaya muat."
+                    />
+                  ) : (
+                    <p className="mc-caption mc-muted">
+                      {layout.header.enabled ? 'Judul memakai teks tetap dari Brand Template.' : 'Judul dimatikan di Brand Template.'}
+                    </p>
+                  )}
+                  <Field label="Rasio bingkai">
+                    <ChoiceChips<FrameRatio>
+                      ariaLabel="Rasio bingkai"
+                      size="sm"
+                      options={RATIO_OPTIONS}
+                      value={layout.frame.ratio}
+                      onChange={(ratio) => setLayout({ frame: { ratio } })}
+                    />
+                  </Field>
+                  <Slider
+                    label="Posisi video"
+                    min={LAYOUT_LIMITS.frameY.min}
+                    max={LAYOUT_LIMITS.frameY.max}
+                    value={layout.frame.y}
+                    format={(v) => `${Math.round(v)}px`}
+                    onChange={(y) => setLayout({ frame: { y } }, 'frame-y')}
+                  />
+                  {layout.frame.ratio !== 'source' && (
+                    <Slider
+                      label="Fokus horizontal"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={layout.frame.focusX}
+                      format={(v) => `${Math.round(v * 100)}%`}
+                      onChange={(focusX) => setLayout({ frame: { focusX } }, 'frame-focus')}
+                    />
+                  )}
+                </>
+              )}
             </PanelSection>
 
             <Divider />
