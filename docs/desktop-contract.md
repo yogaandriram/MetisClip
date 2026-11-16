@@ -166,15 +166,29 @@ Rules:
 | PUT | `/api/brand-templates/{id}` | `Partial<BrandTemplateInput>` (`name`, or sections; each section replaces the stored one). `layout_settings` is validated (see "Layout" below): unknown keys are dropped, numbers clamped, a wrong type is a 400 | `{brand_template: BrandTemplate}` |
 | DELETE | `/api/brand-templates/{id}` | — | `{ok: true}`; 400 for the last template. Its clips fall back to their agent's default, agents using it get the oldest template, and asset copies no other template uses are deleted |
 | POST | `/api/brand-templates/{id}/assets` | multipart: `file`, `kind` | `{value: "asset://library/_brand/<template id>/<file>", path}`. `kind: "companion"` (MP4, MOV or WEBM) is converted first (silent, 30 fps, short side ≤ 1080 px, first 180 s) and also returns `duration`; 400 with an Indonesian message when it is not a readable video |
+| GET | `/api/campaigns` | `?status=active\|archived` | `{campaigns: Campaign[]}` (newest change first, with `clip_count`, `exported_count` and `source_count`; without `sources` and `draft`) |
+| POST | `/api/campaigns` | `{name, client?, brand_template_id?, brief?}` | `{campaign: Campaign}` |
+| GET | `/api/campaigns/{id}` | — | `{campaign: Campaign}` |
+| PUT | `/api/campaigns/{id}` | `CampaignInput` (`brief` = a reviewed brief: replaces the stored one, `version` + 1 when it differs, and clears `draft`) | `{campaign: Campaign}` |
+| DELETE | `/api/campaigns/{id}` | — | `{ok: true}`. Its clips stay without a campaign; `library/_campaigns/<id>/` is deleted |
+| POST | `/api/campaigns/{id}/sources/text` | `{text, name?}` | `{campaign: Campaign}` |
+| POST | `/api/campaigns/{id}/sources/file` | multipart: `file` (PDF, DOCX, TXT, MD, PNG, JPG, WEBP, BMP, GIF; ≤ 25 MB) | `{campaign: Campaign}`: the file is kept in `library/_campaigns/<id>/` and its text read at once (scanned PDF pages become PNGs); 400 with a message in the UI language for `.doc`, other types or an unreadable file |
+| DELETE | `/api/campaigns/{id}/sources/{source id}` | — | `{campaign: Campaign}` |
+| POST | `/api/campaigns/{id}/parse` | — | `{campaign: Campaign}` with `parse.status: "running"`; the LLM reads every piece in the background (images: the pictures themselves for a model that accepts them, else their Windows OCR text). `campaign.parse` events report `running`, `done` (result in `draft`) or `failed` (`message`). 400 without an LLM key, 409 while a read runs |
+| POST | `/api/campaigns/{id}/draft/discard` | — | `{campaign: Campaign}`; 400 without a draft |
 | GET | `/api/files/{relative path}` | `?token=` | file bytes (Range supported), only under the data root |
 | GET | `/api/jobs` | `?agent_id=&status=&limit=` | `{jobs: Job[]}` |
-| POST | `/api/jobs` | `JobCreate` | `{job: Job}` |
+| POST | `/api/jobs` | `JobCreate` (`clip_duration`: a preset or a custom `lo-hi` of 10–180 s, at least 5 apart; `campaign_ids`: up to 5 active campaigns, each brief snapshotted into the job; `note`) | `{job: Job}` |
 | GET | `/api/jobs/{id}` | — | `{job: Job}` |
 | POST | `/api/jobs/{id}/cancel` | — | `{job: Job}` |
 | POST | `/api/jobs/{id}/resume` | — | `{job: Job}` |
 | DELETE | `/api/jobs/{id}` | — | `{ok: true}` |
-| GET | `/api/clips` | `?agent_id=&job_id=&status=` | `{clips: Clip[]}` |
-| GET | `/api/clips/{id}` | — | `ClipDetail` |
+| GET | `/api/clips` | `?agent_id=&job_id=&status=&campaign_id=` | `{clips: Clip[]}`; campaign clips also carry `campaign_name` and `brief_summary` |
+| GET | `/api/clips/{id}` | — | `ClipDetail` (with `campaign` and `brief_check`, null without a campaign) |
+| PUT | `/api/clips/{id}/post-copy` | `{title, caption, hashtags, mentions, disclosure}` | `{clip: Clip}` (`post_copy.source: "edited"`) |
+| POST | `/api/clips/{id}/post-copy/generate` | — | `{clip: Clip}`: the post text written again by the LLM from the campaign's current brief; 400 without a campaign or LLM key, 502 on an LLM error |
+| PUT | `/api/clips/{id}/brief-manual` | `{rule, checked}` | `{clip: Clip, brief_check}`; 400 for a rule the brief does not have |
+| PUT | `/api/clips/{id}/campaign` | `{campaign_id: string \| null}` | `{clip: Clip}` |
 | PUT | `/api/clips/{id}/subtitles` | `{words?, style?, reset_style?, layout?, reset_layout?, hook_text?, brand_template_id?}` (`brand_template_id: null` = follow the agent's default; `layout` replaces the clip's `layout_style` override; `hook_text` is the title the podcast layout shows) | `{clip: Clip}` |
 | DELETE | `/api/clips/{id}` | `?delete_files=true\|false` | `{ok: true}` |
 | GET | `/api/clips/{id}/media/{raw\|final\|thumbnail\|source}` | `?token=&v=` | media bytes (Range); `source` = the clip in the source video's own ratio (404 for clips made before it was kept) |
@@ -182,7 +196,7 @@ Rules:
 | POST | `/api/clips/{id}/faces` | — | `{clip: Clip, scenes: SceneData}`: the face scan for an older clip (its `source.mp4` first when that is missing too), kept as `files.faces`; 400 with an Indonesian message when it cannot |
 | POST | `/api/clips/{id}/speaker/suggest` | — | `{speakers: [{name, role}]}`: up to 3 names for the speaker tag from the video title, the channel and the clip's words; only names whose words all appear there are returned. Not saved. 400 without a title or words, or without an LLM key; 502 on an LLM error |
 | POST | `/api/clips/{id}/render` | — | `{render_job: RenderJob}` (see "Render output" below) |
-| POST | `/api/clips/export` | `{clip_ids, dest_dir?}` (`dest_dir` empty = the export folder) | `{dest_dir, exported: [{clip_id, path}], skipped: [{clip_id, reason}]}` |
+| POST | `/api/clips/export` | `{clip_ids, dest_dir?}` (`dest_dir` empty = the export folder) | `{dest_dir, exported: [{clip_id, path}], skipped: [{clip_id, reason}]}`. A campaign clip with post text also gets `<same name>.txt` (UTF-8) next to the video while `settings.export.post_text` is on (default) |
 | GET | `/api/render-jobs` | `?clip_id=&status=` | `{render_jobs: RenderJob[]}` |
 | GET | `/api/render-jobs/{id}` | — | `{render_job: RenderJob}` |
 | POST | `/api/render-jobs/{id}/cancel` | — | `{render_job: RenderJob}` |
