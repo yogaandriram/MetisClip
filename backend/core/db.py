@@ -343,6 +343,7 @@ def _migrations():
         m006_local_video_upload,
         m007_local_whisper,
         m008_caption_safe_position,
+        m009_campaigns,
     )
 
     return [
@@ -354,6 +355,7 @@ def _migrations():
         (6, "local_video_upload", m006_local_video_upload.up),
         (7, "local_whisper", m007_local_whisper.up),
         (8, "caption_safe_position", m008_caption_safe_position.up),
+        (9, "campaigns", m009_campaigns.up),
     ]
 
 

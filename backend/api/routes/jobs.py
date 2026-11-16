@@ -15,7 +15,8 @@ from backend.core import events
 from backend.core.config import config
 from backend.core.db import get_db, new_id, utcnow
 from backend.core.queue import runner
-from backend.models.documents import DURATIONS, JobConfig, JobDoc, JobSource
+from backend.models.documents import JobConfig, JobDoc, JobSource, duration_range, format_duration
+from backend.services import campaigns as campaign_svc
 from backend.core import i18n
 
 M = i18n.messages({
@@ -63,7 +64,21 @@ M = i18n.messages({
         "id": "Batalkan job terlebih dahulu sebelum menghapus",
         "en": "Cancel the job before deleting it",
     },
+    "campaign_missing": {
+        "id": "Campaign tidak ditemukan. Muat ulang halaman lalu pilih lagi.",
+        "en": "Campaign not found. Reload the page and choose it again.",
+    },
+    "campaign_archived": {
+        "id": "Campaign '{name}' sudah diarsipkan. Aktifkan lagi dulu di halaman Campaign.",
+        "en": "The '{name}' campaign is archived. Make it active again on the Campaigns page first.",
+    },
+    "too_many_campaigns": {
+        "id": "Satu job maksimal {n} campaign",
+        "en": "A job can have at most {n} campaigns",
+    },
 })
+
+MAX_CAMPAIGNS_PER_JOB = 5
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -75,6 +90,10 @@ class JobCreate(BaseModel):
     local_file_path: Optional[str] = None
     clip_duration: str = "45-60"
     max_clips: int = Field(default=3, ge=0, le=100)
+    # Campaigns the clips are made for: each brief guides the choice, and every campaign gets its own clips
+    campaign_ids: list[str] = Field(default_factory=list)
+    # Extra instructions for this video only
+    note: str = Field(default="", max_length=2000)
 
 
 def _get(job_id: str) -> dict:
@@ -108,8 +127,20 @@ def create_job(body: JobCreate):
     db = get_db()
     if not db.super_agents.find_one({"_id": body.agent_id}, {"_id": 1}):
         raise http_error(400, M("no_workspace"))
-    if body.clip_duration not in DURATIONS:
+    lohi = duration_range(body.clip_duration)
+    if lohi is None:
         raise http_error(400, M("bad_duration"))
+    ids = list(dict.fromkeys(i for i in body.campaign_ids if i))
+    if len(ids) > MAX_CAMPAIGNS_PER_JOB:
+        raise http_error(400, M("too_many_campaigns", n=MAX_CAMPAIGNS_PER_JOB))
+    chosen = []
+    for cid in ids:
+        campaign = campaign_svc.get(cid)
+        if not campaign:
+            raise http_error(400, M("campaign_missing"))
+        if campaign.get("status") == "archived":
+            raise http_error(400, M("campaign_archived", name=campaign.get("name") or ""))
+        chosen.append(campaign_svc.snapshot(campaign))
     url = (body.youtube_url or "").strip()
     file_path = (body.local_file_path or "").strip()
     if bool(url) == bool(file_path):
@@ -132,10 +163,13 @@ def create_job(body: JobCreate):
         agent_id=body.agent_id,
         source=source,
         config=JobConfig(
-            clip_duration=body.clip_duration,
+            clip_duration=format_duration(*lohi),
             max_clips=body.max_clips,
             max_clips_per_video=body.max_clips,
         ),
+        campaign_ids=[c["id"] for c in chosen],
+        campaigns=chosen,
+        note=body.note.strip(),
     ).to_mongo()
     db.discovery_jobs.insert_one(doc)
     events.publish({"type": "job.status", "id": doc["_id"], "agent_id": doc["agent_id"], "status": "pending"})

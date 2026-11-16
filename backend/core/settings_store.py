@@ -82,6 +82,8 @@ def _default_workers() -> int:
 def defaults() -> dict[str, Any]:
     return {
         "export_dir": str(get_paths().exports_dir),
+        # post_text: a campaign clip's export gets a .txt with its post text next to the video
+        "export": {"post_text": True},
         "cache_limit_gb": 10,
         # provider: one of llm_providers.PROVIDERS; models: the chosen model per provider;
         # base_url: only used by the OpenAI-compatible provider
@@ -176,6 +178,8 @@ def _validate(s: dict) -> None:
     if not 0 <= reserve <= 16:
         raise SettingsError(M("reserve_range"))
     res["reserve_gb"] = round(reserve, 2)
+    if not isinstance(s["export"].get("post_text"), bool):
+        raise SettingsError(M("auto_bool"))
     if not i18n.is_lang(s["app"].get("language")):
         raise SettingsError(M("unknown_language"))
     try:

@@ -169,6 +169,7 @@ def delete_template(template_id: str):
     db.clips.update_many({"brand_template_id": template_id}, {"$unset": {"brand_template_id": ""}})
     fallback = bts.ensure_default()
     db.super_agents.update_many({"default_brand_template_id": template_id}, {"$set": {"default_brand_template_id": fallback}})
+    db.campaigns.update_many({"brand_template_id": template_id}, {"$set": {"brand_template_id": None}})
     bts.delete_unused_assets(doc)
     events.publish({"type": "brand_template.deleted", "id": template_id})
     return {"ok": True}

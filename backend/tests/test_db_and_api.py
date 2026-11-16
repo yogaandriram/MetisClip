@@ -16,7 +16,7 @@ def client(db, secrets):
 
 
 def test_migration_creates_indexes_and_version(db):
-    assert db.meta.find_one({"_id": "schema"})["version"] == 8
+    assert db.meta.find_one({"_id": "schema"})["version"] == 9
     assert not {"scheduled_posts", "api_cache"} & set(db.list_collection_names())
     names = {ix["name"] for ix in db.clips.list_indexes()}
     assert "agent_id_1_created_at_-1" in names
@@ -31,7 +31,7 @@ def test_validator_rejects_bad_status(db):
 def test_migration_is_idempotent(db):
     from backend.core.db import migrate
 
-    assert migrate(db) == 8
+    assert migrate(db) == 9
 
 
 def test_migration_002_removes_publishing_data(mongo):
@@ -55,7 +55,7 @@ def test_migration_002_removes_publishing_data(mongo):
                                        "checkpoint": {"analysis_done": True, "scheduling_done": True}})
         old.meta.insert_one({"_id": "schema", "version": 1})
 
-        assert dbm.migrate(old) == 8
+        assert dbm.migrate(old) == 9
         assert "scheduled_posts" not in old.list_collection_names()
         assert "social_connections" not in old.super_agents.find_one({"_id": "a1"})
         job = old.discovery_jobs.find_one({"_id": "j1"})
@@ -92,14 +92,14 @@ def test_migration_005_removes_keyword_search(mongo, secrets):
         old.meta.insert_one({"_id": "schema", "version": 4})
         secrets.set_secret("youtube_api_key", "AIza-test-key")
 
-        assert dbm.migrate(old) == 8
+        assert dbm.migrate(old) == 9
         assert "api_cache" not in old.list_collection_names()
         assert old.super_agents.find_one({"_id": "a1"}, {"_id": 0, "created_at": 0}) == {"name": "Agen", "niche": "bisnis"}
         job = old.discovery_jobs.find_one({"_id": "j1"})
         assert job["source"] == {"type": "keyword", "youtube_url": None} and job["config"] == {"clip_duration": "45-60"}
         assert set(old.source_videos.find_one({"_id": "v1"})) == {"_id", "job_id", "youtube_id", "created_at"}
         assert secrets.get_secret("youtube_api_key") is None
-        assert dbm.migrate(old) == 8  # idempotent
+        assert dbm.migrate(old) == 9  # idempotent
     finally:
         mongo.drop_database(name)
         dbm.set_db(None, None)  # type: ignore[arg-type]
@@ -125,7 +125,7 @@ def test_migration_006_accepts_uploaded_source_videos(mongo):
         with pytest.raises(WriteError):
             old.source_videos.insert_one(dict(upload))
         old.meta.insert_one({"_id": "schema", "version": 5})
-        assert dbm.migrate(old) == 8
+        assert dbm.migrate(old) == 9
         old.source_videos.insert_one(upload)
     finally:
         mongo.drop_database(name)
@@ -161,7 +161,7 @@ def test_migration_008_moves_the_old_default_caption_position(mongo):
             {**clip, "_id": "c-none", "subtitle_style": {}},
         ])
         old.meta.insert_one({"_id": "schema", "version": 7})
-        assert dbm.migrate(old) == 8
+        assert dbm.migrate(old) == 9
 
         assert old.brand_templates.find_one({"_id": "t-old"})["caption_settings"] == {"mode": "lumina", "fontSize": 40}
         assert old.brand_templates.find_one({"_id": "t-own"})["caption_settings"]["positionY"] == 260

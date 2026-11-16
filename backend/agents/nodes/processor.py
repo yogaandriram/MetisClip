@@ -3,12 +3,17 @@ smart crop -> 1080x1920 -> thumbnail -> clip.
 
 Each segment uses its OWN source: a YouTube section download (its own youtube_id, fixes K1) or a
 frame-accurate cut of the uploaded video file. Clip ids are deterministic
-(uuid5 of job, video, start, end) and written with an upsert, so resuming never
+(uuid5 of job, video, start, end, campaign) and written with an upsert, so resuming never
 duplicates clips. Files go to <DATA_ROOT>\\library\\<agent>\\<clip_id>\\.
+
+When several campaigns of a job chose the same moment, it is cut and tracked once: the other clips get
+hard links to the same files (a copy where links are not possible) and their own words, template and
+campaign fields.
 """
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -16,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.agents.context import JobContext, PipelineError
-from backend.agents.tools import caption_ai, clip_edges, ffmpeg_ops, whisper, ytdlp
+from backend.agents.tools import brief_match, caption_ai, clip_edges, ffmpeg_ops, whisper, ytdlp
 from backend.agents.tools.smart_crop import process_auto_tracking_video
 from backend.agents.tools.transcript import cached as cached_transcript
 from backend.core import events, llm, resources
@@ -67,6 +72,10 @@ M = i18n.messages({
     "none_processed": {
         "id": "Tidak ada klip yang berhasil diproses",
         "en": "No clip could be processed",
+    },
+    "post_copy_skipped": {
+        "id": "Teks posting AI dilewati, memakai teks dasar dari brief: {error}",
+        "en": "The AI post text was skipped, using a basic text from the brief: {error}",
     },
 })
 
@@ -143,11 +152,39 @@ def _source(ctx: JobContext, seg: dict[str, Any], work: Path) -> tuple[Path, lis
     return src, clip_words, round(pad_start + a, 2), round(pad_start + b, 2)
 
 
-def _ai_marks(ctx: JobContext, words: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _campaign(ctx: JobContext, seg: dict[str, Any]) -> dict[str, Any] | None:
+    """The job's snapshot of the segment's campaign (None without a campaign)."""
+    cid = seg.get("campaign_id")
+    if not cid:
+        return None
+    return next((c for c in ctx.job.get("campaigns") or [] if c.get("id") == cid), {"id": cid})
+
+
+def _template_id(ctx: JobContext, seg: dict[str, Any]) -> str | None:
+    """The clip's brand template: its campaign's (as set now, else when the job started), else the
+    workspace's default."""
+    campaign = _campaign(ctx, seg)
+    if campaign:
+        live = get_db().campaigns.find_one({"_id": campaign["id"]}, {"brand_template_id": 1})
+        tid = (live or campaign).get("brand_template_id")
+        if tid and brand_templates.get(tid):
+            return tid
+    return (ctx.agent or {}).get("default_brand_template_id")
+
+
+def _brief_marks(words: list[dict[str, Any]], campaign: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """The words the brief requires are highlighted as subtitle keywords."""
+    terms = ((campaign or {}).get("brief") or {}).get("must_include") or []
+    hits = brief_match.term_word_indices(words, terms) if terms else set()
+    return [{**w, "keyword": True} if i in hits else w for i, w in enumerate(words)]
+
+
+def _ai_marks(ctx: JobContext, words: list[dict[str, Any]], template_id: str | None = None) -> list[dict[str, Any]]:
     """Brand template AI subtitle settings: keywords / emojis (one LLM call). Never fails the clip."""
     from backend.services.render import effective_ai
 
-    ai = effective_ai(None, brand_templates.for_agent(ctx.agent) or {})
+    tpl = brand_templates.get(template_id) if template_id else brand_templates.for_agent(ctx.agent)
+    ai = effective_ai(None, tpl or {})
     if not words or not (ai["keywords"] or ai["emojis"]):
         return words
     try:
@@ -207,7 +244,9 @@ def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw
     finally:
         shutil.rmtree(work, ignore_errors=True)
     ctx.check()
-    words = _ai_marks(ctx, words)
+    template_id = _template_id(ctx, seg)
+    campaign = _campaign(ctx, seg)
+    words = _brief_marks(_ai_marks(ctx, words, template_id), campaign)
 
     now = utcnow()
     doc = ClipDoc(
@@ -234,17 +273,119 @@ def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw
         source_height=source_info.get("source_height"),
         subtitle={"words": words},
         subtitle_style={},
-        brand_template_id=(ctx.agent or {}).get("default_brand_template_id"),
+        brand_template_id=template_id,
+        **_campaign_fields(seg),
         status="ready",
         created_at=now,
         updated_at=now,
     ).to_mongo()
+    return _save(ctx, doc, campaign)
+
+
+def _campaign_fields(seg: dict[str, Any]) -> dict[str, Any]:
+    if not seg.get("campaign_id"):
+        return {}
+    return {"campaign_id": seg["campaign_id"], "brief_fit": seg.get("brief_fit"), "brief_reason": seg.get("brief_reason") or ""}
+
+
+def _save(ctx: JobContext, doc: dict[str, Any], campaign: dict[str, Any] | None) -> dict[str, Any]:
     db = get_db()
-    existing = db.clips.find_one({"_id": clip_id}, {"created_at": 1})
+    existing = db.clips.find_one({"_id": doc["_id"]}, {"created_at": 1, "post_copy": 1})
     if existing:
-        doc["created_at"] = existing.get("created_at", now)
-    db.clips.replace_one({"_id": clip_id}, doc, upsert=True)
+        doc["created_at"] = existing.get("created_at", doc["created_at"])
+        doc["post_copy"] = existing.get("post_copy")
+    if campaign and not doc.get("post_copy"):
+        doc["post_copy"] = _post_copy(ctx, doc, campaign)
+    db.clips.replace_one({"_id": doc["_id"]}, doc, upsert=True)
     return doc
+
+
+def _post_copy(ctx: JobContext, doc: dict[str, Any], campaign: dict[str, Any]) -> dict[str, Any] | None:
+    """Text for posting the clip, following the brief (one LLM call). Never fails the clip."""
+    from backend.agents.tools import post_copy_ai
+
+    live = get_db().campaigns.find_one({"_id": campaign.get("id")}, {"brief": 1, "name": 1})
+    brief = (live or campaign).get("brief") or {}
+    sv = get_db().source_videos.find_one({"_id": doc.get("source_video_id")}, {"title": 1, "channel_name": 1}) \
+        if doc.get("source_video_id") else None
+    try:
+        return post_copy_ai.generate(doc, brief, video_title=(sv or {}).get("title") or "",
+                                     channel=(sv or {}).get("channel_name") or "",
+                                     should_stop=lambda: ctx.cancel.cancelled)
+    except llm.LLMNotConfigured:  # dev without a key: the basic text, no warning per clip
+        return post_copy_ai.fallback(doc, brief)
+    except llm.LLMError as exc:
+        ctx.error("processing", M("post_copy_skipped", error=exc))
+        return post_copy_ai.fallback(doc, brief)
+
+
+def _link_or_copy(src: Path, dst: Path) -> None:
+    dst.unlink(missing_ok=True)
+    try:
+        os.link(src, dst)  # same drive (both under the data folder): no extra disk space
+    except OSError:
+        shutil.copy2(src, dst)
+
+
+def derive_clip(ctx: JobContext, seg: dict[str, Any], base: dict[str, Any]) -> dict[str, Any]:
+    """A clip for another campaign from a clip of the same moment: the same media files, its own words
+    (marked for its own template and brief), template and campaign fields."""
+    paths = get_paths()
+    clip_id = seg["segment_id"]
+    out_dir = paths.clip_dir(ctx.agent_slug, clip_id)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    files: dict[str, Any] = {"final": None}
+    try:
+        for kind in ("raw", "thumbnail", "source", "faces"):
+            rel = (base.get("files") or {}).get(kind)
+            src = paths.from_relative(rel) if rel else None
+            if src is None or not src.is_file():
+                files[kind] = None
+                continue
+            dst = out_dir / src.name
+            _link_or_copy(src, dst)
+            files[kind] = paths.to_relative(dst)
+    except BaseException:
+        if not get_db().clips.find_one({"_id": clip_id}, {"_id": 1}):
+            shutil.rmtree(out_dir, ignore_errors=True)
+        raise
+    plain = [{k: v for k, v in w.items() if k not in ("keyword", "emoji")}
+             for w in (base.get("subtitle") or {}).get("words") or []]
+    template_id = _template_id(ctx, seg)
+    campaign = _campaign(ctx, seg)
+    words = _brief_marks(_ai_marks(ctx, plain, template_id), campaign)
+    now = utcnow()
+    doc = ClipDoc(
+        _id=clip_id,
+        agent_id=ctx.agent_id,
+        job_id=ctx.id,
+        source_video_id=base.get("source_video_id"),
+        youtube_id=base.get("youtube_id"),
+        start_time=base["start_time"],
+        end_time=base["end_time"],
+        duration_seconds=base["duration_seconds"],
+        viral_score=seg.get("viral_score", base.get("viral_score", 0)),
+        hook_text=seg.get("hook_text", base.get("hook_text", "")),
+        tags=seg.get("tags", base.get("tags", [])),
+        rationale=seg.get("rationale", base.get("rationale", "")),
+        files=files,
+        source_width=base.get("source_width"),
+        source_height=base.get("source_height"),
+        subtitle={"words": words},
+        subtitle_style={},
+        brand_template_id=template_id,
+        **_campaign_fields(seg),
+        status="ready",
+        created_at=now,
+        updated_at=now,
+    ).to_mongo()
+    return _save(ctx, doc, campaign)
+
+
+def media_key(seg: dict[str, Any]) -> tuple[Any, ...]:
+    """Segments with the same key are the same moment of the same video (chosen by several campaigns)."""
+    return (seg.get("source_video_id") or seg.get("youtube_id"), round(float(seg["start_time"]), 2),
+            round(float(seg["end_time"]), 2))
 
 
 def clip_need_mb() -> int:
@@ -265,13 +406,18 @@ def run(ctx: JobContext, segments: list[dict[str, Any]]) -> list[dict[str, Any]]
     done = set((ctx.job.get("checkpoint") or {}).get("done_segment_ids") or [])
     results: list[dict[str, Any]] = []
     todo = []
+    bases: dict[tuple[Any, ...], dict[str, Any]] = {}  # a finished clip per moment, for the other campaigns
     for seg in segments:
         if seg["segment_id"] in done:
             clip = db.clips.find_one({"_id": seg["segment_id"]})
             if clip:
                 results.append(clip)
+                bases.setdefault(media_key(seg), clip)
                 continue
         todo.append(seg)
+    groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+    for seg in todo:
+        groups.setdefault(media_key(seg), []).append(seg)
 
     total = len(segments)
     completed = len(results)
@@ -286,45 +432,59 @@ def run(ctx: JobContext, segments: list[dict[str, Any]]) -> list[dict[str, Any]]
 
     # At most `max_workers` clips at once; the RAM guard starts each one only when the PC has room
     # for it, so on a busy PC fewer run in parallel
-    workers = max(1, min(len(todo), int(get_settings()["processing"]["max_workers"])))
+    workers = max(1, min(len(groups), int(get_settings()["processing"]["max_workers"])))
     failures: list[str] = []
     need = clip_need_mb()
 
-    def work(seg: dict[str, Any]) -> dict[str, Any] | None:
+    def finished(clip: dict[str, Any]) -> None:
         nonlocal completed
-        ctx.check()
-        try:
-            with resources.hold("clip", need, label=M("hold_label", start=f"{seg['start_time']:.0f}"), cancel=ctx.cancel,
-                                on_wait=lambda info: ctx.progress(message=info.message())):
-                clip = process_segment(ctx, seg)
-        except Cancelled:
-            raise
-        except Exception as exc:
-            logger.exception("Clip %s failed", seg["segment_id"])
-            msg = M("clip_failed", start=f"{seg['start_time']:.0f}", end=f"{seg['end_time']:.0f}", source=_source_label(seg), error=exc)
-            ctx.error("processing", msg)
-            with lock:
-                failures.append(msg)
-            return None
-        ctx.mark_segment_done(seg["segment_id"])
+        ctx.mark_segment_done(clip["_id"])
         with lock:
             completed += 1
             pct = 40 + 55 * completed / max(1, total)
         ctx.progress(pct, inc_processed=1, message=M("clip_done", done=completed, total=total))
         events.publish({"type": "clip.created", "id": clip["_id"], "job_id": ctx.id, "agent_id": ctx.agent_id})
-        return clip
+
+    def failed(seg: dict[str, Any], exc: Exception) -> None:
+        logger.exception("Clip %s failed", seg["segment_id"])
+        msg = M("clip_failed", start=f"{seg['start_time']:.0f}", end=f"{seg['end_time']:.0f}", source=_source_label(seg), error=exc)
+        ctx.error("processing", msg)
+        with lock:
+            failures.append(msg)
+
+    def work(key: tuple[Any, ...]) -> list[dict[str, Any]]:
+        """One moment: cut and track it once, then one clip per campaign that chose it."""
+        out: list[dict[str, Any]] = []
+        base = bases.get(key)
+        for seg in groups[key]:
+            ctx.check()
+            try:
+                if base is None:
+                    with resources.hold("clip", need, label=M("hold_label", start=f"{seg['start_time']:.0f}"),
+                                        cancel=ctx.cancel, on_wait=lambda info: ctx.progress(message=info.message())):
+                        clip = process_segment(ctx, seg)
+                    base = clip
+                else:
+                    clip = derive_clip(ctx, seg, base)
+            except Cancelled:
+                raise
+            except Exception as exc:
+                failed(seg, exc)
+                continue
+            finished(clip)
+            out.append(clip)
+        return out
 
     pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix=f"clip-{ctx.id[:8]}")
     try:
-        futures = [pool.submit(work, s) for s in todo]
+        futures = [pool.submit(work, k) for k in groups]
         for f in as_completed(futures):
             try:
-                clip = f.result()
+                clips = f.result()
             except Cancelled:
                 ctx.cancel.cancel(ctx.cancel.reason)
                 raise
-            if clip:
-                results.append(clip)
+            results.extend(clips)
     finally:
         pool.shutdown(wait=True, cancel_futures=True)
 

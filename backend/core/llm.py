@@ -8,12 +8,17 @@ Providers differ in which request parameters they accept (temperature on reasoni
 max_tokens vs max_completion_tokens, JSON mode, reasoning_effort). A request refused because of
 such a parameter is retried without it, and the adjustment is remembered per endpoint and model.
 
+Images (campaign brief screenshots) go along as OpenAI image parts or Anthropic image blocks. A model
+that refuses them raises LLMNoVision, and that is remembered per endpoint and model, so the caller
+falls back to OCR without asking again.
+
 Rate limits (HTTP 429): a short limit (per minute) is retried after the wait the provider asks for.
 A used-up quota (a daily limit, billing, or a wait of minutes) raises LLMQuotaExhausted at once,
 because retrying cannot help and every caller should stop instead of trying the next request.
 """
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import re
@@ -213,6 +218,10 @@ M = i18n.messages({
         "id": "Gagal: {error}",
         "en": "Failed: {error}",
     },
+    "no_vision": {
+        "id": "Model {where} tidak bisa membaca gambar",
+        "en": "The model {where} can't read images",
+    },
 })
 
 logger = logging.getLogger(__name__)
@@ -233,6 +242,10 @@ class LLMError(RuntimeError):
 
 class LLMNotConfigured(LLMError):
     pass
+
+
+class LLMNoVision(LLMError):
+    """The model does not accept images."""
 
 
 class LLMQuotaExhausted(LLMError):
@@ -271,6 +284,34 @@ class _Rejected(Exception):
         super().__init__(detail)
         self.status = status
         self.detail = detail
+
+
+class _NoVision(Exception):
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+
+
+Image = tuple[bytes, str]  # (data, mime type)
+
+# Errors that mean "this model takes no images", e.g. "image input is not supported", "No endpoints
+# found that support image input", "Invalid content type. image_url is only supported by certain models"
+_NO_VISION = re.compile(
+    r"image|vision|multi-?modal|content\W*(?:type|part|block)|unknown variant|expected.*string", re.I)
+_no_vision: set[tuple[str, str]] = set()
+
+
+def supports_vision(t: "Target | None" = None) -> bool:
+    """False when the provider or this endpoint and model are known to refuse images."""
+    try:
+        t = t or target()
+    except LLMError:
+        return False
+    return t.provider.vision and (t.base_url, t.model) not in _no_vision
+
+
+def _data_url(img: Image) -> str:
+    return f"data:{img[1]};base64,{base64.b64encode(img[0]).decode('ascii')}"
 
 
 class _Retryable(Exception):
@@ -607,14 +648,18 @@ def _openai_client(t: Target, timeout: float):
 
 
 def _openai_complete(t: Target, system: str, user: str, *, temperature: float, max_tokens: int,
-                     json_mode: bool, timeout: float) -> str:
+                     json_mode: bool, timeout: float, images: list[Image] | None = None) -> str:
     import openai
 
     p = t.provider
     limit = max_tokens + (REASONING_HEADROOM if p.reasoning else 0)
+    content: Any = user
+    if images:
+        content = [{"type": "text", "text": user}] + [
+            {"type": "image_url", "image_url": {"url": _data_url(img), "detail": "high"}} for img in images]
     params: dict[str, Any] = {
         "model": t.model,
-        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}],
         "temperature": temperature,
         ("max_completion_tokens" if p.completion_tokens else "max_tokens"): limit,
     }
@@ -632,7 +677,10 @@ def _openai_complete(t: Target, system: str, user: str, *, temperature: float, m
         except openai.AuthenticationError as exc:
             raise _Auth(_provider_detail(exc)) from exc
         except (openai.NotFoundError, openai.PermissionDeniedError) as exc:
-            raise _NotFound(_provider_detail(exc)) from exc
+            detail = _provider_detail(exc)
+            if images and _NO_VISION.search(f"{detail} {exc}"):
+                raise _NoVision(detail) from exc
+            raise _NotFound(detail) from exc
         except openai.RateLimitError as exc:
             raise _limit_error(429, _provider_message(exc), getattr(exc.response, "headers", None), str(exc)) from exc
         except openai.BadRequestError as exc:
@@ -641,6 +689,8 @@ def _openai_complete(t: Target, system: str, user: str, *, temperature: float, m
                 raise _Auth(detail) from exc
             if _BILLING.search(f"{_provider_message(exc)} {exc}"):
                 raise _Quota("billing", detail) from exc
+            if images and _NO_VISION.search(f"{detail} {exc}"):
+                raise _NoVision(detail) from exc
             if not _adapt(params, f"{detail} {exc}", qkey):
                 raise _Rejected(400, detail) from exc
             logger.info("LLM %s/%s refused a parameter, retrying with %s", p.id, t.model, sorted(params))
@@ -649,6 +699,8 @@ def _openai_complete(t: Target, system: str, user: str, *, temperature: float, m
                 raise _limit_error(402, _provider_message(exc), getattr(exc.response, "headers", None), str(exc)) from exc
             if exc.status_code in (408, 409, 425, 500, 502, 503, 504, 529):
                 raise _Retryable("server", _provider_detail(exc), status=exc.status_code) from exc
+            if images and exc.status_code in (415, 422) and _NO_VISION.search(f"{_provider_detail(exc)} {exc}"):
+                raise _NoVision(_provider_detail(exc)) from exc
             raise _Rejected(exc.status_code, _provider_detail(exc)) from exc
         except openai.APITimeoutError as exc:
             raise _Retryable("timeout", str(exc)) from exc
@@ -672,14 +724,19 @@ def _anthropic_detail(resp) -> str:
 
 
 def _anthropic_complete(t: Target, system: str, user: str, *, temperature: float, max_tokens: int,
-                        json_mode: bool, timeout: float) -> str:
+                        json_mode: bool, timeout: float, images: list[Image] | None = None) -> str:
     import httpx
 
+    content: Any = user
+    if images:
+        content = [{"type": "image", "source": {"type": "base64", "media_type": img[1],
+                                                "data": base64.b64encode(img[0]).decode("ascii")}}
+                   for img in images] + [{"type": "text", "text": user}]
     body: dict[str, Any] = {
         "model": t.model,
         "max_tokens": max_tokens,
         "system": system + (JSON_HINT if json_mode else ""),
-        "messages": [{"role": "user", "content": user}],
+        "messages": [{"role": "user", "content": content}],
         "temperature": temperature,
     }
     qkey = (t.base_url, t.model)
@@ -706,6 +763,8 @@ def _anthropic_complete(t: Target, system: str, user: str, *, temperature: float
             raise _Retryable("server", detail, status=status)
         if status == 400 and _BILLING.search(detail):  # "Your credit balance is too low …"
             raise _Quota("billing", detail)
+        if status == 400 and images and _NO_VISION.search(detail):
+            raise _NoVision(detail)
         if status == 400 and _adapt(body, detail, qkey):
             continue
         raise _Rejected(status, detail)
@@ -728,13 +787,18 @@ def chat_json(
     retries: int = 3,
     on_retry: Callable[[str], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
+    images: list[Image] | None = None,
+    timeout: float = 90.0,
 ) -> dict[str, Any]:
     """JSON answer from the active provider.
 
     Retries 429 (after the wait the provider asks for), 5xx, timeouts and invalid JSON. Raises
-    LLMQuotaExhausted without retrying when the quota is used up (daily limit, billing, long wait)."""
+    LLMQuotaExhausted without retrying when the quota is used up (daily limit, billing, long wait),
+    and LLMNoVision when `images` are given to a model that refuses them."""
     t = target()
     label = t.provider.label
+    if images and not supports_vision(t):
+        raise LLMNoVision(M("no_vision", where=_where(t)))
     where = _where(t)
     last_exc: Exception | None = None
     attempts = 0
@@ -744,10 +808,15 @@ def chat_json(
             raise LLMError(M("cancelled"))
         attempts += 1
         try:
-            content = _complete(t, system, user, temperature=temperature, max_tokens=max_tokens, json_mode=True, timeout=90.0)
+            content = _complete(t, system, user, temperature=temperature, max_tokens=max_tokens, json_mode=True,
+                                timeout=timeout, **({"images": images} if images else {}))
             return _parse_json(content)
         except _Auth as exc:
             raise LLMNotConfigured(M("key_rejected", label=label)) from exc
+        except _NoVision as exc:
+            _no_vision.add((t.base_url, t.model))
+            logger.info("LLM %s refused images: %s", where, exc.detail)
+            raise LLMNoVision(M("no_vision", where=where)) from exc
         except _NotFound as exc:
             raise LLMError(M("model_unavailable", where=where) + " " + M("provider_said", detail=exc.detail)) from exc
         except _Rejected as exc:

@@ -6,7 +6,7 @@
 # spawns the exe with windowsHide, so no console window is shown.
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
 REPO = Path(SPECPATH).resolve().parent
 
@@ -22,12 +22,15 @@ datas = (
     collect_data_files("mediapipe", includes=["**/*.tflite", "**/*.binarypb", "**/*.txt", "**/*.pbtxt"])
     + collect_data_files("youtube_transcript_api")
     + collect_data_files("certifi")
+    # Campaign briefs in PDF (backend/services/brief_sources.py): pdfium.dll and the version files
+    + collect_data_files("pypdfium2")
+    + collect_data_files("pypdfium2_raw")
 )
 
 a = Analysis(
     [str(REPO / "backend" / "run.py")],
     pathex=[str(REPO)],
-    binaries=[],
+    binaries=collect_dynamic_libs("pypdfium2_raw"),
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],

@@ -58,6 +58,9 @@ class JobRunner:
                 {"$set": {"status": "failed", "error": "Render terhenti karena aplikasi ditutup", "finished_at": now}},
             )
             _restore_clip_status(r["clip_id"])
+        from backend.services import campaigns
+
+        campaigns.recover()
         for job in db.discovery_jobs.find({"status": "pending"}, {"_id": 1}).sort("created_at", 1):
             self.submit_job(job["_id"])
 

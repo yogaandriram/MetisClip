@@ -7,7 +7,7 @@ from typing import Any, Literal, Optional
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from backend.api.dto import brand_template_dto, clip_dto, http_error, render_dto
+from backend.api.dto import brand_template_dto, campaign_dto, clip_dto, http_error, render_dto
 from backend.api.routes.files import serve_relative
 from backend.agents.tools import caption_ai, speaker_ai
 from backend.agents.tools.caption_ai import valid_emoji
@@ -17,7 +17,8 @@ from backend.core.paths import get_paths
 from backend.core.queue import runner
 from backend.models.documents import RenderJobDoc
 from backend.core.procs import Cancelled, CancelToken
-from backend.services import brand_templates, exports
+from backend.services import brand_templates, brief_check, exports
+from backend.services import campaigns as campaign_svc
 from backend.services import layout as layout_svc
 from backend.services.render import channel_name, clean_ai, effective_ai, effective_style
 from backend.core import i18n
@@ -79,6 +80,22 @@ M = i18n.messages({
         "id": "Render job tidak ditemukan",
         "en": "Render job not found",
     },
+    "campaign_not_found": {
+        "id": "Campaign tidak ditemukan",
+        "en": "Campaign not found",
+    },
+    "no_campaign": {
+        "id": "Klip ini bukan klip campaign",
+        "en": "This clip isn't a campaign clip",
+    },
+    "post_copy_failed": {
+        "id": "Teks posting gagal dibuat: {error}",
+        "en": "The post text couldn't be written: {error}",
+    },
+    "unknown_rule": {
+        "id": "Aturan brief tidak ditemukan",
+        "en": "Brief rule not found",
+    },
 })
 
 router = APIRouter(tags=["clips"])
@@ -91,8 +108,31 @@ def _get(clip_id: str) -> dict:
     return clip
 
 
+class _BriefContext:
+    """Campaigns, templates and channels looked up once per request (the gallery checks many clips)."""
+
+    def __init__(self) -> None:
+        self.campaigns: dict[str, dict | None] = {}
+        self.templates: dict[str, dict | None] = {}
+
+    def campaign(self, cid: str) -> dict | None:
+        if cid not in self.campaigns:
+            self.campaigns[cid] = campaign_svc.get(cid)
+        return self.campaigns[cid]
+
+    def check(self, clip: dict) -> dict | None:
+        campaign = self.campaign(clip["campaign_id"]) if clip.get("campaign_id") else None
+        if not campaign:
+            return None
+        key = f"{clip.get('brand_template_id')}|{clip.get('agent_id')}"
+        if key not in self.templates:
+            self.templates[key] = brand_templates.for_clip(clip)
+        return brief_check.check(clip, campaign, self.templates[key], channel_name(clip))
+
+
 @router.get("/api/clips")
-def list_clips(agent_id: Optional[str] = None, job_id: Optional[str] = None, status: Optional[str] = None):
+def list_clips(agent_id: Optional[str] = None, job_id: Optional[str] = None, status: Optional[str] = None,
+               campaign_id: Optional[str] = None):
     q: dict = {}
     if agent_id:
         q["agent_id"] = agent_id
@@ -100,8 +140,20 @@ def list_clips(agent_id: Optional[str] = None, job_id: Optional[str] = None, sta
         q["job_id"] = job_id
     if status:
         q["status"] = status
+    if campaign_id:
+        q["campaign_id"] = campaign_id
     docs = get_db().clips.find(q).sort("created_at", -1)
-    return {"clips": [clip_dto(d) for d in docs]}
+    ctx = _BriefContext()
+    out = []
+    for d in docs:
+        dto = clip_dto(d)
+        if d.get("campaign_id"):
+            check = ctx.check(d)
+            dto["brief_summary"] = check["summary"] if check else None
+            c = ctx.campaign(d["campaign_id"])
+            dto["campaign_name"] = (c or {}).get("name") or ""
+        out.append(dto)
+    return {"clips": out}
 
 
 @router.get("/api/clips/{clip_id}")
@@ -120,7 +172,108 @@ def get_clip(clip_id: str):
         "scenes": layout_svc.scene_info(clip),
         # The template in effect (the clip's own choice, else its agent's default); null = built-in
         "brand_template": brand_template_dto(tpl),
+        **_campaign_info(clip, tpl),
     }
+
+
+def _campaign_info(clip: dict, tpl: dict | None) -> dict[str, Any]:
+    """The clip's campaign (without the brief material) and its brief checklist; null without one."""
+    campaign = campaign_svc.get(clip.get("campaign_id")) if clip.get("campaign_id") else None
+    if not campaign:
+        return {"campaign": None, "brief_check": None}
+    dto = campaign_dto(campaign)
+    dto.pop("sources", None)
+    dto.pop("draft", None)
+    return {"campaign": dto, "brief_check": brief_check.check(clip, campaign, tpl, channel_name(clip))}
+
+
+class PostCopy(BaseModel):
+    title: str = Field(default="", max_length=200)
+    caption: str = Field(default="", max_length=2200)
+    hashtags: list[str] = Field(default_factory=list, max_length=60)
+    mentions: list[str] = Field(default_factory=list, max_length=60)
+    disclosure: str = Field(default="", max_length=300)
+
+
+def _campaign_of(clip: dict) -> dict:
+    campaign = campaign_svc.get(clip.get("campaign_id")) if clip.get("campaign_id") else None
+    if not campaign:
+        raise http_error(400, M("no_campaign"))
+    return campaign
+
+
+@router.put("/api/clips/{clip_id}/post-copy")
+def save_post_copy(clip_id: str, body: PostCopy):
+    """The user's edit of the post text (the brief's required hashtags and mentions are not forced back:
+    the checklist shows when they are missing)."""
+    from backend.agents.tools import post_copy_ai
+
+    clip = _get(clip_id)
+    copy = post_copy_ai.enforce(body.model_dump(), {})
+    copy["generated_at"] = ((clip.get("post_copy") or {}).get("generated_at"))
+    copy["source"] = "edited"
+    get_db().clips.update_one({"_id": clip_id}, {"$set": {"post_copy": copy, "updated_at": utcnow()}})
+    events.publish({"type": "clip.updated", "id": clip_id})
+    return {"clip": clip_dto(_get(clip_id))}
+
+
+@router.post("/api/clips/{clip_id}/post-copy/generate")
+def generate_post_copy(clip_id: str):
+    """Write the post text again with the LLM, following the campaign's current brief."""
+    from backend.agents.tools import post_copy_ai
+
+    clip = _get(clip_id)
+    campaign = _campaign_of(clip)
+    sv = get_db().source_videos.find_one({"_id": clip["source_video_id"]}) if clip.get("source_video_id") else None
+    try:
+        copy = post_copy_ai.generate(clip, campaign.get("brief") or {}, video_title=str((sv or {}).get("title") or ""),
+                                     channel=str((sv or {}).get("channel_name") or ""))
+    except llm.LLMNotConfigured as exc:
+        raise http_error(400, str(exc))
+    except llm.LLMError as exc:
+        raise http_error(502, M("post_copy_failed", error=exc))
+    get_db().clips.update_one({"_id": clip_id}, {"$set": {"post_copy": copy, "updated_at": utcnow()}})
+    events.publish({"type": "clip.updated", "id": clip_id})
+    return {"clip": clip_dto(_get(clip_id))}
+
+
+class ManualCheck(BaseModel):
+    rule: str = Field(min_length=1, max_length=40)
+    checked: bool
+
+
+@router.put("/api/clips/{clip_id}/brief-manual")
+def set_brief_manual(clip_id: str, body: ManualCheck):
+    """Tick (or untick) a brief rule only the user can check."""
+    clip = _get(clip_id)
+    campaign = _campaign_of(clip)
+    if not any(r.get("id") == body.rule for r in (campaign.get("brief") or {}).get("rules") or []):
+        raise http_error(400, M("unknown_rule"))
+    op = {"$set": {f"brief_manual.{body.rule}": True, "updated_at": utcnow()}} if body.checked else \
+        {"$unset": {f"brief_manual.{body.rule}": ""}, "$set": {"updated_at": utcnow()}}
+    get_db().clips.update_one({"_id": clip_id}, op)
+    events.publish({"type": "clip.updated", "id": clip_id})
+    clip = _get(clip_id)
+    return {"clip": clip_dto(clip), "brief_check": _campaign_info(clip, brand_templates.for_clip(clip))["brief_check"]}
+
+
+class ClipCampaign(BaseModel):
+    campaign_id: Optional[str] = None
+
+
+@router.put("/api/clips/{clip_id}/campaign")
+def set_clip_campaign(clip_id: str, body: ClipCampaign):
+    """Put a clip under a campaign (or take it out). The fit score stays from when it was made for one."""
+    _get(clip_id)
+    if body.campaign_id:
+        if not campaign_svc.get(body.campaign_id):
+            raise http_error(400, M("campaign_not_found"))
+        op: dict[str, Any] = {"$set": {"campaign_id": body.campaign_id, "updated_at": utcnow()}}
+    else:
+        op = {"$unset": {"campaign_id": ""}, "$set": {"updated_at": utcnow()}}
+    get_db().clips.update_one({"_id": clip_id}, op)
+    events.publish({"type": "clip.updated", "id": clip_id})
+    return {"clip": clip_dto(_get(clip_id))}
 
 
 class Word(BaseModel):

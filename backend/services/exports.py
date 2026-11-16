@@ -6,6 +6,7 @@ file name and the folder rules are the same. `final.mp4` in the library stays th
 """
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 from pathlib import Path
@@ -40,6 +41,9 @@ M = i18n.messages({
         "en": "Couldn't copy to {folder}: {error}",
     },
 })
+
+
+logger = logging.getLogger(__name__)
 
 
 class ExportError(Exception):
@@ -94,4 +98,30 @@ def copy_final(clip: dict[str, Any], folder: Path) -> Path:
         if isinstance(exc, PermissionError):
             raise ExportError(M("locked", folder=folder)) from exc
         raise ExportError(M("copy_failed", folder=folder, error=exc.strerror or exc)) from exc
+    write_post_text(clip, target)
     return target
+
+
+def post_text_enabled() -> bool:
+    from backend.core.settings_store import get_settings
+
+    return bool(get_settings()["export"]["post_text"])
+
+
+def write_post_text(clip: dict[str, Any], video: Path) -> Path | None:
+    """A campaign clip's post text as `<video name>.txt` next to the exported video (Pengaturan →
+    Folder ekspor can turn it off). Never fails the export: the video is what matters."""
+    from backend.agents.tools.post_copy_ai import as_text
+
+    if not clip.get("campaign_id") or not clip.get("post_copy") or not post_text_enabled():
+        return None
+    text = as_text(clip.get("post_copy"))
+    if not text.strip():
+        return None
+    out = video.with_suffix(".txt")
+    try:
+        out.write_text(text, encoding="utf-8")  # UTF-8 without BOM: hashtags and emoji paste cleanly
+    except OSError as exc:
+        logger.warning("Post text next to %s not written: %s", video.name, exc)
+        return None
+    return out
