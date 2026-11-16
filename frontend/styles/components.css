@@ -11,7 +11,8 @@
   position: fixed;
   top: 16px;
   left: 16px;
-  z-index: 30;
+  /* Above the rail, so the campaign menu opens over it */
+  z-index: 31;
 }
 
 .mc-shell__rail {
@@ -46,6 +47,102 @@
 .mc-logo--sm {
   width: 48px;
   height: 48px;
+}
+
+/* The active campaign as a profile circle in the logo's place (DESIGN.md §5.2) */
+.mc-profile {
+  position: relative;
+}
+
+.mc-profile__button {
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-full);
+  background: var(--ink);
+  color: var(--leaf);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: box-shadow var(--dur-base) var(--ease-out);
+}
+
+.mc-profile__button .mc-avatar {
+  transition: transform var(--dur-base) var(--ease-out);
+}
+
+.mc-profile__button:hover .mc-avatar,
+.mc-profile__button[aria-expanded='true'] .mc-avatar {
+  transform: scale(1.05);
+}
+
+/* On the campaign pages the rail's bite is gone, so the circle carries the "you are here" ring */
+.mc-profile__button.is-current {
+  box-shadow: 0 0 0 3px var(--canvas), 0 0 0 6px var(--leaf-strong);
+}
+
+/* The name tooltip would cover the open menu */
+.mc-profile__button[aria-expanded='true']::after {
+  display: none;
+}
+
+/* Two classes: .mc-popover (later in this file) would otherwise win */
+.mc-popover.mc-profile__menu {
+  top: 0;
+  left: calc(100% + 12px);
+  width: 300px;
+  max-height: calc(100vh - 32px);
+}
+
+.mc-profile__current {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.mc-profile__current:hover,
+.mc-profile__current:focus-visible {
+  background: var(--mist);
+  outline: none;
+}
+
+.mc-profile__who {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mc-menu-label.mc-profile__kicker {
+  padding: 0;
+}
+
+.mc-profile__name {
+  font: 600 16px/22px var(--font-display);
+}
+
+.mc-profile__brand {
+  padding: 6px 12px 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 500 12px/16px var(--font-text);
+  color: var(--text-muted);
+}
+
+.mc-profile__brand-mark {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-full);
+  background: var(--ink);
+  color: var(--leaf);
+  display: grid;
+  place-items: center;
 }
 
 .mc-rail {

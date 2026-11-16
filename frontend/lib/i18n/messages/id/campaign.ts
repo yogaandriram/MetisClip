@@ -18,7 +18,7 @@ export const campaign = {
   },
 
   library: {
-    subtitle: 'Semua job, klip, dan brief tersimpan di dalam campaign. Campaign aktif dipilih di kanan atas.',
+    subtitle: 'Semua job, klip, dan brief tersimpan di dalam campaign. Ganti campaign aktif lewat lingkaran profil di kiri atas.',
     create: 'Campaign baru',
     tabsLabel: 'Tampilkan campaign',
     tabActive: 'Aktif',
@@ -29,7 +29,7 @@ export const campaign = {
     emptyText:
       'Buat campaign untuk channel sendiri atau untuk brief dari agency. Brief bisa ditambahkan kapan saja (teks, dokumen, atau screenshot), lalu AI membacanya menjadi aturan saat memilih momen dan menulis teks posting.',
     emptyArchivedTitle: 'Belum ada campaign yang diarsipkan',
-    emptyArchivedText: 'Campaign yang sudah selesai bisa diarsipkan dari halamannya. Campaign yang diarsipkan tidak muncul di pemilih campaign dan di Cari Video.',
+    emptyArchivedText: 'Campaign yang sudah selesai bisa diarsipkan dari halamannya. Campaign yang diarsipkan tidak muncul di menu campaign dan di Cari Video.',
     open: (name: string) => `Buka campaign ${name}`,
     clips: (n: number) => `${n} klip`,
     exported: (n: number) => `${n} diekspor`,
@@ -90,7 +90,7 @@ export const campaign = {
     unarchive: 'Aktifkan lagi',
     archived: (name: string) => `${name} diarsipkan`,
     unarchived: (name: string) => `${name} aktif lagi`,
-    archivedNote: 'Campaign ini diarsipkan, jadi tidak muncul di pemilih campaign dan di Cari Video.',
+    archivedNote: 'Campaign ini diarsipkan, jadi tidak muncul di menu campaign dan di Cari Video.',
     delete: 'Hapus campaign',
     deleteTitle: (name: string) => `Hapus campaign ${name}?`,
     deleteBody: (clips: number) =>

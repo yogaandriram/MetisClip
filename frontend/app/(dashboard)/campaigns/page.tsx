@@ -1,11 +1,12 @@
 'use client'
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Archive, Megaphone, Plus } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Alert, Button, EmptyState, InputField, Modal, PageHeader, Skeleton, Tabs, Tag } from '@/components/ui'
+import { useCampaign } from '@/contexts/CampaignContext'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
 import { shownClient } from '@/lib/brief'
@@ -66,10 +67,20 @@ function CampaignCard({ campaign }: { campaign: Campaign }) {
 }
 
 export default function CampaignsPage() {
+  return (
+    <Suspense fallback={<Skeleton height={400} radius="lg" />}>
+      <CampaignLibrary />
+    </Suspense>
+  )
+}
+
+function CampaignLibrary() {
   const t = useT()
   const m = t.campaign
   const router = useRouter()
+  const params = useSearchParams()
   const { epoch } = useEngine()
+  const { setActiveCampaign, refreshCampaigns } = useCampaign()
 
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [loaded, setLoaded] = useState(false)
@@ -118,12 +129,25 @@ export default function CampaignsPage() {
     setCreateOpen(true)
   }
 
+  // "Campaign baru" in the profile menu links here with ?new=1
+  const wantsNew = params.get('new') === '1'
+  useEffect(() => {
+    if (!wantsNew) return
+    setName('')
+    setClient('')
+    setCreateOpen(true)
+    router.replace('/campaigns/')
+  }, [wantsNew, router])
+
   const create = async () => {
     if (!name.trim() || creating) return
     setCreating(true)
     try {
       const { campaign } = await api.campaigns.create({ name: name.trim(), client: client.trim() })
       setCreateOpen(false)
+      // A new campaign becomes the active one, like a new profile
+      await refreshCampaigns()
+      setActiveCampaign(campaign.id)
       router.push(campaignHref(campaign.id))
     } catch (err) {
       toast.error(errorMessage(err, m.createDialog.failed))

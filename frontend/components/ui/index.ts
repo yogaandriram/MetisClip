@@ -1,5 +1,4 @@
 // Single import point for the design system: import { Button, Card } from '@/components/ui'
-export { CampaignSwitcher } from './CampaignSwitcher'
 export { Alert, type AlertTone } from './Alert'
 export { Avatar } from './Avatar'
 export { Badge, ScoreBadge, StatusBadge, type BadgeTone } from './Badge'

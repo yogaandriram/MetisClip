@@ -16,7 +16,7 @@ export const campaign: Messages['campaign'] = {
   },
 
   library: {
-    subtitle: 'Every job, clip and brief lives in a campaign. Choose the active one at the top right.',
+    subtitle: 'Every job, clip and brief lives in a campaign. Switch the active one from the profile circle at the top left.',
     create: 'New campaign',
     tabsLabel: 'Show campaigns',
     tabActive: 'Active',
@@ -27,7 +27,7 @@ export const campaign: Messages['campaign'] = {
     emptyText:
       "Create a campaign for your own channel or for an agency's brief. A brief can be added any time (text, documents or screenshots), and the AI reads it into rules that are used to pick moments and write the post text.",
     emptyArchivedTitle: 'No archived campaigns',
-    emptyArchivedText: 'Archive a finished campaign from its page. Archived campaigns are not offered in the campaign switcher or on Find Video.',
+    emptyArchivedText: 'Archive a finished campaign from its page. Archived campaigns are not offered in the campaign menu or on Find Video.',
     open: (name: string) => `Open campaign ${name}`,
     clips: (n: number) => (n === 1 ? '1 clip' : `${n} clips`),
     exported: (n: number) => `${n} exported`,
@@ -88,7 +88,7 @@ export const campaign: Messages['campaign'] = {
     unarchive: 'Make active again',
     archived: (name: string) => `${name} archived`,
     unarchived: (name: string) => `${name} is active again`,
-    archivedNote: 'This campaign is archived, so it is not offered in the campaign switcher or on Find Video.',
+    archivedNote: 'This campaign is archived, so it is not offered in the campaign menu or on Find Video.',
     delete: 'Delete campaign',
     deleteTitle: (name: string) => `Delete campaign ${name}?`,
     deleteBody: (clips: number) =>
