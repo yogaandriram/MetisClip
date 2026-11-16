@@ -10,7 +10,24 @@ export const editor = {
     card: 'Kartu',
     split: 'Pendamping',
     duo: 'Dua orang',
-    auto: 'Otomatis',
+    auto: 'Per adegan',
+  },
+  /** "Layout otomatis sesuai konten" in the layout panel */
+  smart: {
+    toggle: 'Otomatis sesuai konten',
+    hint: 'Layout dipilih dari isi clip ini. Matikan untuk memilih layout sendiri atau mengikuti layout default template.',
+    kinds: {
+      vertical: 'Video sumber tegak',
+      speaker: 'Satu pembicara',
+      duo: 'Dua orang berdampingan',
+      screen: 'Slide, layar atau keramaian',
+      mixed: 'Campuran wajah dan slide',
+    },
+    picked: (kind: string, layout: string) => `Isi clip: ${kind}. Layout: ${layout}.`,
+    shares: (solo: string, duo: string, other: string) => `Satu orang ${solo} · dua orang ${duo} · lainnya ${other}`,
+    missingTitle: 'Isi clip belum dianalisis',
+    missingBody: 'Analisis wajah menentukan layout yang cocok. Sampai itu clip memakai layout default, dan saat ekspor analisisnya dijalankan dulu.',
+    rules: 'Atur pilihan per isi clip',
   },
   layoutHints: {
     full: 'Video dipotong 9:16 mengikuti wajah pembicara.',

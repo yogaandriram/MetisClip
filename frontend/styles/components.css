@@ -1385,6 +1385,22 @@ input[type='color'].mc-input {
   cursor: not-allowed;
 }
 
+.mc-stage .mc-chip {
+  background: var(--ink-soft);
+  color: var(--on-ink);
+  box-shadow: inset 0 0 0 1px var(--ink-line);
+}
+
+.mc-stage .mc-chip:hover:not(:disabled) {
+  background: var(--ink-line);
+}
+
+.mc-stage .mc-chip[aria-checked='true'] {
+  background: var(--leaf);
+  color: var(--ink);
+  box-shadow: none;
+}
+
 .mc-chip--sm {
   height: 28px;
   padding: 0 12px;

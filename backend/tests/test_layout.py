@@ -550,3 +550,123 @@ def test_auto_render_scans_old_clips_first(db, paths, monkeypatch):
     props = render.build_props(updated)
     assert props["layout"]["mode"] == "auto"  # the auto choices default in the layout model
     assert [s["kind"] for s in props["scenes"]["shots"]] == ["duo", "solo"]
+
+
+# -- "Layout otomatis sesuai konten" (smart): one layout per clip, from what its shots show ----------
+
+def _scenes(*shots: tuple[float, float, str, int], width: int = 1920, height: int = 1080) -> dict:
+    """Scene data as scene_info returns it: (start, end, kind, number of faces)."""
+    face = {"x": 0.5, "y": 0.4, "h": 0.2}
+    return {"width": width, "height": height,
+            "shots": [{"start": a, "end": b, "kind": k, "faces": [face] * n} for a, b, k, n in shots]}
+
+
+def test_clean_layout_smart():
+    out = layout.clean_layout({"smart": {"enabled": True, "speaker": "split", "duo": "podcast", "screen": "card",
+                                         "mixed": "full", "junk": 1}})
+    assert out == {"smart": {"enabled": True, "speaker": "split", "duo": "podcast", "screen": "card", "mixed": "full"}}
+    for bad in ({"smart": {"enabled": "yes"}}, {"smart": {"speaker": "duo"}}, {"smart": {"screen": "auto"}},
+                {"smart": {"mixed": "split"}}):
+        with pytest.raises(layout.LayoutError):
+            layout.clean_layout(bad)
+
+
+def test_content_profile_reads_what_the_shots_show():
+    cp = layout.content_profile
+    clip = {"source_width": 1920, "source_height": 1080}
+    # One person nearly all the time; a little B-roll is fine
+    assert cp(clip, _scenes((0, 9, "solo", 1), (9, 10, "none", 0))) == {"kind": "speaker", "solo": 0.9, "duo": 0.0, "other": 0.1}
+    # Two people side by side for a quarter or more, the rest one person
+    assert cp(clip, _scenes((0, 3, "duo", 2), (3, 10, "solo", 1)))["kind"] == "duo"
+    assert cp(clip, _scenes((0, 2, "duo", 2), (2, 10, "solo", 1)))["kind"] == "speaker"
+    # Slides, screen recordings and crowds: nobody to crop to
+    assert cp(clip, _scenes((0, 4, "none", 0), (4, 8, "group", 3), (8, 10, "solo", 1)))["kind"] == "screen"
+    # Faces and slides both matter: per scene
+    assert cp(clip, _scenes((0, 5, "solo", 1), (5, 10, "none", 0)))["kind"] == "mixed"
+    # A two-person shot too short for panels counts as a group, like in scenePlan
+    short = cp(clip, _scenes((0, 0.5, "duo", 2), (0.5, 10, "solo", 1)))
+    assert short["duo"] == 0.0 and short["other"] == 0.05 and short["kind"] == "speaker"
+    # An upright source is shown full whatever it shows, even before its face scan
+    assert cp({"source_width": 1080, "source_height": 1920}, None)["kind"] == "vertical"
+    assert cp({}, _scenes((0, 4, "none", 0), width=1080, height=1350))["kind"] == "vertical"
+    # Unknown before the face scan
+    assert cp(clip, None) is None and cp({}, None) is None
+
+
+def test_smart_mode_follows_the_choices():
+    lay = {"smart": {"enabled": True}}
+    assert [layout.smart_mode(k, lay) for k in layout.CONTENT_KINDS] == ["full", "full", "duo", "podcast", "auto"]
+    lay = {"smart": {"enabled": True, "speaker": "split", "duo": "full", "screen": "card", "mixed": "podcast"}}
+    # The companion-video layout needs its video; without one the speaker stays full
+    assert [layout.smart_mode(k, lay) for k in layout.CONTENT_KINDS] == ["full", "full", "full", "card", "podcast"]
+    lay["companion"] = {"videoUrl": "asset://library/_brand/t/companion.mp4"}
+    assert layout.smart_mode("speaker", lay) == "split"
+    # Off: the layout is left as it is
+    clip = {"source_width": 1920, "source_height": 1080}
+    assert layout.apply_smart({"mode": "podcast"}, clip, _scenes((0, 4, "duo", 2))) == {"mode": "podcast"}
+    on = {"mode": "podcast", "smart": {"enabled": True}}
+    assert layout.apply_smart(on, clip, _scenes((0, 4, "duo", 2)))["mode"] == "duo"
+    assert layout.apply_smart(on, clip, None) == on  # not known yet
+
+
+def test_build_props_smart_picks_the_layout_for_the_content(db, paths):
+    from backend.agents.tools import faces
+
+    clip = _clip(db, paths, source=True)
+    dest = faces.save(_faces_doc(), paths.from_relative(clip["files"]["source"]).parent / "faces.json")
+    db.clips.update_one({"_id": clip["_id"]}, {"$set": {"files.faces": paths.to_relative(dest),
+                                                        "layout_style": {"mode": "podcast", "smart": {"enabled": True}}}})
+    # Half two people side by side, half a close-up: the two-speaker layout, with its scenes
+    props = render.build_props(db.clips.find_one({"_id": clip["_id"]}))
+    assert props["layout"]["mode"] == "duo"
+    assert [s["kind"] for s in props["scenes"]["shots"]] == ["duo", "solo"]
+    # Off: the clip's chosen layout
+    db.clips.update_one({"_id": clip["_id"]}, {"$set": {"layout_style.smart.enabled": False}})
+    assert render.build_props(db.clips.find_one({"_id": clip["_id"]}))["layout"]["mode"] == "podcast"
+
+
+def test_clip_detail_carries_the_content(client, db, paths):
+    from backend.agents.tools import faces
+
+    clip = _clip(db, paths, source=True)
+    assert client.get(f"/api/clips/{clip['_id']}").json()["content"] is None
+    dest = faces.save(_faces_doc(), paths.from_relative(clip["files"]["source"]).parent / "faces.json")
+    db.clips.update_one({"_id": clip["_id"]}, {"$set": {"files.faces": paths.to_relative(dest)}})
+    assert client.get(f"/api/clips/{clip['_id']}").json()["content"] == {"kind": "duo", "solo": 0.5, "duo": 0.5, "other": 0.0}
+
+
+def test_smart_render_scans_old_clips_first(db, paths, monkeypatch):
+    from backend.agents.tools import faces
+
+    seen: list[dict] = []
+    monkeypatch.setattr(render.events, "publish", seen.append)
+    monkeypatch.setattr(faces, "scan", lambda video, cancel=None: _faces_doc())
+    clip = _clip(db, paths, source=True)
+    db.clips.update_one({"_id": clip["_id"]}, {"$set": {"layout_style": {"smart": {"enabled": True}}}})
+    rid = new_id()
+    db.render_jobs.insert_one({"_id": rid, "clip_id": clip["_id"], "status": "queued", "progress_pct": 0,
+                               "created_at": utcnow()})
+    render.run_render(rid, procs.CancelToken())  # fails later (no render worker in tests), after the scan
+    assert any(e.get("message") == "Menganalisis wajah…" for e in seen)
+    updated = db.clips.find_one({"_id": clip["_id"]})
+    assert updated["files"]["faces"].endswith("/faces.json")
+    assert render.build_props(updated)["layout"]["mode"] == "duo"
+
+
+def test_smart_render_fails_clearly_when_the_scan_fails(db, paths, monkeypatch):
+    from backend.agents.tools import faces
+
+    def broken(video, cancel=None):
+        raise faces.FacesError("Video tidak bisa dibuka")
+
+    monkeypatch.setattr(faces, "scan", broken)
+    clip = _clip(db, paths, source=True)
+    db.clips.update_one({"_id": clip["_id"]}, {"$set": {"layout_style": {"smart": {"enabled": True}}}})
+    rid = new_id()
+    db.render_jobs.insert_one({"_id": rid, "clip_id": clip["_id"], "status": "queued", "progress_pct": 0,
+                               "created_at": utcnow()})
+    render.run_render(rid, procs.CancelToken())
+    rj = db.render_jobs.find_one({"_id": rid})
+    assert rj["status"] == "failed"
+    assert rj["error"] == ("Layout otomatis sesuai konten butuh analisis wajah: "
+                           "Analisis wajah gagal: Video tidak bisa dibuka")

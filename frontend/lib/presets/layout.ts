@@ -42,6 +42,16 @@ export type SceneKind = 'duo' | 'solo' | 'group' | 'none';
 /** How a scene is shown: the face-tracked clip full-frame, the two duo panels, or the podcast frame. */
 export type SceneView = 'full' | 'duo' | 'framed';
 
+/**
+ * What a clip shows as a whole (the engine's content_profile, from its face scan): 'vertical' (the
+ * source is already upright), 'speaker' (one person nearly all the time), 'duo' (two people side by
+ * side for a good part), 'screen' (mostly nobody to crop to: slides, screen recordings, crowds) or
+ * 'mixed'.
+ */
+export type ContentKind = 'vertical' | 'speaker' | 'duo' | 'screen' | 'mixed';
+/** The kinds the smart layout lets the user map (a vertical source is always full). */
+export type SmartKind = Exclude<ContentKind, 'vertical'>;
+
 export interface LayoutFrame {
   /** Top edge of the video frame (design px from the top). */
   y: number;
@@ -179,8 +189,30 @@ export interface LayoutAuto {
   none: 'full' | 'framed';
 }
 
+/**
+ * "Layout otomatis sesuai konten": when enabled, each clip gets the layout chosen here for what it
+ * shows, instead of `mode` (which stays the default layout for when it is off).
+ */
+export interface LayoutSmart {
+  enabled: boolean;
+  speaker: 'full' | 'split';
+  duo: 'duo' | 'full' | 'podcast';
+  screen: 'podcast' | 'card' | 'full';
+  mixed: 'auto' | 'full' | 'podcast';
+}
+
+/** The content of a clip (GET /api/clips/{id} → content): its kind and the share of its length per view. */
+export interface ContentProfile {
+  kind: ContentKind;
+  /** One person, two people side by side, anything else (no face, a crowd). */
+  solo: number;
+  duo: number;
+  other: number;
+}
+
 export interface Layout {
   mode: LayoutMode;
+  smart: LayoutSmart;
   frame: LayoutFrame;
   background: LayoutBackground;
   header: LayoutHeader;
@@ -196,6 +228,7 @@ export interface Layout {
 /** Partial layout as stored (template layout_settings, clip layout_style): sections are partial too. */
 export type LayoutPatch = {
   mode?: LayoutMode;
+  smart?: Partial<LayoutSmart>;
   frame?: Partial<LayoutFrame>;
   background?: Partial<LayoutBackground>;
   header?: Partial<LayoutHeader>;
@@ -208,7 +241,7 @@ export type LayoutPatch = {
   auto?: Partial<LayoutAuto>;
 };
 
-const SECTIONS = ['frame', 'background', 'header', 'credit', 'card', 'zoom', 'speaker', 'companion', 'duo', 'auto'] as const;
+const SECTIONS = ['smart', 'frame', 'background', 'header', 'credit', 'card', 'zoom', 'speaker', 'companion', 'duo', 'auto'] as const;
 
 const W = DESIGN_CANVAS.width;
 const H = DESIGN_CANVAS.height;
@@ -221,6 +254,9 @@ const SAFE = toDesign({
 
 export const DEFAULT_LAYOUT: Layout = {
   mode: 'full',
+  // Off: every clip uses `mode`. On: one person full, two people as panels, slides in the frame,
+  // the rest per scene
+  smart: { enabled: false, speaker: 'full', duo: 'duo', screen: 'podcast', mixed: 'auto' },
   // A 16:9 frame at full width spans y 138–307: the default caption (positionY 190) sits right
   // under it and the title above it, all clear of every platform's UI.
   frame: { y: 138, ratio: 'source', margin: 0, radius: 0, focusX: 0.5 },
@@ -298,6 +334,15 @@ export const LAYOUT_LIMITS = {
 };
 
 export const MODES: LayoutMode[] = ['full', 'podcast', 'card', 'split', 'duo', 'auto'];
+/** The layouts each kind of content may get with the smart layout, the first being the default
+ * (mirrors SMART_CHOICES in backend/services/layout.py). */
+export const SMART_CHOICES = {
+  speaker: ['full', 'split'],
+  duo: ['duo', 'full', 'podcast'],
+  screen: ['podcast', 'card', 'full'],
+  mixed: ['auto', 'full', 'podcast'],
+} as const satisfies Record<SmartKind, readonly LayoutMode[]>;
+export const SMART_KINDS: SmartKind[] = ['speaker', 'duo', 'screen', 'mixed'];
 export const SCENE_VIEWS: SceneView[] = ['full', 'duo', 'framed'];
 const FULL_OR_FRAMED = ['full', 'framed'] as const;
 export const RATIO_VALUES: FrameRatio[] = ['source', '16:9', '4:3', '1:1', '4:5'];
@@ -341,6 +386,7 @@ export function mergeLayout(...patches: Array<LayoutPatch | Record<string, any> 
 export function resolveLayout(...patches: Array<LayoutPatch | Record<string, any> | null | undefined>): Layout {
   const p = mergeLayout(...patches);
   const d = DEFAULT_LAYOUT;
+  const sm = p.smart || {};
   const f = p.frame || {};
   const b = p.background || {};
   const h = p.header || {};
@@ -354,6 +400,13 @@ export function resolveLayout(...patches: Array<LayoutPatch | Record<string, any
   const L = LAYOUT_LIMITS;
   return {
     mode: oneOf(p.mode, MODES, d.mode),
+    smart: {
+      enabled: bool(sm.enabled, d.smart.enabled),
+      speaker: oneOf(sm.speaker, SMART_CHOICES.speaker, d.smart.speaker),
+      duo: oneOf(sm.duo, SMART_CHOICES.duo, d.smart.duo),
+      screen: oneOf(sm.screen, SMART_CHOICES.screen, d.smart.screen),
+      mixed: oneOf(sm.mixed, SMART_CHOICES.mixed, d.smart.mixed),
+    },
     frame: {
       y: num(f.y, L.frameY, d.frame.y),
       ratio: oneOf(f.ratio, RATIO_VALUES, d.frame.ratio),
@@ -442,6 +495,26 @@ export function resolveLayout(...patches: Array<LayoutPatch | Record<string, any
       none: oneOf(a.none, FULL_OR_FRAMED, d.auto.none),
     },
   };
+}
+
+/**
+ * The layout the smart choice gives a kind of content (same as smart_mode in the engine). A vertical
+ * source is always full; the companion-video layout without its video falls back to full.
+ */
+export function smartMode(kind: ContentKind, layout: Layout): LayoutMode {
+  if (kind === 'vertical') return 'full';
+  const mode: LayoutMode = layout.smart[kind];
+  return mode === 'split' && !layout.companion.videoUrl ? 'full' : mode;
+}
+
+/**
+ * The layout with the mode picked for the clip's content when the smart layout is on; unchanged when
+ * it is off or the content is not known yet (before the face scan). The render gets the same mode
+ * from the engine (services/layout.py apply_smart).
+ */
+export function applySmart(layout: Layout, content: ContentProfile | null | undefined): Layout {
+  if (!layout.smart.enabled || !content) return layout;
+  return { ...layout, mode: smartMode(content.kind, layout) };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1092,10 +1165,11 @@ export const LAYOUT_PRESETS: LayoutPreset[] = [
 /**
  * The layout after picking a preset: the preset's look on top of the defaults. What the user typed
  * or uploaded stays: the custom title, the credit, the account (name, handle, avatar), the
- * background image, the speaker tag and the companion video.
+ * background image, the speaker tag, the companion video, and the smart layout's switch and choices.
  */
 export function applyLayoutPreset(current: Layout, preset: LayoutPreset): Layout {
   const keep: LayoutPatch = {
+    smart: current.smart,
     header: { source: current.header.source, text: current.header.text },
     credit: current.credit,
     card: { name: current.card.name, handle: current.card.handle, avatarUrl: current.card.avatarUrl },

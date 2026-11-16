@@ -341,6 +341,14 @@ export interface ClipScenes {
   }>
 }
 
+/** Same shape as ContentProfile in lib/presets/layout.ts: what the clip shows as a whole. */
+export interface ClipContent {
+  kind: 'vertical' | 'speaker' | 'duo' | 'screen' | 'mixed'
+  solo: number
+  duo: number
+  other: number
+}
+
 export interface ClipDetail {
   clip: Clip
   /** brand caption_settings merged with clip.subtitle_style */
@@ -353,6 +361,8 @@ export interface ClipDetail {
   channel?: string
   /** The shots of the clip's face scan (duo and auto layouts); null before the scan */
   scenes?: ClipScenes | null
+  /** What the clip shows, for "Layout otomatis sesuai konten"; null before the face scan */
+  content?: ClipContent | null
   /** The template in effect (the clip's own choice, else its campaign's, else the default); null = built-in */
   brand_template: BrandTemplate | null
   /** The clip's campaign (without its brief material) and its checklist; null without one */
@@ -925,7 +935,7 @@ export const api = {
     /** Fetch the clip's original-ratio video again (clips made before the podcast layout). */
     prepareSource: (id: string) => request<{ clip: Clip }>('POST', `/api/clips/${id}/source`),
     /** Face scan for the duo and auto layouts (fetches the source video first when it is missing too) */
-    prepareFaces: (id: string) => request<{ clip: Clip; scenes: ClipScenes | null }>('POST', `/api/clips/${id}/faces`),
+    prepareFaces: (id: string) => request<{ clip: Clip; scenes: ClipScenes | null; content: ClipContent | null }>('POST', `/api/clips/${id}/faces`),
     /** Speaker names for the layout's name tag, from the video title, channel and clip words (not saved). */
     suggestSpeaker: (id: string) => request<{ speakers: { name: string; role: string }[] }>('POST', `/api/clips/${id}/speaker/suggest`),
     export: (clipIds: string[], destDir?: string) => request<ExportResult>('POST', '/api/clips/export', { body: { clip_ids: clipIds, dest_dir: destDir } }),

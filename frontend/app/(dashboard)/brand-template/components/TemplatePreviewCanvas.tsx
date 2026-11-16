@@ -1,10 +1,20 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Play } from 'lucide-react';
-import { Stage } from '@/components/ui';
+import { ChoiceChips, Stage } from '@/components/ui';
 import { assetUrl } from '@/lib/media';
 import { CaptionLayer } from '@/lib/presets/CaptionLayer';
 import { LayoutStage } from '@/lib/presets/LayoutStage';
-import { LAYOUT_LIMITS, type LayoutPatch, sampleScenes, stageRect, usesScenes, usesSource } from '@/lib/presets/layout';
+import {
+  LAYOUT_LIMITS,
+  SMART_KINDS,
+  type LayoutPatch,
+  type SmartKind,
+  sampleScenes,
+  smartMode,
+  stageRect,
+  usesScenes,
+  usesSource,
+} from '@/lib/presets/layout';
 import { DUO_PLACEHOLDER, SLIDE_PLACEHOLDER } from './LayoutPresetGallery';
 import { LOGO_BASE_SIZE, logoPosition, logoScale } from '@/lib/presets/BrandOverlay';
 import type { CaptionWord } from '@/lib/presets/types';
@@ -117,7 +127,7 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
   caption,
   ai,
   brandSettings,
-  layoutSettings,
+  layoutSettings: templateLayout,
   onUpdateBrand,
   onUpdateLayout,
   onSampleAspect,
@@ -125,6 +135,11 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
 }) => {
   const t = useT();
   const P = t.brand.preview;
+  // Smart layout: the preview shows one kind of clip at a time, in the layout chosen for it
+  const [sampleKind, setSampleKind] = useState<SmartKind>('speaker');
+  const smartOn = templateLayout.smart.enabled;
+  const layoutSettings: LayoutSettings = smartOn ? { ...templateLayout, mode: smartMode(sampleKind, templateLayout) } : templateLayout;
+  const slideSample = smartOn && sampleKind === 'screen';
   const sample = t.brand.sample;
   const sampleWords = useMemo<CaptionWord[]>(() => SAMPLE_TIMING.map((w, i) => ({ ...w, word: sample.words[i] ?? '' })), [sample.words]);
   // Brand assets are stored as asset://<path>; no remote sample video (the app must work offline)
@@ -361,6 +376,15 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
           <span className="mc-caption mc-muted">{P.safeZone(safeZoneLabel(layoutSettings.safeZone, t))}</span>
         )}
       </div>
+      {smartOn && (
+        <ChoiceChips<SmartKind>
+          ariaLabel={P.contentSample}
+          size="sm"
+          options={SMART_KINDS.map((value) => ({ value, label: t.brand.layout.smart.kinds[value] }))}
+          value={sampleKind}
+          onChange={setSampleKind}
+        />
+      )}
 
       {/* 9:16 preview at the design size the caption and logo positions refer to */}
       <div
@@ -388,7 +412,7 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
           renderVideo={(role, style) =>
             (role === 'duoTop' || role === 'duoBottom') && !videoUrl ? (
               <div style={{ ...style, ...DUO_PLACEHOLDER }} />
-            ) : (role === 'framed' || (auto && role === 'background')) && !videoUrl ? (
+            ) : (role === 'framed' || (auto && role === 'background') || (slideSample && role !== 'companion')) && !videoUrl ? (
               <div style={{ ...style, ...SLIDE_PLACEHOLDER }} />
             ) : role === 'companion' ? (
               companionUrl ? (

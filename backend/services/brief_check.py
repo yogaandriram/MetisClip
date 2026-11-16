@@ -67,7 +67,7 @@ def check(clip: dict[str, Any], campaign: dict[str, Any], template: dict[str, An
         items.append(_item("banned_words", "fail" if said else "ok", found=said))
 
     visual = brief.get("visual") or {}
-    lay = layout_svc.effective_layout(clip, template)
+    lay = layout_svc.render_layout(clip, template)  # the mode picked for its content when smart
     credit = lay.get("credit") or {}
     credit_text = str(credit.get("text") or "Sumber: {channel}")
     credit_shown = bool(credit.get("enabled")) and (lay.get("mode") or "full") != "full" and \

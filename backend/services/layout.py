@@ -113,7 +113,8 @@ M = i18n.messages({
     "mode:podcast": {"id": "podcast", "en": "podcast"},
     "mode:card": {"id": "kartu", "en": "card"},
     "mode:duo": {"id": "dua pembicara", "en": "two-speaker"},
-    "mode:auto": {"id": "otomatis", "en": "automatic"},
+    "mode:auto": {"id": "otomatis per adegan", "en": "per-scene automatic"},
+    "mode:smart": {"id": "otomatis sesuai konten", "en": "content-based automatic"},
     "mode:other": {"id": "ini", "en": "this"},
 })
 
@@ -133,6 +134,15 @@ SPEAKER_ALIGNS = ("left", "center")
 COMPANION_POSITIONS = ("bottom", "top")
 DUO_TOPS = ("left", "right")
 SAFE_ZONES = ("none", "all", "tiktok", "reels", "shorts")
+# "Layout otomatis sesuai konten" (the `smart` section): the layout each kind of clip content may get,
+# the first one being the default. Mirrors SMART_CHOICES in frontend/lib/presets/layout.ts.
+SMART_CHOICES: dict[str, tuple[str, ...]] = {
+    "speaker": ("full", "split"),
+    "duo": ("duo", "full", "podcast"),
+    "screen": ("podcast", "card", "full"),
+    "mixed": ("auto", "full", "podcast"),
+}
+CONTENT_KINDS = ("vertical", "speaker", "duo", "screen", "mixed")
 DESIGN_HEIGHT = 533
 
 _HEX = re.compile(r"^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$")
@@ -220,6 +230,11 @@ SCHEMA: dict[str, dict[str, tuple[str, Any]]] = {
         "faceSize": ("num", (0.15, 0.5)),
         "divider": ("num", (0, 8)),
         "dividerColor": ("color", None),
+    },
+    # Layout per kind of clip content, when "Layout otomatis sesuai konten" is on (content_profile)
+    "smart": {
+        "enabled": ("bool", None),
+        **{kind: ("enum", choices) for kind, choices in SMART_CHOICES.items()},
     },
     # The view for each kind of shot (auto mode); panels need two people
     "auto": {
@@ -316,6 +331,94 @@ def effective_layout(clip: dict[str, Any] | None, bt: dict[str, Any] | None) -> 
     tpl = dict((bt or {}).get("layout_settings") or {})
     tpl.pop("safeZone", None)
     return merge(tpl, (clip or {}).get("layout_style") or {})
+
+
+# -- "Layout otomatis sesuai konten": one layout per clip, picked from what its shots show ------------
+
+# A source this narrow (4:5 or taller) is already vertical: the 9:16 crop keeps nearly all of it
+VERTICAL_MAX_ASPECT = 0.8
+# Share of the clip without a person to crop to (slides, screen recordings, B-roll, crowds) from which
+# the clip goes in a frame whole
+SCREEN_MIN = 0.75
+# The speaker and two-speaker layouts crop to faces: they allow this much of such shots at most
+FACES_OTHER_MAX = 0.2
+# Two people side by side for at least this share: the two-speaker layout (one person elsewhere is full)
+DUO_MIN = 0.25
+# Mirrors MIN_DUO_S in layout.ts: a shorter two-speaker shot is never split into panels, so it counts
+# as a group here too
+MIN_DUO_S = 0.8
+
+_UNSET: Any = object()
+
+
+def content_profile(clip: dict[str, Any], scenes: Any = _UNSET) -> dict[str, Any] | None:
+    """What the clip shows, for the smart layout: {kind, solo, duo, other}, the shares of its length
+    with one person, two people side by side, and anything else (no face, a crowd, two people too close
+    to split). kind: 'vertical' (the source is already upright), 'screen' (mostly no person to crop to),
+    'duo', 'speaker' (faces nearly all the time, two people for at least DUO_MIN or not), else 'mixed'.
+    None before the face scan (unless the source size alone says it is vertical). `scenes`: the clip's
+    scene_info when the caller has it already."""
+    data = scene_info(clip) if scenes is _UNSET else scenes
+    w, h = clip.get("source_width"), clip.get("source_height")
+    if not (isinstance(w, int) and isinstance(h, int) and w > 0 and h > 0) and data:
+        w, h = data.get("width"), data.get("height")
+    shots = (data or {}).get("shots") or []
+    total = sum(max(0.0, float(s["end"]) - float(s["start"])) for s in shots)
+    shares = {"solo": 0.0, "duo": 0.0, "other": 0.0}
+    if total > 0:
+        for s in shots:
+            length = max(0.0, float(s["end"]) - float(s["start"]))
+            kind = s.get("kind")
+            if kind == "duo" and (length < MIN_DUO_S or len(s.get("faces") or []) < 2):
+                kind = "group"
+            shares["solo" if kind == "solo" else "duo" if kind == "duo" else "other"] += length / total
+    shares = {k: round(v, 3) for k, v in shares.items()}
+    if isinstance(w, int) and isinstance(h, int) and w > 0 and h > 0 and w / h <= VERTICAL_MAX_ASPECT:
+        kind = "vertical"
+    elif total <= 0:
+        return None
+    elif shares["other"] >= SCREEN_MIN:
+        kind = "screen"
+    elif shares["other"] <= FACES_OTHER_MAX:
+        kind = "duo" if shares["duo"] >= DUO_MIN else "speaker"
+    else:
+        kind = "mixed"
+    return {"kind": kind, **shares}
+
+
+def smart_on(layout: dict[str, Any]) -> bool:
+    return bool((layout.get("smart") or {}).get("enabled"))
+
+
+def smart_mode(kind: str, layout: dict[str, Any]) -> str:
+    """The layout the smart choice gives a kind of content (same as smartMode in layout.ts). A vertical
+    source is always full; the companion-video layout without its video falls back to full."""
+    if kind == "vertical":
+        return "full"
+    choices = SMART_CHOICES.get(kind)
+    if not choices:
+        return "full"
+    mode = (layout.get("smart") or {}).get(kind)
+    mode = mode if mode in choices else choices[0]
+    if mode == "split" and not (layout.get("companion") or {}).get("videoUrl"):
+        return "full"
+    return mode
+
+
+def apply_smart(layout: dict[str, Any], clip: dict[str, Any], scenes: Any = _UNSET) -> dict[str, Any]:
+    """The layout with the mode picked for the clip's content when the smart layout is on; unchanged
+    when it is off or the content is not known yet (before the face scan)."""
+    if not smart_on(layout):
+        return layout
+    profile = content_profile(clip, scenes)
+    if profile is None:
+        return layout
+    return {**layout, "mode": smart_mode(profile["kind"], layout)}
+
+
+def render_layout(clip: dict[str, Any], bt: dict[str, Any] | None) -> dict[str, Any]:
+    """The layout a render uses: template ⊕ clip override, its mode picked by the content when smart."""
+    return apply_smart(effective_layout(clip, bt), clip)
 
 
 def needs_source(layout: dict[str, Any]) -> bool:

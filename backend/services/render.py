@@ -143,7 +143,8 @@ def channel_name(clip: dict[str, Any]) -> str:
 
 def build_props(clip: dict[str, Any]) -> dict[str, Any]:
     bt = template_for(clip)
-    lay = layout_svc.effective_layout(clip, bt)
+    # The mode is already the one picked for the clip's content when the smart layout is on
+    lay = layout_svc.render_layout(clip, bt)
     props: dict[str, Any] = {
         "videoUrl": media_url(clip["_id"], "raw"),
         "words": (clip.get("subtitle") or {}).get("words") or [],
@@ -247,13 +248,23 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
     error: str | None = None
     status = "failed"
     try:
-        lay = layout_svc.effective_layout(clip, template_for(clip))
-        problem = layout_svc.companion_problem(lay)
-        if problem:
-            raise RuntimeError(problem)
         def step(message: str) -> None:
             events.publish({"type": "render.progress", "id": render_id, "clip_id": clip_id,
                             "status": "rendering", "progress_pct": 0.0, "message": message})
+
+        lay = layout_svc.effective_layout(clip, template_for(clip))
+        # Layout otomatis sesuai konten: the clip's content picks its layout, so it is read first
+        # (clips made before their face scan was kept get it now)
+        if layout_svc.smart_on(lay) and layout_svc.content_profile(clip) is None:
+            try:
+                clip = layout_svc.prepare_faces(clip, cancel, on_step=step)
+            except layout_svc.SourceError as exc:
+                raise RuntimeError(M("needs_faces", name=layout_svc.mode_name("smart"), error=exc)) from exc
+            cancel.check()
+        lay = layout_svc.apply_smart(lay, clip)
+        problem = layout_svc.companion_problem(lay)
+        if problem:
+            raise RuntimeError(problem)
 
         # Clips made before these layouts did not keep their original-ratio video or their face scan
         name = layout_svc.mode_name(str(lay.get("mode")))

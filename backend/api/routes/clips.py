@@ -158,6 +158,7 @@ def get_clip(clip_id: str):
     clip = _get(clip_id)
     tpl = brand_templates.for_clip(clip)
     bt = tpl or {}
+    scenes = layout_svc.scene_info(clip)
     return {
         "clip": clip_dto(clip),
         "effective_style": effective_style(clip, bt),
@@ -166,7 +167,9 @@ def get_clip(clip_id: str):
         "effective_layout": layout_svc.effective_layout(clip, bt),
         "channel": channel_name(clip),
         # The shots of the clip's face scan (duo and auto layouts); null before the scan
-        "scenes": layout_svc.scene_info(clip),
+        "scenes": scenes,
+        # What the clip shows, for "Layout otomatis sesuai konten" (null before the face scan)
+        "content": layout_svc.content_profile(clip, scenes),
         # The template in effect (the clip's own choice, else its campaign's, else the default template)
         "brand_template": brand_template_dto(tpl),
         **_campaign_info(clip, tpl),
@@ -438,7 +441,8 @@ def prepare_clip_faces(clip_id: str):
     except Exception as exc:
         raise http_error(502, M("faces_failed", error=exc))
     events.publish({"type": "clip.updated", "id": clip_id})
-    return {"clip": clip_dto(clip), "scenes": layout_svc.scene_info(clip)}
+    scenes = layout_svc.scene_info(clip)
+    return {"clip": clip_dto(clip), "scenes": scenes, "content": layout_svc.content_profile(clip, scenes)}
 
 
 @router.post("/api/clips/{clip_id}/render")

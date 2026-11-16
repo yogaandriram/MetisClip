@@ -151,6 +151,26 @@ export const brand = {
   },
   layout: {
     presetsLabel: 'Preset layout',
+    presetsHintSmart: 'Preset mengatur gaya tiap layout: bingkai, latar, judul dan panel. Layout untuk tiap isi clip dipilih di atas.',
+    smart: {
+      title: 'Layout otomatis sesuai konten',
+      hint: 'Setiap clip memakai layout yang cocok dengan isinya, dibaca dari hasil face tracking clip itu. Matikan untuk memakai satu layout untuk semua clip.',
+      choicesLabel: 'Layout untuk tiap isi clip',
+      kinds: {
+        speaker: 'Satu pembicara',
+        duo: 'Dua orang berdampingan',
+        screen: 'Slide, layar atau keramaian',
+        mixed: 'Campuran',
+      },
+      kindHints: {
+        speaker: 'Satu wajah hampir sepanjang clip.',
+        duo: 'Dua orang dalam satu frame, setidaknya seperempat clip.',
+        screen: 'Hampir tanpa wajah yang bisa diikuti: slide, rekaman layar, B-roll, banyak orang.',
+        mixed: 'Wajah dan slide sama-sama banyak.',
+      },
+      vertical: 'Video sumber yang sudah tegak selalu tampil penuh 9:16.',
+      splitNoVideo: 'Video pendamping belum diunggah, jadi clip satu pembicara tetap tampil penuh 9:16.',
+    },
     presetsHint: 'Satu klik untuk gaya siap pakai. Nama akun, teks tetap, kredit dan nama pembicara tidak ikut berubah.',
     modeLabel: 'Tampilan video',
     modes: {
@@ -176,6 +196,7 @@ export const brand = {
       split: 'Video pendamping',
       duo: 'Dua pembicara',
       auto: 'Otomatis per adegan',
+      smart: 'Otomatis sesuai konten',
       full: 'Penuh 9:16',
       zoom: 'Zoom',
       speaker: 'Nama pembicara',
@@ -370,6 +391,8 @@ export const brand = {
     companion: 'Video pendamping',
     speakerVideo: 'Video pembicara',
     sourceVideo: 'Video sumber',
+    /** Smart layout: which kind of clip the preview shows */
+    contentSample: 'Contoh isi clip',
     noSample: (asset: string, section: string) => `Unggah "${asset}" di bagian ${section} untuk melihat preview di atas video Anda.`,
     frameAriaCard: 'Posisi kartu. Geser ke atas atau ke bawah, atau pakai tombol panah (Shift untuk langkah besar).',
     frameAriaVideo: 'Posisi video. Geser ke atas atau ke bawah, atau pakai tombol panah (Shift untuk langkah besar).',
@@ -429,7 +452,7 @@ export const brand = {
     skippedTitle: 'Hasil AI tidak dipakai',
     redesign: 'Desain ulang',
     confirmTitle: 'Desain ulang dengan AI?',
-    confirmBody: 'AI mengganti caption, layout dan AI subtitle template ini dengan desain baru dari nama dan brief campaign. Logo dan video contoh tetap.',
+    confirmBody: 'AI mengganti caption, layout dan AI subtitle template ini dengan desain baru dari nama dan brief campaign. Logo, video contoh, layout otomatis sesuai konten, video pendamping, nama pembicara, akun kartu dan teks yang Anda ketik tetap.',
     confirmUnsaved: 'Perubahan yang belum disimpan akan dibuang.',
     confirm: 'Desain ulang',
   },
