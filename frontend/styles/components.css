@@ -49,7 +49,8 @@
   height: 48px;
 }
 
-/* The active campaign as a profile circle in the logo's place (DESIGN.md §5.2) */
+/* The active campaign as a profile circle in the logo's place (DESIGN.md §5.2): as wide as the rail,
+   one ink border (the rail's color) around the avatar, nothing outside it */
 .mc-profile {
   position: relative;
 }
@@ -65,7 +66,6 @@
   display: grid;
   place-items: center;
   cursor: pointer;
-  transition: box-shadow var(--dur-base) var(--ease-out);
 }
 
 .mc-profile__button .mc-avatar {
@@ -77,9 +77,10 @@
   transform: scale(1.05);
 }
 
-/* On the campaign pages the rail's bite is gone, so the circle carries the "you are here" ring */
-.mc-profile__button.is-current {
-  box-shadow: 0 0 0 3px var(--canvas), 0 0 0 6px var(--leaf-strong);
+/* Keyboard focus stays inside the circle, so it never grows past the rail's width */
+.mc-profile__button:focus-visible {
+  outline: 2px solid var(--leaf);
+  outline-offset: -4px;
 }
 
 /* The name tooltip would cover the open menu */

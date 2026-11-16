@@ -9,7 +9,6 @@ import { useDismiss } from '@/hooks/useDismiss'
 import { Avatar } from '@/components/ui/Avatar'
 import { LogoMark } from '@/components/ui/Logo'
 import { campaignHref, isBriefEmpty, shownClient } from '@/lib/brief'
-import { cx } from '@/lib/cx'
 import { useT } from '@/lib/i18n/I18nProvider'
 
 /** Opens the create dialog on the campaign library (campaigns/page.tsx reads `?new=1`). */
@@ -30,7 +29,6 @@ export function CampaignProfile({ pathname }: { pathname: string }) {
 
   const t = useT()
   const m = t.shell.campaignMenu
-  const onCampaigns = pathname === '/campaigns' || pathname.startsWith('/campaigns/')
   const others = activeCampaigns.filter((c) => c.id !== activeCampaign?.id)
   const version = typeof window !== 'undefined' && window.metis ? window.metis.appVersion : systemInfo?.version
   const label = activeCampaign ? m.button(activeCampaign.name) : isCampaignLoading ? m.loading : m.buttonEmpty
@@ -42,7 +40,7 @@ export function CampaignProfile({ pathname }: { pathname: string }) {
     <div ref={root} className="mc-profile">
       <button
         type="button"
-        className={cx('mc-profile__button', 'mc-tip', 'mc-tip--right', onCampaigns && 'is-current')}
+        className="mc-profile__button mc-tip mc-tip--right"
         data-tip={activeCampaign ? activeCampaign.name : label}
         aria-haspopup="menu"
         aria-expanded={open}
