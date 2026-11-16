@@ -12,22 +12,19 @@ import { useEngine } from '@/contexts/EngineContext'
 import { api, type EncoderSetting, type ResourceStatus, type SecretName, type Settings } from '@/lib/engine'
 import { errorMessage } from '@/lib/format'
 import { isDesktop } from '@/lib/media'
-import { getLang } from '@/lib/i18n'
+import { getLang, localeTag, tm } from '@/lib/i18n'
+import { useT } from '@/lib/i18n/I18nProvider'
 
-const ENCODER_LABELS: Record<EncoderSetting, string> = {
-  auto: 'Otomatis (pilih yang tercepat)',
-  libx264: 'CPU (libx264)',
-  h264_nvenc: 'NVIDIA (NVENC)',
-  h264_qsv: 'Intel Quick Sync',
-  h264_amf: 'AMD (AMF)',
-}
+const ENCODERS: EncoderSetting[] = ['auto', 'libx264', 'h264_nvenc', 'h264_qsv', 'h264_amf']
 
-/** Fixed choices for "Sisakan RAM untuk aplikasi lain" (0 = automatic, backend/core/resources.py) */
+/** Fixed choices for "Keep RAM free for other apps" (0 = automatic, backend/core/resources.py) */
 const RESERVE_GB = [1, 1.5, 2, 3, 4, 6]
 
-const gbLabel = (mb: number) => (mb / 1024).toFixed(1).replace('.', ',')
+const gbLabel = (mb: number) => (mb / 1024).toLocaleString(localeTag(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 
-/** A folder or file path shown read-only, with "Ubah…" and "Buka di Explorer" next to it. */
+const gbNumber = (gb: number) => gb.toLocaleString(localeTag())
+
+/** A folder or file path shown read-only, with "Change…" and "Open in Explorer" next to it. */
 function PathField({
   label,
   hint,
@@ -43,6 +40,7 @@ function PathField({
   onPick?: () => void
   onOpen?: () => void
 }) {
+  const t = useT()
   const id = useId()
   return (
     <Field label={label} hint={hint} htmlFor={id}>
@@ -58,10 +56,10 @@ function PathField({
         />
         {onPick && (
           <Button type="button" variant="secondary" onClick={onPick}>
-            Ubah…
+            {t.common.change}
           </Button>
         )}
-        {onOpen && <IconButton variant="outline" label="Buka di Explorer" icon={<FolderOpen size={16} />} onClick={onOpen} disabled={!value} />}
+        {onOpen && <IconButton variant="outline" label={t.common.openInExplorer} icon={<FolderOpen size={16} />} onClick={onOpen} disabled={!value} />}
       </div>
     </Field>
   )
@@ -80,6 +78,8 @@ function SettingsSkeleton({ rows = 2 }: { rows?: number }) {
 const headerIcon = (Icon: React.ElementType) => <Icon size={18} aria-hidden="true" />
 
 export default function SettingsPage() {
+  const t = useT()
+  const m = t.settings
   const { activeAgent, refreshAgents } = useAgent()
   const { epoch, systemInfo, refreshSystemInfo } = useEngine()
   const desktop = isDesktop()
@@ -101,7 +101,7 @@ export default function SettingsPage() {
       setSavedSettings(JSON.stringify(s.settings))
       setSecrets(sec.secrets)
     } catch (err) {
-      setLoadError(errorMessage(err, 'Gagal memuat pengaturan'))
+      setLoadError(errorMessage(err, tm().settings.loadFailed))
     }
     api.system
       .check()
@@ -129,9 +129,9 @@ export default function SettingsPage() {
       setSettings(next)
       setSavedSettings(JSON.stringify(next))
       refreshSystemInfo()
-      toast.success('Pengaturan disimpan')
+      toast.success(m.saved)
     } catch (err) {
-      toast.error(errorMessage(err, 'Gagal menyimpan pengaturan'))
+      toast.error(errorMessage(err, m.saveFailed))
     } finally {
       setSaving(false)
     }
@@ -155,7 +155,7 @@ export default function SettingsPage() {
     try {
       await api.agents.update(activeAgent.id, toAgentInput(value))
       await refreshAgents()
-      toast.success('Pengaturan workspace disimpan')
+      toast.success(m.workspace.saved)
     } catch (err) {
       toast.error(errorMessage(err))
     }
@@ -166,37 +166,38 @@ export default function SettingsPage() {
   const openFolder = async (path: string | undefined | null) => {
     if (!window.metis || !path) return
     const res = await window.metis.openPath(path)
-    if (!res.ok) toast.error(res.error || 'Folder tidak dapat dibuka')
+    if (!res.ok) toast.error(res.error || m.folderOpenFailed)
   }
 
-  const encoderOptions = (['auto', 'libx264', 'h264_nvenc', 'h264_qsv', 'h264_amf'] as EncoderSetting[])
-    .filter((e) => e === 'auto' || e === 'libx264' || encoders.includes(e) || settings?.processing.encoder === e)
-    .map((e) => ({ value: e, label: ENCODER_LABELS[e] }))
+  const encoderOptions = ENCODERS.filter((e) => e === 'auto' || e === 'libx264' || encoders.includes(e) || settings?.processing.encoder === e).map((e) => ({
+    value: e,
+    label: m.processing.encoders[e],
+  }))
 
   const reserveOptions = [
-    { value: '0', label: ram ? `Otomatis (${gbLabel(ram.auto_reserve_mb)} GB)` : 'Otomatis' },
-    ...RESERVE_GB.filter((gb) => !ram || gb * 1024 < ram.total_mb / 2).map((gb) => ({ value: String(gb), label: `${String(gb).replace('.', ',')} GB` })),
+    { value: '0', label: ram ? m.processing.reserveAuto(gbLabel(ram.auto_reserve_mb)) : t.common.auto },
+    ...RESERVE_GB.filter((gb) => !ram || gb * 1024 < ram.total_mb / 2).map((gb) => ({ value: String(gb), label: `${gbNumber(gb)} GB` })),
   ]
   if (settings && settings.resources.reserve_gb && !reserveOptions.some((o) => o.value === String(settings.resources.reserve_gb))) {
-    reserveOptions.push({ value: String(settings.resources.reserve_gb), label: `${String(settings.resources.reserve_gb).replace('.', ',')} GB` })
+    reserveOptions.push({ value: String(settings.resources.reserve_gb), label: `${gbNumber(settings.resources.reserve_gb)} GB` })
   }
 
   return (
     <>
-      <PageHeader title="Pengaturan" subtitle="Preferensi workspace, API key, pemrosesan video, dan penyimpanan lokal." />
+      <PageHeader title={m.title} subtitle={m.subtitle} />
 
       <div className="mc-stack mc-gap-20" style={{ maxWidth: 760 }}>
         <Card>
           <CardHeader
             size="sm"
             icon={headerIcon(Users)}
-            title={activeAgent ? `Workspace: ${activeAgent.name}` : 'Workspace'}
-            subtitle="Nilai default untuk job baru di workspace ini."
+            title={activeAgent ? m.workspace.title(activeAgent.name) : m.workspace.titleEmpty}
+            subtitle={m.workspace.subtitle}
           />
           {activeAgent ? (
             <AgentForm
               key={activeAgent.id}
-              submitLabel="Simpan workspace"
+              submitLabel={m.workspace.save}
               initial={{
                 name: activeAgent.name,
                 niche: activeAgent.niche || '',
@@ -206,17 +207,17 @@ export default function SettingsPage() {
               onSubmit={saveAgent}
             />
           ) : (
-            <p className="mc-muted">Pilih atau buat workspace lewat pemilih workspace di kanan atas.</p>
+            <p className="mc-muted">{m.workspace.none}</p>
           )}
         </Card>
 
         {loadError && (
           <Alert
             tone="error"
-            title="Pengaturan tidak dapat dimuat"
+            title={m.loadErrorTitle}
             action={
               <Button variant="secondary" size="sm" onClick={load}>
-                Coba lagi
+                {t.common.retry}
               </Button>
             }
           >
@@ -228,8 +229,8 @@ export default function SettingsPage() {
           <CardHeader
             size="sm"
             icon={headerIcon(KeyRound)}
-            title="Model AI (LLM)"
-            subtitle="API key disimpan di Windows Credential Manager. Klik ikon mata untuk melihat key yang tersimpan."
+            title={m.llmCard.title}
+            subtitle={m.llmCard.subtitle}
           />
           {!settings || !secrets ? (
             <SettingsSkeleton rows={3} />
@@ -248,8 +249,8 @@ export default function SettingsPage() {
           <CardHeader
             size="sm"
             icon={headerIcon(Mic)}
-            title="Transkripsi (Whisper)"
-            subtitle="Teks video untuk analisis AI dan subtitle per kata. Bisa lewat Groq (online) atau Whisper lokal di komputer ini."
+            title={m.transcriptionCard.title}
+            subtitle={m.transcriptionCard.subtitle}
           />
           {!settings || !secrets ? (
             <SettingsSkeleton rows={3} />
@@ -266,7 +267,7 @@ export default function SettingsPage() {
         </Card>
 
         <Card id="pemrosesan">
-          <CardHeader size="sm" icon={headerIcon(Cpu)} title="Pemrosesan video" subtitle="Atur seberapa banyak sumber daya komputer yang dipakai." />
+          <CardHeader size="sm" icon={headerIcon(Cpu)} title={m.processing.title} subtitle={m.processing.subtitle} />
           {!settings ? (
             <SettingsSkeleton rows={3} />
           ) : (
@@ -277,8 +278,8 @@ export default function SettingsPage() {
                   type="number"
                   min={1}
                   max={8}
-                  label="Worker pemrosesan paralel"
-                  hint="Batas clip yang dipotong bersamaan. Naikkan jika CPU kuat."
+                  label={m.processing.workers}
+                  hint={m.processing.workersHint}
                   value={settings.processing.max_workers}
                   mono
                   onChange={(e) => patch('processing', { ...settings.processing, max_workers: Math.max(1, parseInt(e.target.value) || 1) })}
@@ -288,33 +289,29 @@ export default function SettingsPage() {
                   type="number"
                   min={1}
                   max={4}
-                  label="Render paralel"
-                  hint="Jumlah render subtitle (Remotion) yang berjalan bersamaan."
+                  label={m.processing.renders}
+                  hint={m.processing.rendersHint}
                   value={settings.render.concurrency}
                   mono
                   onChange={(e) => patch('render', { concurrency: Math.max(1, parseInt(e.target.value) || 1) })}
                 />
               </div>
               <SelectField
-                label="Encoder video"
-                hint={encoders.length ? `Terdeteksi: ${encoders.join(', ')}` : 'Encoder hardware dipakai jika tersedia.'}
+                label={m.processing.encoder}
+                hint={encoders.length ? m.processing.encoderDetected(encoders.join(', ')) : m.processing.encoderHint}
                 value={settings.processing.encoder}
                 options={encoderOptions}
                 onChange={(e) => patch('processing', { ...settings.processing, encoder: e.target.value as EncoderSetting })}
               />
               <ToggleSwitch
-                label="Hemat RAM otomatis"
-                hint="Potong clip, Whisper lokal, dan render baru dimulai jika RAM cukup, lalu berjalan dengan prioritas rendah. Komputer tetap lancar dipakai untuk aplikasi lain; jika RAM penuh, proses menunggu lalu lanjut sendiri."
+                label={m.processing.ramSaver}
+                hint={m.processing.ramSaverHint}
                 checked={settings.resources.auto}
                 onChange={(v) => patch('resources', { ...settings.resources, auto: v })}
               />
               <SelectField
-                label="Sisakan RAM untuk aplikasi lain"
-                hint={
-                  ram
-                    ? `RAM komputer ${gbLabel(ram.total_mb)} GB, tersedia ${gbLabel(ram.available_mb)} GB saat ini. Proses berat menunggu bila RAM yang tersisa untuk aplikasi lain akan kurang dari ini.`
-                    : 'Proses berat menunggu bila RAM yang tersisa untuk aplikasi lain akan kurang dari ini.'
-                }
+                label={m.processing.reserve}
+                hint={ram ? m.processing.reserveHint(gbLabel(ram.total_mb), gbLabel(ram.available_mb)) : m.processing.reserveHintBasic}
                 value={String(settings.resources.reserve_gb || 0)}
                 options={reserveOptions}
                 disabled={!settings.resources.auto}
@@ -325,20 +322,20 @@ export default function SettingsPage() {
         </Card>
 
         <Card>
-          <CardHeader size="sm" icon={headerIcon(Download)} title="Unduhan YouTube (yt-dlp)" />
+          <CardHeader size="sm" icon={headerIcon(Download)} title={m.ytdlp.title} />
           {!settings ? (
             <SettingsSkeleton rows={1} />
           ) : (
             <div className="mc-stack mc-gap-12">
               <PathField
-                label="File cookies YouTube (opsional)"
-                hint="Dipakai yt-dlp jika YouTube meminta verifikasi. Format cookies.txt (Netscape)."
+                label={m.ytdlp.cookies}
+                hint={m.ytdlp.cookiesHint}
                 value={settings.ytdlp.cookies_file}
-                placeholder="Tidak dipakai"
+                placeholder={m.ytdlp.notUsed}
                 onPick={
                   desktop
                     ? async () => {
-                        const f = await window.metis!.selectFile({ title: 'Pilih file cookies.txt', filters: [{ name: 'Cookies', extensions: ['txt'] }] })
+                        const f = await window.metis!.selectFile({ title: m.ytdlp.pickCookies, filters: [{ name: 'Cookies', extensions: ['txt'] }] })
                         if (f) patch('ytdlp', { ...settings.ytdlp, cookies_file: f })
                       }
                     : undefined
@@ -347,7 +344,7 @@ export default function SettingsPage() {
               {settings.ytdlp.cookies_file && (
                 <div>
                   <button type="button" className="mc-link" onClick={() => patch('ytdlp', { ...settings.ytdlp, cookies_file: null })}>
-                    Jangan pakai file cookies
+                    {m.ytdlp.stopCookies}
                   </button>
                 </div>
               )}
@@ -356,25 +353,25 @@ export default function SettingsPage() {
         </Card>
 
         <Card>
-          <CardHeader size="sm" icon={headerIcon(HardDrive)} title="Penyimpanan lokal" />
+          <CardHeader size="sm" icon={headerIcon(HardDrive)} title={m.storage.title} />
           {!settings ? (
             <SettingsSkeleton rows={3} />
           ) : (
             <div className="mc-stack mc-gap-20">
               <PathField
-                label="Folder data"
-                hint="Database, video sumber, cache, dan clip. Pindahkan lewat menu Sistem."
+                label={m.storage.dataFolder}
+                hint={m.storage.dataFolderHint}
                 value={systemInfo?.data_root || null}
                 onOpen={desktop ? () => openFolder(systemInfo?.data_root) : undefined}
               />
               <PathField
-                label="Folder ekspor"
-                hint="Setiap hasil render otomatis disalin ke sini. Juga tujuan default saat mengekspor clip."
+                label={m.storage.exportFolder}
+                hint={m.storage.exportFolderHint}
                 value={settings.export_dir}
                 onPick={
                   desktop
                     ? async () => {
-                        const dir = await pickFolder('Pilih folder ekspor', settings.export_dir)
+                        const dir = await pickFolder(m.storage.pickExport, settings.export_dir)
                         if (dir) patch('export_dir', dir)
                       }
                     : undefined
@@ -387,8 +384,8 @@ export default function SettingsPage() {
                   type="number"
                   min={1}
                   max={500}
-                  label="Batas cache (GB)"
-                  hint="Video sumber sementara dihapus otomatis jika melebihi batas ini."
+                  label={m.storage.cacheLimit}
+                  hint={m.storage.cacheLimitHint}
                   value={settings.cache_limit_gb}
                   mono
                   onChange={(e) => patch('cache_limit_gb', Math.max(1, Number(e.target.value) || 1))}
@@ -399,8 +396,8 @@ export default function SettingsPage() {
                   min={0.25}
                   max={8}
                   step={0.25}
-                  label="Cache MongoDB (GB)"
-                  hint="Memori untuk database. Berlaku setelah aplikasi dimulai ulang."
+                  label={m.storage.mongoCache}
+                  hint={m.storage.mongoCacheHint}
                   value={settings.db.wiredtiger_cache_gb}
                   mono
                   onChange={(e) => patch('db', { wiredtiger_cache_gb: Math.max(0.25, Number(e.target.value) || 0.25) })}
@@ -411,7 +408,7 @@ export default function SettingsPage() {
         </Card>
 
         <Card>
-          <CardHeader size="sm" icon={headerIcon(AppWindow)} title="Aplikasi" />
+          <CardHeader size="sm" icon={headerIcon(AppWindow)} title={m.app.title} />
           <div className="mc-stack mc-gap-20">
             {/* Applies and saves at once, outside the Save button below */}
             <LanguageSwitch withLabel />
@@ -420,12 +417,12 @@ export default function SettingsPage() {
             ) : (
               <div className="mc-stack mc-gap-20">
                 <ToggleSwitch
-                  label="Tetap berjalan di tray saat ditutup"
-                  hint="Job yang berjalan tidak terhenti ketika jendela ditutup."
+                  label={m.app.tray}
+                  hint={m.app.trayHint}
                   checked={settings.app.close_to_tray}
                   onChange={(v) => patch('app', { ...settings.app, close_to_tray: v })}
                 />
-                <ToggleSwitch label="Pembaruan otomatis" checked={settings.app.auto_update} onChange={(v) => patch('app', { ...settings.app, auto_update: v })} />
+                <ToggleSwitch label={m.app.autoUpdate} checked={settings.app.auto_update} onChange={(v) => patch('app', { ...settings.app, auto_update: v })} />
               </div>
             )}
           </div>
@@ -436,11 +433,11 @@ export default function SettingsPage() {
             <Card padding="sm" className="mc-row mc-row--end mc-gap-16" style={{ boxShadow: 'var(--shadow-1)' }}>
               {dirty && (
                 <span className="mc-label" role="status">
-                  Ada perubahan yang belum disimpan
+                  {m.unsaved}
                 </span>
               )}
               <Button variant="primary" onClick={saveSettings} loading={saving} disabled={!dirty} icon={<Save size={16} aria-hidden="true" />}>
-                Simpan pengaturan
+                {m.saveAll}
               </Button>
             </Card>
           </div>

@@ -27,7 +27,7 @@ import { VideoFilePicker } from '@/components/discover/VideoFilePicker'
 import { useAgent } from '@/contexts/AgentContext'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
-import { api, type Job, type JobStep } from '@/lib/engine'
+import { api, type Job } from '@/lib/engine'
 import {
   CLIP_DURATION_OPTIONS,
   JOB_STEPS,
@@ -38,17 +38,18 @@ import {
   jobSource,
   jobStepLabel,
 } from '@/lib/format'
+import { tm } from '@/lib/i18n'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 const CONTENT: React.CSSProperties = { maxWidth: 760, margin: '0 auto' }
 
-/** "45 - 60 detik (Shorts/Reels)" -> chip "45–60 detik", hint "Format Shorts/Reels" */
-const DURATION_CHOICES = CLIP_DURATION_OPTIONS.map((o) => {
-  const m = o.label.match(/^(.*?)\s*\((.+)\)$/)
-  return { value: o.value, label: m ? m[1].replace(/\s*-\s*/, '–') : o.label, kind: m ? m[2] : null }
-})
-
-/** Short pill labels for the pipeline steps; the full label of the current step is shown below them. */
-const STEP_SHORT: Record<JobStep, string> = { discovery: 'Discovery', analysis: 'Analisis', processing: 'Proses' }
+/** "45 - 60 detik (Shorts/Reels)" -> chip "45–60 detik", kind "Shorts/Reels". Read at render time (current language). */
+function durationChoices() {
+  return CLIP_DURATION_OPTIONS.map((o) => {
+    const m = o.label.match(/^(.*?)\s*\((.+)\)$/)
+    return { value: o.value, label: m ? m[1].replace(/\s*-\s*/, '–') : o.label, kind: m ? m[2] : null }
+  })
+}
 
 export default function DiscoverPage() {
   return (
@@ -63,13 +64,14 @@ function Discover() {
   const params = useSearchParams()
   const jobId = params.get('job')
   const { activeAgent } = useAgent()
+  const t = useT()
 
   if (!activeAgent) {
     return (
       <div>
-        <PageHeader title="Cari & Ekstrak Konten" />
+        <PageHeader title={t.discover.title} />
         <div style={CONTENT}>
-          <NoAgentState what="Cari Video" />
+          <NoAgentState what={t.shell.nav.discover} />
         </div>
       </div>
     )
@@ -78,12 +80,12 @@ function Discover() {
   return (
     <div>
       <PageHeader
-        title="Cari & Ekstrak Konten"
-        subtitle="Tempel link YouTube atau upload video dari komputer, lalu biarkan AI memotong klip terbaik untuk Anda."
+        title={t.discover.title}
+        subtitle={t.discover.subtitle}
         actions={
           jobId ? (
             <Button variant="secondary" size="sm" icon={<ArrowLeft size={16} />} onClick={() => router.push('/discover/')}>
-              Job baru
+              {t.discover.newJob}
             </Button>
           ) : undefined
         }
@@ -103,6 +105,8 @@ function Discover() {
 
 function JobForm({ onCreated }: { onCreated: (jobId: string) => void }) {
   const { activeAgent } = useAgent()
+  const t = useT()
+  const f = t.discover.form
   const [mode, setMode] = useState<'url' | 'file'>('url')
   const [youtubeUrl, setYoutubeUrl] = useState('')
   const [filePath, setFilePath] = useState<string | null>(null)
@@ -116,11 +120,11 @@ function JobForm({ onCreated }: { onCreated: (jobId: string) => void }) {
     if (!activeAgent) return
     setFormError(null)
     if (mode === 'url' && !isYoutubeUrl(youtubeUrl)) {
-      setFormError('Format URL tidak valid. Masukkan link YouTube yang benar (youtube.com/watch?v=… atau youtu.be/…).')
+      setFormError(f.invalidUrl)
       return
     }
     if (mode === 'file' && !filePath) {
-      setFormError('Pilih file video dulu.')
+      setFormError(f.fileRequired)
       return
     }
     setSubmitting(true)
@@ -131,10 +135,10 @@ function JobForm({ onCreated }: { onCreated: (jobId: string) => void }) {
         clip_duration: duration,
         max_clips: maxClips,
       })
-      toast.success('Job dimulai')
+      toast.success(f.started)
       onCreated(job.id)
     } catch (err) {
-      setFormError(errorMessage(err, 'Gagal memulai job'))
+      setFormError(errorMessage(err, f.startFailed))
     } finally {
       setSubmitting(false)
     }
@@ -145,17 +149,18 @@ function JobForm({ onCreated }: { onCreated: (jobId: string) => void }) {
     setFormError(null)
   }
 
-  const durationKind = DURATION_CHOICES.find((o) => o.value === duration)?.kind
+  const choices = durationChoices()
+  const durationKind = choices.find((o) => o.value === duration)?.kind
 
   return (
     <form onSubmit={submit}>
       <Card padding="lg">
         <div className="mc-stack mc-gap-24">
           <Tabs
-            ariaLabel="Sumber video"
+            ariaLabel={f.sourceTabs}
             tabs={[
-              { id: 'url', label: 'Link YouTube', icon: <Link2 size={16} aria-hidden="true" /> },
-              { id: 'file', label: 'Upload Video', icon: <Upload size={16} aria-hidden="true" /> },
+              { id: 'url', label: f.tabLink, icon: <Link2 size={16} aria-hidden="true" /> },
+              { id: 'file', label: f.tabFile, icon: <Upload size={16} aria-hidden="true" /> },
             ]}
             activeTab={mode}
             onChange={(id) => switchMode(id as 'url' | 'file')}
@@ -163,7 +168,7 @@ function JobForm({ onCreated }: { onCreated: (jobId: string) => void }) {
 
           {mode === 'url' ? (
             <InputField
-              label="Link YouTube"
+              label={f.linkLabel}
               placeholder="https://www.youtube.com/watch?v=…"
               value={youtubeUrl}
               onChange={(e) => setYoutubeUrl(e.target.value)}
@@ -175,10 +180,10 @@ function JobForm({ onCreated }: { onCreated: (jobId: string) => void }) {
             <VideoFilePicker value={filePath} onChange={setFilePath} onError={setFormError} />
           )}
 
-          <Field label="Durasi klip" hint={durationKind ? `Format ${durationKind}` : undefined}>
+          <Field label={f.duration} hint={durationKind ? f.durationHint(durationKind) : undefined}>
             <ChoiceChips
-              ariaLabel="Durasi klip"
-              options={DURATION_CHOICES.map(({ value, label }) => ({ value, label }))}
+              ariaLabel={f.duration}
+              options={choices.map(({ value, label }) => ({ value, label }))}
               value={duration}
               onChange={setDuration}
             />
@@ -188,15 +193,15 @@ function JobForm({ onCreated }: { onCreated: (jobId: string) => void }) {
 
           <div className="mc-row mc-row--between mc-row--wrap mc-gap-16" style={{ alignItems: 'flex-end' }}>
             <NumberStepper
-              label="Jumlah klip (maks.)"
+              label={f.maxClips}
               value={maxClips}
               onChange={setMaxClips}
               min={0}
               max={100}
-              format={(n) => (n === 0 ? 'Tanpa batas' : String(n))}
+              format={(n) => (n === 0 ? f.unlimited : String(n))}
             />
             <Button type="submit" variant="primary" size="lg" loading={submitting} icon={<Clapperboard size={18} aria-hidden="true" />}>
-              Mulai proses
+              {f.start}
             </Button>
           </div>
         </div>
@@ -210,6 +215,8 @@ function JobForm({ onCreated }: { onCreated: (jobId: string) => void }) {
 function JobProgress({ jobId }: { jobId: string }) {
   const router = useRouter()
   const { epoch } = useEngine()
+  const t = useT()
+  const p = t.discover.progress
   const [job, setJob] = useState<Job | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [liveMessage, setLiveMessage] = useState<string | null>(null)
@@ -222,7 +229,7 @@ function JobProgress({ jobId }: { jobId: string }) {
       setJob(job)
       setLoadError(null)
     } catch (err) {
-      setLoadError(errorMessage(err, 'Job tidak ditemukan'))
+      setLoadError(errorMessage(err, tm().discover.progress.notFound))
     }
   }, [jobId])
 
@@ -248,9 +255,9 @@ function JobProgress({ jobId }: { jobId: string }) {
   // Completed -> go to the clips gallery
   useEffect(() => {
     if (job?.status !== 'completed') return
-    toast.success('Pipeline selesai. Clip siap diedit.')
-    const t = setTimeout(() => router.push('/clips/'), 1500)
-    return () => clearTimeout(t)
+    toast.success(tm().discover.progress.completed)
+    const timer = setTimeout(() => router.push('/clips/'), 1500)
+    return () => clearTimeout(timer)
   }, [job?.status, router])
 
   const cancel = async () => {
@@ -259,7 +266,7 @@ function JobProgress({ jobId }: { jobId: string }) {
       const { job } = await api.jobs.cancel(jobId)
       setJob(job)
       setConfirmCancel(false)
-      toast.success('Job dibatalkan')
+      toast.success(p.cancelled)
     } catch (err) {
       toast.error(errorMessage(err))
     } finally {
@@ -273,7 +280,7 @@ function JobProgress({ jobId }: { jobId: string }) {
       const { job } = await api.jobs.resume(jobId)
       setJob(job)
       setLiveMessage(null)
-      toast.success('Job dilanjutkan dari checkpoint terakhir')
+      toast.success(p.resumed)
     } catch (err) {
       toast.error(errorMessage(err))
     } finally {
@@ -285,10 +292,10 @@ function JobProgress({ jobId }: { jobId: string }) {
     return (
       <Alert
         tone="error"
-        title="Gagal memuat job"
+        title={p.loadFailed}
         action={
           <Button variant="secondary" size="sm" onClick={() => router.push('/discover/')}>
-            Kembali
+            {t.common.back}
           </Button>
         }
       >
@@ -321,7 +328,7 @@ function JobProgress({ jobId }: { jobId: string }) {
     const isCurrent = stepIndex === idx && job.status !== 'completed'
     const state: StepState = stepIndex > idx ? 'done' : isCurrent ? (active ? 'active' : 'failed') : 'todo'
     const count = isCurrent && step.id === 'processing' && job.total_scenes > 0 ? ` (${job.processed_scenes}/${job.total_scenes})` : ''
-    return { id: step.id, label: `${STEP_SHORT[step.id]}${count}`, state }
+    return { id: step.id, label: `${t.jobs.stepShort[step.id]}${count}`, state }
   })
 
   return (
@@ -330,35 +337,35 @@ function JobProgress({ jobId }: { jobId: string }) {
         <div className="mc-row mc-row--between mc-row--top mc-row--wrap mc-gap-16">
           <div className="mc-stack mc-gap-8 mc-grow">
             <div className="mc-row mc-row--wrap">
-              <h2 className="mc-h2">{active ? 'AI Pipeline sedang berjalan' : job.status === 'completed' ? 'Pipeline selesai' : 'Pipeline berhenti'}</h2>
+              <h2 className="mc-h2">{active ? p.running : job.status === 'completed' ? p.done : p.stopped}</h2>
               <StatusBadge kind="job" status={job.status} />
             </div>
             <p className="mc-caption mc-muted" style={{ wordBreak: 'break-all' }}>
-              {source.label}: {source.text} · dimulai {formatDateTime(job.started_at || job.created_at)}
+              {source.label}: {source.text} · {p.startedAt(formatDateTime(job.started_at || job.created_at))}
             </p>
           </div>
           <div className="mc-row mc-row--wrap mc-gap-8">
             {active && (
               <Button variant="danger" size="sm" icon={<X size={16} aria-hidden="true" />} onClick={() => setConfirmCancel(true)}>
-                Batalkan
+                {p.cancel}
               </Button>
             )}
             {RESUMABLE_JOB_STATUSES.includes(job.status) && (
               <Button variant="primary" size="sm" icon={<RotateCcw size={16} aria-hidden="true" />} onClick={resume} loading={busy}>
-                Lanjutkan
+                {p.resume}
               </Button>
             )}
             <ButtonLink href="/jobs/" variant="secondary" size="sm" icon={<ListChecks size={16} aria-hidden="true" />}>
-              Antrian
+              {t.shell.nav.jobs}
             </ButtonLink>
           </div>
         </div>
 
         <div className="mc-stack mc-gap-8">
-          <ProgressBar value={job.progress_pct} label="Progres job" showValue />
+          <ProgressBar value={job.progress_pct} label={t.jobs.progressLabel} showValue />
           {job.total_scenes > 0 && (
             <span className="mc-caption mc-muted">
-              Klip diproses: <span className="mc-mono">{job.processed_scenes}/{job.total_scenes}</span>
+              {p.clipsProcessed} <span className="mc-mono">{job.processed_scenes}/{job.total_scenes}</span>
             </span>
           )}
         </div>
@@ -374,7 +381,7 @@ function JobProgress({ jobId }: { jobId: string }) {
         </div>
 
         {job.errors.length > 0 && (
-          <Alert tone="error" title={`${job.errors.length} kesalahan`}>
+          <Alert tone="error" title={p.errors(job.errors.length)}>
             <ul className="mc-stack mc-gap-8" style={{ listStyle: 'none' }}>
               {job.errors.slice(-5).map((err, i) => (
                 <li key={i} style={{ wordBreak: 'break-word' }}>
@@ -388,9 +395,9 @@ function JobProgress({ jobId }: { jobId: string }) {
 
       <ConfirmModal
         isOpen={confirmCancel}
-        title="Batalkan job ini?"
-        message="Proses yang sedang berjalan akan dihentikan. Klip yang sudah selesai tetap tersimpan, dan job bisa dilanjutkan lagi dari Antrian."
-        confirmLabel="Batalkan job"
+        title={p.cancelModal.title}
+        message={p.cancelModal.message}
+        confirmLabel={p.cancelModal.confirm}
         danger
         loading={busy}
         onConfirm={cancel}

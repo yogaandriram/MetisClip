@@ -2,6 +2,7 @@ import type { CaptionStyle } from '@/lib/presets/defaults';
 import { resolveCaptionStyle } from '@/lib/presets/defaults';
 import { type AiCaptionSettings, DEFAULT_AI_SETTINGS } from '@/lib/presets/captions';
 import { DEFAULT_LAYOUT, type Layout } from '@/lib/presets/layout';
+import type { Messages } from '@/lib/i18n';
 
 /** 'all' = the area any of TikTok, IG Reels and YT Shorts covers (lib/presets/position.ts). */
 export type SafeZone = 'none' | 'all' | 'tiktok' | 'reels' | 'shorts';
@@ -12,19 +13,18 @@ export interface LayoutSettings extends Layout {
   safeZone?: SafeZone;
 }
 
-export const SAFE_ZONE_OPTIONS: { value: SafeZone; label: string }[] = [
-  { value: 'all', label: 'Semua platform' },
-  { value: 'tiktok', label: 'TikTok' },
-  { value: 'reels', label: 'IG Reels' },
-  { value: 'shorts', label: 'YT Shorts' },
-  { value: 'none', label: 'Tidak ada' },
-];
+export function safeZoneOptions(t: Messages): { value: SafeZone; label: string }[] {
+  return [
+    { value: 'all', label: t.brand.layout.safeZone.all },
+    { value: 'tiktok', label: 'TikTok' },
+    { value: 'reels', label: 'IG Reels' },
+    { value: 'shorts', label: 'YT Shorts' },
+    { value: 'none', label: t.common.none },
+  ];
+}
 
-/** Sample title for the Brand Template previews (clips use their own hook text). */
-export const SAMPLE_TITLE = 'Rahasia konten viral yang jarang orang tahu';
-
-export function safeZoneLabel(zone: SafeZone | undefined): string {
-  return SAFE_ZONE_OPTIONS.find((o) => o.value === (zone || 'none'))?.label || '';
+export function safeZoneLabel(zone: SafeZone | undefined, t: Messages): string {
+  return safeZoneOptions(t).find((o) => o.value === (zone || 'none'))?.label || '';
 }
 
 /** Same model as the clip editor and the render (lib/presets/defaults.ts). */

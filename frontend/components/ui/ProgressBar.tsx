@@ -97,13 +97,14 @@ interface WizardStepsProps {
 
 /** Numbered circles for the Setup Wizard (DESIGN.md §8.21). */
 export function WizardSteps({ steps, current, className }: WizardStepsProps) {
+  const t = useT()
   return (
     <ol className={cx('mc-wizard-steps', className)} style={{ listStyle: 'none' }}>
       {steps.map((label, i) => {
         const state = i < current ? 'done' : i === current ? 'current' : 'todo'
         return (
           <li key={label} className={cx('mc-wizard-step', `mc-wizard-step--${state}`)} aria-current={state === 'current' ? 'step' : undefined}>
-            <span className="mc-wizard-step__dot">{state === 'done' ? <Check size={16} aria-label="Selesai" /> : i + 1}</span>
+            <span className="mc-wizard-step__dot">{state === 'done' ? <Check size={16} aria-label={t.ui.stepDone} /> : i + 1}</span>
             <span className="mc-wizard-step__label">{label}</span>
           </li>
         )

@@ -9,6 +9,7 @@ export const shell: Messages['shell'] = {
     brand: 'Brand Template',
     settings: 'Settings',
     system: 'System',
+    label: 'Main navigation',
     withRunning: (name: string, n: number) => `${name}, ${n} running`,
   },
   systemHint: {

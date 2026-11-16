@@ -6,14 +6,15 @@ import { cx } from '@/lib/cx'
 import { api } from '@/lib/engine'
 import { assetUrl } from '@/lib/media'
 import { errorMessage } from '@/lib/format'
+import { useT } from '@/lib/i18n/I18nProvider'
 import { BrandSettings } from '../types'
 
 type AssetKey = 'overlayUrl' | 'sampleVideoUrl'
 
-// kind: upload kind sent to the engine (stored under library/_brand/<template>/)
-const ASSETS: Record<AssetKey, { kind: string; accept: string; formats: string; maxMb: number }> = {
-  overlayUrl: { kind: 'overlay', accept: 'image/png,image/jpeg,image/webp', formats: 'PNG, JPG, WEBP · maks. 20 MB', maxMb: 20 },
-  sampleVideoUrl: { kind: 'sample_video', accept: 'video/mp4,video/webm', formats: 'MP4, WEBM · maks. 200 MB', maxMb: 200 },
+// kind: upload kind sent to the engine (stored under library/_brand/<template>/); types: shown to people
+const ASSETS: Record<AssetKey, { kind: string; accept: string; types: string; maxMb: number }> = {
+  overlayUrl: { kind: 'overlay', accept: 'image/png,image/jpeg,image/webp', types: 'PNG, JPG, WEBP', maxMb: 20 },
+  sampleVideoUrl: { kind: 'sample_video', accept: 'video/mp4,video/webm', types: 'MP4, WEBM', maxMb: 200 },
 }
 
 interface BrandSettingsPanelProps {
@@ -26,7 +27,7 @@ interface UploaderProps {
   title: string
   description: string
   accept: string
-  /** Formats and size limit for people, e.g. "PNG, JPG, WEBP · maks. 20 MB" */
+  /** Formats and size limit for people (t.brand.assets.formats) */
   formats: string
   current?: string
   previewImage?: boolean
@@ -36,8 +37,9 @@ interface UploaderProps {
   onClear: () => void
 }
 
-/** One asset slot: the chosen file with "Hapus", or a compact drop target that opens the file dialog. */
+/** One asset slot: the chosen file with a remove button, or a compact drop target that opens the file dialog. */
 export function AssetUploader({ title, description, accept, formats, current, previewImage, busy, disabled, onFile, onClear }: UploaderProps) {
+  const t = useT()
   const inputRef = useRef<HTMLInputElement>(null)
   const [over, setOver] = useState(false)
   const fileName = current ? decodeURIComponent(current.split('/').pop() || '') : ''
@@ -65,10 +67,10 @@ export function AssetUploader({ title, description, accept, formats, current, pr
               <IconTile icon={isVideo ? <FileVideo size={18} /> : <ImageIcon size={18} />} size="sm" />
             )}
             <span className="mc-grow mc-truncate" title={fileName}>
-              {fileName || 'Aset dipilih'}
+              {fileName || t.brand.assets.chosen}
             </span>
             <Button variant="secondary" size="sm" onClick={onClear}>
-              Hapus
+              {t.common.remove}
             </Button>
           </div>
         </Card>
@@ -99,7 +101,7 @@ export function AssetUploader({ title, description, accept, formats, current, pr
           <span className="mc-drop__icon" aria-hidden="true">
             {busy ? <Spinner /> : <Upload size={20} />}
           </span>
-          <span className="mc-drop__title">{busy ? 'Mengunggah…' : 'Klik untuk memilih file'}</span>
+          <span className="mc-drop__title">{busy ? t.brand.assets.uploading : t.brand.assets.pick}</span>
           <span className="mc-drop__hint">{formats}</span>
         </button>
       )}
@@ -121,27 +123,28 @@ export function AssetUploader({ title, description, accept, formats, current, pr
 }
 
 export const BrandSettingsPanel: React.FC<BrandSettingsPanelProps> = ({ templateId, brand, updateBrand }) => {
+  const t = useT()
   const [uploading, setUploading] = useState<AssetKey | null>(null)
 
   const handleUpload = async (file: File, key: AssetKey) => {
     const { kind, accept, maxMb } = ASSETS[key]
     if (file.type && !accept.split(',').includes(file.type)) {
-      toast.error('Format file tidak didukung')
+      toast.error(t.brand.assets.unsupported)
       return
     }
     if (file.size > maxMb * 1024 * 1024) {
-      toast.error(`File terlalu besar. Maksimal ${maxMb} MB`)
+      toast.error(t.brand.assets.tooLarge(maxMb))
       return
     }
 
     setUploading(key)
-    const toastId = toast.loading('Mengunggah ke folder data…')
+    const toastId = toast.loading(t.brand.assets.uploadingToData)
     try {
       const { value } = await api.brandTemplates.uploadAsset(templateId, file, kind)
       updateBrand({ [key]: value } as Partial<BrandSettings>)
-      toast.success('Aset tersimpan. Jangan lupa klik Simpan.', { id: toastId })
+      toast.success(t.brand.assets.savedRemember, { id: toastId })
     } catch (err) {
-      toast.error(errorMessage(err, 'Gagal mengunggah file'), { id: toastId })
+      toast.error(errorMessage(err, t.brand.assets.uploadFailed), { id: toastId })
     } finally {
       setUploading(null)
     }
@@ -152,7 +155,7 @@ export const BrandSettingsPanel: React.FC<BrandSettingsPanelProps> = ({ template
       title={title}
       description={description}
       accept={ASSETS[key].accept}
-      formats={ASSETS[key].formats}
+      formats={t.brand.assets.formats(ASSETS[key].types, ASSETS[key].maxMb)}
       current={brand[key]}
       previewImage={previewImage}
       busy={uploading === key}
@@ -164,9 +167,9 @@ export const BrandSettingsPanel: React.FC<BrandSettingsPanelProps> = ({ template
 
   return (
     <div className="mc-stack mc-gap-24">
-      {renderUploader('Watermark / logo', 'Logo PNG transparan yang ditempel di semua clip. Geser & ubah ukurannya di preview.', 'overlayUrl', true)}
+      {renderUploader(t.brand.assets.logoTitle, t.brand.assets.logoDescription, 'overlayUrl', true)}
       <Divider />
-      {renderUploader('Video contoh', 'Video 3–10 detik sebagai latar preview di halaman ini (tidak ikut dirender).', 'sampleVideoUrl')}
+      {renderUploader(t.brand.assets.sampleTitle, t.brand.assets.sampleDescription, 'sampleVideoUrl')}
     </div>
   )
 }

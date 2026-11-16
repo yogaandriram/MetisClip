@@ -9,46 +9,50 @@ import { useEngineEvents } from '@/hooks/useEngineEvents'
 import { api, type BackupInfo, type ResourceStatus, type ResourceTask, type StorageInfo, type SystemCheck } from '@/lib/engine'
 import { errorMessage, formatBytes, formatDateTime } from '@/lib/format'
 import { isDesktop } from '@/lib/media'
+import { localeTag } from '@/lib/i18n'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 const headerIcon = (Icon: React.ElementType) => <Icon size={18} aria-hidden="true" />
 
-const gb = (mb: number) => `${(mb / 1024).toLocaleString('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} GB`
+const gb = (mb: number) => `${(mb / 1024).toLocaleString(localeTag(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })} GB`
 
 /** RAM, the reserve, and the heavy steps the RAM guard runs or holds back (backend/core/resources.py). */
 function RamCard({ ram, error }: { ram: ResourceStatus | null; error: string | null }) {
-  const task = (t: ResourceTask, i: number) => (
-    <li key={`${t.kind}-${i}`} className="mc-row mc-row--between mc-gap-8">
-      <span className="mc-caption">{t.label || t.kind}</span>
-      <span className="mc-mono mc-caption">{gb(t.need_mb)}</span>
+  const t = useT()
+  const m = t.system.ram
+  const task = (job: ResourceTask, i: number) => (
+    <li key={`${job.kind}-${i}`} className="mc-row mc-row--between mc-gap-8">
+      <span className="mc-caption">{job.label || job.kind}</span>
+      <span className="mc-mono mc-caption">{gb(job.need_mb)}</span>
     </li>
   )
   const used = ram ? ram.total_mb - ram.available_mb : 0
   return (
     <Card>
-      <CardHeader size="sm" icon={headerIcon(MemoryStick)} title="Memori (RAM)" />
+      <CardHeader size="sm" icon={headerIcon(MemoryStick)} title={m.title} />
       {error ? (
-        <Alert tone="error" title="Status RAM tidak dapat dimuat">
+        <Alert tone="error" title={m.loadFailed}>
           {error}
         </Alert>
       ) : !ram ? (
         <Skeleton height={96} radius="md" />
       ) : (
         <div className="mc-stack mc-gap-12">
-          <ProgressRow label="RAM terpakai" value={`${gb(used)} / ${gb(ram.total_mb)}`} percent={pct(used, ram.total_mb)} highlight />
+          <ProgressRow label={m.used} value={`${gb(used)} / ${gb(ram.total_mb)}`} percent={pct(used, ram.total_mb)} highlight />
           <div className="mc-row mc-row--wrap mc-gap-8">
             <Badge tone={ram.auto ? 'success' : 'neutral'} size="sm">
-              Hemat RAM otomatis {ram.auto ? 'aktif' : 'nonaktif'}
+              {ram.auto ? m.saverOn : m.saverOff}
             </Badge>
             {ram.auto && (
               <Badge tone="neutral" size="sm">
-                Cadangan untuk aplikasi lain {gb(ram.reserve_mb)}
+                {m.reserve(gb(ram.reserve_mb))}
               </Badge>
             )}
           </div>
-          {!ram.auto && <p className="mc-caption mc-muted">Proses berat langsung berjalan tanpa melihat sisa RAM. Aktifkan lagi di Pengaturan, bagian Pemrosesan video.</p>}
+          {!ram.auto && <p className="mc-caption mc-muted">{m.saverOffNote}</p>}
           {ram.running.length > 0 && (
             <div className="mc-stack mc-gap-4">
-              <span className="mc-label">Sedang berjalan</span>
+              <span className="mc-label">{m.running}</span>
               <ul className="mc-stack mc-gap-4" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                 {ram.running.map(task)}
               </ul>
@@ -56,13 +60,13 @@ function RamCard({ ram, error }: { ram: ResourceStatus | null; error: string | n
           )}
           {ram.waiting.length > 0 && (
             <div className="mc-stack mc-gap-4">
-              <span className="mc-label">Menunggu RAM cukup</span>
+              <span className="mc-label">{m.waiting}</span>
               <ul className="mc-stack mc-gap-4" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                 {ram.waiting.map(task)}
               </ul>
             </div>
           )}
-          {ram.auto && !ram.running.length && !ram.waiting.length && <p className="mc-caption mc-muted">Tidak ada proses berat yang berjalan.</p>}
+          {ram.auto && !ram.running.length && !ram.waiting.length && <p className="mc-caption mc-muted">{m.idle}</p>}
         </div>
       )}
     </Card>
@@ -70,13 +74,14 @@ function RamCard({ ram, error }: { ram: ResourceStatus | null; error: string | n
 }
 
 function HealthBadge({ ok }: { ok: boolean }) {
+  const t = useT()
   return ok ? (
     <Badge tone="success" size="sm" icon={<Check size={14} aria-hidden="true" />}>
-      Siap
+      {t.system.health.ok}
     </Badge>
   ) : (
     <Badge tone="error" size="sm" icon={<AlertTriangle size={14} aria-hidden="true" />}>
-      Bermasalah
+      {t.system.health.problem}
     </Badge>
   )
 }
@@ -84,6 +89,8 @@ function HealthBadge({ ok }: { ok: boolean }) {
 const pct = (part: number, whole: number) => (whole > 0 ? (part / whole) * 100 : 0)
 
 export default function SystemPage() {
+  const t = useT()
+  const m = t.system
   const { epoch, systemInfo, refreshSystemInfo } = useEngine()
   const desktop = isDesktop()
   const [check, setCheck] = useState<SystemCheck | null>(null)
@@ -144,10 +151,10 @@ export default function SystemPage() {
     try {
       const { backup } = await api.system.backup()
       setBackups((prev) => [backup, ...(prev || [])])
-      toast.success('Backup database selesai')
+      toast.success(m.backup.done)
       loadStorage()
     } catch (err) {
-      toast.error(errorMessage(err, 'Backup gagal'))
+      toast.error(errorMessage(err, m.backup.failed))
     } finally {
       setBackingUp(false)
     }
@@ -161,7 +168,7 @@ export default function SystemPage() {
       else toast.error(res.message)
       if (res.updated) runCheck()
     } catch (err) {
-      toast.error(errorMessage(err, 'Update yt-dlp gagal'))
+      toast.error(errorMessage(err, m.check.updateYtdlpFailed))
     } finally {
       setUpdatingYtdlp(false)
     }
@@ -170,7 +177,7 @@ export default function SystemPage() {
   const open = async (path: string | null | undefined) => {
     if (!window.metis || !path) return
     const res = await window.metis.openPath(path)
-    if (!res.ok) toast.error(res.error || 'Folder tidak dapat dibuka')
+    if (!res.ok) toast.error(res.error || m.folderOpenFailed)
   }
 
   const driveUsed = storage ? storage.drive_total_bytes - storage.drive_free_bytes : 0
@@ -180,16 +187,16 @@ export default function SystemPage() {
   return (
     <>
       <PageHeader
-        title="Sistem"
-        subtitle="Status komponen, RAM, penggunaan disk, dan backup database lokal."
+        title={m.title}
+        subtitle={m.subtitle}
         actions={
           desktop && systemInfo ? (
             <>
               <Button variant="secondary" size="sm" icon={<FolderOpen size={16} aria-hidden="true" />} onClick={() => open(systemInfo.logs_dir)}>
-                Buka folder log
+                {m.openLogs}
               </Button>
               <Button variant="secondary" size="sm" icon={<FolderOpen size={16} aria-hidden="true" />} onClick={() => open(systemInfo.data_root)}>
-                Buka folder data
+                {m.openData}
               </Button>
             </>
           ) : undefined
@@ -202,15 +209,15 @@ export default function SystemPage() {
             <CardHeader
               size="sm"
               icon={headerIcon(Cpu)}
-              title="Pemeriksaan komponen"
+              title={m.check.title}
               action={
                 <Button variant="secondary" size="sm" icon={<RefreshCw size={16} aria-hidden="true" />} onClick={runCheck} loading={checking}>
-                  Periksa ulang
+                  {m.check.recheck}
                 </Button>
               }
             />
             {checkError ? (
-              <Alert tone="error" title="Pemeriksaan gagal">
+              <Alert tone="error" title={m.check.failed}>
                 {checkError}
               </Alert>
             ) : !check ? (
@@ -225,11 +232,11 @@ export default function SystemPage() {
                   <table className="mc-table">
                     <thead>
                       <tr>
-                        <th scope="col">Komponen</th>
-                        <th scope="col">Versi</th>
-                        <th scope="col">Status</th>
+                        <th scope="col">{m.check.component}</th>
+                        <th scope="col">{m.check.version}</th>
+                        <th scope="col">{m.check.status}</th>
                         <th scope="col">
-                          <span className="mc-sr-only">Aksi</span>
+                          <span className="mc-sr-only">{m.check.actions}</span>
                         </th>
                       </tr>
                     </thead>
@@ -251,7 +258,7 @@ export default function SystemPage() {
                           <td style={{ textAlign: 'right' }}>
                             {item.key === 'ytdlp' && (
                               <Button variant="secondary" size="sm" icon={<RefreshCw size={16} aria-hidden="true" />} onClick={updateYtdlp} loading={updatingYtdlp}>
-                                Update yt-dlp
+                                {m.check.updateYtdlp}
                               </Button>
                             )}
                           </td>
@@ -262,13 +269,13 @@ export default function SystemPage() {
                 </div>
                 <div className="mc-row mc-row--wrap mc-gap-8">
                   <Badge tone="neutral" size="sm">
-                    {check.cpu_count} core CPU
+                    {m.check.cpuCores(check.cpu_count)}
                   </Badge>
                   <Badge tone="neutral" size="sm">
-                    RAM {check.ram_gb.toLocaleString('id-ID', { maximumFractionDigits: 1 })} GB
+                    {m.check.ram(check.ram_gb.toLocaleString(localeTag(), { maximumFractionDigits: 1 }))}
                   </Badge>
                   <Badge tone="neutral" size="sm">
-                    Encoder: {check.encoders.length ? check.encoders.join(', ') : 'libx264'}
+                    {m.check.encoders(check.encoders.length ? check.encoders.join(', ') : 'libx264')}
                   </Badge>
                 </div>
               </div>
@@ -279,30 +286,30 @@ export default function SystemPage() {
             <CardHeader
               size="sm"
               icon={headerIcon(Database)}
-              title="Backup database"
+              title={m.backup.title}
               action={
                 <Button variant="secondary" size="sm" icon={<Archive size={16} aria-hidden="true" />} onClick={backupNow} loading={backingUp}>
-                  Backup sekarang
+                  {m.backup.now}
                 </Button>
               }
             />
             {backups === null ? (
               <Skeleton height={96} radius="md" />
             ) : backups.length === 0 ? (
-              <EmptyState icon={Archive} title="Belum ada backup" description="Backup menyimpan salinan database (bukan file video) di folder data." />
+              <EmptyState icon={Archive} title={m.backup.emptyTitle} description={m.backup.emptyDescription} />
             ) : (
               <div className="mc-table-wrap">
                 <table className="mc-table mc-table--dense">
                   <thead>
                     <tr>
-                      <th scope="col">File</th>
-                      <th scope="col">Dibuat</th>
+                      <th scope="col">{m.backup.file}</th>
+                      <th scope="col">{m.backup.created}</th>
                       <th scope="col" className="mc-num">
-                        Ukuran
+                        {m.backup.size}
                       </th>
                       {desktop && (
                         <th scope="col">
-                          <span className="mc-sr-only">Aksi</span>
+                          <span className="mc-sr-only">{m.check.actions}</span>
                         </th>
                       )}
                     </tr>
@@ -322,7 +329,7 @@ export default function SystemPage() {
                             <IconButton
                               variant="ghost"
                               size="sm"
-                              label="Tampilkan di Explorer"
+                              label={t.common.showInExplorer}
                               tooltip="end"
                               icon={<FolderOpen size={16} />}
                               onClick={() => window.metis!.showItemInFolder(b.path)}
@@ -342,9 +349,9 @@ export default function SystemPage() {
           <RamCard ram={ram} error={ramError} />
 
           <Card tone="leaf">
-            <CardHeader size="sm" icon={headerIcon(HardDrive)} title="Penyimpanan" />
+            <CardHeader size="sm" icon={headerIcon(HardDrive)} title={m.storage.title} />
             {storageError ? (
-              <Alert tone="error" title="Data penyimpanan tidak dapat dimuat">
+              <Alert tone="error" title={m.storage.loadFailed}>
                 {storageError}
               </Alert>
             ) : !storage ? (
@@ -359,25 +366,25 @@ export default function SystemPage() {
                   <div className="mc-mono mc-caption" style={{ overflowWrap: 'anywhere' }}>
                     {storage.data_root}
                   </div>
-                  <ProgressRow label="Drive terpakai" value={`${formatBytes(driveUsed)} / ${formatBytes(storage.drive_total_bytes)}`} percent={usedPct} highlight />
-                  <div className="mc-caption">Ruang kosong drive: {formatBytes(storage.drive_free_bytes)}</div>
+                  <ProgressRow label={m.storage.driveUsed} value={`${formatBytes(driveUsed)} / ${formatBytes(storage.drive_total_bytes)}`} percent={usedPct} highlight />
+                  <div className="mc-caption">{m.storage.driveFree(formatBytes(storage.drive_free_bytes))}</div>
                 </div>
 
                 <div className="mc-stack mc-gap-8">
                   <div className="mc-row mc-row--between">
-                    <span className="mc-label">Dipakai MetisClip</span>
+                    <span className="mc-label">{m.storage.usedByApp}</span>
                     <span className="mc-mono mc-caption">{formatBytes(appTotal)}</span>
                   </div>
-                  <ProgressRow label="Database" value={formatBytes(storage.db_bytes)} percent={pct(storage.db_bytes, appTotal)} />
-                  <ProgressRow label="Library (clip & sumber)" value={formatBytes(storage.library_bytes)} percent={pct(storage.library_bytes, appTotal)} />
-                  <ProgressRow label="Cache" value={formatBytes(storage.cache_bytes)} percent={pct(storage.cache_bytes, appTotal)} />
-                  <ProgressRow label="Backup" value={formatBytes(storage.backups_bytes)} percent={pct(storage.backups_bytes, appTotal)} />
-                  <ProgressRow label="Model Whisper lokal" value={formatBytes(storage.models_bytes)} percent={pct(storage.models_bytes, appTotal)} />
+                  <ProgressRow label={m.storage.database} value={formatBytes(storage.db_bytes)} percent={pct(storage.db_bytes, appTotal)} />
+                  <ProgressRow label={m.storage.library} value={formatBytes(storage.library_bytes)} percent={pct(storage.library_bytes, appTotal)} />
+                  <ProgressRow label={m.storage.cache} value={formatBytes(storage.cache_bytes)} percent={pct(storage.cache_bytes, appTotal)} />
+                  <ProgressRow label={m.storage.backups} value={formatBytes(storage.backups_bytes)} percent={pct(storage.backups_bytes, appTotal)} />
+                  <ProgressRow label={m.storage.models} value={formatBytes(storage.models_bytes)} percent={pct(storage.models_bytes, appTotal)} />
                 </div>
 
                 {storage.per_agent.length > 0 && (
                   <div className="mc-stack mc-gap-8">
-                    <span className="mc-label">Library per workspace</span>
+                    <span className="mc-label">{m.storage.perWorkspace}</span>
                     {[...storage.per_agent]
                       .sort((a, b) => b.bytes - a.bytes)
                       .map((a) => (
@@ -390,16 +397,16 @@ export default function SystemPage() {
           </Card>
 
           <Card>
-            <CardHeader size="sm" icon={headerIcon(Info)} title="Informasi" />
+            <CardHeader size="sm" icon={headerIcon(Info)} title={m.info.title} />
             {!systemInfo ? (
               <Skeleton height={160} radius="md" />
             ) : (
               <KeyValueList
                 items={[
-                  { id: 'app', key: 'Versi aplikasi', value: <span className="mc-mono">{desktop ? `v${window.metis!.appVersion}` : '-'}</span> },
+                  { id: 'app', key: m.info.appVersion, value: <span className="mc-mono">{desktop ? `v${window.metis!.appVersion}` : '-'}</span> },
                   {
                     id: 'engine',
-                    key: 'Versi engine',
+                    key: m.info.engineVersion,
                     value: (
                       <span className="mc-mono">
                         v{systemInfo.version}
@@ -409,7 +416,7 @@ export default function SystemPage() {
                   },
                   {
                     id: 'mongo',
-                    key: 'MongoDB',
+                    key: m.info.mongo,
                     value: (
                       <span className="mc-row mc-gap-8" style={{ justifyContent: 'flex-end' }}>
                         {systemInfo.mongo.ok && systemInfo.mongo.version && <span className="mc-mono">{systemInfo.mongo.version}</span>}
@@ -417,7 +424,7 @@ export default function SystemPage() {
                       </span>
                     ),
                   },
-                  { id: 'library', key: 'Folder library', value: <span className="mc-mono mc-caption">{systemInfo.library_dir || '-'}</span> },
+                  { id: 'library', key: m.info.libraryDir, value: <span className="mc-mono mc-caption">{systemInfo.library_dir || '-'}</span> },
                 ]}
               />
             )}

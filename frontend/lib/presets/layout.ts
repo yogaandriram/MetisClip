@@ -998,10 +998,24 @@ export function speakerAt(sp: LayoutSpeaker, t: number): SpeakerFrame | null {
 // Presets (Brand Template gallery)
 // ---------------------------------------------------------------------------------------------
 
+export type LayoutPresetId =
+  | 'full'
+  | 'full-zoom'
+  | 'podcast'
+  | 'podcast-dark'
+  | 'podcast-boxed'
+  | 'blur-clean'
+  | 'card-light'
+  | 'card-dark'
+  | 'split'
+  | 'split-line'
+  | 'duo'
+  | 'duo-line'
+  | 'auto';
+
+/** A ready-made look in the Brand Template gallery. Its name and description are UI text, looked up by id there. */
 export interface LayoutPreset {
-  id: string;
-  name: string;
-  description: string;
+  id: LayoutPresetId;
   patch: LayoutPatch;
 }
 
@@ -1016,24 +1030,18 @@ const CARD_TEXT: Partial<LayoutHeader> = {
 };
 
 export const LAYOUT_PRESETS: LayoutPreset[] = [
-  { id: 'full', name: 'Penuh 9:16', description: 'Video dipotong 9:16 mengikuti wajah.', patch: { mode: 'full' } },
+  { id: 'full', patch: { mode: 'full' } },
   {
     id: 'full-zoom',
-    name: 'Penuh + zoom',
-    description: 'Zoom halus di setiap kata kunci AI.',
     patch: { mode: 'full', zoom: { enabled: true, style: 'keywords', amount: 0.12 } },
   },
-  { id: 'podcast', name: 'Podcast blur', description: 'Rasio asli, latar video blur, judul di atas.', patch: { mode: 'podcast' } },
+  { id: 'podcast', patch: { mode: 'podcast' } },
   {
     id: 'podcast-dark',
-    name: 'Podcast gelap',
-    description: 'Rasio asli di atas latar hitam.',
     patch: { mode: 'podcast', background: { type: 'color', color: '#000000', dim: 0 } },
   },
   {
     id: 'podcast-boxed',
-    name: 'Judul kotak',
-    description: 'Gradasi, video membulat, judul dalam kotak.',
     patch: {
       mode: 'podcast',
       frame: { margin: 12, radius: 16 },
@@ -1043,20 +1051,14 @@ export const LAYOUT_PRESETS: LayoutPreset[] = [
   },
   {
     id: 'blur-clean',
-    name: 'Blur tanpa judul',
-    description: 'Rasio asli di atas blur, tanpa teks tambahan.',
     patch: { mode: 'podcast', header: { enabled: false } },
   },
   {
     id: 'card-light',
-    name: 'Kartu terang',
-    description: 'Gaya postingan: nama akun, teks, lalu video.',
     patch: { mode: 'card', frame: { y: 82, radius: 12 }, background: { type: 'blur', dim: 0.45 }, header: CARD_TEXT },
   },
   {
     id: 'card-dark',
-    name: 'Kartu gelap',
-    description: 'Gaya postingan gelap di atas latar hitam.',
     patch: {
       mode: 'card',
       frame: { y: 82, radius: 12 },
@@ -1067,32 +1069,22 @@ export const LAYOUT_PRESETS: LayoutPreset[] = [
   },
   {
     id: 'split',
-    name: 'Video pendamping',
-    description: 'Pembicara di atas, video pendamping tanpa suara di bawah.',
     patch: { mode: 'split' },
   },
   {
     id: 'split-line',
-    name: 'Pendamping + garis',
-    description: 'Pembicara lebih besar, garis putih di tengah.',
     patch: { mode: 'split', companion: { split: 0.56, divider: 3, dividerColor: '#FFFFFF' } },
   },
   {
     id: 'duo',
-    name: 'Dua pembicara',
-    description: 'Dua orang dalam satu frame dipisah atas dan bawah.',
     patch: { mode: 'duo' },
   },
   {
     id: 'duo-line',
-    name: 'Dua pembicara + garis',
-    description: 'Dua panel dengan garis putih di tengah.',
     patch: { mode: 'duo', duo: { divider: 3, dividerColor: '#FFFFFF' } },
   },
   {
     id: 'auto',
-    name: 'Otomatis per adegan',
-    description: 'Satu orang penuh, dua orang dua panel, slide dalam bingkai.',
     patch: { mode: 'auto' },
   },
 ];

@@ -107,6 +107,8 @@ import { useEngineEvents } from '@/hooks/useEngineEvents'
 import { api, type BrandTemplate, type ClipDetail, type RenderJob, type SubtitleWord } from '@/lib/engine'
 import { assetUrl, isDesktop, mediaUrl } from '@/lib/media'
 import { RENDER_STATUS, errorMessage, formatClock } from '@/lib/format'
+import { useI18n, useT } from '@/lib/i18n/I18nProvider'
+import { tm } from '@/lib/i18n'
 
 // Style model: lib/presets/defaults.ts (shared with the Brand Template page and the render).
 // `ai` is the clip's AI subtitle settings (brand ai_settings unless overridden; saved in subtitle_style.ai).
@@ -122,46 +124,13 @@ type Snapshot = {
   title: string
 }
 
-const LAYOUT_MODE_OPTIONS: { value: LayoutMode; label: string }[] = [
-  { value: 'full', label: 'Penuh 9:16' },
-  { value: 'podcast', label: 'Podcast' },
-  { value: 'card', label: 'Kartu' },
-  { value: 'split', label: 'Pendamping' },
-  { value: 'duo', label: 'Dua orang' },
-  { value: 'auto', label: 'Otomatis' },
-]
-const VIEW_OPTIONS: { value: SceneView; label: string }[] = [
-  { value: 'duo', label: 'Dua panel' },
-  { value: 'full', label: 'Penuh' },
-  { value: 'framed', label: 'Bingkai' },
-]
-const FULL_OR_FRAMED_OPTIONS: { value: 'full' | 'framed'; label: string }[] = [
-  { value: 'full', label: 'Penuh' },
-  { value: 'framed', label: 'Bingkai' },
-]
-const DUO_TOP_OPTIONS: { value: DuoTop; label: string }[] = [
-  { value: 'left', label: 'Orang kiri' },
-  { value: 'right', label: 'Orang kanan' },
-]
-const LAYOUT_MODE_HINTS: Record<LayoutMode, string> = {
-  full: 'Video dipotong 9:16 mengikuti wajah pembicara.',
-  podcast: 'Video tampil utuh dengan rasio aslinya, judul di atas. Latar dan gaya judul diatur di Brand Template.',
-  card: 'Video di dalam kartu bergaya postingan, judul sebagai teks postingan. Nama akun dan warna kartu diatur di Brand Template.',
-  split: 'Pembicara dan video pendamping tanpa suara yang diputar berulang. Videonya diunggah di Brand Template.',
-  duo: 'Dua orang dalam satu frame dipisah jadi panel atas dan bawah, masing-masing mengikuti wajahnya. Adegan lain tampil penuh 9:16.',
-  auto: 'Tampilan dipilih per adegan dari hasil face tracking: satu orang penuh, dua orang dua panel, slide atau adegan ramai dalam bingkai. Gantinya hanya di potongan kamera.',
-}
-const ZOOM_STYLE_OPTIONS: { value: ZoomStyle; label: string }[] = [
-  { value: 'keywords', label: 'Di kata kunci' },
-  { value: 'sentences', label: 'Tiap kalimat' },
-]
-const RATIO_OPTIONS: { value: FrameRatio; label: string }[] = [
-  { value: 'source', label: 'Asli' },
-  { value: '16:9', label: '16:9' },
-  { value: '4:3', label: '4:3' },
-  { value: '1:1', label: '1:1' },
-  { value: '4:5', label: '4:5' },
-]
+// Option ids; their labels are in the `editor` dictionary (looked up while rendering)
+const LAYOUT_MODES: LayoutMode[] = ['full', 'podcast', 'card', 'split', 'duo', 'auto']
+const VIEWS: SceneView[] = ['duo', 'full', 'framed']
+const FULL_OR_FRAMED: ('full' | 'framed')[] = ['full', 'framed']
+const DUO_TOPS: DuoTop[] = ['left', 'right']
+const ZOOM_STYLES: ZoomStyle[] = ['keywords', 'sentences']
+const RATIOS: FrameRatio[] = ['source', '16:9', '4:3', '1:1', '4:5']
 
 /** Caption style keys that differ from the template (all keys when the preset differs), so later
  * template edits still reach the clip for everything it did not change. */
@@ -203,7 +172,7 @@ export default function ClipDetailPage() {
   )
 }
 
-const BACK = { href: '/clips/', label: 'Kembali ke Hasil Clip' }
+const BACK_HREF = '/clips/'
 
 /** Full-height editor below the shell padding (16 top + 48 bottom), so only the columns scroll. */
 const PAGE_STYLE: React.CSSProperties = { height: 'calc(100vh - 64px)', minHeight: 640, display: 'flex', flexDirection: 'column' }
@@ -217,20 +186,11 @@ const GRID_STYLE: React.CSSProperties = {
 const COLUMN_STYLE: React.CSSProperties = { display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }
 const COLUMN_BODY: React.CSSProperties = { flex: 1, minHeight: 0, overflowY: 'auto' }
 
-const SHORTCUTS: [string, string][] = [
-  ['Spasi', 'Putar / jeda'],
-  ['← / →', 'Mundur / maju 0,1 detik'],
-  ['Shift + ← / →', 'Mundur / maju 1 detik'],
-  ['Ctrl + S', 'Simpan'],
-  ['Ctrl + Z', 'Undo'],
-  ['Ctrl + Y', 'Redo'],
-  ['Ctrl + E', 'Ekspor video'],
-]
-
 function EditorSkeleton() {
+  const t = useT()
   return (
     <div style={PAGE_STYLE}>
-      <PageHeader title="Editor klip" back={BACK} />
+      <PageHeader title={t.editor.title} back={{ href: BACK_HREF, label: t.editor.back }} />
       <div style={GRID_STYLE}>
         <Skeleton height="100%" radius="lg" />
         <Skeleton height="100%" radius="lg" />
@@ -241,6 +201,9 @@ function EditorSkeleton() {
 }
 
 function ClipEditor() {
+  const t = useT()
+  const m = t.editor
+  const { locale } = useI18n()
   const router = useRouter()
   const params = useSearchParams()
   const clipId = params.get('id') || ''
@@ -302,7 +265,7 @@ function ClipEditor() {
 
   useEffect(() => {
     if (!clipId) {
-      setLoadError('ID clip tidak ada di alamat halaman.')
+      setLoadError(tm().editor.noIdInUrl)
       return
     }
     let cancelled = false
@@ -313,7 +276,7 @@ function ClipEditor() {
         if (!cancelled) applyDetail(d)
       })
       .catch((err) => {
-        if (!cancelled) setLoadError(errorMessage(err, 'Clip tidak ditemukan'))
+        if (!cancelled) setLoadError(errorMessage(err, tm().editor.notFound))
       })
     api.brandTemplates
       .list()
@@ -365,20 +328,20 @@ function ClipEditor() {
           const [folder] = splitPath(e.exported_path)
           toast.success(
             <span>
-              Render selesai, tersimpan di{' '}
+              {m.renderDoneSavedIn}{' '}
               <span className="mc-mono" style={{ wordBreak: 'break-all' }}>
                 {folder}
               </span>
             </span>,
             { duration: 6000 },
           )
-          window.metis?.notify('MetisClip', `Render selesai. Tersimpan di ${folder}`)
+          window.metis?.notify('MetisClip', m.notifyRenderSavedIn(folder))
         } else if (e.export_error) {
-          toast.error(`Render selesai, tapi belum tersalin ke folder ekspor. ${e.export_error}`, { duration: 8000 })
-          window.metis?.notify('MetisClip', 'Render clip selesai')
+          toast.error(m.renderDoneNotCopied(e.export_error), { duration: 8000 })
+          window.metis?.notify('MetisClip', m.notifyRenderDone)
         } else {
-          toast.success('Render selesai')
-          window.metis?.notify('MetisClip', 'Render clip selesai')
+          toast.success(m.renderDone)
+          window.metis?.notify('MetisClip', m.notifyRenderDone)
         }
         // Refresh clip (files.final / updated_at) without touching unsaved edits
         api.clips
@@ -386,10 +349,10 @@ function ClipEditor() {
           .then((d) => setDetail(d))
           .catch(() => undefined)
       } else if (e.status === 'failed') {
-        toast.error(e.error || 'Render gagal')
+        toast.error(e.error || t.status.render.failed)
       }
     } else if (e.type === 'clip.deleted' && e.id === clipId) {
-      toast.error('Clip ini dihapus')
+      toast.error(m.clipDeleted)
       router.push('/clips/')
     }
   })
@@ -564,11 +527,11 @@ function ClipEditor() {
       if (!silent) {
         setJustSaved(true)
         setTimeout(() => setJustSaved(false), 2000)
-        toast.success('Perubahan disimpan')
+        toast.success(m.changesSaved)
       }
       return true
     } catch (err) {
-      toast.error(errorMessage(err, 'Gagal menyimpan perubahan'))
+      toast.error(errorMessage(err, m.saveFailed))
       return false
     } finally {
       setSaving(false)
@@ -577,7 +540,7 @@ function ClipEditor() {
 
   /** The template with this id: from the library, else the one the clip was loaded with. */
   const templateById = (id: string | null): BrandTemplate | null =>
-    (id && templates.find((t) => t.id === id)) || (detail?.brand_template && detail.brand_template.id === id ? detail.brand_template : null)
+    (id && templates.find((tpl) => tpl.id === id)) || (detail?.brand_template && detail.brand_template.id === id ? detail.brand_template : null)
 
   /** Switch the clip's template: its caption style, logo and AI settings apply (sync offset kept). */
   const chooseTemplate = (id: string) => {
@@ -586,7 +549,7 @@ function ClipEditor() {
     if (!tpl) return
     const style = resolveCaptionStyle(tpl.caption_settings || {})
     update({ ...present, templateId: id, style: { ...style, offsetTime: present.style.offsetTime }, ai: resolveAi(tpl.ai_settings), layout: {} })
-    toast.success(`Memakai template "${tpl.name}". Klik Simpan untuk menyimpan.`)
+    toast.success(m.usingTemplate(tpl.name))
   }
 
   /** Drop this clip's style and AI overrides (undoable; saved with Simpan). */
@@ -595,7 +558,7 @@ function ClipEditor() {
     const tpl = templateById(present.templateId)
     update({ ...present, style: resolveCaptionStyle(tpl?.caption_settings || {}), ai: resolveAi(tpl?.ai_settings), layout: {} })
     setConfirmReset(false)
-    toast.success(`Gaya dikembalikan ke template "${tpl?.name || 'bawaan'}". Klik Simpan untuk menyimpan.`)
+    toast.success(m.styleReset(tpl?.name || m.builtIn))
   }
 
   const [enriching, setEnriching] = useState(false)
@@ -609,9 +572,9 @@ function ClipEditor() {
     try {
       const { speakers } = await api.clips.suggestSpeaker(clipId)
       setSpeakerIdeas(speakers)
-      if (!speakers.length) toast('AI tidak menemukan nama pembicara di judul video atau ucapan. Isi namanya sendiri.')
+      if (!speakers.length) toast(m.speakerNoneFound)
     } catch (err) {
-      toast.error(errorMessage(err, 'Usulan nama gagal'))
+      toast.error(errorMessage(err, m.speakerSuggestFailed))
     } finally {
       setSuggesting(false)
     }
@@ -620,16 +583,16 @@ function ClipEditor() {
   const prepareSource = async () => {
     if (!clipId || preparing) return
     setPreparing(true)
-    const id = toast.loading('Menyiapkan video sumber…')
+    const id = toast.loading(m.preparingSource)
     try {
       const { clip } = await api.clips.prepareSource(clipId)
       // Only the source fields: unsaved edits stay as they are
       setDetail((d) =>
         d ? { ...d, clip: { ...d.clip, files: clip.files, source_width: clip.source_width, source_height: clip.source_height } } : d,
       )
-      toast.success('Video sumber siap', { id })
+      toast.success(m.sourceReady, { id })
     } catch (err) {
-      toast.error(errorMessage(err, 'Video sumber gagal disiapkan'), { id })
+      toast.error(errorMessage(err, m.sourceFailed), { id })
     } finally {
       setPreparing(false)
     }
@@ -639,16 +602,16 @@ function ClipEditor() {
   const prepareFaces = async () => {
     if (!clipId || analyzing) return
     setAnalyzing(true)
-    const id = toast.loading('Menganalisis wajah… Bisa butuh beberapa puluh detik.')
+    const id = toast.loading(m.analyzingFaces)
     try {
       const { clip, scenes } = await api.clips.prepareFaces(clipId)
       // Only the scan fields: unsaved edits stay as they are
       setDetail((d) =>
         d ? { ...d, scenes, clip: { ...d.clip, files: clip.files, source_width: clip.source_width, source_height: clip.source_height } } : d,
       )
-      toast.success(`Analisis selesai: ${scenes?.shots.length || 0} adegan`, { id })
+      toast.success(m.facesDone(scenes?.shots.length || 0), { id })
     } catch (err) {
-      toast.error(errorMessage(err, 'Analisis wajah gagal'), { id })
+      toast.error(errorMessage(err, m.facesFailed), { id })
     } finally {
       setAnalyzing(false)
     }
@@ -656,7 +619,7 @@ function ClipEditor() {
   const enrich = async () => {
     if (!present || !clipId || enriching) return
     if (!present.ai.keywords && !present.ai.emojis) {
-      toast.error('Aktifkan "Sorot kata kunci" atau "Emoji otomatis" dulu')
+      toast.error(m.enableAiFirst)
       return
     }
     // The engine works on the saved words: save pending edits first
@@ -669,12 +632,9 @@ function ClipEditor() {
       const snap = { ...present, words: nextWords }
       update(snap)
       setSavedJson(JSON.stringify(snap))
-      const parts = []
-      if (present.ai.keywords) parts.push(`${res.keywords} kata kunci`)
-      if (present.ai.emojis) parts.push(`${res.emojis} emoji`)
-      toast.success(`AI menandai ${parts.join(' dan ')}`)
+      toast.success(m.aiMarked(present.ai.keywords ? res.keywords : null, present.ai.emojis ? res.emojis : null))
     } catch (err) {
-      toast.error(errorMessage(err, 'Gagal menjalankan AI subtitle'))
+      toast.error(errorMessage(err, m.aiFailed))
     } finally {
       setEnriching(false)
     }
@@ -693,7 +653,7 @@ function ClipEditor() {
       setRender(render_job)
       setRenderOpen(true)
     } catch (err) {
-      toast.error(errorMessage(err, 'Gagal memulai render'))
+      toast.error(errorMessage(err, m.renderStartFailed))
     }
   }
 
@@ -710,7 +670,7 @@ function ClipEditor() {
     let dest: string | undefined
     if (pickFolder) {
       if (!window.metis) return
-      const picked = await window.metis.selectFolder({ title: 'Ekspor clip ke folder', defaultPath: systemInfo?.export_dir })
+      const picked = await window.metis.selectFolder({ title: m.exportDialogTitle, defaultPath: systemInfo?.export_dir })
       if (!picked) return
       dest = picked
     }
@@ -719,9 +679,9 @@ function ClipEditor() {
       const res = await api.clips.export([clipId], dest)
       if (res.exported.length > 0) {
         setExportedPath(res.exported[0].path)
-        toast.success('Clip diekspor')
+        toast.success(m.clipExported)
       } else {
-        toast.error(res.skipped[0]?.reason || 'Clip belum bisa diekspor')
+        toast.error(res.skipped[0]?.reason || m.cannotExport)
       }
     } catch (err) {
       toast.error(errorMessage(err))
@@ -776,17 +736,19 @@ function ClipEditor() {
 
   // ---- render -------------------------------------------------------------
 
+  const back = { href: BACK_HREF, label: m.back }
+
   if (loadError && !detail) {
     return (
       <>
-        <PageHeader title="Editor klip" back={BACK} />
+        <PageHeader title={m.title} back={back} />
         <Alert
           tone="error"
-          title="Clip tidak dapat dibuka"
+          title={m.loadErrorTitle}
           style={{ maxWidth: 760 }}
           action={
             <Button variant="secondary" size="sm" onClick={() => router.push('/clips/')} icon={<ArrowLeft size={16} />}>
-              Kembali ke galeri
+              {m.backToGallery}
             </Button>
           }
         >
@@ -828,6 +790,16 @@ function ClipEditor() {
   const canRedo = history.current.future.length > 0
   const fontWeights = FONT_WEIGHTS_MAP[style.fontFamily] || ['Regular']
   const weightOptions = (fontWeights.includes(style.fontWeight) ? fontWeights : [style.fontWeight, ...fontWeights]).map((w) => ({ value: w, label: w }))
+  const fullOrFramedOptions = FULL_OR_FRAMED.map((value) => ({ value, label: m.views[value] }))
+  const shortcuts: [string, string][] = [
+    [m.shortcuts.spaceKey, m.shortcuts.playPause],
+    ['← / →', m.shortcuts.step],
+    ['Shift + ← / →', m.shortcuts.stepLong],
+    ['Ctrl + S', m.shortcuts.save],
+    ['Ctrl + Z', m.shortcuts.undo],
+    ['Ctrl + Y', m.shortcuts.redo],
+    ['Ctrl + E', m.shortcuts.export],
+  ]
 
   /** Header links (back, "+ Klip baru", the jobs pill) ask first while there are unsaved edits. */
   const guardHeaderLinks = (e: React.MouseEvent) => {
@@ -841,21 +813,21 @@ function ClipEditor() {
 
   const saveState = saving ? (
     <span className="mc-row mc-gap-4 mc-caption">
-      <Spinner size="sm" /> Menyimpan…
+      <Spinner size="sm" /> {t.common.saving}
     </span>
   ) : dirty ? (
     <Badge tone="neutral" size="sm" icon={<PenLine size={14} aria-hidden="true" />}>
-      Belum disimpan
+      {m.unsaved}
     </Badge>
   ) : (
     <span className="mc-row mc-gap-4 mc-caption">
-      <Check size={14} aria-hidden="true" /> Tersimpan
+      <Check size={14} aria-hidden="true" /> {t.common.saved}
     </span>
   )
 
   const renderFooter = !render ? undefined : renderActive ? (
     <Button variant="secondary" icon={<X size={16} />} onClick={cancelRender}>
-      Batalkan render
+      {m.cancelRender}
     </Button>
   ) : render.status === 'completed' ? (
     isDesktop() ? (
@@ -868,25 +840,25 @@ function ClipEditor() {
             if (p) window.metis?.showItemInFolder(p)
           }}
         >
-          Buka folder
+          {t.common.openFolder}
         </Button>
         {!savedPath && (
           <Button variant="secondary" loading={exporting} onClick={() => exportClip(false)}>
-            {render.export_error ? 'Coba salin lagi' : 'Salin ke folder ekspor'}
+            {render.export_error ? m.retryCopy : m.copyToExportFolder}
           </Button>
         )}
         <Button variant="primary" icon={<Download size={16} />} loading={exporting} onClick={() => exportClip(true)}>
-          Ekspor ke…
+          {m.exportTo}
         </Button>
       </>
     ) : !savedPath ? (
       <Button variant="primary" loading={exporting} onClick={() => exportClip(false)}>
-        Salin ke folder ekspor
+        {m.copyToExportFolder}
       </Button>
     ) : undefined
   ) : render.status === 'failed' || render.status === 'cancelled' ? (
     <Button variant="primary" onClick={() => startRender()}>
-      Coba render lagi
+      {m.retryRender}
     </Button>
   ) : undefined
 
@@ -894,17 +866,17 @@ function ClipEditor() {
     <div style={PAGE_STYLE}>
       <div onClickCapture={guardHeaderLinks}>
         <PageHeader
-          back={BACK}
+          back={back}
           title={
             <span className="mc-truncate" style={{ display: 'block' }} title={clip.hook_text || undefined}>
-              {clip.hook_text || 'Editor klip'}
+              {clip.hook_text || m.title}
             </span>
           }
           subtitle={
             <span className="mc-row mc-row--wrap mc-gap-8">
               <ScoreBadge score={clip.viral_score} size="sm" />
               <span>
-                <span className="mc-mono">{formatClock(clip.duration_seconds)}</span> · {words.length} kata
+                <span className="mc-mono">{formatClock(clip.duration_seconds)}</span> · {m.wordCount(words.length)}
               </span>
               <span aria-live="polite">{saveState}</span>
             </span>
@@ -912,10 +884,10 @@ function ClipEditor() {
           actions={
             <>
               <Button variant="secondary" onClick={() => save()} loading={saving} icon={justSaved ? <Check size={16} /> : <Save size={16} />}>
-                {justSaved ? 'Tersimpan' : 'Simpan'}
+                {justSaved ? t.common.saved : t.common.save}
               </Button>
               <Button variant="primary" onClick={startRender} icon={renderActive ? <Spinner size="sm" /> : <Download size={16} />}>
-                {renderActive ? `Render ${Math.round(render?.progress_pct || 0)}%` : 'Ekspor'}
+                {renderActive ? m.renderProgress(Math.round(render?.progress_pct || 0)) : m.export}
               </Button>
             </>
           }
@@ -924,19 +896,19 @@ function ClipEditor() {
 
       <div style={GRID_STYLE}>
         {/* Word editor */}
-        <Card as="section" padding="none" aria-label="Caption" style={COLUMN_STYLE}>
+        <Card as="section" padding="none" aria-label={m.captionTitle} style={COLUMN_STYLE}>
           <div style={{ padding: '20px 20px 0' }}>
-            <CardHeader size="sm" icon={<Type size={18} />} title="Caption" subtitle="Edit teks dan timing (detik). Klik kartu untuk melompat." />
+            <CardHeader size="sm" icon={<Type size={18} />} title={m.captionTitle} subtitle={m.captionSubtitle} />
           </div>
           <div style={{ ...COLUMN_BODY, padding: '4px 12px 16px' }}>
             {words.length === 0 ? (
               <EmptyState
                 icon={Type}
-                title="Belum ada subtitle"
-                description="Tambahkan kata pertama, lalu atur teks dan waktunya."
+                title={m.noSubtitles}
+                description={m.noSubtitlesBody}
                 action={
-                  <Button variant="secondary" size="sm" icon={<Plus size={16} />} onClick={() => setWords([{ word: 'Teks', start: 0, end: 0.5 }])}>
-                    Tambah kata
+                  <Button variant="secondary" size="sm" icon={<Plus size={16} />} onClick={() => setWords([{ word: m.firstWordText, start: 0, end: 0.5 }])}>
+                    {m.addWord}
                   </Button>
                 }
               />
@@ -960,7 +932,7 @@ function ClipEditor() {
                         <input
                           type="text"
                           className="mc-input mc-input--sm mc-grow"
-                          aria-label={`Kata ${index + 1}`}
+                          aria-label={m.wordAria(index + 1)}
                           value={item.word}
                           onChange={(e) => setWords(words.map((w, i) => (i === index ? { ...w, word: e.target.value } : w)), `word-${index}`)}
                           style={{
@@ -971,15 +943,15 @@ function ClipEditor() {
                           }}
                         />
                         {filler && (
-                          <Badge tone="quiet" size="sm" title="Kata pengisi: disembunyikan dari subtitle dan dipotong dari video">
-                            pengisi
+                          <Badge tone="quiet" size="sm" title={m.fillerTitle}>
+                            {m.fillerBadge}
                           </Badge>
                         )}
                         <IconButton
                           size="sm"
                           variant={item.keyword ? 'ink' : 'surface'}
                           tooltip="end"
-                          label={item.keyword ? 'Kata kunci (klik untuk hapus sorotan)' : 'Jadikan kata kunci (disorot)'}
+                          label={item.keyword ? m.keywordOn : m.keywordOff}
                           aria-pressed={!!item.keyword}
                           icon={<Star size={16} fill={item.keyword ? 'currentColor' : 'none'} />}
                           onClick={(e) => {
@@ -990,14 +962,14 @@ function ClipEditor() {
                         <IconButton
                           size="sm"
                           tooltip="end"
-                          label="Hapus kata"
+                          label={m.deleteWord}
                           icon={<Trash2 size={16} />}
                           onClick={() => setWords(words.filter((_, i) => i !== index))}
                         />
                       </div>
                       <div className="mc-row mc-gap-4" style={{ marginTop: 8 }}>
                         <TimeInput
-                          label={`Mulai kata ${index + 1} (detik)`}
+                          label={m.wordStart(index + 1)}
                           value={item.start}
                           onCommit={(v) => setWords(words.map((w, i) => (i === index ? { ...w, start: v } : w)), `start-${index}`)}
                         />
@@ -1005,7 +977,7 @@ function ClipEditor() {
                           –
                         </span>
                         <TimeInput
-                          label={`Selesai kata ${index + 1} (detik)`}
+                          label={m.wordEnd(index + 1)}
                           value={item.end}
                           onCommit={(v) => setWords(words.map((w, i) => (i === index ? { ...w, end: v } : w)), `end-${index}`)}
                         />
@@ -1013,9 +985,9 @@ function ClipEditor() {
                           type="text"
                           className="mc-input mc-input--sm"
                           value={item.emoji || ''}
-                          placeholder="emoji"
-                          aria-label={`Emoji kata ${index + 1}`}
-                          title="Emoji di atas subtitle mulai kata ini (kosongkan untuk menghapus)"
+                          placeholder={m.emojiPlaceholder}
+                          aria-label={m.emojiAria(index + 1)}
+                          title={m.emojiTitle}
                           onClick={(e) => e.stopPropagation()}
                           onChange={(e) => {
                             const v = Array.from(e.target.value.trim()).slice(-2).join('')
@@ -1027,12 +999,12 @@ function ClipEditor() {
                         <IconButton
                           size="sm"
                           tooltip="end"
-                          label="Sisipkan kata"
+                          label={m.insertWord}
                           icon={<Plus size={16} />}
                           onClick={(e) => {
                             e.stopPropagation()
                             const next = [...words]
-                            next.splice(index + 1, 0, { word: 'Baru', start: item.end, end: item.end + 0.5 })
+                            next.splice(index + 1, 0, { word: m.insertedWordText, start: item.end, end: item.end + 0.5 })
                             setWords(next)
                           }}
                         />
@@ -1048,14 +1020,14 @@ function ClipEditor() {
         {/* Preview */}
         <Stage style={{ display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
           <div className="mc-row mc-gap-4">
-            <IconButton variant="ghost" size="sm" label="Undo (Ctrl+Z)" icon={<Undo2 size={16} />} onClick={undo} disabled={!canUndo} />
-            <IconButton variant="ghost" size="sm" label="Redo (Ctrl+Y)" icon={<Redo2 size={16} />} onClick={redo} disabled={!canRedo} />
-            <IconButton variant="ghost" size="sm" label="Pintasan keyboard" icon={<Keyboard size={16} />} onClick={() => setShowShortcuts(true)} />
+            <IconButton variant="ghost" size="sm" label={m.undo} icon={<Undo2 size={16} />} onClick={undo} disabled={!canUndo} />
+            <IconButton variant="ghost" size="sm" label={m.redo} icon={<Redo2 size={16} />} onClick={redo} disabled={!canRedo} />
+            <IconButton variant="ghost" size="sm" label={m.shortcuts.title} icon={<Keyboard size={16} />} onClick={() => setShowShortcuts(true)} />
             <span className="mc-grow" />
             {cutActive && (
-              <Tooltip label="Bagian yang dipotong (kata pengisi / jeda hening) dilewati saat diputar dan tidak ada di hasil ekspor" placement="end">
+              <Tooltip label={m.cutTooltip} placement="end">
                 <span className="mc-row mc-gap-4 mc-caption mc-muted">
-                  <Scissors size={14} aria-hidden="true" /> −{cutSeconds.toFixed(1)} dtk dipotong
+                  <Scissors size={14} aria-hidden="true" /> {m.cutSeconds(cutSeconds.toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }))}
                 </span>
               </Tooltip>
             )}
@@ -1063,7 +1035,7 @@ function ClipEditor() {
               variant="ghost"
               size="sm"
               tooltip="end"
-              label="Layar penuh"
+              label={m.fullscreen}
               icon={<Maximize size={16} />}
               onClick={() => containerRef.current?.requestFullscreen().catch(() => undefined)}
             />
@@ -1136,7 +1108,7 @@ function ClipEditor() {
                           className="mc-caption"
                           style={{ ...videoStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, textAlign: 'center', color: 'var(--on-ink)', background: 'var(--ink-soft)' }}
                         >
-                          Video pendamping belum diunggah
+                          {m.companionNotUploaded}
                         </div>
                       )
                     ) : role === 'main' ? (
@@ -1199,7 +1171,7 @@ function ClipEditor() {
                   className="mc-caption mc-muted"
                   style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, textAlign: 'center' }}
                 >
-                  File video belum tersedia (clip masih diproses).
+                  {m.videoNotReady}
                 </div>
               )}
 
@@ -1213,7 +1185,7 @@ function ClipEditor() {
           <div className="mc-row mc-gap-12">
             <IconButton
               variant="accent"
-              label={isPlaying ? 'Jeda (Spasi)' : 'Putar (Spasi)'}
+              label={isPlaying ? m.pause : m.play}
               icon={isPlaying ? <Pause size={18} /> : <Play size={18} />}
               onClick={togglePlay}
             />
@@ -1225,9 +1197,9 @@ function ClipEditor() {
         </Stage>
 
         {/* Style panel */}
-        <Card as="section" padding="none" aria-label="Properti" style={COLUMN_STYLE}>
+        <Card as="section" padding="none" aria-label={m.propsTitle} style={COLUMN_STYLE}>
           <div style={{ padding: '20px 20px 0' }}>
-            <CardHeader size="sm" icon={<Palette size={18} />} title="Properti" subtitle="Perubahan di sini hanya berlaku untuk clip ini." />
+            <CardHeader size="sm" icon={<Palette size={18} />} title={m.propsTitle} subtitle={m.propsSubtitle} />
           </div>
 
           <div className="mc-stack mc-gap-24" style={{ ...COLUMN_BODY, padding: '4px 20px 20px' }}>
@@ -1235,26 +1207,26 @@ function ClipEditor() {
               title="Brand Template"
               action={
                 <button type="button" className="mc-link" onClick={() => leave('/brand-template/')}>
-                  Kelola template
+                  {m.manageTemplates}
                 </button>
               }
             >
               <SelectField
-                aria-label="Brand Template clip ini"
-                hint="Mengganti template memakai gaya caption, logo, dan pengaturan AI dari template itu untuk clip ini."
+                aria-label={m.templateSelect}
+                hint={m.templateHint}
                 value={present.templateId || ''}
                 options={[
-                  ...(present.templateId ? [] : [{ value: '', label: 'Bawaan MetisClip' }]),
-                  ...(templates.length ? templates : activeTemplate ? [activeTemplate] : []).map((t) => ({
-                    value: t.id,
-                    label: t.id === agentDefaultId ? `${t.name} (default workspace)` : t.name,
+                  ...(present.templateId ? [] : [{ value: '', label: m.builtInTemplate }]),
+                  ...(templates.length ? templates : activeTemplate ? [activeTemplate] : []).map((tpl) => ({
+                    value: tpl.id,
+                    label: tpl.id === agentDefaultId ? m.workspaceDefault(tpl.name) : tpl.name,
                   })),
                 ]}
                 onChange={(e) => e.target.value && chooseTemplate(e.target.value)}
               />
               <div>
                 <Button variant="ghost" size="sm" onClick={() => setConfirmReset(true)} icon={<RotateCcw size={16} />}>
-                  Reset ke template
+                  {m.resetToTemplate}
                 </Button>
               </div>
             </PanelSection>
@@ -1262,84 +1234,83 @@ function ClipEditor() {
             <Divider />
 
             <PanelSection
-              title="Layout"
+              title={m.layoutTitle}
               action={
                 layoutOverridden ? (
                   <button type="button" className="mc-link" onClick={() => update({ ...present, layout: {} })}>
-                    Ikuti template
+                    {m.followTemplate}
                   </button>
                 ) : (
                   <button type="button" className="mc-link" onClick={() => leave('/brand-template/#layout')}>
-                    Atur gaya
+                    {m.adjustStyle}
                   </button>
                 )
               }
             >
               <ChoiceChips<LayoutMode>
-                ariaLabel="Tampilan video"
+                ariaLabel={m.videoView}
                 size="sm"
-                options={LAYOUT_MODE_OPTIONS}
+                options={LAYOUT_MODES.map((value) => ({ value, label: m.layoutModes[value] }))}
                 value={layout.mode}
                 onChange={(mode) => setLayout({ mode })}
               />
-              <p className="mc-caption mc-muted">{LAYOUT_MODE_HINTS[layout.mode]}</p>
+              <p className="mc-caption mc-muted">{m.layoutHints[layout.mode]}</p>
               {usesScenes(layout.mode) && (
                 <>
                   {!sceneData ? (
                     <Alert
                       tone="info"
-                      title="Wajah belum dianalisis"
+                      title={m.facesMissingTitle}
                       icon={<Film size={18} aria-hidden="true" />}
                       action={
                         <Button size="sm" variant="secondary" loading={analyzing} onClick={prepareFaces}>
-                          Analisis sekarang
+                          {m.analyzeNow}
                         </Button>
                       }
                     >
-                      Clip ini dibuat sebelum hasil face tracking disimpan. Analisis berjalan otomatis saat ekspor, atau jalankan sekarang untuk melihat
-                      preview.
+                      {m.facesMissingBody}
                     </Alert>
                   ) : layout.mode === 'duo' && !plan.some((s) => s.view === 'duo') ? (
-                    <Alert tone="info" title="Tidak ada adegan dua orang">
-                      Tidak ada adegan dengan dua orang berdampingan dalam satu frame. Clip ini tampil seperti layout Penuh 9:16.
+                    <Alert tone="info" title={m.noDuoTitle}>
+                      {m.noDuoBody}
                     </Alert>
                   ) : (
                     <SceneStrip plan={plan} duration={sourceDuration} time={currentTime} onSeek={seekTo} />
                   )}
                   {layout.mode === 'auto' && (
                     <>
-                      <Field label="Satu orang">
+                      <Field label={m.autoSolo}>
                         <ChoiceChips<'full' | 'framed'>
-                          ariaLabel="Tampilan adegan satu orang"
+                          ariaLabel={m.autoSoloAria}
                           size="sm"
-                          options={FULL_OR_FRAMED_OPTIONS}
+                          options={fullOrFramedOptions}
                           value={layout.auto.solo}
                           onChange={(solo) => setLayout({ auto: { solo } })}
                         />
                       </Field>
-                      <Field label="Dua orang berdampingan">
+                      <Field label={m.autoDuo}>
                         <ChoiceChips<SceneView>
-                          ariaLabel="Tampilan adegan dua orang"
+                          ariaLabel={m.autoDuoAria}
                           size="sm"
-                          options={VIEW_OPTIONS}
+                          options={VIEWS.map((value) => ({ value, label: m.views[value] }))}
                           value={layout.auto.duo}
                           onChange={(duo) => setLayout({ auto: { duo } })}
                         />
                       </Field>
-                      <Field label="Ramai" hint="Tiga orang atau lebih, atau dua orang yang terlalu rapat untuk dipisah.">
+                      <Field label={m.autoGroup} hint={m.autoGroupHint}>
                         <ChoiceChips<'full' | 'framed'>
-                          ariaLabel="Tampilan adegan ramai"
+                          ariaLabel={m.autoGroupAria}
                           size="sm"
-                          options={FULL_OR_FRAMED_OPTIONS}
+                          options={fullOrFramedOptions}
                           value={layout.auto.group}
                           onChange={(group) => setLayout({ auto: { group } })}
                         />
                       </Field>
-                      <Field label="Tanpa wajah" hint="Slide, rekaman layar, B-roll.">
+                      <Field label={m.autoNone} hint={m.autoNoneHint}>
                         <ChoiceChips<'full' | 'framed'>
-                          ariaLabel="Tampilan adegan tanpa wajah"
+                          ariaLabel={m.autoNoneAria}
                           size="sm"
-                          options={FULL_OR_FRAMED_OPTIONS}
+                          options={fullOrFramedOptions}
                           value={layout.auto.none}
                           onChange={(none) => setLayout({ auto: { none } })}
                         />
@@ -1348,27 +1319,27 @@ function ClipEditor() {
                   )}
                   {(layout.mode === 'duo' || layout.auto.duo === 'duo') && (
                     <>
-                      <Field label="Panel atas" hint="Orang di sisi kiri atau kanan video sumber.">
+                      <Field label={m.topPanel} hint={m.topPanelHint}>
                         <ChoiceChips<DuoTop>
-                          ariaLabel="Orang di panel atas"
+                          ariaLabel={m.topPanelAria}
                           size="sm"
-                          options={DUO_TOP_OPTIONS}
+                          options={DUO_TOPS.map((value) => ({ value, label: m.duoTop[value] }))}
                           value={layout.duo.top}
                           onChange={(top) => setLayout({ duo: { top } })}
                         />
                       </Field>
                       <Slider
-                        label="Ukuran wajah"
+                        label={m.faceSize}
                         min={LAYOUT_LIMITS.faceSize.min}
                         max={LAYOUT_LIMITS.faceSize.max}
                         step={0.01}
                         value={layout.duo.faceSize}
                         format={(v) => `${Math.round(v * 100)}%`}
-                        hint="Tinggi wajah dibanding panelnya."
+                        hint={m.faceSizeHint}
                         onChange={(faceSize) => setLayout({ duo: { faceSize } }, 'duo-face')}
                       />
                       <Slider
-                        label="Tinggi panel atas"
+                        label={m.topPanelHeight}
                         min={LAYOUT_LIMITS.split.min}
                         max={LAYOUT_LIMITS.split.max}
                         step={0.01}
@@ -1382,46 +1353,46 @@ function ClipEditor() {
               )}
               {(usesSource(layout.mode) || (layout.mode === 'auto' && plan.some((s) => s.view === 'framed'))) && (
                 <>
-                  {layout.mode === 'auto' && <span className="mc-label">Bingkai</span>}
+                  {layout.mode === 'auto' && <span className="mc-label">{m.views.framed}</span>}
                   {usesSource(layout.mode) && !hasSource && (
                     <Alert
                       tone="info"
-                      title="Video sumber belum ada"
+                      title={m.sourceMissingTitle}
                       icon={<Film size={18} aria-hidden="true" />}
                       action={
                         <Button size="sm" variant="secondary" loading={preparing} onClick={prepareSource}>
-                          Siapkan sekarang
+                          {m.prepareNow}
                         </Button>
                       }
                     >
-                      Clip ini dibuat sebelum video rasio aslinya disimpan. Video itu disiapkan otomatis saat ekspor, atau siapkan sekarang untuk melihat preview.
+                      {m.sourceMissingBody}
                     </Alert>
                   )}
                   {layout.header.enabled && layout.header.source === 'title' ? (
                     <TextAreaField
-                      label={layout.mode === 'card' ? 'Teks postingan' : 'Judul di atas video'}
+                      label={layout.mode === 'card' ? m.postText : m.titleAbove}
                       value={present.title}
                       maxLength={300}
                       rows={3}
                       onChange={(e) => setTitle(e.target.value)}
-                      hint="Kutipan pembuka dari AI. Teks panjang otomatis mengecil supaya muat."
+                      hint={m.titleHint}
                     />
                   ) : (
                     <p className="mc-caption mc-muted">
-                      {layout.header.enabled ? 'Judul memakai teks tetap dari Brand Template.' : 'Judul dimatikan di Brand Template.'}
+                      {layout.header.enabled ? m.titleFixed : m.titleOff}
                     </p>
                   )}
-                  <Field label="Rasio video">
+                  <Field label={m.videoRatio}>
                     <ChoiceChips<FrameRatio>
-                      ariaLabel="Rasio video"
+                      ariaLabel={m.videoRatio}
                       size="sm"
-                      options={RATIO_OPTIONS}
+                      options={RATIOS.map((value) => ({ value, label: value === 'source' ? m.ratioSource : value }))}
                       value={layout.frame.ratio}
                       onChange={(ratio) => setLayout({ frame: { ratio } })}
                     />
                   </Field>
                   <Slider
-                    label={layout.mode === 'card' ? 'Posisi kartu' : 'Posisi video'}
+                    label={layout.mode === 'card' ? m.cardPosition : m.videoPosition}
                     min={LAYOUT_LIMITS.frameY.min}
                     max={LAYOUT_LIMITS.frameY.max}
                     value={layout.frame.y}
@@ -1430,7 +1401,7 @@ function ClipEditor() {
                   />
                   {layout.frame.ratio !== 'source' && (
                     <Slider
-                      label="Fokus horizontal"
+                      label={m.focusX}
                       min={0}
                       max={1}
                       step={0.05}
@@ -1446,29 +1417,29 @@ function ClipEditor() {
                   {!layout.companion.videoUrl && (
                     <Alert
                       tone="info"
-                      title="Video pendamping belum ada"
+                      title={m.companionMissingTitle}
                       icon={<Film size={18} aria-hidden="true" />}
                       action={
                         <Button size="sm" variant="secondary" onClick={() => leave('/brand-template/#layout')}>
-                          Unggah di Brand Template
+                          {m.uploadInBrand}
                         </Button>
                       }
                     >
-                      Layout ini memakai video pendamping dari Brand Template. Tanpa video itu, clip tidak bisa diekspor dengan layout ini.
+                      {m.companionMissingBody}
                     </Alert>
                   )}
                   <Slider
-                    label="Fokus vertikal pembicara"
+                    label={m.speakerFocusY}
                     min={0}
                     max={1}
                     step={0.05}
                     value={layout.companion.focusY}
                     format={(v) => `${Math.round(v * 100)}%`}
-                    hint="Geser bila kepala terpotong."
+                    hint={m.speakerFocusHint}
                     onChange={(focusY) => setLayout({ companion: { focusY } }, 'companion-focus')}
                   />
                   <Slider
-                    label="Tinggi bagian pembicara"
+                    label={m.speakerHeight}
                     min={LAYOUT_LIMITS.split.min}
                     max={LAYOUT_LIMITS.split.max}
                     step={0.01}
@@ -1479,23 +1450,23 @@ function ClipEditor() {
                 </>
               )}
               <ToggleSwitch
-                label="Zoom dinamis"
-                hint="Video membesar sebentar untuk memberi penekanan."
+                label={m.zoom}
+                hint={m.zoomHint}
                 checked={layout.zoom.enabled}
                 onChange={(enabled) => setLayout({ zoom: { enabled } })}
               />
               {layout.zoom.enabled && (
                 <>
                   <ChoiceChips<ZoomStyle>
-                    ariaLabel="Kapan zoom"
+                    ariaLabel={m.zoomWhen}
                     size="sm"
-                    options={ZOOM_STYLE_OPTIONS}
+                    options={ZOOM_STYLES.map((value) => ({ value, label: m.zoomStyles[value] }))}
                     value={layout.zoom.style}
                     onChange={(zoomStyle) => setLayout({ zoom: { style: zoomStyle } })}
                   />
                   {layout.zoom.style === 'keywords' && keywordCount === 0 && (
                     <p className="mc-caption mc-muted">
-                      Belum ada kata kunci di clip ini. Tandai lewat AI subtitle atau ikon bintang di tiap kata, atau pilih &quot;Tiap kalimat&quot;.
+                      {m.noKeywordsForZoom(m.zoomStyles.sentences)}
                     </p>
                   )}
                 </>
@@ -1504,36 +1475,36 @@ function ClipEditor() {
 
             <Divider />
 
-            <PanelSection title="Nama pembicara">
+            <PanelSection title={m.speakerTitle}>
               <ToggleSwitch
-                label="Tampilkan nama pembicara"
-                hint="Label nama muncul beberapa detik di awal clip. Gaya dan posisinya diatur di Brand Template."
+                label={m.showSpeaker}
+                hint={m.showSpeakerHint}
                 checked={layout.speaker.enabled}
                 onChange={(enabled) => setLayout({ speaker: { enabled } })}
               />
               {layout.speaker.enabled && (
                 <>
                   <InputField
-                    label="Nama"
+                    label={m.speakerName}
                     value={layout.speaker.name}
                     maxLength={60}
-                    placeholder="Misal: dr. Andi Pratama"
+                    placeholder={m.speakerNamePlaceholder}
                     onChange={(e) => setLayout({ speaker: { name: e.target.value } }, 'speaker-name')}
                   />
                   <InputField
-                    label="Keterangan"
+                    label={m.speakerRole}
                     value={layout.speaker.role}
                     maxLength={60}
-                    placeholder="Misal: Dokter gizi"
+                    placeholder={m.speakerRolePlaceholder}
                     onChange={(e) => setLayout({ speaker: { role: e.target.value } }, 'speaker-role')}
                   />
                   <div>
                     <Button variant="secondary" size="sm" loading={suggesting} onClick={suggestSpeaker} icon={<UserRound size={16} />}>
-                      Usulkan dengan AI
+                      {m.suggestWithAi}
                     </Button>
                   </div>
                   {speakerIdeas && speakerIdeas.length > 0 && (
-                    <Field label="Usulan AI" hint="Diambil dari judul video, nama channel dan ucapan. Periksa sebelum dipakai.">
+                    <Field label={m.aiSuggestions} hint={m.aiSuggestionsHint}>
                       <div className="mc-row mc-gap-8" style={{ flexWrap: 'wrap' }}>
                         {speakerIdeas.map((idea) => (
                           <Chip
@@ -1548,16 +1519,16 @@ function ClipEditor() {
                       </div>
                     </Field>
                   )}
-                  {!layout.speaker.name.trim() && <p className="mc-caption mc-muted">Label tidak tampil selama nama kosong.</p>}
+                  {!layout.speaker.name.trim() && <p className="mc-caption mc-muted">{m.speakerEmpty}</p>}
                 </>
               )}
             </PanelSection>
 
             <Divider />
 
-            <PanelSection title="Gaya animasi">
-              <p className="mc-caption mc-muted">Setiap preset punya font bawaan sendiri. Memilih preset mengganti pengaturan font ke bawaannya.</p>
-              <div role="group" aria-label="Preset animasi" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <PanelSection title={m.animationTitle}>
+              <p className="mc-caption mc-muted">{m.animationHint}</p>
+              <div role="group" aria-label={m.presetGroup} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 {presets.map((preset) => {
                   const selected = style.mode === preset.id
                   return (
@@ -1578,22 +1549,22 @@ function ClipEditor() {
 
             <Divider />
 
-            <PanelSection title="AI subtitle">
-              <p className="mc-caption mc-muted">Default dari Brand Template. Perubahan di sini hanya untuk clip ini dan ikut ke hasil ekspor.</p>
-              <ToggleSwitch label="Hapus kata pengisi (eh, hmm)" checked={ai.fillerWords} onChange={(v) => setAi({ fillerWords: v })} />
-              <ToggleSwitch label="Hapus jeda hening" checked={ai.pauses} onChange={(v) => setAi({ pauses: v })} />
-              <ToggleSwitch label="Sorot kata kunci (AI)" checked={ai.keywords} onChange={(v) => setAi({ keywords: v })} />
-              <ToggleSwitch label="Emoji otomatis (AI)" checked={ai.emojis} onChange={(v) => setAi({ emojis: v })} />
+            <PanelSection title={m.aiTitle}>
+              <p className="mc-caption mc-muted">{m.aiHint}</p>
+              <ToggleSwitch label={m.fillerToggle} checked={ai.fillerWords} onChange={(v) => setAi({ fillerWords: v })} />
+              <ToggleSwitch label={m.pausesToggle} checked={ai.pauses} onChange={(v) => setAi({ pauses: v })} />
+              <ToggleSwitch label={m.keywordsToggle} checked={ai.keywords} onChange={(v) => setAi({ keywords: v })} />
+              <ToggleSwitch label={m.emojisToggle} checked={ai.emojis} onChange={(v) => setAi({ emojis: v })} />
               {(ai.keywords || ai.emojis) && (
                 <div className="mc-stack mc-gap-8">
                   <span className="mc-caption mc-muted">
-                    {ai.keywords && `${keywordCount} kata kunci`}
+                    {ai.keywords && m.keywordCount(keywordCount)}
                     {ai.keywords && ai.emojis && ' · '}
-                    {ai.emojis && `${emojiCount} emoji`} (bisa diubah per kata di daftar caption)
+                    {ai.emojis && m.emojiCount(emojiCount)} {m.editablePerWord}
                   </span>
                   <div>
                     <Button variant="secondary" size="sm" loading={enriching} onClick={enrich} icon={<ScanText size={16} />}>
-                      {keywordCount + emojiCount > 0 ? 'Analisis ulang dengan AI' : 'Analisis dengan AI'}
+                      {keywordCount + emojiCount > 0 ? m.reanalyze : m.analyze}
                     </Button>
                   </div>
                 </div>
@@ -1603,25 +1574,25 @@ function ClipEditor() {
             <Divider />
 
             <PanelSection
-              title="Tampilan font"
+              title={m.fontTitle}
               action={
                 <Button
                   variant="ghost"
                   size="sm"
                   icon={<RotateCcw size={16} />}
-                  title={`Kembalikan font ke bawaan preset ${getPreset(style.mode).name}`}
+                  title={m.presetDefaultTitle(getPreset(style.mode).name)}
                   onClick={() => setStyle(presetSwitch(style, style.mode))}
                 >
-                  Bawaan preset
+                  {m.presetDefault}
                 </Button>
               }
             >
               <div className="mc-field">
-                <span className="mc-field__label">Font</span>
+                <span className="mc-field__label">{m.font}</span>
                 <Dropdown
                   width="100%"
                   triggerClassName="mc-input"
-                  triggerLabel={`Font: ${style.fontFamily}`}
+                  triggerLabel={m.fontTrigger(style.fontFamily)}
                   trigger={
                     <span className="mc-row mc-row--between" style={{ width: '100%' }}>
                       <span className="mc-truncate" style={{ fontFamily: `'${style.fontFamily}'` }}>
@@ -1642,12 +1613,12 @@ function ClipEditor() {
                   }))}
                 />
               </div>
-              <SelectField label="Ketebalan" value={style.fontWeight} options={weightOptions} onChange={(e) => setStyle({ fontWeight: e.target.value })} />
-              <ColorPicker label="Warna font" color={style.fontColor} onChange={(v) => setStyle({ fontColor: v }, 'fontColor')} />
-              <Slider label="Ukuran font" min={20} max={80} value={style.fontSize} format={(v) => `${v}px`} onChange={(v) => setStyle({ fontSize: v }, 'fontSize')} />
+              <SelectField label={m.weight} value={style.fontWeight} options={weightOptions} onChange={(e) => setStyle({ fontWeight: e.target.value })} />
+              <ColorPicker label={m.fontColor} color={style.fontColor} onChange={(v) => setStyle({ fontColor: v }, 'fontColor')} />
+              <Slider label={m.fontSize} min={20} max={80} value={style.fontSize} format={(v) => `${v}px`} onChange={(v) => setStyle({ fontSize: v }, 'fontSize')} />
               <Slider
-                label="Sinkronisasi suara (delay)"
-                hint="Geser ke kanan jika subtitle muncul terlalu cepat."
+                label={m.sync}
+                hint={m.syncHint}
                 min={-1000}
                 max={1000}
                 step={50}
@@ -1659,25 +1630,25 @@ function ClipEditor() {
 
             <Divider />
 
-            <PanelSection title="Posisi caption">
+            <PanelSection title={m.positionTitle}>
               <CaptionPositionControls style={style} emoji={ai.emojis} onChange={(patch, key) => setStyle(patch, key)} />
             </PanelSection>
 
             <Divider />
 
-            <PanelSection title="Highlight & dekorasi">
-              <ColorPicker label="Warna highlight" color={style.highlightColor} onChange={(v) => setStyle({ highlightColor: v }, 'highlightColor')} />
+            <PanelSection title={m.highlightTitle}>
+              <ColorPicker label={m.highlightColor} color={style.highlightColor} onChange={(v) => setStyle({ highlightColor: v }, 'highlightColor')} />
               <div className="mc-field">
-                <span className="mc-field__label">Format tambahan</span>
-                <div role="group" aria-label="Format tambahan" className="mc-row mc-row--wrap mc-gap-8">
+                <span className="mc-field__label">{m.extraFormat}</span>
+                <div role="group" aria-label={m.extraFormat} className="mc-row mc-row--wrap mc-gap-8">
                   <Chip size="sm" selected={style.isItalic} onClick={() => setStyle({ isItalic: !style.isItalic })}>
-                    Miring
+                    {m.italic}
                   </Chip>
                   <Chip size="sm" selected={style.isUnderline} onClick={() => setStyle({ isUnderline: !style.isUnderline })}>
-                    Garis bawah
+                    {m.underline}
                   </Chip>
                   <Chip size="sm" selected={style.isUppercase} onClick={() => setStyle({ isUppercase: !style.isUppercase })}>
-                    Huruf kapital
+                    {m.uppercase}
                   </Chip>
                 </div>
               </div>
@@ -1685,16 +1656,16 @@ function ClipEditor() {
 
             <Divider />
 
-            <PanelSection title="Garis luar & bayangan">
-              <ColorPicker label="Warna garis luar" color={style.strokeColor} onChange={(v) => setStyle({ strokeColor: v }, 'strokeColor')} />
-              <Slider label="Tebal garis luar" min={0} max={20} value={style.strokeWidth} format={(v) => `${v}px`} onChange={(v) => setStyle({ strokeWidth: v }, 'strokeWidth')} />
-              <ToggleSwitch label="Bayangan (shadow)" checked={style.hasShadow} onChange={(v) => setStyle({ hasShadow: v })} />
+            <PanelSection title={m.strokeTitle}>
+              <ColorPicker label={m.strokeColor} color={style.strokeColor} onChange={(v) => setStyle({ strokeColor: v }, 'strokeColor')} />
+              <Slider label={m.strokeWidth} min={0} max={20} value={style.strokeWidth} format={(v) => `${v}px`} onChange={(v) => setStyle({ strokeWidth: v }, 'strokeWidth')} />
+              <ToggleSwitch label={m.shadow} checked={style.hasShadow} onChange={(v) => setStyle({ hasShadow: v })} />
               {style.hasShadow && (
                 <>
-                  <ColorPicker label="Warna bayangan" color={style.shadowColor} onChange={(v) => setStyle({ shadowColor: v }, 'shadowColor')} />
-                  <Slider label="Geser X" min={-50} max={50} value={style.shadowX} format={(v) => `${v}px`} onChange={(v) => setStyle({ shadowX: v }, 'shadowX')} />
-                  <Slider label="Geser Y" min={-50} max={50} value={style.shadowY} format={(v) => `${v}px`} onChange={(v) => setStyle({ shadowY: v }, 'shadowY')} />
-                  <Slider label="Blur" min={0} max={50} value={style.shadowBlur} format={(v) => `${v}px`} onChange={(v) => setStyle({ shadowBlur: v }, 'shadowBlur')} />
+                  <ColorPicker label={m.shadowColor} color={style.shadowColor} onChange={(v) => setStyle({ shadowColor: v }, 'shadowColor')} />
+                  <Slider label={m.shadowX} min={-50} max={50} value={style.shadowX} format={(v) => `${v}px`} onChange={(v) => setStyle({ shadowX: v }, 'shadowX')} />
+                  <Slider label={m.shadowY} min={-50} max={50} value={style.shadowY} format={(v) => `${v}px`} onChange={(v) => setStyle({ shadowY: v }, 'shadowY')} />
+                  <Slider label={m.blur} min={0} max={50} value={style.shadowBlur} format={(v) => `${v}px`} onChange={(v) => setStyle({ shadowBlur: v }, 'shadowBlur')} />
                 </>
               )}
             </PanelSection>
@@ -1703,7 +1674,7 @@ function ClipEditor() {
       </div>
 
       {/* Render / export modal */}
-      <Modal isOpen={renderOpen} onClose={() => setRenderOpen(false)} title="Ekspor video" size="md" footer={renderFooter}>
+      <Modal isOpen={renderOpen} onClose={() => setRenderOpen(false)} title={m.exportTitle} size="md" footer={renderFooter}>
         {render ? (
           <div className="mc-stack">
             <div className="mc-row mc-gap-12">
@@ -1718,13 +1689,13 @@ function ClipEditor() {
             </div>
             {renderActive && (
               <>
-                <ProgressBar value={render.progress_pct} label="Progres render" showValue />
+                <ProgressBar value={render.progress_pct} label={m.renderProgressLabel} showValue />
                 {render.message && (
                   <p className="mc-caption" role="status">
                     {render.message}
                   </p>
                 )}
-                <p className="mc-caption mc-muted">Anda boleh menutup jendela ini; render tetap berjalan di latar belakang.</p>
+                <p className="mc-caption mc-muted">{m.canClose}</p>
               </>
             )}
             {render.status === 'failed' && render.error && (
@@ -1733,7 +1704,7 @@ function ClipEditor() {
               </Alert>
             )}
             {savedPath && (
-              <Alert tone="success" title={exportedPath ? 'Disalin ke folder' : 'Tersimpan di folder ekspor'}>
+              <Alert tone="success" title={exportedPath ? m.copiedToFolder : m.savedInExportFolder}>
                 <span className="mc-mono" style={{ display: 'block', wordBreak: 'break-all' }}>
                   {savedFolder}
                 </span>
@@ -1743,10 +1714,10 @@ function ClipEditor() {
               </Alert>
             )}
             {savedPath && !exportedPath && (
-              <p className="mc-caption mc-muted">Folder ini bisa diganti di Pengaturan → Folder ekspor.</p>
+              <p className="mc-caption mc-muted">{m.changeFolderHint}</p>
             )}
             {render.status === 'completed' && !savedPath && render.export_error && (
-              <Alert tone="error" title="Belum tersalin ke folder ekspor" style={{ wordBreak: 'break-word' }}>
+              <Alert tone="error" title={m.notCopiedTitle} style={{ wordBreak: 'break-word' }}>
                 {render.export_error}
               </Alert>
             )}
@@ -1763,15 +1734,15 @@ function ClipEditor() {
         )}
       </Modal>
 
-      <Modal isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} title="Pintasan keyboard">
-        <KeyValueList items={SHORTCUTS.map(([k, v]) => ({ id: k, key: v, value: <Kbd>{k}</Kbd> }))} />
+      <Modal isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} title={m.shortcuts.title}>
+        <KeyValueList items={shortcuts.map(([k, v]) => ({ id: k, key: v, value: <Kbd>{k}</Kbd> }))} />
       </Modal>
 
       <ConfirmModal
         isOpen={confirmReset}
-        title="Kembalikan ke Brand Template?"
-        message={`Gaya caption dan pengaturan AI khusus clip ini diganti dengan template "${activeTemplate?.name || 'bawaan'}". Teks & timing subtitle tidak berubah. Bisa di-undo; tersimpan setelah klik Simpan.`}
-        confirmLabel="Reset gaya"
+        title={m.resetConfirmTitle}
+        message={m.resetConfirmBody(activeTemplate?.name || m.builtIn)}
+        confirmLabel={m.resetConfirm}
         confirmIcon={<RotateCcw size={16} />}
         danger
         onConfirm={resetToTemplate}
@@ -1780,11 +1751,11 @@ function ClipEditor() {
 
       <ConfirmModal
         isOpen={!!leaveTo}
-        title="Perubahan belum disimpan"
-        message="Simpan perubahan subtitle sebelum keluar dari editor?"
-        confirmLabel="Simpan & keluar"
+        title={m.unsavedTitle}
+        message={m.unsavedBody}
+        confirmLabel={m.saveAndLeave}
         confirmIcon={<Save size={16} />}
-        cancelLabel="Batal"
+        cancelLabel={t.common.cancel}
         loading={saving}
         onConfirm={async () => {
           if (await save(true)) router.push(leaveTo || '/clips/')
@@ -1793,7 +1764,7 @@ function ClipEditor() {
       >
         <div>
           <Button variant="danger" size="sm" icon={<Trash2 size={16} />} onClick={() => router.push(leaveTo || '/clips/')}>
-            Keluar tanpa menyimpan
+            {m.leaveWithoutSaving}
           </Button>
         </div>
       </ConfirmModal>
@@ -1822,6 +1793,7 @@ function PanelSection({ title, action, children }: { title: string; action?: Rea
  * leave the darker track visible, the playhead is a white line. ← / → seek via the editor shortcuts.
  */
 function Timeline({ time, duration, segments, onSeek }: { time: number; duration: number; segments: Segment[]; onSeek: (t: number) => void }) {
+  const m = useT().editor
   const track = useRef<HTMLDivElement>(null)
   const dragging = useRef(false)
   const pct = (t: number) => (duration > 0 ? Math.min(100, Math.max(0, (t / duration) * 100)) : 0)
@@ -1836,11 +1808,11 @@ function Timeline({ time, duration, segments, onSeek }: { time: number; duration
       ref={track}
       role="slider"
       tabIndex={0}
-      aria-label="Posisi video"
+      aria-label={m.timeline}
       aria-valuemin={0}
       aria-valuemax={Math.round(duration * 100) / 100}
       aria-valuenow={Math.round(time * 100) / 100}
-      aria-valuetext={`${formatClock(time)} dari ${formatClock(duration)}`}
+      aria-valuetext={m.timeOf(formatClock(time), formatClock(duration))}
       className="mc-grow"
       onPointerDown={(e) => {
         dragging.current = true
@@ -1872,7 +1844,6 @@ function Timeline({ time, duration, segments, onSeek }: { time: number; duration
   )
 }
 
-const VIEW_LABELS: Record<SceneView, string> = { full: 'Penuh', duo: 'Dua panel', framed: 'Bingkai' }
 /** Scene strip colors: distinct greens, the darkest for the panels */
 const VIEW_COLORS: Record<SceneView, string> = { full: 'var(--leaf-strong)', duo: 'var(--moss)', framed: 'var(--sage)' }
 
@@ -1881,20 +1852,21 @@ const VIEW_COLORS: Record<SceneView, string> = { full: 'var(--leaf-strong)', duo
  * the playhead; a block seeks to its scene. The legend says how long each view is on screen.
  */
 function SceneStrip({ plan, duration, time, onSeek }: { plan: Scene[]; duration: number; time: number; onSeek: (t: number) => void }) {
+  const m = useT().editor
   const total = duration > 0 ? duration : plan.length ? plan[plan.length - 1].end : 0
   const pct = (t: number) => (total > 0 ? Math.min(100, Math.max(0, (t / total) * 100)) : 0)
   const seconds = viewSeconds(plan)
   const shown = SCENE_VIEWS.filter((v) => seconds[v] > 0)
   return (
     <div className="mc-stack mc-gap-8">
-      <span className="mc-label">Adegan</span>
+      <span className="mc-label">{m.scenes}</span>
       <div style={{ position: 'relative', height: 28 }}>
         {plan.map((s, i) => (
           <button
             key={`${s.start}-${i}`}
             type="button"
-            title={`${VIEW_LABELS[s.view]} · ${formatClock(s.start)}–${formatClock(s.end)}`}
-            aria-label={`Adegan ${i + 1}: ${VIEW_LABELS[s.view]}, ${formatClock(s.start)} sampai ${formatClock(s.end)}`}
+            title={`${m.views[s.view]} · ${formatClock(s.start)}–${formatClock(s.end)}`}
+            aria-label={m.sceneAria(i + 1, m.views[s.view], formatClock(s.start), formatClock(s.end))}
             onClick={() => onSeek(s.start + 0.01)}
             style={{
               position: 'absolute',
@@ -1921,7 +1893,7 @@ function SceneStrip({ plan, duration, time, onSeek }: { plan: Scene[]; duration:
         {shown.map((v) => (
           <span key={v} className="mc-row mc-gap-4 mc-caption">
             <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: 3, background: VIEW_COLORS[v], boxShadow: 'inset 0 0 0 1px var(--line-input)' }} />
-            {VIEW_LABELS[v]} {Math.round(seconds[v])} dtk
+            {m.viewSeconds(m.views[v], Math.round(seconds[v]))}
           </span>
         ))}
       </div>

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Check, ZoomIn } from 'lucide-react';
 import { LayoutStage } from '@/lib/presets/LayoutStage';
 import { type Layout, LAYOUT_PRESETS, type LayoutPreset, applyLayoutPreset, matchingPreset, sampleScenes } from '@/lib/presets/layout';
-import { SAMPLE_TITLE } from '../types';
+import { useT } from '@/lib/i18n/I18nProvider';
 
 /** A stand-in for the video in the thumbnails: a person on a green backdrop. */
 const PERSON: React.CSSProperties = {
@@ -61,9 +61,6 @@ function useSceneCycle(enabled: boolean): number {
   return t;
 }
 
-/** Thumbnails show the account row filled in, like a real card. */
-const SAMPLE_ACCOUNT = { name: 'Nama Akun', handle: '@namaakun' };
-
 interface Props {
   layout: Layout;
   onApply: (layout: Layout) => void;
@@ -91,12 +88,15 @@ const PresetTile: React.FC<{ preset: LayoutPreset; layout: Layout; selected: boo
   selected,
   onApply,
 }) => {
+  const t = useT();
+  const copy = t.presets.layout[preset.id];
   const result = applyLayoutPreset(layout, preset);
   const auto = result.mode === 'auto';
   const time = useSceneCycle(auto);
   const shown: Layout = {
     ...result,
-    card: { ...result.card, name: result.card.name || SAMPLE_ACCOUNT.name, handle: result.card.handle || SAMPLE_ACCOUNT.handle },
+    // Thumbnails show the account row filled in, like a real card
+    card: { ...result.card, name: result.card.name || t.brand.sample.accountName, handle: result.card.handle || t.brand.sample.accountHandle },
     speaker: { ...result.speaker, enabled: false },
   };
   return (
@@ -105,8 +105,8 @@ const PresetTile: React.FC<{ preset: LayoutPreset; layout: Layout; selected: boo
         type="button"
         className="mc-thumb"
         aria-pressed={selected}
-        aria-label={`${preset.name}: ${preset.description}`}
-        title={preset.description}
+        aria-label={`${copy.name}: ${copy.description}`}
+        title={copy.description}
         onClick={() => onApply(result)}
         style={{
           display: 'block',
@@ -123,8 +123,8 @@ const PresetTile: React.FC<{ preset: LayoutPreset; layout: Layout; selected: boo
           <LayoutStage
             layout={shown}
             aspect={16 / 9}
-            title={SAMPLE_TITLE}
-            channel="Channel contoh"
+            title={t.brand.sample.title}
+            channel={t.brand.sample.channel}
             scenes={sampleScenes(result.mode, AUTO_STEP)}
             time={auto ? time : 0}
             renderVideo={(role, style) => (
@@ -152,8 +152,8 @@ const PresetTile: React.FC<{ preset: LayoutPreset; layout: Layout; selected: boo
       </button>
       <span className={selected ? 'mc-row mc-gap-4 mc-caption' : 'mc-row mc-gap-4 mc-caption mc-muted'}>
         {selected && <Check size={14} aria-hidden="true" />}
-        {preset.name}
-        {selected && <span className="mc-sr-only">(dipilih)</span>}
+        {copy.name}
+        {selected && <span className="mc-sr-only">{t.brand.selected}</span>}
       </span>
     </div>
   );

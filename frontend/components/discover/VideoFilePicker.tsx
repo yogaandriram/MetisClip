@@ -4,6 +4,7 @@ import React, { useState } from 'react'
 import { FileVideo, FolderOpen, X } from 'lucide-react'
 import { Button, Card, DropZone, Field, IconButton, IconTile } from '@/components/ui'
 import { VIDEO_FILE_EXTENSIONS, fileName } from '@/lib/format'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 interface VideoFilePickerProps {
   /** Absolute path of the chosen video, or null */
@@ -16,13 +17,15 @@ const FORMATS = VIDEO_FILE_EXTENSIONS.map((e) => e.toUpperCase()).join(', ')
 
 /** Choose a video on this PC: drag & drop or the Windows file dialog. The file is used in place. */
 export function VideoFilePicker({ value, onChange, onError }: VideoFilePickerProps) {
+  const t = useT()
+  const m = t.discover.file
   const [over, setOver] = useState(false)
   const desktop = typeof window !== 'undefined' && !!window.metis
 
   const accept = (path: string) => {
     const ext = (path.split('.').pop() || '').toLowerCase()
     if (!VIDEO_FILE_EXTENSIONS.includes(ext)) {
-      onError(`Format file tidak didukung. Pakai video ${FORMATS}.`)
+      onError(m.unsupported(FORMATS))
       return
     }
     onError(null)
@@ -30,7 +33,7 @@ export function VideoFilePicker({ value, onChange, onError }: VideoFilePickerPro
   }
 
   const browse = async () => {
-    const path = await window.metis?.selectFile({ title: 'Pilih video', filters: [{ name: 'Video', extensions: VIDEO_FILE_EXTENSIONS }] })
+    const path = await window.metis?.selectFile({ title: m.dialogTitle, filters: [{ name: m.filterName, extensions: VIDEO_FILE_EXTENSIONS }] })
     if (path) accept(path)
   }
 
@@ -38,7 +41,7 @@ export function VideoFilePicker({ value, onChange, onError }: VideoFilePickerPro
     if (!file) return
     const path = window.metis?.pathForFile(file) || ''
     if (!path) {
-      onError('File ini tidak bisa dipakai langsung. Simpan dulu ke komputer, lalu klik area unggah untuk memilihnya.')
+      onError(m.notLocal)
       return
     }
     accept(path)
@@ -65,8 +68,8 @@ export function VideoFilePicker({ value, onChange, onError }: VideoFilePickerPro
 
   return (
     <Field
-      label="Video dari komputer"
-      hint="Video dipakai langsung dari lokasinya (tidak disalin), jadi jangan dipindah atau dihapus sampai job selesai. Transkripnya dibuat dengan Whisper: lewat Groq bila key-nya diisi, atau Whisper lokal di komputer ini (lebih lambat untuk video panjang)."
+      label={m.label}
+      hint={m.hint}
     >
       {value ? (
         <Card tone="dew" padding="sm" className={over ? 'mc-row mc-drop--over' : 'mc-row'} {...drag}>
@@ -80,14 +83,14 @@ export function VideoFilePicker({ value, onChange, onError }: VideoFilePickerPro
             </span>
           </div>
           <Button variant="secondary" size="sm" icon={<FolderOpen size={16} />} onClick={browse} disabled={!desktop}>
-            Ganti
+            {m.replace}
           </Button>
-          <IconButton variant="outline" size="sm" label="Hapus pilihan file" icon={<X size={16} />} onClick={() => onChange(null)} />
+          <IconButton variant="outline" size="sm" label={m.clear} icon={<X size={16} />} onClick={() => onChange(null)} />
         </Card>
       ) : (
         <DropZone
-          title="Seret video ke sini atau klik untuk memilih file"
-          overTitle="Lepaskan untuk memakai video ini"
+          title={m.dropTitle}
+          overTitle={m.dropOver}
           hint={FORMATS}
           onActivate={browse}
           onFiles={(files) => takeDroppedFile(files[0])}

@@ -10,29 +10,26 @@ import { Alert, Badge, Blob, Button, Card, Divider, Field, InputField, LanguageS
 import { SecretField } from '@/components/settings/SecretField'
 import { LlmSection, type LlmValue } from '@/components/settings/LlmFields'
 import { AgentForm, toAgentInput } from '@/components/agents/AgentForm'
+import { localeTag } from '@/lib/i18n'
+import { useT } from '@/lib/i18n/I18nProvider'
 
-const STEPS = [
-  { id: 'welcome', label: 'Selamat datang' },
-  { id: 'data', label: 'Lokasi data' },
-  { id: 'keys', label: 'API key' },
-  { id: 'check', label: 'Cek sistem' },
-  { id: 'agent', label: 'Workspace' },
-] as const
+const STEPS = ['welcome', 'data', 'keys', 'check', 'agent'] as const
 
-type StepId = (typeof STEPS)[number]['id']
+type StepId = (typeof STEPS)[number]
 
 export default function SetupPage() {
+  const t = useT()
   const router = useRouter()
   const [step, setStep] = useState<StepId>('welcome')
-  const index = STEPS.findIndex((s) => s.id === step)
-  const next = () => setStep(STEPS[Math.min(index + 1, STEPS.length - 1)].id)
-  const back = () => setStep(STEPS[Math.max(index - 1, 0)].id)
+  const index = STEPS.indexOf(step)
+  const next = () => setStep(STEPS[Math.min(index + 1, STEPS.length - 1)])
+  const back = () => setStep(STEPS[Math.max(index - 1, 0)])
 
   return (
     <main style={{ minHeight: '100vh', padding: '48px 16px', display: 'flex', justifyContent: 'center', alignItems: 'flex-start' }}>
       <Card padding="lg" style={{ width: '100%', maxWidth: 720, borderRadius: 'var(--r-xl)' }}>
         <div className="mc-stack mc-gap-32">
-          <WizardSteps steps={STEPS.map((s) => s.label)} current={index} />
+          <WizardSteps steps={STEPS.map((s) => t.setup.steps[s])} current={index} />
           <div className="mc-stack mc-gap-24">
             {step === 'welcome' && <WelcomeStep onNext={next} />}
             {step === 'data' && <DataStep onNext={next} onBack={back} />}
@@ -56,6 +53,7 @@ function StepTitle({ title, subtitle }: { title: string; subtitle?: React.ReactN
 }
 
 function StepActions({ onBack, children }: { onBack?: () => void; children: React.ReactNode }) {
+  const t = useT()
   return (
     <div className="mc-stack mc-gap-20">
       <Divider />
@@ -63,7 +61,7 @@ function StepActions({ onBack, children }: { onBack?: () => void; children: Reac
         <div>
           {onBack && (
             <Button variant="ghost" size="lg" onClick={onBack} icon={<ArrowLeft size={16} aria-hidden="true" />}>
-              Kembali
+              {t.common.back}
             </Button>
           )}
         </div>
@@ -83,13 +81,14 @@ function StatusLine({ children }: { children: React.ReactNode }) {
 }
 
 function HealthBadge({ ok }: { ok: boolean }) {
+  const t = useT()
   return ok ? (
     <Badge tone="success" size="sm" icon={<Check size={14} aria-hidden="true" />}>
-      Siap
+      {t.system.health.ok}
     </Badge>
   ) : (
     <Badge tone="error" size="sm" icon={<AlertTriangle size={14} aria-hidden="true" />}>
-      Bermasalah
+      {t.system.health.problem}
     </Badge>
   )
 }
@@ -97,6 +96,8 @@ function HealthBadge({ ok }: { ok: boolean }) {
 // ---------------------------------------------------------------------------
 
 function WelcomeStep({ onNext }: { onNext: () => void }) {
+  const t = useT()
+  const m = t.setup.welcome
   const [accepted, setAccepted] = useState(false)
   return (
     <>
@@ -108,26 +109,21 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
           <LanguageSwitch size="sm" />
         </div>
         <div className="mc-card__body mc-stack mc-gap-4" style={{ maxWidth: '60%' }}>
-          <span className="mc-label mc-moss">Pengaturan awal</span>
-          <h1 className="mc-h1">Selamat datang di MetisClip</h1>
+          <span className="mc-label mc-moss">{m.eyebrow}</span>
+          <h1 className="mc-h1">{m.title}</h1>
         </div>
       </Card>
-      <p className="mc-body-lg mc-muted">
-        MetisClip mencari video panjang (podcast, interview) di YouTube, memilih momen yang berpotensi viral dengan AI, lalu memotongnya menjadi klip vertikal 9:16 dengan
-        subtitle yang bisa diedit. Semua data dan video disimpan di komputer Anda sendiri.
-      </p>
-      <Alert tone="warning" title="Hak cipta adalah tanggung jawab Anda">
-        Video sumber di YouTube dimiliki kreatornya. Sebelum mengunggah klip, pastikan Anda punya izin dari pemilik konten atau penggunaan Anda termasuk penggunaan wajar (fair
-        use) — misalnya dengan atribusi dan transformasi yang jelas — serta mematuhi Ketentuan Layanan YouTube dan platform tujuan. MetisClip tidak memberikan hak apa pun atas
-        konten pihak ketiga.
+      <p className="mc-body-lg mc-muted">{m.intro}</p>
+      <Alert tone="warning" title={m.copyrightTitle}>
+        {m.copyrightBody}
       </Alert>
       <label className="mc-row mc-row--top mc-gap-12" style={{ cursor: 'pointer' }}>
         <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} style={{ marginTop: 1 }} />
-        <span>Saya memahami dan bertanggung jawab atas konten yang saya klip dan unggah menggunakan MetisClip.</span>
+        <span>{m.accept}</span>
       </label>
       <StepActions>
         <Button variant="primary" size="lg" onClick={onNext} disabled={!accepted} iconRight={<ArrowRight size={16} aria-hidden="true" />}>
-          Mulai pengaturan
+          {m.start}
         </Button>
       </StepActions>
     </>
@@ -137,6 +133,8 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
 // ---------------------------------------------------------------------------
 
 function DataStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
+  const t = useT()
+  const m = t.setup.data
   const desktop = typeof window !== 'undefined' && !!window.metis
   const pathId = useId()
   const [loading, setLoading] = useState(true)
@@ -191,7 +189,7 @@ function DataStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
 
   const choose = async () => {
     if (!window.metis) return
-    const picked = await window.metis.selectFolder({ title: 'Pilih folder data MetisClip', defaultPath: path || undefined })
+    const picked = await window.metis.selectFolder({ title: m.pickDialogTitle, defaultPath: path || undefined })
     if (picked) {
       setPath(picked)
       setError(null)
@@ -203,21 +201,21 @@ function DataStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
     if (!window.metis || !check?.ok) return
     setApplying(true)
     setError(null)
-    setStatus('Menyiapkan folder data…')
+    setStatus(m.preparing)
     const unsubscribe = window.metis.onEngineStatus((s) => {
       if (s.message) setStatus(s.message)
-      else if (s.state === 'starting') setStatus('Menyalakan database & engine…')
+      else if (s.state === 'starting') setStatus(m.startingServices)
     })
     try {
       const res = await window.metis.setDataRoot(check.path)
       if (!res.ok) {
-        setError(res.error || 'Gagal memakai folder ini.')
+        setError(res.error || m.useFailed)
         return
       }
-      setStatus('Menghubungkan ke engine…')
+      setStatus(m.connecting)
       await getEngineInfo()
       await api.health()
-      toast.success('Folder data siap dipakai')
+      toast.success(m.ready)
       onNext()
     } catch (err) {
       setError(errorMessage(err))
@@ -231,7 +229,7 @@ function DataStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
   const continueExisting = async () => {
     setApplying(true)
     setError(null)
-    setStatus('Menghubungkan ke engine…')
+    setStatus(m.connecting)
     try {
       await getEngineInfo()
       await api.health()
@@ -240,7 +238,7 @@ function DataStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
       setError(
         window.metis
           ? errorMessage(err)
-          : `${errorMessage(err)}. Jalankan engine secara manual dan atur NEXT_PUBLIC_ENGINE_URL / NEXT_PUBLIC_ENGINE_TOKEN (lihat frontend/.env.example).`
+          : `${errorMessage(err)}. ${m.devManualHint}`
       )
     } finally {
       setApplying(false)
@@ -251,7 +249,7 @@ function DataStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
   if (loading) {
     return (
       <>
-        <StepTitle title="Lokasi data" />
+        <StepTitle title={m.title} />
         <div className="mc-stack mc-gap-12">
           <Skeleton height={44} radius="full" />
           <Skeleton height={80} radius="md" />
@@ -263,15 +261,14 @@ function DataStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
   if (!desktop) {
     return (
       <>
-        <StepTitle title="Lokasi data" subtitle="Database, video sumber, dan klip disimpan di satu folder di komputer Anda." />
+        <StepTitle title={m.title} subtitle={m.browserSubtitle} />
         <Alert tone="info">
-          Pemilihan folder data hanya tersedia di aplikasi desktop MetisClip. Halaman ini sedang dibuka di browser biasa (mode pengembang): engine memakai folder dari variabel{' '}
-          <code className="mc-mono">METISCLIP_DATA_ROOT</code> saat dijalankan manual.
+          {m.browserNoticeBefore} <code className="mc-mono">METISCLIP_DATA_ROOT</code> {m.browserNoticeAfter}
         </Alert>
         {error && <Alert tone="error">{error}</Alert>}
         <StepActions onBack={onBack}>
           <Button variant="primary" size="lg" onClick={continueExisting} loading={applying} iconRight={<ArrowRight size={16} aria-hidden="true" />}>
-            Lanjut (mode pengembang)
+            {m.continueDev}
           </Button>
         </StepActions>
       </>
@@ -281,10 +278,10 @@ function DataStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
   if (currentRoot) {
     return (
       <>
-        <StepTitle title="Lokasi data" subtitle="Folder data sudah diatur sebelumnya." />
+        <StepTitle title={m.title} subtitle={m.alreadySet} />
         <InputField
-          label="Folder data"
-          hint="Memindahkan folder data dapat dilakukan nanti dari menu Sistem."
+          label={m.folder}
+          hint={m.moveLaterHint}
           readOnly
           mono
           value={currentRoot}
@@ -294,7 +291,7 @@ function DataStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
         {error && <Alert tone="error">{error}</Alert>}
         <StepActions onBack={onBack}>
           <Button variant="primary" size="lg" onClick={continueExisting} loading={applying} iconRight={<ArrowRight size={16} aria-hidden="true" />}>
-            Lanjut
+            {t.common.next}
           </Button>
         </StepActions>
       </>
@@ -304,14 +301,14 @@ function DataStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
   return (
     <>
       <StepTitle
-        title="Di mana MetisClip menyimpan data?"
-        subtitle="Database, video sumber, cache, dan semua klip akan disimpan di folder ini. Pilih drive dengan ruang kosong yang cukup — satu video podcast bisa memakan beberapa GB."
+        title={m.chooseTitle}
+        subtitle={m.chooseSubtitle}
       />
-      <Field label="Folder data" htmlFor={pathId}>
+      <Field label={m.folder} htmlFor={pathId}>
         <div className="mc-row mc-gap-8">
           <InputField id={pathId} readOnly mono value={path} placeholder="-" containerClassName="mc-grow" />
           <Button variant="secondary" onClick={choose} disabled={applying} icon={<FolderOpen size={16} aria-hidden="true" />}>
-            Pilih folder…
+            {m.chooseFolder}
           </Button>
         </div>
       </Field>
@@ -322,9 +319,9 @@ function DataStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
         check && (
           <div className="mc-stack mc-gap-12">
             <p>
-              <span className="mc-muted">Ruang kosong: </span>
+              <span className="mc-muted">{m.freeSpace} </span>
               <span className="mc-label">{formatBytes(check.freeBytes)}</span>
-              <span className="mc-muted"> dari {formatBytes(check.totalBytes)}</span>
+              <span className="mc-muted"> {m.ofTotal(formatBytes(check.totalBytes))}</span>
             </p>
             {check.problems.map((p) => (
               <Alert key={p} tone="error">
@@ -336,8 +333,8 @@ function DataStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
                 {w}
               </Alert>
             ))}
-            {check.existingData && <Alert tone="success">Folder ini sudah berisi data MetisClip — folder data yang sudah ada akan dipakai (tidak ada yang dihapus).</Alert>}
-            {check.ok && !check.existingData && check.problems.length === 0 && <Alert tone="info">Folder akan dibuat (atau dipakai) dan diisi struktur data MetisClip.</Alert>}
+            {check.existingData && <Alert tone="success">{m.existing}</Alert>}
+            {check.ok && !check.existingData && check.problems.length === 0 && <Alert tone="info">{m.willCreate}</Alert>}
           </div>
         )
       )}
@@ -346,7 +343,7 @@ function DataStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
       {error && <Alert tone="error">{error}</Alert>}
       <StepActions onBack={applying ? undefined : onBack}>
         <Button variant="primary" size="lg" onClick={apply} loading={applying} disabled={!check?.ok || validating} iconRight={<ArrowRight size={16} aria-hidden="true" />}>
-          Gunakan folder ini
+          {m.use}
         </Button>
       </StepActions>
     </>
@@ -355,16 +352,12 @@ function DataStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
 
 // ---------------------------------------------------------------------------
 
-const SECRET_INFO: { name: SecretName; label: string; description: React.ReactNode }[] = [
-  {
-    name: 'groq_api_key',
-    label: 'API key Groq (opsional)',
-    description:
-      'Tanpa key ini, transkripsi berjalan dengan Whisper lokal di komputer ini (modelnya diunduh sekali saat pertama dipakai). Dengan key Groq, yang bisa dibuat gratis di console.groq.com, transkripsi jauh lebih cepat saat online, dan Whisper lokal tetap menjadi cadangan saat offline.',
-  },
-]
+/** Secrets asked for in the wizard besides the LLM key (label and description from `setup.keys`) */
+const SECRETS: SecretName[] = ['groq_api_key']
 
 function KeysStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
+  const t = useT()
+  const m = t.setup.keys
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [configured, setConfigured] = useState<Record<SecretName, boolean> | null>(null)
@@ -402,7 +395,7 @@ function KeysStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
     setSaving(true)
     try {
       await saveLlm()
-      for (const { name } of SECRET_INFO) {
+      for (const name of SECRETS) {
         const v = (values[name] || '').trim()
         if (v) await api.secrets.set(name, v)
       }
@@ -417,7 +410,7 @@ function KeysStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
   if (loading || (!error && (!llm || !configured))) {
     return (
       <>
-        <StepTitle title="API key" />
+        <StepTitle title={m.title} />
         <div className="mc-stack">
           <Skeleton height={70} radius="md" />
           <Skeleton height={70} radius="md" />
@@ -430,11 +423,11 @@ function KeysStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
   if (error) {
     return (
       <>
-        <StepTitle title="API key" />
+        <StepTitle title={m.title} />
         <Alert tone="error">{error}</Alert>
         <StepActions onBack={onBack}>
           <Button variant="secondary" size="lg" onClick={load} icon={<RefreshCw size={16} aria-hidden="true" />}>
-            Coba lagi
+            {t.common.retry}
           </Button>
         </StepActions>
       </>
@@ -444,8 +437,8 @@ function KeysStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
   return (
     <>
       <StepTitle
-        title="Hubungkan layanan AI"
-        subtitle="API key disimpan aman di Windows Credential Manager, bukan di file biasa, dan bisa dilihat lagi lewat ikon mata. Anda bisa melewati langkah ini dan mengisinya nanti di Pengaturan."
+        title={m.heading}
+        subtitle={m.subtitle}
       />
       <LlmSection
         value={llm!}
@@ -456,26 +449,26 @@ function KeysStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
         allowRemove={false}
       />
       <Divider />
-      <h2 className="mc-h3">Transkripsi</h2>
-      {SECRET_INFO.map((s) => (
+      <h2 className="mc-h3">{m.transcription}</h2>
+      {SECRETS.map((name) => (
         <SecretField
-          key={s.name}
-          name={s.name}
-          label={s.label}
-          description={s.description}
-          configured={configured![s.name]}
-          value={values[s.name] || ''}
-          onChange={(v) => setValues((prev) => ({ ...prev, [s.name]: v }))}
-          onConfiguredChange={(c) => setConfigured((prev) => (prev ? { ...prev, [s.name]: c } : prev))}
+          key={name}
+          name={name}
+          label={m.groqLabel}
+          description={m.groqDescription}
+          configured={configured![name]}
+          value={values[name] || ''}
+          onChange={(v) => setValues((prev) => ({ ...prev, [name]: v }))}
+          onConfiguredChange={(c) => setConfigured((prev) => (prev ? { ...prev, [name]: c } : prev))}
           allowRemove={false}
         />
       ))}
       <StepActions onBack={onBack}>
         <Button variant="secondary" size="lg" onClick={onNext} disabled={saving}>
-          Lewati untuk sekarang
+          {m.skip}
         </Button>
         <Button variant="primary" size="lg" onClick={saveAndNext} loading={saving} iconRight={<ArrowRight size={16} aria-hidden="true" />}>
-          Simpan & lanjut
+          {m.saveNext}
         </Button>
       </StepActions>
     </>
@@ -485,6 +478,9 @@ function KeysStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
 // ---------------------------------------------------------------------------
 
 function CheckStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
+  const t = useT()
+  const m = t.setup.check
+  const c = t.system.check
   const [check, setCheck] = useState<SystemCheck | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -509,7 +505,7 @@ function CheckStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
 
   return (
     <>
-      <StepTitle title="Pemeriksaan sistem" subtitle="Memastikan semua komponen (database, FFmpeg, yt-dlp, renderer) siap dipakai di komputer ini." />
+      <StepTitle title={m.title} subtitle={m.subtitle} />
       {loading ? (
         <div className="mc-stack mc-gap-8">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -525,9 +521,9 @@ function CheckStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
               <table className="mc-table">
                 <thead>
                   <tr>
-                    <th scope="col">Komponen</th>
-                    <th scope="col">Versi</th>
-                    <th scope="col">Status</th>
+                    <th scope="col">{c.component}</th>
+                    <th scope="col">{c.version}</th>
+                    <th scope="col">{c.status}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -552,27 +548,27 @@ function CheckStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
             </div>
             <div className="mc-row mc-row--wrap mc-gap-8">
               <Badge tone="neutral" size="sm">
-                {check.cpu_count} core CPU
+                {c.cpuCores(check.cpu_count)}
               </Badge>
               <Badge tone="neutral" size="sm">
-                RAM {check.ram_gb.toLocaleString('id-ID', { maximumFractionDigits: 1 })} GB
+                {c.ram(check.ram_gb.toLocaleString(localeTag(), { maximumFractionDigits: 1 }))}
               </Badge>
               <Badge tone="neutral" size="sm">
-                Encoder: {check.encoders.length ? check.encoders.join(', ') : 'libx264'}
+                {c.encoders(check.encoders.length ? check.encoders.join(', ') : 'libx264')}
               </Badge>
             </div>
             {failed > 0 && (
-              <Alert tone="warning">{failed} komponen bermasalah. Anda tetap bisa melanjutkan, tetapi sebagian fitur mungkin gagal sampai masalahnya diperbaiki.</Alert>
+              <Alert tone="warning">{m.problems(failed)}</Alert>
             )}
           </div>
         )
       )}
       <StepActions onBack={onBack}>
         <Button variant="secondary" size="lg" onClick={run} loading={loading} icon={<RefreshCw size={16} aria-hidden="true" />}>
-          Periksa ulang
+          {c.recheck}
         </Button>
         <Button variant="primary" size="lg" onClick={onNext} disabled={loading} iconRight={<ArrowRight size={16} aria-hidden="true" />}>
-          Lanjut
+          {t.common.next}
         </Button>
       </StepActions>
     </>
@@ -582,6 +578,8 @@ function CheckStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
 // ---------------------------------------------------------------------------
 
 function AgentStep({ onBack, onDone }: { onBack: () => void; onDone: () => void }) {
+  const t = useT()
+  const m = t.setup.agent
   const [existing, setExisting] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
@@ -604,7 +602,7 @@ function AgentStep({ onBack, onDone }: { onBack: () => void; onDone: () => void 
       } catch {
         /* not remembered */
       }
-      toast.success(`Workspace "${agent.name}" dibuat`)
+      toast.success(m.created(agent.name))
       onDone()
     } catch (err) {
       toast.error(errorMessage(err))
@@ -614,8 +612,8 @@ function AgentStep({ onBack, onDone }: { onBack: () => void; onDone: () => void 
   return (
     <>
       <StepTitle
-        title="Buat workspace pertama"
-        subtitle="Workspace adalah ruang kerja untuk satu niche/channel: durasi klip default dan brand template sendiri. Anda bisa membuat lebih dari satu nanti."
+        title={m.title}
+        subtitle={m.subtitle}
       />
       {error ? (
         <Alert tone="error">{error}</Alert>
@@ -623,13 +621,13 @@ function AgentStep({ onBack, onDone }: { onBack: () => void; onDone: () => void 
         <Skeleton height={160} radius="md" />
       ) : (
         <>
-          {existing > 0 && <Alert tone="success">Anda sudah punya {existing} workspace di folder data ini.</Alert>}
+          {existing > 0 && <Alert tone="success">{m.existing(existing)}</Alert>}
           {showForm ? (
-            <AgentForm submitLabel="Buat & mulai" onSubmit={create} onCancel={existing > 0 ? () => setShowForm(false) : undefined} />
+            <AgentForm submitLabel={m.createStart} onSubmit={create} onCancel={existing > 0 ? () => setShowForm(false) : undefined} />
           ) : (
             <div>
               <Button variant="secondary" onClick={() => setShowForm(true)} icon={<Plus size={16} aria-hidden="true" />}>
-                Buat workspace baru
+                {m.createNew}
               </Button>
             </div>
           )}
@@ -638,7 +636,7 @@ function AgentStep({ onBack, onDone }: { onBack: () => void; onDone: () => void 
       <StepActions onBack={onBack}>
         {existing !== null && existing > 0 && (
           <Button variant="primary" size="lg" onClick={onDone} iconRight={<ArrowRight size={16} aria-hidden="true" />}>
-            Masuk ke Beranda
+            {m.goHome}
           </Button>
         )}
       </StepActions>

@@ -10,6 +10,10 @@ export const ui: Messages['ui'] = {
   progress: 'Progress',
   viralScore: 'Viral score',
   viralScoreValue: (n: number) => `Viral score ${n}`,
+  recentColors: 'Recently used',
+  stepDone: 'Done',
+  runningJobs: (n: number) => (n === 1 ? 'job running' : 'jobs running'),
+  newClip: 'New clip',
   workspaceSwitcher: {
     loading: 'Loading workspaces…',
     choose: 'Choose a workspace',

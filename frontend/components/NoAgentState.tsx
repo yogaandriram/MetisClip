@@ -4,10 +4,14 @@ import React from 'react'
 import { AlertTriangle, Plus, Users } from 'lucide-react'
 import { useAgent } from '@/contexts/AgentContext'
 import { Button, ButtonLink, EmptyState, Skeleton } from '@/components/ui'
+import { useT } from '@/lib/i18n/I18nProvider'
 
-/** Shown by pages that need an active workspace. */
-export function NoAgentState({ what = 'halaman ini' }: { what?: string }) {
+/** Shown by pages that need an active workspace. `what` names the page in the current language. */
+export function NoAgentState({ what }: { what?: string }) {
   const { isAgentLoading, agents, agentError, refreshAgents } = useAgent()
+  const t = useT()
+  const m = t.workspace.noAgent
+  const page = what ?? m.thisPage
 
   if (isAgentLoading) {
     return (
@@ -22,11 +26,11 @@ export function NoAgentState({ what = 'halaman ini' }: { what?: string }) {
     return (
       <EmptyState
         icon={AlertTriangle}
-        title="Gagal memuat workspace"
+        title={m.loadFailed}
         description={agentError}
         action={
           <Button variant="secondary" onClick={() => refreshAgents()}>
-            Coba lagi
+            {t.common.retry}
           </Button>
         }
       />
@@ -37,11 +41,11 @@ export function NoAgentState({ what = 'halaman ini' }: { what?: string }) {
     return (
       <EmptyState
         icon={Users}
-        title="Belum ada workspace"
-        description={`Buat workspace pertama Anda untuk mulai menggunakan ${what}. Setiap workspace punya niche, durasi klip, dan brand template sendiri.`}
+        title={m.emptyTitle}
+        description={m.emptyDescription(page)}
         action={
           <ButtonLink href="/agents/" variant="accent" icon={<Plus size={16} />}>
-            Buat workspace
+            {m.create}
           </ButtonLink>
         }
       />
@@ -51,11 +55,11 @@ export function NoAgentState({ what = 'halaman ini' }: { what?: string }) {
   return (
     <EmptyState
       icon={Users}
-      title="Pilih workspace"
-      description={`Pilih workspace aktif lewat pemilih workspace di kanan atas untuk membuka ${what}.`}
+      title={m.chooseTitle}
+      description={m.chooseDescription(page)}
       action={
         <ButtonLink href="/agents/" variant="primary">
-          Kelola workspace
+          {m.manage}
         </ButtonLink>
       }
     />

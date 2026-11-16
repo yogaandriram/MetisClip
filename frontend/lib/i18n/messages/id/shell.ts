@@ -9,6 +9,7 @@ export const shell = {
     brand: 'Brand Template',
     settings: 'Pengaturan',
     system: 'Sistem',
+    label: 'Navigasi utama',
     /** Screen reader name of a nav item with running jobs */
     withRunning: (name: string, n: number) => `${name}, ${n} berjalan`,
   },

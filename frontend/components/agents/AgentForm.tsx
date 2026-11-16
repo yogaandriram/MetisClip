@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react'
 import { api, type AgentInput, type BrandTemplate } from '@/lib/engine'
 import { CLIP_DURATION_OPTIONS } from '@/lib/format'
 import { Button, InputField, SelectField } from '@/components/ui'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 export interface AgentFormValue {
   name: string
@@ -40,6 +41,7 @@ interface AgentFormProps {
 const FIELD_GRID: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, alignItems: 'start' }
 
 export function AgentForm({ initial = EMPTY_AGENT_FORM, submitLabel, onSubmit, onCancel }: AgentFormProps) {
+  const t = useT()
   const [value, setValue] = useState<AgentFormValue>(initial)
   const [busy, setBusy] = useState(false)
   const [templates, setTemplates] = useState<BrandTemplate[] | null>(null)
@@ -74,17 +76,17 @@ export function AgentForm({ initial = EMPTY_AGENT_FORM, submitLabel, onSubmit, o
   return (
     <form onSubmit={submit} className="mc-stack mc-gap-24">
       <div style={FIELD_GRID}>
-        <InputField label="Nama workspace" placeholder="Misal: AI Tech Clipper" value={value.name} onChange={(e) => setValue({ ...value, name: e.target.value })} required maxLength={80} />
-        <InputField label="Fokus niche" placeholder="Misal: Teknologi & AI, Bisnis" value={value.niche} onChange={(e) => setValue({ ...value, niche: e.target.value })} />
+        <InputField label={t.workspace.form.name} placeholder={t.workspace.form.namePlaceholder} value={value.name} onChange={(e) => setValue({ ...value, name: e.target.value })} required maxLength={80} />
+        <InputField label={t.workspace.form.niche} placeholder={t.workspace.form.nichePlaceholder} value={value.niche} onChange={(e) => setValue({ ...value, niche: e.target.value })} />
       </div>
       <div style={FIELD_GRID}>
-        <SelectField label="Durasi klip default" value={value.default_duration} options={CLIP_DURATION_OPTIONS} onChange={(e) => setValue({ ...value, default_duration: e.target.value })} />
+        <SelectField label={t.workspace.form.duration} value={value.default_duration} options={CLIP_DURATION_OPTIONS} onChange={(e) => setValue({ ...value, default_duration: e.target.value })} />
         {templates && templates.length > 0 && (
           <SelectField
-            label="Brand template default"
-            hint="Dipakai oleh clip baru di workspace ini. Tiap clip tetap bisa diganti template-nya di editor."
+            label={t.workspace.form.template}
+            hint={t.workspace.form.templateHint}
             value={value.default_brand_template_id}
-            options={templates.map((t) => ({ value: t.id, label: t.name }))}
+            options={templates.map((tpl) => ({ value: tpl.id, label: tpl.name }))}
             onChange={(e) => setValue({ ...value, default_brand_template_id: e.target.value })}
           />
         )}
@@ -92,7 +94,7 @@ export function AgentForm({ initial = EMPTY_AGENT_FORM, submitLabel, onSubmit, o
       <div className="mc-row mc-row--end mc-gap-8">
         {onCancel && (
           <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
-            Batal
+            {t.common.cancel}
           </Button>
         )}
         <Button type="submit" variant="primary" loading={busy} disabled={!value.name.trim()}>

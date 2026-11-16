@@ -30,7 +30,9 @@ import {
   platformNames,
   splitGeometry,
 } from '@/lib/presets/layout';
-import { CaptionSettings, LayoutSettings, SAFE_ZONE_OPTIONS, SAMPLE_TITLE, SafeZone } from '../types';
+import type { Messages } from '@/lib/i18n';
+import { useT } from '@/lib/i18n/I18nProvider';
+import { CaptionSettings, LayoutSettings, SafeZone, safeZoneOptions } from '../types';
 import { AssetUploader } from './BrandSettingsPanel';
 import { LayoutPresetGallery } from './LayoutPresetGallery';
 
@@ -50,136 +52,136 @@ interface LayoutSettingsPanelProps {
   updateCaption: (updates: Partial<CaptionSettings>) => void;
 }
 
-export const MODE_OPTIONS: { value: LayoutMode; label: string }[] = [
-  { value: 'full', label: 'Penuh 9:16' },
-  { value: 'podcast', label: 'Podcast (rasio asli)' },
-  { value: 'card', label: 'Kartu postingan' },
-  { value: 'split', label: 'Video pendamping' },
-  { value: 'duo', label: 'Dua pembicara' },
-  { value: 'auto', label: 'Otomatis per adegan' },
+export const modeOptions = (t: Messages): { value: LayoutMode; label: string }[] => [
+  { value: 'full', label: t.brand.layout.modes.full },
+  { value: 'podcast', label: t.brand.layout.modes.podcast },
+  { value: 'card', label: t.brand.layout.modes.card },
+  { value: 'split', label: t.brand.layout.modes.split },
+  { value: 'duo', label: t.brand.layout.modes.duo },
+  { value: 'auto', label: t.brand.layout.modes.auto },
 ];
 
 /** The views of the auto layout, as offered for each kind of scene. */
-const VIEW_OPTIONS: { value: SceneView; label: string }[] = [
-  { value: 'duo', label: 'Dua panel' },
-  { value: 'full', label: 'Penuh' },
-  { value: 'framed', label: 'Bingkai' },
+const viewOptions = (t: Messages): { value: SceneView; label: string }[] => [
+  { value: 'duo', label: t.brand.layout.views.duo },
+  { value: 'full', label: t.brand.layout.views.full },
+  { value: 'framed', label: t.brand.layout.views.framed },
 ];
-const FULL_OR_FRAMED_OPTIONS: { value: 'full' | 'framed'; label: string }[] = [
-  { value: 'full', label: 'Penuh' },
-  { value: 'framed', label: 'Bingkai' },
+const fullOrFramedOptions = (t: Messages): { value: 'full' | 'framed'; label: string }[] => [
+  { value: 'full', label: t.brand.layout.views.full },
+  { value: 'framed', label: t.brand.layout.views.framed },
 ];
 
 /** Which speaker goes in the top panel (duo layout), as seen in the source video. */
-export const DUO_TOP_OPTIONS: { value: DuoTop; label: string }[] = [
-  { value: 'left', label: 'Orang kiri' },
-  { value: 'right', label: 'Orang kanan' },
+export const duoTopOptions = (t: Messages): { value: DuoTop; label: string }[] => [
+  { value: 'left', label: t.brand.layout.duoTop.left },
+  { value: 'right', label: t.brand.layout.duoTop.right },
 ];
 
-const COMPANION_POSITION_OPTIONS: { value: CompanionPosition; label: string }[] = [
-  { value: 'bottom', label: 'Di bawah' },
-  { value: 'top', label: 'Di atas' },
+const companionPositionOptions = (t: Messages): { value: CompanionPosition; label: string }[] => [
+  { value: 'bottom', label: t.brand.layout.companionPosition.bottom },
+  { value: 'top', label: t.brand.layout.companionPosition.top },
 ];
 
-export const RATIO_OPTIONS: { value: FrameRatio; label: string }[] = [
-  { value: 'source', label: 'Asli' },
+export const ratioOptions = (t: Messages): { value: FrameRatio; label: string }[] => [
+  { value: 'source', label: t.brand.layout.ratioSource },
   { value: '16:9', label: '16:9' },
   { value: '4:3', label: '4:3' },
   { value: '1:1', label: '1:1' },
   { value: '4:5', label: '4:5' },
 ];
 
-export const ZOOM_STYLE_OPTIONS: { value: ZoomStyle; label: string }[] = [
-  { value: 'keywords', label: 'Di kata kunci' },
-  { value: 'sentences', label: 'Tiap kalimat' },
+export const zoomStyleOptions = (t: Messages): { value: ZoomStyle; label: string }[] => [
+  { value: 'keywords', label: t.brand.layout.zoomStyle.keywords },
+  { value: 'sentences', label: t.brand.layout.zoomStyle.sentences },
 ];
 
-const BACKGROUND_OPTIONS: { value: BackgroundType; label: string }[] = [
-  { value: 'blur', label: 'Blur video' },
-  { value: 'color', label: 'Warna' },
-  { value: 'gradient', label: 'Gradasi' },
-  { value: 'image', label: 'Gambar' },
+const backgroundOptions = (t: Messages): { value: BackgroundType; label: string }[] => [
+  { value: 'blur', label: t.brand.layout.backgrounds.blur },
+  { value: 'color', label: t.brand.layout.backgrounds.color },
+  { value: 'gradient', label: t.brand.layout.backgrounds.gradient },
+  { value: 'image', label: t.brand.layout.backgrounds.image },
 ];
 
-const HEADER_SOURCE_OPTIONS: { value: HeaderSource; label: string }[] = [
-  { value: 'title', label: 'Judul klip' },
-  { value: 'custom', label: 'Teks tetap' },
+const headerSourceOptions = (t: Messages): { value: HeaderSource; label: string }[] => [
+  { value: 'title', label: t.brand.layout.headerSource.title },
+  { value: 'custom', label: t.brand.layout.headerSource.custom },
 ];
 
-const ALIGN_OPTIONS: { value: TextAlign; label: string }[] = [
-  { value: 'left', label: 'Kiri' },
-  { value: 'center', label: 'Tengah' },
-  { value: 'right', label: 'Kanan' },
+const alignOptions = (t: Messages): { value: TextAlign; label: string }[] => [
+  { value: 'left', label: t.brand.layout.align.left },
+  { value: 'center', label: t.brand.layout.align.center },
+  { value: 'right', label: t.brand.layout.align.right },
 ];
 
-const SPEAKER_ALIGN_OPTIONS: { value: SpeakerAlign; label: string }[] = [
-  { value: 'left', label: 'Kiri' },
-  { value: 'center', label: 'Tengah' },
+const speakerAlignOptions = (t: Messages): { value: SpeakerAlign; label: string }[] => [
+  { value: 'left', label: t.brand.layout.align.left },
+  { value: 'center', label: t.brand.layout.align.center },
 ];
 
-const MODE_HINTS: Record<LayoutMode, string> = {
-  full: 'Video dipotong 9:16 mengikuti wajah pembicara (face tracking).',
-  podcast: 'Video tampil utuh dengan rasio aslinya di tengah, judul di atas, caption di bawah. Cocok untuk podcast dan wawancara.',
-  card: 'Video di dalam kartu bergaya postingan: foto profil, nama akun, judul sebagai teks postingan, lalu videonya.',
-  split: 'Layar dibagi dua: pembicara (mengikuti wajah) dan video pendamping tanpa suara yang diputar berulang, misalnya gameplay atau B-roll.',
-  duo: 'Dua orang yang duduk berdampingan dipisah jadi panel atas dan bawah, masing-masing mengikuti wajahnya. Adegan lain (close-up satu orang, shot lebar) tampil penuh 9:16.',
-  auto: 'Tampilan dipilih per adegan dari hasil face tracking: satu orang tampil penuh, dua orang jadi dua panel, slide atau adegan ramai masuk bingkai. Tampilan hanya berganti di potongan kamera.',
-};
-
-const TABS: Record<LayoutMode, { id: string; label: string }[]> = {
-  full: [],
-  podcast: [
-    { id: 'video', label: 'Video' },
-    { id: 'background', label: 'Latar' },
-    { id: 'header', label: 'Judul' },
-    { id: 'credit', label: 'Kredit' },
-  ],
-  card: [
-    { id: 'card', label: 'Kartu' },
-    { id: 'video', label: 'Video' },
-    { id: 'background', label: 'Latar' },
-    { id: 'header', label: 'Teks' },
-    { id: 'credit', label: 'Kredit' },
-  ],
-  split: [
-    { id: 'companion', label: 'Pendamping' },
-    { id: 'credit', label: 'Kredit' },
-  ],
-  duo: [
-    { id: 'duo', label: 'Panel' },
-    { id: 'credit', label: 'Kredit' },
-  ],
-  auto: [
-    { id: 'auto', label: 'Adegan' },
-    { id: 'duo', label: 'Panel' },
-    { id: 'video', label: 'Bingkai' },
-    { id: 'background', label: 'Latar' },
-    { id: 'header', label: 'Judul' },
-    { id: 'credit', label: 'Kredit' },
-  ],
-};
+function tabsFor(mode: LayoutMode, t: Messages): { id: string; label: string }[] {
+  const L = t.brand.layout.tabs;
+  switch (mode) {
+    case 'podcast':
+      return [
+        { id: 'video', label: L.video },
+        { id: 'background', label: L.background },
+        { id: 'header', label: L.header },
+        { id: 'credit', label: L.credit },
+      ];
+    case 'card':
+      return [
+        { id: 'card', label: L.card },
+        { id: 'video', label: L.video },
+        { id: 'background', label: L.background },
+        { id: 'header', label: L.text },
+        { id: 'credit', label: L.credit },
+      ];
+    case 'split':
+      return [
+        { id: 'companion', label: L.companion },
+        { id: 'credit', label: L.credit },
+      ];
+    case 'duo':
+      return [
+        { id: 'duo', label: L.panel },
+        { id: 'credit', label: L.credit },
+      ];
+    case 'auto':
+      return [
+        { id: 'auto', label: L.scenes },
+        { id: 'duo', label: L.panel },
+        { id: 'video', label: L.frame },
+        { id: 'background', label: L.background },
+        { id: 'header', label: L.header },
+        { id: 'credit', label: L.credit },
+      ];
+    default:
+      return [];
+  }
+}
 
 const px = (v: number) => `${Math.round(v)}px`;
 const pct = (v: number) => `${Math.round(v * 100)}%`;
-const secs = (v: number) => `${v.toFixed(1).replace('.', ',')} dtk`;
 
-export function layoutSummary(layout: LayoutSettings): string {
-  const bg = BACKGROUND_OPTIONS.find((o) => o.value === layout.background.type)?.label || '';
+export function layoutSummary(layout: LayoutSettings, t: Messages): string {
+  const S = t.brand.layout.summary;
+  const bg = backgroundOptions(t).find((o) => o.value === layout.background.type)?.label || '';
   const parts = [
     layout.mode === 'podcast'
-      ? `Podcast · ${bg}`
+      ? S.podcast(bg)
       : layout.mode === 'card'
-        ? `Kartu · ${bg}`
+        ? S.card(bg)
         : layout.mode === 'split'
-          ? 'Video pendamping'
+          ? S.split
           : layout.mode === 'duo'
-            ? 'Dua pembicara'
+            ? S.duo
             : layout.mode === 'auto'
-              ? 'Otomatis per adegan'
-              : 'Penuh 9:16',
+              ? S.auto
+              : S.full,
   ];
-  if (layout.zoom.enabled) parts.push('Zoom');
-  if (layout.speaker.enabled) parts.push('Nama pembicara');
+  if (layout.zoom.enabled) parts.push(S.zoom);
+  if (layout.speaker.enabled) parts.push(S.speaker);
   return parts.join(' · ');
 }
 
@@ -199,14 +201,17 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
   updateLayout,
   updateCaption,
 }) => {
+  const t = useT();
+  const L = t.brand.layout;
+  const secs = L.secondsShort;
   const [tab, setTab] = useState(''); // '' = the mode's first tab
   const [uploading, setUploading] = useState<'' | 'background' | 'avatar' | 'companion'>('');
   const mode = layout.mode;
   const card = mode === 'card';
-  const tabs = TABS[mode];
-  const activeTab = tabs.some((t) => t.id === tab) ? tab : tabs[0]?.id || '';
+  const tabs = tabsFor(mode, t);
+  const activeTab = tabs.some((x) => x.id === tab) ? tab : tabs[0]?.id || '';
   const frame = frameRect(layout, aspect);
-  const { lines, scale } = headerLines(layout, headerText(layout, SAMPLE_TITLE));
+  const { lines, scale } = headerLines(layout, headerText(layout, t.brand.sample.title));
   const covered = mode === 'podcast' || mode === 'auto' ? headerCoveredBy(headerRect(layout, frame, lines, scale)) : [];
   const h = layout.header;
   const z = layout.zoom;
@@ -218,22 +223,22 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
 
   const upload = async (file: File, kind: 'background' | 'avatar') => {
     if (file.type && !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
-      toast.error('Format file tidak didukung');
+      toast.error(t.brand.assets.unsupported);
       return;
     }
     if (file.size > 20 * 1024 * 1024) {
-      toast.error('File terlalu besar. Maksimal 20 MB');
+      toast.error(t.brand.assets.tooLarge(20));
       return;
     }
     setUploading(kind);
-    const id = toast.loading('Mengunggah ke folder data…');
+    const id = toast.loading(t.brand.assets.uploadingToData);
     try {
       const { value } = await api.brandTemplates.uploadAsset(templateId, file, kind);
       if (kind === 'background') updateLayout({ background: { type: 'image', imageUrl: value } });
       else updateLayout({ card: { avatarUrl: value } });
-      toast.success(`${kind === 'background' ? 'Gambar latar' : 'Foto profil'} tersimpan. Jangan lupa klik Simpan.`, { id });
+      toast.success(L.imageSavedRemember(kind), { id });
     } catch (err) {
-      toast.error(errorMessage(err, 'Gagal mengunggah file'), { id });
+      toast.error(errorMessage(err, t.brand.assets.uploadFailed), { id });
     } finally {
       setUploading('');
     }
@@ -241,21 +246,21 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
 
   const uploadCompanion = async (file: File) => {
     if (file.type && !['video/mp4', 'video/quicktime', 'video/webm'].includes(file.type)) {
-      toast.error('Format video tidak didukung. Pakai MP4, MOV atau WEBM');
+      toast.error(L.companionUnsupported);
       return;
     }
     if (file.size > 500 * 1024 * 1024) {
-      toast.error('File terlalu besar. Maksimal 500 MB');
+      toast.error(t.brand.assets.tooLarge(500));
       return;
     }
     setUploading('companion');
-    const id = toast.loading('Menyiapkan video pendamping… Video panjang bisa butuh 1–2 menit.');
+    const id = toast.loading(L.companionPreparing);
     try {
       const { value, duration } = await api.brandTemplates.uploadAsset(templateId, file, 'companion');
       updateLayout({ companion: { videoUrl: value, duration: duration || 0 } });
-      toast.success('Video pendamping tersimpan. Jangan lupa klik Simpan.', { id });
+      toast.success(L.companionSaved, { id });
     } catch (err) {
-      toast.error(errorMessage(err, 'Gagal mengimpor video'), { id });
+      toast.error(errorMessage(err, L.companionImportFailed), { id });
     } finally {
       setUploading('');
     }
@@ -275,14 +280,14 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
 
   return (
     <div className="mc-stack mc-gap-20">
-      <Field label="Preset layout" hint="Satu klik untuk gaya siap pakai. Nama akun, teks tetap, kredit dan nama pembicara tidak ikut berubah.">
+      <Field label={L.presetsLabel} hint={L.presetsHint}>
         <LayoutPresetGallery layout={layout} onApply={(next: Layout) => updateLayout(next)} />
       </Field>
 
       <Divider />
 
-      <Field label="Tampilan video" hint={MODE_HINTS[mode]}>
-        <ChoiceChips<LayoutMode> ariaLabel="Tampilan video" options={MODE_OPTIONS} value={mode} onChange={(m) => updateLayout({ mode: m })} />
+      <Field label={L.modeLabel} hint={L.modeHints[mode]}>
+        <ChoiceChips<LayoutMode> ariaLabel={L.modeLabel} options={modeOptions(t)} value={mode} onChange={(m) => updateLayout({ mode: m })} />
       </Field>
 
       {tabs.length > 0 && (
@@ -292,14 +297,14 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
           onChange={setTab}
           ariaLabel={
             card
-              ? 'Pengaturan kartu'
+              ? L.tabsLabel.card
               : mode === 'split'
-                ? 'Pengaturan video pendamping'
+                ? L.tabsLabel.split
                 : mode === 'duo'
-                  ? 'Pengaturan dua pembicara'
+                  ? L.tabsLabel.duo
                   : mode === 'auto'
-                    ? 'Pengaturan layout otomatis'
-                    : 'Pengaturan layout podcast'
+                    ? L.tabsLabel.auto
+                    : L.tabsLabel.podcast
           }
           size="sm"
           block
@@ -310,32 +315,32 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
         <div className="mc-stack">
           <div className="mc-row mc-row--top mc-gap-16">
             <InputField
-              label="Nama akun"
+              label={L.card.accountName}
               containerClassName="mc-grow"
               value={c.name}
               maxLength={60}
-              placeholder="Misal: Klip Bisnis"
+              placeholder={L.card.accountNamePlaceholder}
               onChange={(e) => updateLayout({ card: { name: e.target.value } })}
             />
             <InputField
-              label="Handle"
+              label={L.card.handle}
               containerClassName="mc-grow"
               value={c.handle}
               maxLength={40}
-              placeholder="@klipbisnis"
+              placeholder={L.card.handlePlaceholder}
               onChange={(e) => updateLayout({ card: { handle: e.target.value } })}
             />
           </div>
           {!c.name.trim() && !c.handle.trim() && (
-            <Alert tone="info" title="Baris profil belum tampil">
-              Isi nama akun atau handle supaya kartu terlihat seperti postingan. Pakai akun Anda sendiri, bukan nama orang lain.
+            <Alert tone="info" title={L.card.noProfileTitle}>
+              {L.card.noProfileBody}
             </Alert>
           )}
           <AssetUploader
-            title="Foto profil"
-            description="Bulat di kiri nama akun. Tanpa foto, huruf pertama nama yang tampil."
+            title={L.card.avatarTitle}
+            description={L.card.avatarDescription}
             accept="image/png,image/jpeg,image/webp"
-            formats="PNG, JPG, WEBP · maks. 20 MB"
+            formats={t.brand.assets.formats('PNG, JPG, WEBP', 20)}
             current={c.avatarUrl}
             previewImage
             busy={uploading === 'avatar'}
@@ -346,25 +351,25 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
           {brandLogoUrl && brandLogoUrl !== c.avatarUrl && (
             <div>
               <Button variant="ghost" size="sm" onClick={() => updateLayout({ card: { avatarUrl: brandLogoUrl } })}>
-                Pakai logo brand sebagai foto profil
+                {L.card.useBrandLogo}
               </Button>
             </div>
           )}
-          <ColorPicker label="Warna kartu" color={c.color} onChange={(color) => updateLayout({ card: { color } })} />
-          <ColorPicker label="Warna teks" color={c.textColor} onChange={(textColor) => updateLayout({ card: { textColor } })} />
-          <ColorPicker label="Warna handle" color={c.mutedColor} onChange={(mutedColor) => updateLayout({ card: { mutedColor } })} />
-          <Slider label="Jarak tepi" min={LAYOUT_LIMITS.margin.min} max={LAYOUT_LIMITS.margin.max} value={c.margin} format={px} onChange={(margin) => updateLayout({ card: { margin } })} />
-          <Slider label="Sudut kartu" min={LAYOUT_LIMITS.radius.min} max={LAYOUT_LIMITS.radius.max} value={c.radius} format={px} onChange={(radius) => updateLayout({ card: { radius } })} />
+          <ColorPicker label={L.card.cardColor} color={c.color} onChange={(color) => updateLayout({ card: { color } })} />
+          <ColorPicker label={L.card.textColor} color={c.textColor} onChange={(textColor) => updateLayout({ card: { textColor } })} />
+          <ColorPicker label={L.card.handleColor} color={c.mutedColor} onChange={(mutedColor) => updateLayout({ card: { mutedColor } })} />
+          <Slider label={L.card.margin} min={LAYOUT_LIMITS.margin.min} max={LAYOUT_LIMITS.margin.max} value={c.margin} format={px} onChange={(margin) => updateLayout({ card: { margin } })} />
+          <Slider label={L.card.radius} min={LAYOUT_LIMITS.radius.min} max={LAYOUT_LIMITS.radius.max} value={c.radius} format={px} onChange={(radius) => updateLayout({ card: { radius } })} />
         </div>
       )}
 
       {activeTab === 'companion' && (
         <div className="mc-stack">
           <AssetUploader
-            title="Video pendamping"
-            description="Diputar berulang tanpa suara. Tiap klip mulai dari bagian yang berbeda. Dipakai 3 menit pertama."
+            title={L.companion.title}
+            description={L.companion.description}
             accept="video/mp4,video/quicktime,video/webm"
-            formats="MP4, MOV, WEBM · maks. 500 MB"
+            formats={t.brand.assets.formats('MP4, MOV, WEBM', 500)}
             current={m.videoUrl}
             busy={uploading === 'companion'}
             disabled={!!uploading}
@@ -372,25 +377,22 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
             onClear={() => updateLayout({ companion: { videoUrl: '', duration: 0 } })}
           />
           {!m.videoUrl && (
-            <Alert tone="info" title="Belum ada video pendamping">
-              Unggah video dulu. Selama belum ada, klip dengan layout ini tidak bisa diekspor.
+            <Alert tone="info" title={L.companion.missingTitle}>
+              {L.companion.missingBody}
             </Alert>
           )}
-          <p className="mc-caption mc-muted">
-            Pakai video yang boleh Anda pakai ulang, misalnya rekaman gameplay atau B-roll milik sendiri. Video dari kanal lain bisa membuat klip
-            kena klaim hak cipta.
-          </p>
-          <Field label="Letak video pendamping">
+          <p className="mc-caption mc-muted">{L.companion.rightsNote}</p>
+          <Field label={L.companion.position}>
             <ChoiceChips<CompanionPosition>
-              ariaLabel="Letak video pendamping"
+              ariaLabel={L.companion.position}
               size="sm"
-              options={COMPANION_POSITION_OPTIONS}
+              options={companionPositionOptions(t)}
               value={m.position}
               onChange={(position) => updateLayout({ companion: { position } })}
             />
           </Field>
           <Slider
-            label="Tinggi bagian pembicara"
+            label={L.companion.speakerHeight}
             min={LAYOUT_LIMITS.split.min}
             max={LAYOUT_LIMITS.split.max}
             step={0.01}
@@ -399,63 +401,58 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
             onChange={(split) => updateLayout({ companion: { split } })}
           />
           <Slider
-            label="Fokus vertikal pembicara"
+            label={L.companion.focusY}
             min={0}
             max={1}
             step={0.05}
             value={m.focusY}
             format={pct}
-            hint="Geser bila kepala terpotong (lebih kecil = bagian atas video lebih terlihat). Bisa diubah per klip di editor."
+            hint={L.companion.focusYHint}
             onChange={(focusY) => updateLayout({ companion: { focusY } })}
           />
           <Slider
-            label="Garis tengah"
+            label={L.divider}
             min={LAYOUT_LIMITS.divider.min}
             max={LAYOUT_LIMITS.divider.max}
             value={m.divider}
-            format={(v) => (v > 0 ? px(v) : 'Tidak ada')}
+            format={(v) => (v > 0 ? px(v) : t.common.none)}
             onChange={(divider) => updateLayout({ companion: { divider } })}
           />
           {m.divider > 0 && (
-            <ColorPicker label="Warna garis" color={m.dividerColor} onChange={(dividerColor) => updateLayout({ companion: { dividerColor } })} />
+            <ColorPicker label={L.dividerColor} color={m.dividerColor} onChange={(dividerColor) => updateLayout({ companion: { dividerColor } })} />
           )}
           <Button variant="secondary" size="sm" icon={<SeparatorHorizontal size={16} aria-hidden="true" />} onClick={captionOnSeam}>
-            Taruh caption di garis tengah
+            {L.captionOnSeam}
           </Button>
         </div>
       )}
 
       {activeTab === 'auto' && (
         <div className="mc-stack">
-          <p className="mc-caption mc-muted">
-            Tampilan untuk tiap jenis adegan. Bingkai memakai pengaturan di tab Bingkai, Latar dan Judul; dua panel di tab Panel. Editor klip
-            menunjukkan adegan mana tampil dengan cara apa.
-          </p>
-          <Field label="Satu orang">
-            <ChoiceChips<'full' | 'framed'> ariaLabel="Tampilan adegan satu orang" size="sm" options={FULL_OR_FRAMED_OPTIONS} value={au.solo} onChange={(solo) => updateLayout({ auto: { solo } })} />
+          <p className="mc-caption mc-muted">{L.auto.intro}</p>
+          <Field label={L.auto.solo}>
+            <ChoiceChips<'full' | 'framed'> ariaLabel={L.auto.soloAria} size="sm" options={fullOrFramedOptions(t)} value={au.solo} onChange={(solo) => updateLayout({ auto: { solo } })} />
           </Field>
-          <Field label="Dua orang berdampingan">
-            <ChoiceChips<SceneView> ariaLabel="Tampilan adegan dua orang" size="sm" options={VIEW_OPTIONS} value={au.duo} onChange={(duo) => updateLayout({ auto: { duo } })} />
+          <Field label={L.auto.duo}>
+            <ChoiceChips<SceneView> ariaLabel={L.auto.duoAria} size="sm" options={viewOptions(t)} value={au.duo} onChange={(duo) => updateLayout({ auto: { duo } })} />
           </Field>
-          <Field label="Ramai" hint="Tiga orang atau lebih, atau dua orang yang terlalu rapat untuk dipisah.">
-            <ChoiceChips<'full' | 'framed'> ariaLabel="Tampilan adegan ramai" size="sm" options={FULL_OR_FRAMED_OPTIONS} value={au.group} onChange={(group) => updateLayout({ auto: { group } })} />
+          <Field label={L.auto.group} hint={L.auto.groupHint}>
+            <ChoiceChips<'full' | 'framed'> ariaLabel={L.auto.groupAria} size="sm" options={fullOrFramedOptions(t)} value={au.group} onChange={(group) => updateLayout({ auto: { group } })} />
           </Field>
-          <Field label="Tanpa wajah" hint="Slide, rekaman layar, B-roll.">
-            <ChoiceChips<'full' | 'framed'> ariaLabel="Tampilan adegan tanpa wajah" size="sm" options={FULL_OR_FRAMED_OPTIONS} value={au.none} onChange={(none) => updateLayout({ auto: { none } })} />
+          <Field label={L.auto.none} hint={L.auto.noneHint}>
+            <ChoiceChips<'full' | 'framed'> ariaLabel={L.auto.noneAria} size="sm" options={fullOrFramedOptions(t)} value={au.none} onChange={(none) => updateLayout({ auto: { none } })} />
           </Field>
         </div>
       )}
 
       {activeTab === 'duo' && (
         <div className="mc-stack">
-          <p className="mc-caption mc-muted">
-            Butuh adegan dengan dua orang dalam satu frame. Editor klip menunjukkan berapa detik klip yang tampil sebagai dua panel.
-          </p>
-          <Field label="Panel atas" hint="Orang di sisi kiri atau kanan video sumber. Bisa ditukar per klip di editor.">
-            <ChoiceChips<DuoTop> ariaLabel="Orang di panel atas" size="sm" options={DUO_TOP_OPTIONS} value={d.top} onChange={(top) => updateLayout({ duo: { top } })} />
+          <p className="mc-caption mc-muted">{L.duo.intro}</p>
+          <Field label={L.duo.top} hint={L.duo.topHint}>
+            <ChoiceChips<DuoTop> ariaLabel={L.duo.topAria} size="sm" options={duoTopOptions(t)} value={d.top} onChange={(top) => updateLayout({ duo: { top } })} />
           </Field>
           <Slider
-            label="Tinggi panel atas"
+            label={L.duo.topHeight}
             min={LAYOUT_LIMITS.split.min}
             max={LAYOUT_LIMITS.split.max}
             step={0.01}
@@ -464,58 +461,56 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
             onChange={(split) => updateLayout({ duo: { split } })}
           />
           <Slider
-            label="Ukuran wajah"
+            label={L.duo.faceSize}
             min={LAYOUT_LIMITS.faceSize.min}
             max={LAYOUT_LIMITS.faceSize.max}
             step={0.01}
             value={d.faceSize}
             format={pct}
-            hint="Tinggi wajah dibanding panelnya. Video sumber tidak diperbesar lebih dari 2,2 kali, jadi wajah yang kecil di video bisa tampil lebih kecil."
+            hint={L.duo.faceSizeHint}
             onChange={(faceSize) => updateLayout({ duo: { faceSize } })}
           />
           <Slider
-            label="Garis tengah"
+            label={L.divider}
             min={LAYOUT_LIMITS.divider.min}
             max={LAYOUT_LIMITS.divider.max}
             value={d.divider}
-            format={(v) => (v > 0 ? px(v) : 'Tidak ada')}
+            format={(v) => (v > 0 ? px(v) : t.common.none)}
             onChange={(divider) => updateLayout({ duo: { divider } })}
           />
           {d.divider > 0 && (
-            <ColorPicker label="Warna garis" color={d.dividerColor} onChange={(dividerColor) => updateLayout({ duo: { dividerColor } })} />
+            <ColorPicker label={L.dividerColor} color={d.dividerColor} onChange={(dividerColor) => updateLayout({ duo: { dividerColor } })} />
           )}
           <Button variant="secondary" size="sm" icon={<SeparatorHorizontal size={16} aria-hidden="true" />} onClick={captionOnSeam}>
-            Taruh caption di garis tengah
+            {L.captionOnSeam}
           </Button>
         </div>
       )}
 
       {activeTab === 'video' && (
         <div className="mc-stack">
-          <Field label="Rasio video" hint="Asli = rasio video sumber. Rasio lain memotong sisi kiri dan kanan video.">
-            <ChoiceChips<FrameRatio> ariaLabel="Rasio video" size="sm" options={RATIO_OPTIONS} value={layout.frame.ratio} onChange={(ratio) => updateLayout({ frame: { ratio } })} />
+          <Field label={L.video.ratio} hint={L.video.ratioHint}>
+            <ChoiceChips<FrameRatio> ariaLabel={L.video.ratio} size="sm" options={ratioOptions(t)} value={layout.frame.ratio} onChange={(ratio) => updateLayout({ frame: { ratio } })} />
           </Field>
           <Slider
-            label={card ? 'Posisi kartu' : 'Posisi vertikal'}
+            label={card ? L.video.cardY : L.video.frameY}
             min={LAYOUT_LIMITS.frameY.min}
             max={LAYOUT_LIMITS.frameY.max}
             value={layout.frame.y}
             format={px}
             onChange={(y) => updateLayout({ frame: { y } })}
             hint={
-              card
-                ? 'Jarak kartu dari atas. Kartu yang terlalu panjang naik sendiri supaya tidak tertutup teks platform.'
-                : 'Jarak bingkai dari atas. Bisa juga digeser langsung di preview.'
+              card ? L.video.cardYHint : L.video.frameYHint
             }
           />
           {layout.frame.ratio !== 'source' && (
-            <Slider label="Fokus horizontal" min={0} max={1} step={0.05} value={layout.frame.focusX} format={pct} onChange={(focusX) => updateLayout({ frame: { focusX } })} />
+            <Slider label={L.video.focusX} min={0} max={1} step={0.05} value={layout.frame.focusX} format={pct} onChange={(focusX) => updateLayout({ frame: { focusX } })} />
           )}
           {!card && (
-            <Slider label="Jarak tepi" min={LAYOUT_LIMITS.margin.min} max={LAYOUT_LIMITS.margin.max} value={layout.frame.margin} format={px} onChange={(margin) => updateLayout({ frame: { margin } })} />
+            <Slider label={L.video.margin} min={LAYOUT_LIMITS.margin.min} max={LAYOUT_LIMITS.margin.max} value={layout.frame.margin} format={px} onChange={(margin) => updateLayout({ frame: { margin } })} />
           )}
           <Slider
-            label={card ? 'Sudut video' : 'Sudut membulat'}
+            label={card ? L.video.cardRadius : L.video.frameRadius}
             min={LAYOUT_LIMITS.radius.min}
             max={LAYOUT_LIMITS.radius.max}
             value={layout.frame.radius}
@@ -524,7 +519,7 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
           />
           {!card && (
             <Button variant="secondary" size="sm" icon={<ArrowDownToLine size={16} aria-hidden="true" />} onClick={captionUnder}>
-              Taruh caption di bawah video
+              {L.video.captionUnder}
             </Button>
           )}
         </div>
@@ -533,31 +528,31 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
       {activeTab === 'background' && (
         <div className="mc-stack">
           <ChoiceChips<BackgroundType>
-            ariaLabel="Jenis latar"
+            ariaLabel={L.background.typeAria}
             size="sm"
-            options={BACKGROUND_OPTIONS}
+            options={backgroundOptions(t)}
             value={layout.background.type}
             onChange={(type) => updateLayout({ background: { type } })}
           />
           {layout.background.type === 'blur' && (
-            <Slider label="Kekuatan blur" min={LAYOUT_LIMITS.blur.min} max={LAYOUT_LIMITS.blur.max} value={layout.background.blur} format={px} onChange={(blur) => updateLayout({ background: { blur } })} />
+            <Slider label={L.background.blur} min={LAYOUT_LIMITS.blur.min} max={LAYOUT_LIMITS.blur.max} value={layout.background.blur} format={px} onChange={(blur) => updateLayout({ background: { blur } })} />
           )}
           {layout.background.type !== 'blur' && (
             <ColorPicker
-              label={layout.background.type === 'gradient' ? 'Warna atas' : 'Warna latar'}
+              label={layout.background.type === 'gradient' ? L.background.topColor : L.background.color}
               color={layout.background.color}
               onChange={(color) => updateLayout({ background: { color } })}
             />
           )}
           {layout.background.type === 'gradient' && (
-            <ColorPicker label="Warna bawah" color={layout.background.color2} onChange={(color2) => updateLayout({ background: { color2 } })} />
+            <ColorPicker label={L.background.bottomColor} color={layout.background.color2} onChange={(color2) => updateLayout({ background: { color2 } })} />
           )}
           {layout.background.type === 'image' && (
             <AssetUploader
-              title="Gambar latar"
-              description="Ditampilkan memenuhi layar di belakang video."
+              title={L.background.imageTitle}
+              description={L.background.imageDescription}
               accept="image/png,image/jpeg,image/webp"
-              formats="PNG, JPG, WEBP · maks. 20 MB"
+              formats={t.brand.assets.formats('PNG, JPG, WEBP', 20)}
               current={layout.background.imageUrl}
               previewImage
               busy={uploading === 'background'}
@@ -566,31 +561,31 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
               onClear={() => updateLayout({ background: { imageUrl: '' } })}
             />
           )}
-          <Slider label="Gelapkan latar" min={LAYOUT_LIMITS.dim.min} max={LAYOUT_LIMITS.dim.max} step={0.05} value={layout.background.dim} format={pct} onChange={(dim) => updateLayout({ background: { dim } })} />
+          <Slider label={L.background.dim} min={LAYOUT_LIMITS.dim.min} max={LAYOUT_LIMITS.dim.max} step={0.05} value={layout.background.dim} format={pct} onChange={(dim) => updateLayout({ background: { dim } })} />
         </div>
       )}
 
       {activeTab === 'header' && (
         <div className="mc-stack">
           <ToggleSwitch
-            label={card ? 'Tampilkan teks postingan' : 'Tampilkan judul di atas video'}
+            label={card ? L.header.showPostText : L.header.showTitle}
             checked={h.enabled}
             onChange={(enabled) => updateLayout({ header: { enabled } })}
           />
           {h.enabled && (
             <>
               <Field
-                label={card ? 'Isi teks' : 'Isi judul'}
-                hint={h.source === 'title' ? 'Kutipan pembuka dari AI untuk tiap klip. Bisa diubah per klip di editor.' : 'Teks yang sama di semua klip.'}
+                label={card ? L.header.postTextSource : L.header.titleSource}
+                hint={h.source === 'title' ? L.header.sourceTitleHint : L.header.sourceCustomHint}
               >
-                <ChoiceChips<HeaderSource> ariaLabel="Isi judul" size="sm" options={HEADER_SOURCE_OPTIONS} value={h.source} onChange={(source) => updateLayout({ header: { source } })} />
+                <ChoiceChips<HeaderSource> ariaLabel={card ? L.header.postTextSource : L.header.titleSource} size="sm" options={headerSourceOptions(t)} value={h.source} onChange={(source) => updateLayout({ header: { source } })} />
               </Field>
               {h.source === 'custom' && (
-                <InputField label="Teks judul" value={h.text} maxLength={200} onChange={(e) => updateLayout({ header: { text: e.target.value } })} placeholder="Misal: PODCAST BISNIS" />
+                <InputField label={L.header.customText} value={h.text} maxLength={200} onChange={(e) => updateLayout({ header: { text: e.target.value } })} placeholder={L.header.customPlaceholder} />
               )}
               <div className="mc-row mc-row--top mc-gap-16">
                 <SelectField
-                  label="Font"
+                  label={L.header.font}
                   containerClassName="mc-grow"
                   value={h.fontFamily}
                   options={SUPPORTED_FONTS.map((f) => ({ value: f, label: f }))}
@@ -602,7 +597,7 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
                   }}
                 />
                 <SelectField
-                  label="Ketebalan"
+                  label={L.header.weight}
                   containerStyle={{ width: 140, flexShrink: 0 }}
                   value={h.fontWeight}
                   options={weightOptionsFor(h.fontFamily, h.fontWeight)}
@@ -610,31 +605,31 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
                 />
               </div>
               <Slider
-                label="Ukuran"
+                label={L.header.size}
                 min={LAYOUT_LIMITS.headerSize.min}
                 max={LAYOUT_LIMITS.headerSize.max}
                 value={h.fontSize}
                 format={px}
-                hint="Teks panjang otomatis mengecil supaya muat."
+                hint={L.header.sizeHint}
                 onChange={(fontSize) => updateLayout({ header: { fontSize } })}
               />
-              <Slider label="Maksimal baris" min={1} max={4} value={h.maxLines} onChange={(maxLines) => updateLayout({ header: { maxLines } })} />
-              <Field label="Rata teks">
-                <ChoiceChips<TextAlign> ariaLabel="Rata teks" size="sm" options={ALIGN_OPTIONS} value={h.align} onChange={(align) => updateLayout({ header: { align } })} />
+              <Slider label={L.header.maxLines} min={1} max={4} value={h.maxLines} onChange={(maxLines) => updateLayout({ header: { maxLines } })} />
+              <Field label={L.header.align}>
+                <ChoiceChips<TextAlign> ariaLabel={L.header.align} size="sm" options={alignOptions(t)} value={h.align} onChange={(align) => updateLayout({ header: { align } })} />
               </Field>
-              <ToggleSwitch label="Huruf kapital" checked={h.isUppercase} onChange={(isUppercase) => updateLayout({ header: { isUppercase } })} />
+              <ToggleSwitch label={L.header.uppercase} checked={h.isUppercase} onChange={(isUppercase) => updateLayout({ header: { isUppercase } })} />
               {!card && (
                 <>
-                  <ColorPicker label="Warna teks" color={h.color} onChange={(color) => updateLayout({ header: { color } })} />
-                  <ToggleSwitch label="Kotak di belakang teks" checked={!!h.boxColor} onChange={(on) => updateLayout({ header: { boxColor: on ? '#000000B3' : '' } })} />
-                  {h.boxColor && <ColorPicker label="Warna kotak" color={h.boxColor} onChange={(boxColor) => updateLayout({ header: { boxColor } })} />}
-                  <Slider label="Jarak ke video" min={LAYOUT_LIMITS.headerGap.min} max={LAYOUT_LIMITS.headerGap.max} value={h.gap} format={px} onChange={(gap) => updateLayout({ header: { gap } })} />
+                  <ColorPicker label={L.header.textColor} color={h.color} onChange={(color) => updateLayout({ header: { color } })} />
+                  <ToggleSwitch label={L.header.box} checked={!!h.boxColor} onChange={(on) => updateLayout({ header: { boxColor: on ? '#000000B3' : '' } })} />
+                  {h.boxColor && <ColorPicker label={L.header.boxColor} color={h.boxColor} onChange={(boxColor) => updateLayout({ header: { boxColor } })} />}
+                  <Slider label={L.header.gap} min={LAYOUT_LIMITS.headerGap.min} max={LAYOUT_LIMITS.headerGap.max} value={h.gap} format={px} onChange={(gap) => updateLayout({ header: { gap } })} />
                 </>
               )}
-              {card && <p className="mc-caption mc-muted">Warna teks postingan diatur di tab Kartu.</p>}
+              {card && <p className="mc-caption mc-muted">{L.header.cardColorsNote}</p>}
               {covered.length > 0 && (
-                <Alert tone="warning" title="Judul bisa tertutup">
-                  Bagian atas judul contoh masuk area menu {platformNames(covered)}. Turunkan bingkai video atau kecilkan judul.
+                <Alert tone="warning" title={L.header.coveredTitle}>
+                  {L.header.coveredBody(platformNames(covered))}
                 </Alert>
               )}
             </>
@@ -645,16 +640,16 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
       {activeTab === 'credit' && (
         <div className="mc-stack">
           <ToggleSwitch
-            label="Tampilkan sumber video"
-            hint="Teks kecil di pojok video. {channel} diganti nama channel YouTube; tidak tampil untuk video upload."
+            label={L.credit.show}
+            hint={L.credit.showHint}
             checked={layout.credit.enabled}
             onChange={(enabled) => updateLayout({ credit: { enabled } })}
           />
           {layout.credit.enabled && (
             <>
-              <InputField label="Teks" value={layout.credit.text} maxLength={80} onChange={(e) => updateLayout({ credit: { text: e.target.value } })} />
-              <Slider label="Ukuran" min={LAYOUT_LIMITS.creditSize.min} max={LAYOUT_LIMITS.creditSize.max} value={layout.credit.fontSize} format={px} onChange={(fontSize) => updateLayout({ credit: { fontSize } })} />
-              <ColorPicker label="Warna teks" color={layout.credit.color} onChange={(color) => updateLayout({ credit: { color } })} />
+              <InputField label={L.credit.text} value={layout.credit.text} maxLength={80} onChange={(e) => updateLayout({ credit: { text: e.target.value } })} />
+              <Slider label={L.credit.size} min={LAYOUT_LIMITS.creditSize.min} max={LAYOUT_LIMITS.creditSize.max} value={layout.credit.fontSize} format={px} onChange={(fontSize) => updateLayout({ credit: { fontSize } })} />
+              <ColorPicker label={L.credit.color} color={layout.credit.color} onChange={(color) => updateLayout({ credit: { color } })} />
             </>
           )}
         </div>
@@ -664,25 +659,21 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
 
       <div className="mc-stack">
         <ToggleSwitch
-          label="Zoom dinamis"
-          hint="Video membesar sebentar untuk memberi penekanan. Berlaku di semua tampilan."
+          label={L.zoom.toggle}
+          hint={L.zoom.toggleHint}
           checked={z.enabled}
           onChange={(enabled) => updateLayout({ zoom: { enabled } })}
         />
         {z.enabled && (
           <>
             <Field
-              label="Kapan zoom"
-              hint={
-                z.style === 'keywords'
-                  ? 'Zoom halus setiap kata kunci yang ditandai AI, lalu kembali.'
-                  : 'Bergantian: satu kalimat normal, kalimat berikutnya lebih dekat.'
-              }
+              label={L.zoom.when}
+              hint={z.style === 'keywords' ? L.zoom.keywordsHint : L.zoom.sentencesHint}
             >
-              <ChoiceChips<ZoomStyle> ariaLabel="Kapan zoom" size="sm" options={ZOOM_STYLE_OPTIONS} value={z.style} onChange={(style) => updateLayout({ zoom: { style } })} />
+              <ChoiceChips<ZoomStyle> ariaLabel={L.zoom.when} size="sm" options={zoomStyleOptions(t)} value={z.style} onChange={(style) => updateLayout({ zoom: { style } })} />
             </Field>
             <Slider
-              label="Besar zoom"
+              label={L.zoom.amount}
               min={LAYOUT_LIMITS.zoomAmount.min}
               max={LAYOUT_LIMITS.zoomAmount.max}
               step={0.01}
@@ -691,8 +682,8 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
               onChange={(amount) => updateLayout({ zoom: { amount } })}
             />
             {z.style === 'keywords' && !keywordsOn && (
-              <Alert tone="info" title="Kata kunci AI sedang mati">
-                Zoom ini mengikuti kata kunci dari AI subtitle. Nyalakan &quot;Sorot kata kunci (AI)&quot; di bagian AI subtitle, atau pilih &quot;Tiap kalimat&quot;.
+              <Alert tone="info" title={L.zoom.keywordsOffTitle}>
+                {L.zoom.keywordsOffBody(t.brand.ai.keywords, L.zoomStyle.sentences)}
               </Alert>
             )}
           </>
@@ -703,8 +694,8 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
 
       <div className="mc-stack">
         <ToggleSwitch
-          label="Nama pembicara"
-          hint="Label nama dan keterangan muncul beberapa detik di awal klip. Nama diisi per klip di editor, dan bisa diusulkan AI."
+          label={L.speaker.toggle}
+          hint={L.speaker.toggleHint}
           checked={sp.enabled}
           onChange={(enabled) => updateLayout({ speaker: { enabled } })}
         />
@@ -712,64 +703,64 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
           <>
             <div className="mc-row mc-row--top mc-gap-16">
               <InputField
-                label="Nama bawaan"
+                label={L.speaker.name}
                 containerClassName="mc-grow"
                 value={sp.name}
                 maxLength={60}
-                placeholder="Kosongkan bila beda tiap klip"
-                hint="Dipakai bila klip tidak mengisi nama sendiri."
+                placeholder={L.speaker.namePlaceholder}
+                hint={L.speaker.nameHint}
                 onChange={(e) => updateLayout({ speaker: { name: e.target.value } })}
               />
               <InputField
-                label="Keterangan bawaan"
+                label={L.speaker.role}
                 containerClassName="mc-grow"
                 value={sp.role}
                 maxLength={60}
-                placeholder="Misal: Host"
+                placeholder={L.speaker.rolePlaceholder}
                 onChange={(e) => updateLayout({ speaker: { role: e.target.value } })}
               />
             </div>
             <div className="mc-row mc-row--top mc-gap-16">
               <SelectField
-                label="Font"
+                label={L.speaker.font}
                 containerClassName="mc-grow"
                 value={sp.fontFamily}
                 options={SUPPORTED_FONTS.map((f) => ({ value: f, label: f }))}
                 onChange={(e) => updateLayout({ speaker: { fontFamily: e.target.value } })}
               />
-              <Field label="Posisi" style={{ flex: '0 0 auto', width: 'auto' }}>
-                <ChoiceChips<SpeakerAlign> ariaLabel="Posisi label nama" size="sm" options={SPEAKER_ALIGN_OPTIONS} value={sp.align} onChange={(align) => updateLayout({ speaker: { align } })} />
+              <Field label={L.speaker.position} style={{ flex: '0 0 auto', width: 'auto' }}>
+                <ChoiceChips<SpeakerAlign> ariaLabel={L.speaker.positionAria} size="sm" options={speakerAlignOptions(t)} value={sp.align} onChange={(align) => updateLayout({ speaker: { align } })} />
               </Field>
             </div>
-            <Slider label="Ukuran" min={LAYOUT_LIMITS.speakerSize.min} max={LAYOUT_LIMITS.speakerSize.max} value={sp.fontSize} format={px} onChange={(fontSize) => updateLayout({ speaker: { fontSize } })} />
+            <Slider label={L.speaker.size} min={LAYOUT_LIMITS.speakerSize.min} max={LAYOUT_LIMITS.speakerSize.max} value={sp.fontSize} format={px} onChange={(fontSize) => updateLayout({ speaker: { fontSize } })} />
             <Slider
-              label="Posisi vertikal"
+              label={L.speaker.y}
               min={LAYOUT_LIMITS.speakerY.min}
               max={LAYOUT_LIMITS.speakerY.max}
               value={sp.y}
               format={px}
-              hint="Jarak label dari atas. Bawaannya tepat di atas caption."
+              hint={L.speaker.yHint}
               onChange={(y) => updateLayout({ speaker: { y } })}
             />
-            <Slider label="Muncul pada" min={LAYOUT_LIMITS.speakerStart.min} max={10} step={0.1} value={sp.start} format={secs} onChange={(start) => updateLayout({ speaker: { start } })} />
-            <Slider label="Lama tampil" min={LAYOUT_LIMITS.speakerDuration.min} max={15} step={0.5} value={sp.duration} format={secs} onChange={(duration) => updateLayout({ speaker: { duration } })} />
-            <ColorPicker label="Kotak nama" color={sp.color} onChange={(color) => updateLayout({ speaker: { color } })} />
-            <ColorPicker label="Teks nama" color={sp.textColor} onChange={(textColor) => updateLayout({ speaker: { textColor } })} />
-            <ColorPicker label="Kotak keterangan" color={sp.accent} onChange={(accent) => updateLayout({ speaker: { accent } })} />
-            <ColorPicker label="Teks keterangan" color={sp.accentText} onChange={(accentText) => updateLayout({ speaker: { accentText } })} />
+            <Slider label={L.speaker.start} min={LAYOUT_LIMITS.speakerStart.min} max={10} step={0.1} value={sp.start} format={secs} onChange={(start) => updateLayout({ speaker: { start } })} />
+            <Slider label={L.speaker.duration} min={LAYOUT_LIMITS.speakerDuration.min} max={15} step={0.5} value={sp.duration} format={secs} onChange={(duration) => updateLayout({ speaker: { duration } })} />
+            <ColorPicker label={L.speaker.nameBox} color={sp.color} onChange={(color) => updateLayout({ speaker: { color } })} />
+            <ColorPicker label={L.speaker.nameText} color={sp.textColor} onChange={(textColor) => updateLayout({ speaker: { textColor } })} />
+            <ColorPicker label={L.speaker.roleBox} color={sp.accent} onChange={(accent) => updateLayout({ speaker: { accent } })} />
+            <ColorPicker label={L.speaker.roleText} color={sp.accentText} onChange={(accentText) => updateLayout({ speaker: { accentText } })} />
           </>
         )}
       </div>
 
       <Divider />
       <Field
-        label="Garis bantu platform"
-        hint="Area tombol & teks platform di preview, supaya caption, judul dan logo tidak tertutup. Tidak ikut dirender."
+        label={L.safeZone.label}
+        hint={L.safeZone.hint}
       >
         <ChoiceChips<SafeZone>
-          ariaLabel="Safe zone platform"
+          ariaLabel={L.safeZone.aria}
           size="sm"
-          options={SAFE_ZONE_OPTIONS}
+          options={safeZoneOptions(t)}
           value={layout.safeZone || 'none'}
           onChange={(safeZone) => updateLayout({ safeZone })}
         />

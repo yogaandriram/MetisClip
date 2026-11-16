@@ -10,6 +10,11 @@ export const ui = {
   progress: 'Progres',
   viralScore: 'Skor viral',
   viralScoreValue: (n: number) => `Skor viral ${n}`,
+  recentColors: 'Terakhir dipakai',
+  stepDone: 'Selesai',
+  /** Top bar pill: "<n> proses berjalan" (the number is shown separately) */
+  runningJobs: (_n: number) => `proses berjalan`,
+  newClip: 'Klip baru',
   workspaceSwitcher: {
     loading: 'Memuat workspace…',
     choose: 'Pilih workspace',

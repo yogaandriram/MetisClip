@@ -1,3 +1,56 @@
 import type { Messages } from '../id'
 
-export const workspace: Messages['workspace'] = {}
+export const workspace: Messages['workspace'] = {
+  noAgent: {
+    thisPage: 'this page',
+    loadFailed: "Couldn't load the workspaces",
+    emptyTitle: 'No workspaces yet',
+    emptyDescription: (what: string) =>
+      `Create your first workspace to start using ${what}. Each workspace has its own niche, clip length and brand template.`,
+    create: 'Create workspace',
+    chooseTitle: 'Choose a workspace',
+    chooseDescription: (what: string) => `Choose the active workspace with the workspace switcher at the top right to open ${what}.`,
+    manage: 'Manage workspaces',
+  },
+  form: {
+    name: 'Workspace name',
+    namePlaceholder: 'E.g. AI Tech Clipper',
+    niche: 'Niche focus',
+    nichePlaceholder: 'E.g. Tech & AI, Business',
+    duration: 'Default clip length',
+    template: 'Default brand template',
+    templateHint: "Used by new clips in this workspace. Each clip's template can still be changed in the editor.",
+  },
+  page: {
+    title: 'Workspace',
+    subtitle: 'Each workspace is a separate space with its own niche, brand template and clips.',
+    createNew: 'New workspace',
+    newTitle: 'New workspace',
+    saveNew: 'Save workspace',
+    created: (name: string) => `Workspace "${name}" created`,
+    createFailed: "Couldn't create the workspace",
+    updated: 'Workspace updated',
+    deleted: 'Workspace deleted',
+    emptyTitle: 'No workspaces yet',
+    emptyDescription: 'Create your first workspace to start finding videos and making clips.',
+    create: 'Create workspace',
+    noNiche: 'No niche description',
+    active: 'Active',
+    templateTag: (name: string) => `Template: ${name}`,
+    createdOn: (date: string) => `Created ${date}`,
+    switched: (name: string) => `Switched to ${name}`,
+    current: 'Active now',
+    choose: 'Use this workspace',
+    edit: 'Edit workspace',
+    delete: 'Delete workspace',
+    editTitle: 'Edit workspace',
+    saveChanges: 'Save changes',
+  },
+  deleteModal: {
+    title: (name: string) => `Delete "${name}"?`,
+    message: 'The workspace and its jobs and clips will be deleted from the database. Brand templates stay in the library. This cannot be undone.',
+    confirm: 'Delete workspace',
+    deleteFiles: "Also delete this workspace's video files from the data folder",
+    deleteFilesHint: 'If unchecked, the video files stay in the library folder.',
+  },
+}

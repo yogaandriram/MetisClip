@@ -6,6 +6,7 @@ import toast from 'react-hot-toast'
 import { api, type SecretName } from '@/lib/engine'
 import { errorMessage } from '@/lib/format'
 import { Badge, Button, ConfirmModal, InputField } from '@/components/ui'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 interface SecretFieldProps {
   name: SecretName
@@ -18,13 +19,15 @@ interface SecretFieldProps {
   onChange: (value: string) => void
   /** Called after a successful save/remove with the new configured state */
   onConfiguredChange: (configured: boolean) => void
-  /** Called before "Tes" (e.g. to persist related settings such as the LLM base URL) */
+  /** Called before "Test" (e.g. to persist related settings such as the LLM base URL) */
   beforeTest?: () => Promise<void>
   allowRemove?: boolean
 }
 
 /** API key input. The stored key stays hidden until the user clicks the eye icon. */
 export function SecretField({ name, label, description, configured, value, onChange, onConfiguredChange, beforeTest, allowRemove = true }: SecretFieldProps) {
+  const t = useT()
+  const m = t.settings.secret
   const inputId = useId()
   const descriptionId = `${inputId}-description`
   const [saving, setSaving] = useState(false)
@@ -87,7 +90,7 @@ export function SecretField({ name, label, description, configured, value, onCha
       reset()
       onConfiguredChange(true)
       setResult(null)
-      toast.success(`${label} disimpan`)
+      toast.success(m.saved(label))
     } catch (err) {
       toast.error(errorMessage(err))
     } finally {
@@ -115,7 +118,7 @@ export function SecretField({ name, label, description, configured, value, onCha
       reset()
       onConfiguredChange(false)
       setResult(null)
-      toast.success(`${label} dihapus`)
+      toast.success(m.removed(label))
     } catch (err) {
       toast.error(errorMessage(err))
     } finally {
@@ -132,11 +135,11 @@ export function SecretField({ name, label, description, configured, value, onCha
         </label>
         {configured ? (
           <Badge tone="success" size="sm" icon={<Check size={14} aria-hidden="true" />}>
-            Tersimpan
+            {m.stored}
           </Badge>
         ) : (
           <Badge tone="quiet" size="sm">
-            Belum diisi
+            {m.notSet}
           </Badge>
         )}
       </div>
@@ -151,7 +154,7 @@ export function SecretField({ name, label, description, configured, value, onCha
           type="password"
           autoComplete="off"
           spellCheck={false}
-          placeholder={configured ? '•••••••• (klik ikon mata untuk melihat, atau isi untuk mengganti)' : 'Tempel API key di sini'}
+          placeholder={configured ? m.placeholderStored : m.placeholderEmpty}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           icon={<KeyRound size={18} aria-hidden="true" />}
@@ -162,14 +165,14 @@ export function SecretField({ name, label, description, configured, value, onCha
           aria-describedby={description ? descriptionId : undefined}
         />
         <Button type="button" variant="secondary" size="sm" onClick={test} loading={testing} disabled={!configured && !value.trim()}>
-          Tes
+          {m.test}
         </Button>
         <Button type="button" variant="primary" size="sm" onClick={save} loading={saving} disabled={!value.trim() || value.trim() === revealed}>
-          Simpan
+          {t.common.save}
         </Button>
         {allowRemove && configured && (
           <Button type="button" variant="danger" size="sm" icon={<Trash2 size={16} aria-hidden="true" />} onClick={() => setConfirmRemove(true)} disabled={removing}>
-            Hapus key
+            {m.removeKey}
           </Button>
         )}
       </div>
@@ -180,7 +183,7 @@ export function SecretField({ name, label, description, configured, value, onCha
             size="sm"
             icon={result.ok ? <Check size={14} aria-hidden="true" /> : <AlertTriangle size={14} aria-hidden="true" />}
           >
-            {result.ok ? 'Berhasil' : 'Gagal'}
+            {result.ok ? m.testOk : m.testFailed}
           </Badge>
           {result.message && (
             <span className="mc-caption" style={{ paddingTop: 4, overflowWrap: 'anywhere' }}>
@@ -192,9 +195,9 @@ export function SecretField({ name, label, description, configured, value, onCha
       <ConfirmModal
         isOpen={confirmRemove}
         danger
-        title={`Hapus ${label}?`}
-        message="Key dihapus dari Windows Credential Manager. Fitur yang memakainya berhenti bekerja sampai Anda mengisi key baru."
-        confirmLabel="Hapus key"
+        title={m.removeTitle(label)}
+        message={m.removeMessage}
+        confirmLabel={m.removeKey}
         confirmIcon={<Trash2 size={16} aria-hidden="true" />}
         loading={removing}
         onConfirm={remove}

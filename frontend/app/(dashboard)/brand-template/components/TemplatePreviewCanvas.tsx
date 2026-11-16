@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Play } from 'lucide-react';
 import { Stage } from '@/components/ui';
 import { assetUrl } from '@/lib/media';
@@ -18,7 +18,8 @@ import {
   captionRect,
   toDesign,
 } from '@/lib/presets/position';
-import { AiSettings, CaptionSettings, BrandSettings, LayoutSettings, SAMPLE_TITLE, SafeZone, safeZoneLabel } from '../types';
+import { useT } from '@/lib/i18n/I18nProvider';
+import { AiSettings, CaptionSettings, BrandSettings, LayoutSettings, SafeZone, safeZoneLabel } from '../types';
 
 interface TemplatePreviewCanvasProps {
   caption: CaptionSettings;
@@ -34,16 +35,17 @@ interface TemplatePreviewCanvasProps {
   onUpdateCaption?: (updates: Partial<CaptionSettings>) => void;
 }
 
-// Sample sentence for the preview loop. "eh" shows the filler-word setting; the marked words show
-// the keyword highlight and emoji settings (in real clips the AI marks them, editable per word).
-const SAMPLE_WORDS: CaptionWord[] = [
-  { word: 'Rahasia', start: 0.0, end: 0.42 },
-  { word: 'konten', start: 0.42, end: 0.8 },
-  { word: 'viral', start: 0.8, end: 1.25, keyword: true, emoji: '🔥' },
-  { word: 'eh', start: 1.3, end: 1.6 },
-  { word: 'ternyata', start: 1.65, end: 2.1 },
-  { word: 'sederhana', start: 2.1, end: 2.65, keyword: true },
-  { word: 'banget!', start: 2.65, end: 3.15, emoji: '💡' },
+// Timing and marks of the sample sentence for the preview loop (its words come from t.brand.sample.words).
+// The 4th word is a filler word and shows the filler-word setting; the marked words show the keyword
+// highlight and emoji settings (in real clips the AI marks them, editable per word).
+const SAMPLE_TIMING: Omit<CaptionWord, 'word'>[] = [
+  { start: 0.0, end: 0.42 },
+  { start: 0.42, end: 0.8 },
+  { start: 0.8, end: 1.25, keyword: true, emoji: '🔥' },
+  { start: 1.3, end: 1.6 },
+  { start: 1.65, end: 2.1 },
+  { start: 2.1, end: 2.65, keyword: true },
+  { start: 2.65, end: 3.15, emoji: '💡' },
 ];
 const SAMPLE_LOOP = 4.3; // seconds, includes a short silence so the fade-out is visible
 
@@ -81,13 +83,14 @@ const ALL_SAFE = toDesign(ALL_PLATFORMS_UI);
  * figures as the caption safety check (lib/presets/position.ts). Drawn on the preview only.
  */
 const SafeZoneGuide: React.FC<{ zone: SafeZone }> = ({ zone }) => {
+  const t = useT();
   if (zone === 'none') return null;
   const z = zone === 'all' ? ALL_SAFE : toDesign(PLATFORM_UI[zone]);
   return (
     <div aria-hidden="true" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 5 }}>
-      <div style={{ ...SAFE_ZONE_BAND, left: 0, right: 0, top: 0, height: z.top }}>Tab & menu</div>
-      <div style={{ ...SAFE_ZONE_BAND, left: 0, right: 0, bottom: 0, height: z.bottom }}>Judul & keterangan</div>
-      <div style={{ ...SAFE_ZONE_BAND, right: 0, top: z.top, bottom: z.bottom, width: z.right, writingMode: 'vertical-rl' }}>Tombol</div>
+      <div style={{ ...SAFE_ZONE_BAND, left: 0, right: 0, top: 0, height: z.top }}>{t.brand.preview.bandTop}</div>
+      <div style={{ ...SAFE_ZONE_BAND, left: 0, right: 0, bottom: 0, height: z.bottom }}>{t.brand.preview.bandBottom}</div>
+      <div style={{ ...SAFE_ZONE_BAND, right: 0, top: z.top, bottom: z.bottom, width: z.right, writingMode: 'vertical-rl' }}>{t.brand.preview.bandSide}</div>
       <div style={{ ...SAFE_ZONE_BAND, left: 0, top: z.top, bottom: z.bottom, width: z.left }} />
       <div style={{ ...SAFE_AREA_OUTLINE, left: z.left, right: z.right, top: z.top, bottom: z.bottom }} />
     </div>
@@ -120,6 +123,10 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
   onSampleAspect,
   onUpdateCaption,
 }) => {
+  const t = useT();
+  const P = t.brand.preview;
+  const sample = t.brand.sample;
+  const sampleWords = useMemo<CaptionWord[]>(() => SAMPLE_TIMING.map((w, i) => ({ ...w, word: sample.words[i] ?? '' })), [sample.words]);
   // Brand assets are stored as asset://<path>; no remote sample video (the app must work offline)
   const videoUrl = assetUrl(brandSettings?.sampleVideoUrl);
   const overlaySrc = assetUrl(brandSettings?.overlayUrl);
@@ -217,9 +224,9 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
   // The speaker name is usually set per clip: show a sample so the tag's style can be judged here
   const sp = draggedLayout.speaker;
   const shownLayout: LayoutSettings = sp.enabled
-    ? { ...draggedLayout, speaker: { ...sp, name: sp.name.trim() || 'Nama Pembicara', role: sp.name.trim() ? sp.role : sp.role || 'Keterangan' } }
+    ? { ...draggedLayout, speaker: { ...sp, name: sp.name.trim() || sample.speakerName, role: sp.name.trim() ? sp.role : sp.role || sample.speakerRole } }
     : draggedLayout;
-  const frame = stageRect(shownLayout, aspect, SAMPLE_TITLE);
+  const frame = stageRect(shownLayout, aspect, sample.title);
 
   const handleFramePointerDown = (e: React.PointerEvent) => {
     if (!onUpdateLayout) return;
@@ -349,9 +356,9 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
   return (
     <Stage className="mc-stack">
       <div className="mc-row mc-row--between">
-        <h2 className="mc-h3">Preview</h2>
+        <h2 className="mc-h3">{P.heading}</h2>
         {layoutSettings.safeZone && layoutSettings.safeZone !== 'none' && (
-          <span className="mc-caption mc-muted">Safe zone {safeZoneLabel(layoutSettings.safeZone)}</span>
+          <span className="mc-caption mc-muted">{P.safeZone(safeZoneLabel(layoutSettings.safeZone, t))}</span>
         )}
       </div>
 
@@ -370,12 +377,12 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
         <LayoutStage
           layout={shownLayout}
           aspect={aspect}
-          title={SAMPLE_TITLE}
-          channel="Channel contoh"
+          title={sample.title}
+          channel={sample.channel}
           backgroundImageUrl={assetUrl(layoutSettings.background.imageUrl)}
           avatarUrl={assetUrl(layoutSettings.card.avatarUrl)}
           time={clock}
-          words={SAMPLE_WORDS}
+          words={sampleWords}
           // Auto: two people, one person and a slide in turn (a third of the sample loop each)
           scenes={sampleScenes(layoutSettings.mode, SAMPLE_LOOP / 3)}
           renderVideo={(role, style) =>
@@ -388,7 +395,7 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
                 <video key={companionUrl} src={companionUrl} autoPlay loop muted playsInline style={style} />
               ) : (
                 <div className="mc-caption" style={{ ...style, ...PLACEHOLDER }}>
-                  Video pendamping
+                  {P.companion}
                 </div>
               )
             ) : videoUrl ? (
@@ -409,21 +416,21 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
               />
             ) : role === 'main' && (framed || split || auto) ? (
               <div className="mc-caption" style={{ ...style, ...PLACEHOLDER }}>
-                {split || auto ? 'Video pembicara' : 'Video sumber'}
+                {split || auto ? P.speakerVideo : P.sourceVideo}
               </div>
             ) : null
           }
         />
         {!videoUrl && !framed && !split && !scened && (
           <div className="mc-caption mc-muted" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '0 30px' }}>
-            Unggah &quot;Video contoh&quot; di bagian Logo & video contoh untuk melihat preview di atas video Anda.
+            {P.noSample(t.brand.assets.sampleTitle, t.brand.sections.overlay)}
           </div>
         )}
         {frame && onUpdateLayout && (
           <div
             role="button"
             tabIndex={0}
-            aria-label={`Posisi ${layoutSettings.mode === 'card' ? 'kartu' : 'video'}. Geser ke atas atau ke bawah, atau pakai tombol panah (Shift untuk langkah besar).`}
+            aria-label={layoutSettings.mode === 'card' ? P.frameAriaCard : P.frameAriaVideo}
             className={frameDrag !== null ? 'mc-drag-target is-dragging' : 'mc-drag-target'}
             onPointerDown={handleFramePointerDown}
             onPointerMove={handleFramePointerMove}
@@ -465,7 +472,7 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
           >
             <img
               src={overlaySrc}
-              alt="Brand Overlay"
+              alt={P.logoAlt}
               onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
@@ -506,12 +513,12 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
         )}
 
         {/* Caption: the same component and sizing as the clip editor and the exported video */}
-        <CaptionLayer words={SAMPLE_WORDS} time={clock} style={{ ...shownCaption, offsetTime: 0 }} ai={ai} />
+        <CaptionLayer words={sampleWords} time={clock} style={{ ...shownCaption, offsetTime: 0 }} ai={ai} />
         {onUpdateCaption && (
           <div
             role="button"
             tabIndex={0}
-            aria-label="Posisi caption. Geser untuk memindahkan, atau pakai tombol panah (Shift untuk langkah besar)."
+            aria-label={P.captionAria}
             className={capDrag ? 'mc-drag-target is-dragging' : 'mc-drag-target'}
             onPointerDown={handleCaptionPointerDown}
             onPointerMove={handleCaptionPointerMove}
@@ -532,9 +539,9 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
       </div>
 
       <p className="mc-caption mc-muted" style={{ maxWidth: `${CANVAS_WIDTH}px` }}>
-        Geser caption untuk memindahkannya.
-        {framed && (layoutSettings.mode === 'card' ? ' Geser kartu ke atas atau ke bawah.' : ' Geser video ke atas atau ke bawah.')}
-        {overlaySrc && ' Geser logo untuk memindahkan, tarik titik di sudutnya untuk mengubah ukuran.'}
+        {P.helpCaption}
+        {framed && ` ${layoutSettings.mode === 'card' ? P.helpCard : P.helpVideo}`}
+        {overlaySrc && ` ${P.helpLogo}`}
       </p>
     </Stage>
   );

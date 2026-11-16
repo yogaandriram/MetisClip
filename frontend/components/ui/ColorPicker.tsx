@@ -85,7 +85,7 @@ export function ColorPicker({ color, onChange, label }: ColorPickerProps) {
             style={{ marginTop: 12 }}
           />
           <div className="mc-caption mc-muted" style={{ margin: '12px 0 8px' }}>
-            Terakhir dipakai
+            {t.ui.recentColors}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 20px)', gap: 6 }}>
             {recent.map((c) => (

@@ -64,7 +64,7 @@ export function NavRail({ items, pathname, systemHint, systemProblem }: NavRailP
   const shownY = biteY ?? lastBiteY.current
 
   return (
-    <nav className="mc-rail" aria-label="Navigasi utama">
+    <nav className="mc-rail" aria-label={t.shell.nav.label}>
       <svg
         className="mc-rail__bite"
         viewBox="0 -46 66 92"

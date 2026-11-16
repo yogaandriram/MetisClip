@@ -27,18 +27,23 @@ import { useEngineEvents } from '@/hooks/useEngineEvents'
 import { api, type Clip, type ClipStatus } from '@/lib/engine'
 import { isDesktop, mediaUrl, revealInExplorer } from '@/lib/media'
 import { CLIP_STATUS, errorMessage, formatClock, formatDate } from '@/lib/format'
+import { tm } from '@/lib/i18n'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 const detailHref = (id: string) => `/clips/detail/?id=${encodeURIComponent(id)}`
 
 type Filter = 'all' | 'ready' | 'exported' | 'working' | 'failed'
 
-const FILTERS: { id: Filter; label: string; match: (s: ClipStatus) => boolean }[] = [
-  { id: 'all', label: 'Semua', match: () => true },
-  { id: 'ready', label: CLIP_STATUS.ready.label, match: (s) => s === 'ready' },
-  { id: 'exported', label: CLIP_STATUS.exported.label, match: (s) => s === 'exported' },
-  { id: 'working', label: CLIP_STATUS.processing.label, match: (s) => s === 'processing' || s === 'rendering' },
-  { id: 'failed', label: CLIP_STATUS.failed.label, match: (s) => s === 'failed' },
+/** `status` names the filter with that status's label (null = "Semua"), read at render time. */
+const FILTERS: { id: Filter; status: ClipStatus | null; match: (s: ClipStatus) => boolean }[] = [
+  { id: 'all', status: null, match: () => true },
+  { id: 'ready', status: 'ready', match: (s) => s === 'ready' },
+  { id: 'exported', status: 'exported', match: (s) => s === 'exported' },
+  { id: 'working', status: 'processing', match: (s) => s === 'processing' || s === 'rendering' },
+  { id: 'failed', status: 'failed', match: (s) => s === 'failed' },
 ]
+
+const filterLabel = (status: ClipStatus | null) => (status ? CLIP_STATUS[status].label : tm().common.all)
 
 const GRID: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 20 }
 const CENTER: React.CSSProperties = { position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }
@@ -46,6 +51,8 @@ const CENTER: React.CSSProperties = { position: 'absolute', inset: 0, display: '
 export default function ClipsPage() {
   const { activeAgent } = useAgent()
   const { epoch, systemInfo } = useEngine()
+  const t = useT()
+  const m = t.clips
   const [clips, setClips] = useState<Clip[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
@@ -59,7 +66,7 @@ export default function ClipsPage() {
       setClips(clips)
       setError(null)
     } catch (err) {
-      setError(errorMessage(err, 'Gagal memuat clip'))
+      setError(errorMessage(err, tm().clips.loadFailed))
     }
   }, [])
 
@@ -95,7 +102,7 @@ export default function ClipsPage() {
     try {
       await api.clips.remove(toDelete.id, true)
       setClips((prev) => prev?.filter((c) => c.id !== toDelete.id) ?? prev)
-      toast.success('Clip dihapus')
+      toast.success(m.deleted)
       setToDelete(null)
     } catch (err) {
       toast.error(errorMessage(err))
@@ -108,7 +115,7 @@ export default function ClipsPage() {
     const rel = clip.files.final || clip.files.raw
     try {
       const ok = await revealInExplorer(systemInfo?.data_root, rel)
-      if (!ok) toast.error(rel ? 'Hanya tersedia di aplikasi desktop' : 'File video belum tersedia')
+      if (!ok) toast.error(rel ? m.desktopOnly : m.noVideoFile)
     } catch (err) {
       toast.error(errorMessage(err))
     }
@@ -116,16 +123,16 @@ export default function ClipsPage() {
 
   const exportTo = async (clip: Clip) => {
     if (!window.metis) return
-    const dir = await window.metis.selectFolder({ title: 'Ekspor clip ke folder', defaultPath: systemInfo?.export_dir })
+    const dir = await window.metis.selectFolder({ title: m.exportDialogTitle, defaultPath: systemInfo?.export_dir })
     if (!dir) return
     setExportingId(clip.id)
     try {
       const res = await api.clips.export([clip.id], dir)
       if (res.exported.length > 0) {
-        toast.success('Clip diekspor')
+        toast.success(m.exported)
         window.metis.showItemInFolder(res.exported[0].path)
       } else {
-        toast.error(res.skipped[0]?.reason || 'Clip belum bisa diekspor')
+        toast.error(res.skipped[0]?.reason || m.cannotExport)
       }
     } catch (err) {
       toast.error(errorMessage(err))
@@ -137,8 +144,8 @@ export default function ClipsPage() {
   if (!activeAgent) {
     return (
       <div>
-        <PageHeader title="Hasil Pemotongan Clip" />
-        <NoAgentState what="galeri clip" />
+        <PageHeader title={m.title} />
+        <NoAgentState what={m.galleryName} />
       </div>
     )
   }
@@ -149,7 +156,7 @@ export default function ClipsPage() {
 
   return (
     <div>
-      <PageHeader title="Hasil Pemotongan Clip" subtitle="Klik salah satu clip untuk membuka editor subtitle." />
+      <PageHeader title={m.title} subtitle={m.subtitle} />
 
       {error && (
         <Alert
@@ -157,7 +164,7 @@ export default function ClipsPage() {
           style={{ marginBottom: 20 }}
           action={
             <Button variant="secondary" size="sm" onClick={() => load(activeAgent.id)}>
-              Coba lagi
+              {t.common.retry}
             </Button>
           }
         >
@@ -178,11 +185,11 @@ export default function ClipsPage() {
       ) : clips.length === 0 ? (
         <EmptyState
           icon={Film}
-          title="Belum ada clip"
-          description="Clip yang dihasilkan AI akan muncul di sini secara otomatis. Mulai dari menu Cari Video."
+          title={m.emptyTitle}
+          description={m.emptyDescription}
           action={
             <ButtonLink href="/discover/" variant="accent" size="sm" icon={<Plus size={16} aria-hidden="true" />}>
-              Klip baru
+              {m.newClip}
             </ButtonLink>
           }
         />
@@ -190,13 +197,13 @@ export default function ClipsPage() {
         <div className="mc-stack mc-gap-20">
           <div>
             <Tabs
-              ariaLabel="Filter status clip"
+              ariaLabel={m.filterAria}
               onCanvas
               tabs={FILTERS.map((f) => ({
                 id: f.id,
                 label: (
                   <>
-                    {f.label} <span className="mc-mono">{clips.filter((c) => f.match(c.status)).length}</span>
+                    {filterLabel(f.status)} <span className="mc-mono">{clips.filter((c) => f.match(c.status)).length}</span>
                   </>
                 ),
               }))}
@@ -208,11 +215,11 @@ export default function ClipsPage() {
           {visible.length === 0 ? (
             <EmptyState
               icon={Film}
-              title="Tidak ada clip dengan status ini"
-              description={`Belum ada clip berstatus "${activeFilter.label}" untuk workspace ini.`}
+              title={m.noneWithStatus}
+              description={m.noneWithStatusDescription(filterLabel(activeFilter.status))}
               action={
                 <Button variant="secondary" size="sm" onClick={() => setFilter('all')}>
-                  Tampilkan semua
+                  {m.showAll}
                 </Button>
               }
             />
@@ -229,7 +236,7 @@ export default function ClipsPage() {
                       href={detailHref(clip.id)}
                       className="mc-thumb mc-on-ink mc-card--interactive"
                       style={{ display: 'block', aspectRatio: '9 / 16', textDecoration: 'none' }}
-                      aria-label={`Buka editor: ${hook} (skor viral ${score}, ${CLIP_STATUS[clip.status]?.label ?? clip.status}, durasi ${clock})`}
+                      aria-label={m.openEditor(hook, score, CLIP_STATUS[clip.status]?.label ?? clip.status, clock)}
                     >
                       {clip.files.thumbnail ? (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -273,7 +280,7 @@ export default function ClipsPage() {
 
                     <div className="mc-row mc-row--wrap mc-gap-8" style={{ marginTop: 'auto' }}>
                       <ButtonLink href={detailHref(clip.id)} variant="secondary" size="sm" icon={<Pencil size={16} aria-hidden="true" />}>
-                        Edit
+                        {m.edit}
                       </ButtonLink>
                       {desktop && clip.files.final && (
                         <Button
@@ -284,12 +291,12 @@ export default function ClipsPage() {
                           disabled={exportingId === clip.id}
                           onClick={() => exportTo(clip)}
                         >
-                          Ekspor
+                          {m.export}
                         </Button>
                       )}
                       <span className="mc-grow" />
-                      {desktop && <IconButton size="sm" variant="outline" label="Buka di Explorer" icon={<FolderOpen size={16} />} onClick={() => reveal(clip)} />}
-                      <IconButton size="sm" variant="outline" label="Hapus clip" tooltip="end" icon={<Trash2 size={16} />} onClick={() => setToDelete(clip)} />
+                      {desktop && <IconButton size="sm" variant="outline" label={t.common.openInExplorer} icon={<FolderOpen size={16} />} onClick={() => reveal(clip)} />}
+                      <IconButton size="sm" variant="outline" label={m.delete} tooltip="end" icon={<Trash2 size={16} />} onClick={() => setToDelete(clip)} />
                     </div>
                   </article>
                 )
@@ -301,9 +308,9 @@ export default function ClipsPage() {
 
       <ConfirmModal
         isOpen={!!toDelete}
-        title="Hapus clip ini?"
-        message="Clip beserta file videonya (mentah & hasil render) akan dihapus permanen dari folder data. Tindakan ini tidak bisa dibatalkan."
-        confirmLabel="Hapus permanen"
+        title={m.deleteModal.title}
+        message={m.deleteModal.message}
+        confirmLabel={m.deleteModal.confirm}
         confirmIcon={<Trash2 size={16} aria-hidden="true" />}
         danger
         loading={deleting}
