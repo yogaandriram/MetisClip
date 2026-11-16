@@ -497,9 +497,10 @@ def test_a_moment_for_two_campaigns_is_cut_once(db, monkeypatch, paths):
     from backend.agents.nodes import processor
     from backend.services import brand_templates, campaigns as csvc
 
-    tpl = brand_templates.create("Kampanye", {"ai_settings": {"keywords": False}})
-    ca = csvc.create("Tokopedia", brief={"must_include": ["Tokopedia"], "post": {"hashtags": ["#ad"]}},
-                     brand_template_id=tpl["_id"])
+    ca = csvc.create("Tokopedia", brief={"must_include": ["Tokopedia"], "post": {"hashtags": ["#ad"]}})
+    tpl = brand_templates.create("Kampanye", {"ai_settings": {"keywords": False}}, campaign_id=ca["_id"])
+    brand_templates.set_default(ca["_id"], tpl["_id"])
+    ca = csvc.get(ca["_id"])
     cb = csvc.create("Lain", brief={"post": {"hashtags": ["#lain"]}})
     cc = csvc.create("Channel sendiri")  # a plain campaign: no brief
     job = _job(db, [csvc.snapshot(ca), csvc.snapshot(cb), csvc.snapshot(cc)])
@@ -543,8 +544,8 @@ def test_a_moment_for_two_campaigns_is_cut_once(db, monkeypatch, paths):
     assert derived["files"]["source"] is None
     # Its own marks: the other campaign requires no words, and the base's emoji is not copied
     assert not any(w.get("keyword") or w.get("emoji") for w in derived["subtitle"]["words"])
-    # A campaign without a template uses the default template; the post text has the required tags
-    assert derived["brand_template_id"] == brand_templates.ensure_default()
+    # Each campaign's clip takes that campaign's default template; the post text has the required tags
+    assert base["brand_template_id"] == tpl["_id"] and derived["brand_template_id"] == cb["brand_template_id"]
     assert derived["post_copy"]["source"] == "basic" and derived["post_copy"]["hashtags"] == ["#lain"]
     # The plain campaign's clip: no fit, no post text, its own folder
     own = db.clips.find_one({"_id": seg(cc["_id"])["segment_id"]})
@@ -804,13 +805,14 @@ def test_parse_failure_and_restart_recovery(client, secrets, monkeypatch, db):
     assert db.campaigns.find_one({"_id": cid})["parse"]["status"] == "failed"
 
 
-def test_deleting_a_template_unsets_it_on_campaigns(client, db):
+def test_deleting_the_default_template_hands_over_to_another(client, db):
     from backend.services import campaigns as csvc
 
-    tpl = client.post("/api/brand-templates", json={"name": "T2"}).json()["brand_template"]
-    camp = csvc.create("C", brand_template_id=tpl["id"])
+    camp = csvc.create("C")
+    tpl = client.post("/api/brand-templates", json={"campaign_id": camp["_id"], "name": "T2", "make_default": True}).json()["brand_template"]
+    assert db.campaigns.find_one({"_id": camp["_id"]})["brand_template_id"] == tpl["id"]
     assert client.delete(f"/api/brand-templates/{tpl['id']}").status_code == 200
-    assert db.campaigns.find_one({"_id": camp["_id"]})["brand_template_id"] is None
+    assert db.campaigns.find_one({"_id": camp["_id"]})["brand_template_id"] == camp["brand_template_id"]
 
 
 def test_migration_009_creates_the_campaigns_collection(db):

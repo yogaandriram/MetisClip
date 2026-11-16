@@ -1,10 +1,14 @@
-"""Brand template library: CRUD, usage, clip template choice, assets and the 003 migration."""
+"""Brand templates of each campaign: the template made with a campaign (basic, then designed by the AI),
+several templates per campaign and the default, clip template choice, assets, and migrations 003/011."""
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.agents.tools import template_ai
 from backend.core.config import config
 from backend.core.db import new_id, utcnow
 from backend.models.documents import ClipDoc
+
+REAL_DESIGN = template_ai.design  # taken at import, before conftest's fixture replaces it
 
 
 @pytest.fixture()
@@ -24,49 +28,218 @@ def _clip(db, campaign_id, template_id=None):
     return cid
 
 
-def test_library_crud_and_usage(client, db):
-    [default] = client.get("/api/brand-templates").json()["brand_templates"]
-    a = client.post("/api/brand-templates", json={"name": "  Podcast Gelap  "}).json()["brand_template"]
-    assert a["name"] == "Podcast Gelap" and a["caption_settings"] == {"mode": "popshadow"}
-    client.put(f"/api/brand-templates/{a['id']}", json={"caption_settings": {"mode": "glitch"}, "ai_settings": {"emojis": True}})
-    b = client.post("/api/brand-templates", json={"name": "Salinan", "copy_from": a["id"]}).json()["brand_template"]
-    assert b["caption_settings"] == {"mode": "glitch"} and b["ai_settings"] == {"emojis": True}
-    assert client.put(f"/api/brand-templates/{b['id']}", json={"name": "Edukasi"}).json()["brand_template"]["name"] == "Edukasi"
-    assert client.put(f"/api/brand-templates/{b['id']}", json={"name": "  "}).status_code == 400
-    assert client.post("/api/brand-templates", json={"name": ""}).status_code == 400
+def _templates(client, campaign_id):
+    return client.get("/api/brand-templates", params={"campaign_id": campaign_id}).json()["brand_templates"]
 
-    camp = client.post("/api/campaigns", json={"name": "Channel", "brand_template_id": a["id"]}).json()["campaign"]
-    assert camp["brand_template_id"] == a["id"]
-    plain = client.post("/api/campaigns", json={"name": "Polos"}).json()["campaign"]
-    clip_a = _clip(db, camp["id"], a["id"])
-    _clip(db, camp["id"], a["id"])
 
-    listed = {t["id"]: t for t in client.get("/api/brand-templates").json()["brand_templates"]}
-    assert [t["name"] for t in listed.values()] == ["Template Default", "Podcast Gelap", "Edukasi"]
-    assert listed[a["id"]]["used_by_campaigns"] == [{"id": camp["id"], "name": "Channel"}]
-    # A campaign without its own template counts for the default template
-    assert listed[default["id"]]["used_by_campaigns"] == [{"id": plain["id"], "name": "Polos"}]
-    assert listed[default["id"]]["is_default"] is True and listed[a["id"]]["is_default"] is False
-    assert listed[a["id"]]["clip_count"] == 2 and listed[b["id"]]["clip_count"] == 0
+CHOICE = {
+    "name": "Hijau Ramadan",
+    "caption_preset": "kineticbox",
+    "highlight_color": "#00aa5b",
+    "layout": "podcast-dark",
+    "background_color": "#0b3d2e",
+    "background_color2": "#123456",
+    "title": True,
+    "zoom": "keywords",
+    "keywords": True,
+    "emojis": True,
+    "reasons": [
+        {"part": "colors", "text": "Warna hijau sesuai brand.", "quote": "warna hijau Tokopedia"},
+        {"part": "layout", "text": "Kutipan karangan.", "quote": "pakai latar ungu"},
+        {"part": "nope", "text": "Bagian tak dikenal jadi layout.", "quote": ""},
+    ],
+}
 
-    # Deleting a template: its clips follow their campaign, the campaign follows the default template
-    assert client.delete(f"/api/brand-templates/{a['id']}").json() == {"ok": True}
-    assert "brand_template_id" not in db.clips.find_one({"_id": clip_a})
-    assert db.campaigns.find_one({"_id": camp["id"]})["brand_template_id"] is None
-    assert client.get(f"/api/clips/{clip_a}").json()["brand_template"]["id"] == default["id"]
-    client.delete(f"/api/brand-templates/{b['id']}")
-    r = client.delete(f"/api/brand-templates/{default['id']}")
-    assert r.status_code == 400 and "Minimal" in r.text
+
+@pytest.fixture()
+def fake_llm(monkeypatch, secrets):
+    """An LLM key is set and the template designer answers with `answer` (a dict, or a callable)."""
+    secrets.set_secret("llm_api_key", "k")
+    calls = []
+    state = {"answer": CHOICE}
+
+    def chat(system, user, **kw):
+        calls.append(user)
+        ans = state["answer"]
+        return ans() if callable(ans) else ans
+
+    monkeypatch.setattr(template_ai, "design", REAL_DESIGN)  # conftest blocks it for every other test
+    monkeypatch.setattr(template_ai.llm, "chat_json", chat)
+    return type("F", (), {"calls": calls, "state": state})
+
+
+def test_fresh_install_has_no_templates(client, db):
+    assert db.brand_templates.count_documents({}) == 0  # migration 011 removed 003's empty default
+    assert client.get("/api/brand-templates").json() == {"brand_templates": []}
+
+
+def test_new_campaign_gets_its_own_default_template(client, db):
+    camp = client.post("/api/campaigns", json={"name": "Channel Saya"}).json()["campaign"]
+    [tpl] = _templates(client, camp["id"])
+    assert camp["brand_template_id"] == tpl["id"] and tpl["is_default"] is True
+    assert tpl["campaign_id"] == camp["id"] and tpl["campaign_name"] == "Channel Saya"
+    assert tpl["name"] == "Template Channel Saya"
+    assert tpl["caption_settings"] == {"mode": "popshadow"} and tpl["layout_settings"]["mode"] == "full"
+    # No LLM key: the basic look, and the reason why
+    assert tpl["design"]["status"] == "basic" and tpl["design"]["auto"] is True
+    assert "API key LLM" in tpl["design"]["message"]
+    other = client.post("/api/campaigns", json={"name": "Lain"}).json()["campaign"]
+    assert [t["id"] for t in _templates(client, other["id"])] != [tpl["id"]]
+    assert len(client.get("/api/brand-templates").json()["brand_templates"]) == 2
+
+
+def test_ai_designs_the_campaign_template(client, db, fake_llm):
+    brief = {"platforms": ["TikTok"], "visual": {"credit": "required", "logo": "required"},
+             "rules": [{"text": "Pakai warna hijau Tokopedia di subtitle", "type": "must", "stage": "visual"}]}
+    camp = client.post("/api/campaigns", json={"name": "Tokopedia Ramadan", "client": "Tokopedia", "brief": brief}).json()["campaign"]
+    [tpl] = _templates(client, camp["id"])
+    assert tpl["id"] == camp["brand_template_id"]
+    assert "Tokopedia Ramadan" in fake_llm.calls[0] and "warna hijau Tokopedia" in fake_llm.calls[0]
+    d = tpl["design"]
+    assert d["status"] == "done" and tpl["name"] == "Hijau Ramadan"
+    assert tpl["caption_settings"] == {"mode": "kineticbox", "highlightColor": "#00AA5B"}
+    lay = tpl["layout_settings"]
+    assert lay["mode"] == "podcast" and lay["background"] == {"type": "color", "color": "#0B3D2E", "dim": 0}
+    assert lay["header"] == {"enabled": True} and lay["zoom"] == {"enabled": True, "style": "keywords", "amount": 0.12}
+    assert lay["credit"] == {"enabled": True} and lay["safeZone"] == "tiktok"
+    assert tpl["ai_settings"] == {"fillerWords": True, "keywords": True, "emojis": True}
+    # A quote is kept only when the campaign really says it
+    assert [r["quote"] for r in d["reasons"]] == ["warna hijau Tokopedia", "", ""]
+    assert [r["part"] for r in d["reasons"]] == ["colors", "layout", "layout"]
+    assert {n["kind"] for n in d["notes"]} == {"logo", "visual_rules"}
+
+
+def test_brief_wins_over_the_ai_choice():
+    camp = {"_id": "c", "name": "X", "brief": {"visual": {"credit": "required"}, "platforms": ["Reels", "Shorts"]}}
+    settings, notes = template_ai.build({"layout": "full", "highlight_color": "#FFFFFF", "caption_preset": "nope"}, camp)
+    assert settings["layout_settings"]["mode"] == "podcast"  # the credit is hidden in the full layout
+    assert {"kind": "credit_layout", "params": {}} in notes
+    assert settings["caption_settings"] == {"mode": "popshadow"}  # unknown preset; white highlight dropped
+    assert settings["layout_settings"]["safeZone"] == "all"
+    forbidden = template_ai.build({"layout": "card-dark"}, {"_id": "c", "name": "X", "brief": {"visual": {"credit": "forbidden"}}})
+    assert forbidden[0]["layout_settings"]["credit"] == {"enabled": False}
+    assert template_ai._platform_zone(["Instagram Reels"]) == "reels" and template_ai._platform_zone([]) == "all"
+
+
+def test_brief_change_redesigns_until_the_user_edits(client, db, fake_llm):
+    camp = client.post("/api/campaigns", json={"name": "Kampanye"}).json()["campaign"]
+    tid = camp["brand_template_id"]
+    assert len(fake_llm.calls) == 1
+    client.put(f"/api/campaigns/{camp['id']}", json={"brief": {"tone": "lucu"}})
+    assert len(fake_llm.calls) == 2 and "lucu" in fake_llm.calls[1]
+    client.put(f"/api/campaigns/{camp['id']}", json={"brief": {"tone": "lucu"}})  # unchanged: no new design
+    assert len(fake_llm.calls) == 2
+    # A rename keeps the AI's look in charge but no longer renames it
+    client.put(f"/api/brand-templates/{tid}", json={"name": "Punyaku"})
+    client.put(f"/api/campaigns/{camp['id']}", json={"brief": {"tone": "serius"}})
+    assert len(fake_llm.calls) == 3 and client.get(f"/api/brand-templates/{tid}").json()["brand_template"]["name"] == "Punyaku"
+    # Once the user changes the look, the brief no longer replaces it ...
+    client.put(f"/api/brand-templates/{tid}", json={"caption_settings": {"mode": "lumina"}})
+    client.put(f"/api/campaigns/{camp['id']}", json={"brief": {"tone": "formal"}})
+    assert len(fake_llm.calls) == 3
+    tpl = client.get(f"/api/brand-templates/{tid}").json()["brand_template"]
+    assert tpl["caption_settings"] == {"mode": "lumina"} and tpl["design"]["edited"] is True
+    # ... unless they ask for it
+    assert client.post(f"/api/brand-templates/{tid}/design").status_code == 200
+    tpl = client.get(f"/api/brand-templates/{tid}").json()["brand_template"]
+    assert len(fake_llm.calls) == 4 and tpl["caption_settings"]["mode"] == "kineticbox" and tpl["design"]["edited"] is False
+
+
+def test_ai_result_is_dropped_when_the_user_edits_meanwhile(client, db, fake_llm):
+    camp = client.post("/api/campaigns", json={"name": "K"}).json()["campaign"]
+    tid = camp["brand_template_id"]
+    client.put(f"/api/brand-templates/{tid}", json={"caption_settings": {"mode": "glitch"}})
+
+    def edit_while_designing():  # what PUT /api/brand-templates/{id} writes
+        db.brand_templates.update_one({"_id": tid}, {"$set": {"caption_settings": {"mode": "lumina"}, "design.edited": True}})
+        return CHOICE
+
+    fake_llm.state["answer"] = edit_while_designing
+    client.post(f"/api/brand-templates/{tid}/design")
+    tpl = client.get(f"/api/brand-templates/{tid}").json()["brand_template"]
+    assert tpl["caption_settings"] == {"mode": "lumina"} and tpl["design"]["status"] == "skipped"
+
+
+def test_design_failure_and_restart_recovery(client, db, fake_llm):
+    from backend.core import llm
+    from backend.services import brand_templates as bts
+
+    camp = client.post("/api/campaigns", json={"name": "K"}).json()["campaign"]
+    tid = camp["brand_template_id"]
+
+    def quota():
+        raise llm.LLMQuotaExhausted("Kuota harian LLM habis")
+
+    fake_llm.state["answer"] = quota
+    client.post(f"/api/brand-templates/{tid}/design")
+    d = client.get(f"/api/brand-templates/{tid}").json()["brand_template"]["design"]
+    assert d["status"] == "failed" and "Kuota" in d["message"]
+    db.brand_templates.update_one({"_id": tid}, {"$set": {"design.status": "running"}})
+    bts.recover()
+    assert db.brand_templates.find_one({"_id": tid})["design"]["status"] == "failed"
+
+
+def test_several_templates_per_campaign_and_the_default(client, db, fake_llm):
+    camp = client.post("/api/campaigns", json={"name": "Channel"}).json()["campaign"]
+    first = camp["brand_template_id"]
+    other = client.post("/api/campaigns", json={"name": "Lain"}).json()["campaign"]
+    blank = client.post("/api/brand-templates", json={"campaign_id": camp["id"], "name": "  Podcast Gelap  "}).json()["brand_template"]
+    assert blank["name"] == "Podcast Gelap" and blank["is_default"] is False and blank["design"] is None
+    client.put(f"/api/brand-templates/{blank['id']}", json={"caption_settings": {"mode": "glitch"}, "ai_settings": {"emojis": True}})
+    # A copy may come from another campaign's template
+    copy = client.post("/api/brand-templates", json={"campaign_id": other["id"], "name": "Salinan", "copy_from": blank["id"]}).json()["brand_template"]
+    assert copy["campaign_id"] == other["id"] and copy["caption_settings"] == {"mode": "glitch"}
+    ai = client.post("/api/brand-templates", json={"campaign_id": camp["id"], "ai": True}).json()["brand_template"]
+    assert ai["name"] == "Hijau Ramadan" and ai["design"]["auto"] is False
+    assert client.post("/api/brand-templates", json={"campaign_id": camp["id"], "name": ""}).status_code == 400
+    assert client.post("/api/brand-templates", json={"campaign_id": "missing", "name": "X"}).status_code == 400
+    assert [t["name"] for t in _templates(client, camp["id"])] == ["Hijau Ramadan", "Podcast Gelap", "Hijau Ramadan"]
+
+    # Make another one the default (endpoint, or the campaign's own field); never another campaign's
+    assert client.post(f"/api/brand-templates/{blank['id']}/default").json()["brand_template"]["is_default"] is True
+    assert db.campaigns.find_one({"_id": camp["id"]})["brand_template_id"] == blank["id"]
+    assert client.put(f"/api/campaigns/{camp['id']}", json={"brand_template_id": ai["id"]}).json()["campaign"]["brand_template_id"] == ai["id"]
+    assert client.put(f"/api/campaigns/{camp['id']}", json={"brand_template_id": copy["id"]}).status_code == 400
+
+    clip = _clip(db, camp["id"], blank["id"])
+    assert client.put(f"/api/clips/{clip}/subtitles", json={"brand_template_id": copy["id"]}).status_code == 400
+    # Deleting the default: the oldest remaining one takes over; clips follow the campaign
+    assert client.delete(f"/api/brand-templates/{ai['id']}").json() == {"ok": True}
+    assert db.campaigns.find_one({"_id": camp["id"]})["brand_template_id"] == first
+    client.delete(f"/api/brand-templates/{blank['id']}")
+    assert "brand_template_id" not in db.clips.find_one({"_id": clip})
+    assert client.get(f"/api/clips/{clip}").json()["brand_template"]["id"] == first
+    r = client.delete(f"/api/brand-templates/{first}")
+    assert r.status_code == 400 and "minimal satu" in r.text
+
+    # Moving a clip to another campaign: it follows that campaign's default
+    moved = _clip(db, camp["id"], first)
+    client.put(f"/api/clips/{moved}/campaign", json={"campaign_id": other["id"]})
+    assert "brand_template_id" not in db.clips.find_one({"_id": moved})
+    assert client.get(f"/api/clips/{moved}").json()["brand_template"]["id"] == other["brand_template_id"]
+
+
+def test_deleting_a_campaign_deletes_its_templates(client, db, paths):
+    camp = client.post("/api/campaigns", json={"name": "Hapus"}).json()["campaign"]
+    tid = camp["brand_template_id"]
+    asset = client.post(f"/api/brand-templates/{tid}/assets", files={"file": ("logo.png", b"PNG", "image/png")},
+                        data={"kind": "logo"}).json()
+    client.put(f"/api/brand-templates/{tid}", json={"brand_settings": {"logoUrl": asset["value"]}})
+    keep = client.post("/api/campaigns", json={"name": "Tetap"}).json()["campaign"]
+    client.delete(f"/api/campaigns/{camp['id']}")
+    assert db.brand_templates.count_documents({"campaign_id": camp["id"]}) == 0
+    assert not paths.from_relative(asset["path"]).exists()
+    assert db.brand_templates.find_one({"_id": keep["brand_template_id"]})
 
 
 def test_clip_switches_template(client, db):
     camp = client.post("/api/campaigns", json={"name": "A"}).json()["campaign"]
-    default_id = client.get("/api/brand-templates").json()["brand_templates"][0]["id"]
+    default_id = camp["brand_template_id"]
     client.put(f"/api/brand-templates/{default_id}", json={"caption_settings": {"mode": "lumina"}, "brand_settings": {"logoUrl": "x"}})
-    other = client.post("/api/brand-templates", json={"name": "Neon"}).json()["brand_template"]
+    other = client.post("/api/brand-templates", json={"campaign_id": camp["id"], "name": "Neon"}).json()["brand_template"]
     client.put(f"/api/brand-templates/{other['id']}", json={"caption_settings": {"mode": "neonpulse", "fontSize": 40},
                                                            "ai_settings": {"pauses": True}})
-    cid = _clip(db, camp["id"])  # no own choice, no campaign template -> the default template
+    cid = _clip(db, camp["id"])  # no own choice -> the campaign's default
     d = client.get(f"/api/clips/{cid}").json()
     assert d["brand_template"]["id"] == default_id and d["effective_style"] == {"mode": "lumina"}
 
@@ -91,8 +264,9 @@ def test_clip_switches_template(client, db):
     assert db.clips.find_one({"_id": cid})["brand_template_id"] == other["id"]
 
 
-def test_assets_live_with_the_template(client, paths):
-    tpl = client.post("/api/brand-templates", json={"name": "Logo"}).json()["brand_template"]
+def test_assets_live_with_the_template(client, db, paths):
+    camp = client.post("/api/campaigns", json={"name": "Logo"}).json()["campaign"]
+    tpl = client.post("/api/brand-templates", json={"campaign_id": camp["id"], "name": "Logo"}).json()["brand_template"]
     r = client.post(f"/api/brand-templates/{tpl['id']}/assets", files={"file": ("logo.png", b"PNG", "image/png")},
                     data={"kind": "logo"})
     asset = r.json()
@@ -101,12 +275,77 @@ def test_assets_live_with_the_template(client, paths):
     client.put(f"/api/brand-templates/{tpl['id']}", json={"brand_settings": {"logoUrl": asset["value"]}})
 
     # A duplicate shares the file, so deleting the original keeps it ...
-    dup = client.post("/api/brand-templates", json={"name": "Dup", "copy_from": tpl["id"]}).json()["brand_template"]
+    dup = client.post("/api/brand-templates", json={"campaign_id": camp["id"], "name": "Dup", "copy_from": tpl["id"]}).json()["brand_template"]
     client.delete(f"/api/brand-templates/{tpl['id']}")
     assert paths.from_relative(asset["path"]).exists()
     # ... and deleting the last user removes the imported copy
     client.delete(f"/api/brand-templates/{dup['id']}")
     assert not paths.from_relative(asset["path"]).exists()
+
+
+def test_migration_011_gives_every_campaign_its_own_templates(db):
+    from backend.db.migrations import m011_campaign_brand_templates as m011
+
+    now = utcnow()
+
+    def at(n):
+        from datetime import timedelta
+
+        return now + timedelta(seconds=n)
+
+    db.brand_templates.insert_many([
+        {"_id": "t-default", "name": "Template Default", "caption_settings": {"mode": "lumina"}, "created_at": at(0)},
+        {"_id": "t-shared", "name": "Bersama", "caption_settings": {"mode": "glitch"},
+         "brand_settings": {"logoUrl": "asset://library/_brand/t-shared/logo.png"}, "created_at": at(1)},
+        {"_id": "t-unused", "name": "Nganggur", "created_at": at(2)},
+    ])
+    db.campaigns.insert_many([
+        {"_id": "c1", "name": "Satu", "status": "active", "brief": {}, "brand_template_id": "t-shared", "created_at": at(0)},
+        {"_id": "c2", "name": "Dua", "status": "active", "brief": {}, "brand_template_id": "t-shared", "created_at": at(1)},
+        {"_id": "c3", "name": "Tiga", "status": "active", "brief": {}, "brand_template_id": None, "created_at": at(2)},
+    ])
+    db.clips.insert_many([
+        {"_id": "k1", "campaign_id": "c2", "brand_template_id": "t-shared", "start_time": 0, "end_time": 1, "status": "ready", "files": {}, "created_at": now},
+        {"_id": "k2", "campaign_id": "c3", "brand_template_id": "t-shared", "start_time": 0, "end_time": 1, "status": "ready", "files": {}, "created_at": now},
+        {"_id": "k3", "campaign_id": "c1", "brand_template_id": "gone", "start_time": 0, "end_time": 1, "status": "ready", "files": {}, "created_at": now},
+    ])
+    m011.up(db)
+    m011.up(db)  # a re-run after a crash changes nothing
+
+    c = {d["_id"]: d for d in db.campaigns.find({})}
+    t = {d["_id"]: d for d in db.brand_templates.find({})}
+    copy2, copy3 = m011._copy_id("t-shared", "c2"), m011._copy_id("t-shared", "c3")
+    assert t["t-shared"]["campaign_id"] == "c1" and c["c1"]["brand_template_id"] == "t-shared"
+    assert t[copy2]["campaign_id"] == "c2" and t[copy2]["caption_settings"] == {"mode": "glitch"}
+    assert t[copy2]["brand_settings"] == t["t-shared"]["brand_settings"]  # the asset file is shared
+    assert c["c2"]["brand_template_id"] == copy2
+    # c3 fell back to the old default; its clip used the shared template -> its own copy
+    assert t["t-default"]["campaign_id"] == "c3" and c["c3"]["brand_template_id"] == "t-default"
+    assert t[copy3]["campaign_id"] == "c3"
+    assert db.clips.find_one({"_id": "k1"})["brand_template_id"] == copy2
+    assert db.clips.find_one({"_id": "k2"})["brand_template_id"] == copy3
+    assert "brand_template_id" not in db.clips.find_one({"_id": "k3"})
+    assert t["t-unused"]["campaign_id"] == "c1"  # nobody used it: the oldest campaign keeps it
+    assert len(t) == 5
+
+
+def test_migration_011_without_campaigns(db, secrets):
+    from backend.db.migrations import m011_campaign_brand_templates as m011
+
+    now = utcnow()
+    db.brand_templates.insert_many([
+        {"_id": "t-builtin", "name": "Default template", "caption_settings": {"mode": "popshadow"},
+         "layout_settings": {"safeZone": "all"}, "created_at": now},
+        {"_id": "t-mine", "name": "Punyaku", "caption_settings": {"mode": "lumina"}, "created_at": now},
+    ])
+    m011.up(db)
+    assert db.brand_templates.find_one({"_id": "t-builtin"}) is None
+    assert db.brand_templates.find_one({"_id": "t-mine"})["campaign_id"] is None
+    # The first campaign created takes it, next to the template made with it
+    from backend.services import campaigns
+
+    camp = campaigns.create("Pertama")
+    assert {d["_id"] for d in db.brand_templates.find({"campaign_id": camp["_id"]})} == {"t-mine", camp["brand_template_id"]}
 
 
 def test_migration_moves_embedded_templates(db, paths):

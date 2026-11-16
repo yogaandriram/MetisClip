@@ -77,8 +77,12 @@ def test_effective_layout_merges_sections():
     assert layout.effective_layout(None, None) == {}
 
 
+def _camp_id(client):
+    return client.post("/api/campaigns", json={"name": "Uji"}).json()["campaign"]["id"]
+
+
 def test_template_layout_is_validated(client, db):
-    tpl = client.post("/api/brand-templates", json={"name": "Podcast"}).json()["brand_template"]
+    tpl = client.post("/api/brand-templates", json={"name": "Podcast", "campaign_id": _camp_id(client)}).json()["brand_template"]
     r = client.put(f"/api/brand-templates/{tpl['id']}", json={"layout_settings": {
         "safeZone": "tiktok", "mode": "podcast", "frame": {"y": 150, "bogus": 1}, "background": {"type": "gradient"}}})
     assert r.status_code == 200
@@ -218,12 +222,12 @@ def test_podcast_render_fails_clearly_without_a_source(db, paths, monkeypatch):
 
 
 def test_background_image_asset_is_kept_while_used(client, paths):
-    tpl = client.post("/api/brand-templates", json={"name": "Latar"}).json()["brand_template"]
+    tpl = client.post("/api/brand-templates", json={"name": "Latar", "campaign_id": _camp_id(client)}).json()["brand_template"]
     asset = client.post(f"/api/brand-templates/{tpl['id']}/assets", files={"file": ("bg.png", b"PNG", "image/png")},
                         data={"kind": "background"}).json()
     client.put(f"/api/brand-templates/{tpl['id']}", json={"layout_settings": {
         "mode": "podcast", "background": {"type": "image", "imageUrl": asset["value"]}}})
-    dup = client.post("/api/brand-templates", json={"name": "Dup", "copy_from": tpl["id"]}).json()["brand_template"]
+    dup = client.post("/api/brand-templates", json={"name": "Dup", "copy_from": tpl["id"], "campaign_id": tpl["campaign_id"]}).json()["brand_template"]
     client.delete(f"/api/brand-templates/{tpl['id']}")
     assert paths.from_relative(asset["path"]).exists()  # the duplicate still uses it
     client.delete(f"/api/brand-templates/{dup['id']}")
@@ -403,7 +407,7 @@ def test_companion_upload_is_converted(client, paths, tmp_path):
                "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
                "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(src)],
               timeout=120)
-    tpl = client.post("/api/brand-templates", json={"name": "Gameplay"}).json()["brand_template"]
+    tpl = client.post("/api/brand-templates", json={"name": "Gameplay", "campaign_id": _camp_id(client)}).json()["brand_template"]
     r = client.post(f"/api/brand-templates/{tpl['id']}/assets",
                     files={"file": ("gameplay.mov", src.read_bytes(), "video/quicktime")}, data={"kind": "companion"})
     assert r.status_code == 200, r.text

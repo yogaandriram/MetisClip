@@ -53,13 +53,17 @@ class Doc(BaseModel):
 
 
 class BrandTemplateDoc(Doc):
-    """A named brand template in the shared library (collection `brand_templates`)."""
+    """A named brand template of one campaign (collection `brand_templates`, services/brand_templates.py)."""
 
     name: str = Field(min_length=1, max_length=80)
+    # The campaign it belongs to (null only for a template migration 011 could not place: no campaign yet)
+    campaign_id: Optional[str] = None
     brand_settings: dict[str, Any] = Field(default_factory=dict)
     caption_settings: dict[str, Any] = Field(default_factory=lambda: {"mode": "popshadow"})
     layout_settings: dict[str, Any] = Field(default_factory=dict)
     ai_settings: dict[str, Any] = Field(default_factory=dict)
+    # How it was made: the AI design's status, reasons and notes (services/brand_templates.py)
+    design: Optional[dict[str, Any]] = None
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
@@ -315,7 +319,7 @@ class CampaignDoc(Doc):
     status: CampaignStatus = "active"
     # Library folder of its clips: <DATA_ROOT>/library/<slug>/<clip id>/ (kept when the campaign is renamed)
     slug: str = ""
-    # Template for this campaign's clips (null = the default template, brand_templates.ensure_default)
+    # Its default brand template (one of its own templates, brand_templates.campaign_id)
     brand_template_id: Optional[str] = None
     sources: list[dict[str, Any]] = Field(default_factory=list)
     brief: dict[str, Any] = Field(default_factory=lambda: clean_brief({}))

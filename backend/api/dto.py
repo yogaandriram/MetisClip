@@ -12,10 +12,21 @@ def http_error(status: int, detail: str) -> HTTPException:
     return HTTPException(status_code=status, detail=detail)
 
 
+def _design_dto(design: Any) -> dict[str, Any] | None:
+    """How the template was made, without the internal run token."""
+    if not isinstance(design, dict) or not design.get("status"):
+        return None
+    out = {k: design.get(k) for k in ("status", "auto", "edited", "message", "provider", "model")}
+    out["reasons"] = design.get("reasons") or []
+    out["notes"] = design.get("notes") or []
+    out["at"] = iso(design.get("at"))
+    return out
+
+
 def brand_template_dto(
     doc: dict[str, Any] | None,
     *,
-    used_by_campaigns: list[dict[str, Any]] | None = None,
+    campaign_name: str | None = None,
     clip_count: int | None = None,
     is_default: bool | None = None,
 ) -> dict[str, Any] | None:
@@ -28,11 +39,13 @@ def brand_template_dto(
         "caption_settings": doc.get("caption_settings") or {},
         "layout_settings": doc.get("layout_settings") or {},
         "ai_settings": doc.get("ai_settings") or {},
+        "campaign_id": doc.get("campaign_id"),
+        "design": _design_dto(doc.get("design")),
         "created_at": iso(doc.get("created_at")),
         "updated_at": iso(doc.get("updated_at")),
     }
-    if used_by_campaigns is not None:
-        out["used_by_campaigns"] = [{"id": c["_id"], "name": c.get("name") or ""} for c in used_by_campaigns]
+    if campaign_name is not None:
+        out["campaign_name"] = campaign_name
     if is_default is not None:
         out["is_default"] = is_default
     if clip_count is not None:

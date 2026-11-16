@@ -61,6 +61,9 @@ class JobRunner:
         from backend.services import campaigns
 
         campaigns.recover()
+        from backend.services import brand_templates
+
+        brand_templates.recover()
         for job in db.discovery_jobs.find({"status": "pending"}, {"_id": 1}).sort("created_at", 1):
             self.submit_job(job["_id"])
 

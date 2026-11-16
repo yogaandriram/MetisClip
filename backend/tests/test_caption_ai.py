@@ -124,8 +124,10 @@ def test_render_props_carry_ai_settings(db):
 
     from backend.services import brand_templates, campaigns
 
-    tpl = brand_templates.create("T", {"ai_settings": {"pauses": True}, "caption_settings": {"mode": "lumina"}})
-    camp = campaigns.create("A", brand_template_id=tpl["_id"])
+    camp = campaigns.create("A")
+    tpl = brand_templates.create("T", {"ai_settings": {"pauses": True}, "caption_settings": {"mode": "lumina"}},
+                                 campaign_id=camp["_id"])
+    brand_templates.set_default(camp["_id"], tpl["_id"])
     clip = {"_id": new_id(), "campaign_id": camp["_id"], "duration_seconds": 12.5,
             "subtitle": {"words": WORDS}, "subtitle_style": {"ai": {"keywords": False}, "fontSize": 50}}
     props = build_props(clip)

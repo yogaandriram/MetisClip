@@ -128,7 +128,7 @@ def test_language_lookup_never_connects_to_the_database():
     assert i18n.language() == "id"  # the default, at once, instead of a 30 s connection attempt
 
 
-def test_first_template_of_a_new_database_is_named_in_the_ui_language(mongo, monkeypatch):
+def test_a_new_campaign_template_is_named_in_the_ui_language(mongo, monkeypatch, secrets):
     import os
     import time
 
@@ -140,7 +140,11 @@ def test_first_template_of_a_new_database_is_named_in_the_ui_language(mongo, mon
     try:
         dbm.set_db(database, mongo)
         dbm.migrate(database)
-        assert [t["name"] for t in database.brand_templates.find()] == ["Default template"]
+        assert database.brand_templates.count_documents({}) == 0  # a fresh install starts empty
+        from backend.services import campaigns
+
+        campaigns.create("Podcast")
+        assert [t["name"] for t in database.brand_templates.find()] == ["Podcast template"]
     finally:
         mongo.drop_database(name)
         dbm.set_db(None, None)  # type: ignore[arg-type]

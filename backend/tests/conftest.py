@@ -121,6 +121,21 @@ def _no_whisper_model_downloads(monkeypatch):
     monkeypatch.setattr(whisper_local, "_download", blocked)
 
 
+@pytest.fixture(autouse=True)
+def _no_template_design(monkeypatch):
+    """Tests never call a real LLM to design a brand template, and a design runs in place instead of
+    in a thread; test_brand_templates fakes the LLM answer."""
+    from backend.agents.tools import template_ai
+    from backend.core import llm
+    from backend.services import brand_templates
+
+    def blocked(campaign, **kw):
+        raise llm.LLMError("AI template designs are disabled in tests")
+
+    monkeypatch.setattr(template_ai, "design", blocked)
+    monkeypatch.setattr(brand_templates, "_spawn", lambda target, tid, run: target(tid, run))
+
+
 @pytest.fixture()
 def secrets():
     from backend.core import secrets as sec

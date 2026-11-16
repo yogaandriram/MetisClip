@@ -178,15 +178,17 @@ def _campaign(ctx: JobContext, seg: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _template_id(ctx: JobContext, seg: dict[str, Any]) -> str | None:
-    """The clip's brand template: its campaign's (as set now, else when the job started), else the
-    default template."""
+    """The clip's brand template: its campaign's default (as set now, else when the job started),
+    repaired when it is gone (None: the campaign was deleted, the built-in settings)."""
     campaign = _campaign(ctx, seg)
-    if campaign:
-        live = get_db().campaigns.find_one({"_id": campaign["id"]}, {"brand_template_id": 1})
-        tid = (live or campaign).get("brand_template_id")
-        if tid and brand_templates.get(tid):
-            return tid
-    return brand_templates.ensure_default()
+    if not campaign:
+        return None
+    live = get_db().campaigns.find_one({"_id": campaign["id"]}, {"brand_template_id": 1})
+    tid = (live or campaign).get("brand_template_id")
+    tpl = brand_templates.get(tid)
+    if tpl and tpl.get("campaign_id") == campaign["id"]:
+        return tid
+    return brand_templates.ensure_for_campaign(campaign["id"]) if live else None
 
 
 def _brief_marks(words: list[dict[str, Any]], campaign: dict[str, Any] | None) -> list[dict[str, Any]]:

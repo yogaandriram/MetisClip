@@ -260,8 +260,8 @@ class ClipCampaign(BaseModel):
 def set_clip_campaign(clip_id: str, body: ClipCampaign):
     """Move a clip to another campaign (every clip belongs to one). What belonged to the old campaign goes:
     its fit score and reason, the ticked manual rules, and the post text (a basic one for the new brief
-    takes its place, none for a plain campaign; "Tulis ulang dengan AI" writes a better one). The media
-    files stay where they are."""
+    takes its place, none for a plain campaign; "Tulis ulang dengan AI" writes a better one), and its brand
+    template (it follows the new campaign's default). The media files stay where they are."""
     clip = _get(clip_id)
     if body.campaign_id == clip.get("campaign_id"):
         return {"clip": clip_dto(clip)}
@@ -270,7 +270,8 @@ def set_clip_campaign(clip_id: str, body: ClipCampaign):
         raise http_error(400, M("campaign_not_found"))
     brief = campaign.get("brief") or {}
     sets: dict[str, Any] = {"campaign_id": body.campaign_id, "updated_at": utcnow()}
-    unsets = {"brief_fit": "", "brief_reason": "", "brief_manual": ""}
+    # Templates belong to a campaign: the clip takes the new campaign's default
+    unsets = {"brief_fit": "", "brief_reason": "", "brief_manual": "", "brand_template_id": ""}
     if campaign_svc.has_brief(brief):
         sets["post_copy"] = post_copy_ai.fallback(clip, brief)
     else:
@@ -304,14 +305,15 @@ class SubtitleUpdate(BaseModel):
 
 @router.put("/api/clips/{clip_id}/subtitles")
 def update_subtitles(clip_id: str, body: SubtitleUpdate):
-    _get(clip_id)
+    clip = _get(clip_id)
     sets: dict[str, Any] = {"updated_at": utcnow()}
     unsets: dict[str, Any] = {}
     if "brand_template_id" in body.model_fields_set:
+        tpl = brand_templates.get(body.brand_template_id)
         if body.brand_template_id is None:
             unsets["brand_template_id"] = ""
-        elif brand_templates.get(body.brand_template_id):
-            sets["brand_template_id"] = body.brand_template_id
+        elif tpl and tpl.get("campaign_id") == clip.get("campaign_id"):
+            sets["brand_template_id"] = body.brand_template_id  # one of its campaign's templates
         else:
             raise http_error(400, M("template_not_found"))
     if body.words is not None:
