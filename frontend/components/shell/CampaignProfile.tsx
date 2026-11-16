@@ -16,8 +16,18 @@ import { useT } from '@/lib/i18n/I18nProvider'
 export const NEW_CAMPAIGN_HREF = '/campaigns/?new=1'
 
 /**
- * The active campaign as a profile circle at the top of the shell, where the logo was (DESIGN.md §5.2).
- * Its menu shows the active campaign, switches to another one and leads to the campaign library.
+ * The liquid neck that joins the circle to the rail (DESIGN.md §4.2.8), in the circle's coordinates.
+ * Circle: center (32, 32), r 32. Rail cap: center (32, 108), r 32 (the rail starts 12 px below the
+ * circle, styles/components.css .mc-shell__rail). Two cutter circles of r 17.11 at (32 ± 31.11, 70),
+ * tangent to both, carve a 28 px waist; the path runs between the four tangent points, and the chords
+ * at y 56.76 and 83.24 lie inside the circle and the cap, so the shapes overlap without a seam.
+ */
+const NECK_PATH = 'M11.73 56.76A17.11 17.11 0 0 1 11.73 83.24H52.27A17.11 17.11 0 0 1 52.27 56.76Z'
+
+/**
+ * The active campaign as the rail's head: a circle at the top of the shell, where the logo was, joined to
+ * the rail by a liquid neck (DESIGN.md §5.2). Its menu shows the active campaign, switches to another one
+ * and leads to the campaign library.
  * Without a campaign (first load, empty library) the circle shows the MetisClip mark.
  */
 export function CampaignProfile({ pathname }: { pathname: string }) {
@@ -42,6 +52,9 @@ export function CampaignProfile({ pathname }: { pathname: string }) {
 
   return (
     <div ref={root} className="mc-profile">
+      <svg className="mc-profile__neck" viewBox="0 0 64 84" aria-hidden="true">
+        <path d={NECK_PATH} />
+      </svg>
       <button
         type="button"
         className={cx('mc-profile__button', 'mc-tip', 'mc-tip--right', active && 'is-active')}
@@ -53,7 +66,7 @@ export function CampaignProfile({ pathname }: { pathname: string }) {
         onClick={() => setOpen((v) => !v)}
       >
         {activeCampaign ? (
-          <Avatar name={activeCampaign.name} seed={activeCampaign.id} size={52} />
+          <Avatar name={activeCampaign.name} seed={activeCampaign.id} size={44} />
         ) : (
           <LogoMark size={26} />
         )}

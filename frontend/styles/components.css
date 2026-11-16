@@ -15,6 +15,8 @@
   z-index: 31;
 }
 
+/* 12 px below the campaign circle: the circle's liquid neck (CampaignProfile NECK_PATH) is drawn for
+   exactly this gap */
 .mc-shell__rail {
   position: fixed;
   top: 92px;
@@ -49,10 +51,21 @@
   height: 48px;
 }
 
-/* The active campaign as a profile circle in the logo's place (DESIGN.md §5.2): as wide as the rail,
-   one ink border (the rail's color) around the avatar, nothing outside it */
+/* The active campaign as the rail's head (DESIGN.md §4.2.8, §5.2): a circle as wide as the rail in the
+   logo's place, joined to the rail by a liquid neck, with the avatar inside and nothing outside it */
 .mc-profile {
   position: relative;
+}
+
+.mc-profile__neck {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 64px;
+  max-width: none;
+  height: 84px;
+  fill: var(--ink);
+  pointer-events: none;
 }
 
 .mc-profile__button {
@@ -68,14 +81,19 @@
   cursor: pointer;
 }
 
+/* Initials in the display face, so they read as the campaign's mark */
+.mc-profile .mc-avatar {
+  font-family: var(--font-display);
+}
+
 .mc-profile__button .mc-avatar {
   transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
     transform var(--dur-base) var(--ease-out);
 }
 
-/* Inactive (another page, menu closed): the initials sit on the ink like the rail's icons */
+/* Inactive (another page, menu closed): a dark seat in the head, initials like the rail's icons */
 .mc-profile__button:not(.is-active) .mc-avatar {
-  background: transparent;
+  background: var(--ink-soft);
   color: var(--on-ink-muted);
 }
 
