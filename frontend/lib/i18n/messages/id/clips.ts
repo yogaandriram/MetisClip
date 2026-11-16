@@ -1,8 +1,16 @@
 // Bahasa Indonesia: the source dictionary. Add every key in en/clips.ts too (tsc checks it).
-// Hasil Clip gallery (app/(dashboard)/clips).
+// Hasil Clip (app/(dashboard)/clips): the page, its tabs and the Clip tab (gallery). The Antrian tab's texts are in jobs.ts.
 export const clips = {
-  title: 'Hasil Pemotongan Clip',
-  subtitle: 'Klik salah satu clip untuk membuka editor subtitle.',
+  title: 'Hasil Clip',
+  /** One line for both tabs, so switching tabs never moves the page */
+  subtitle: 'Clip buatan AI dan job yang membuatnya.',
+  allWorkspaces: 'Semua workspace',
+  /** The two tabs of the page: the gallery and the job queue */
+  tabs: {
+    label: 'Clip atau antrian',
+    clips: 'Clip',
+    queue: 'Antrian',
+  },
   /** Fills "… untuk mulai menggunakan {what}" in the no-workspace state */
   galleryName: 'galeri clip',
   loadFailed: 'Gagal memuat clip',

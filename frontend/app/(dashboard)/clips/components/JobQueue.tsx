@@ -11,13 +11,11 @@ import {
   ConfirmModal,
   EmptyState,
   IconButton,
-  PageHeader,
   PipelineSteps,
   ProgressBar,
   Skeleton,
   StatusBadge,
   Tag,
-  ToggleSwitch,
   type StepState,
 } from '@/components/ui'
 import { useAgent } from '@/contexts/AgentContext'
@@ -50,13 +48,13 @@ function pipelineSteps(t: Messages, job: Job): { id: string; label: string; stat
   })
 }
 
-export default function JobsPage() {
+/** The Antrian tab of Hasil Clip: jobs that need the user first, then running ones, then the history. */
+export function JobQueue({ allAgents }: { allAgents: boolean }) {
   const router = useRouter()
   const { activeAgent, agents } = useAgent()
   const { epoch } = useEngine()
   const t = useT()
   const m = t.jobs
-  const [allAgents, setAllAgents] = useState(false)
   const [jobs, setJobs] = useState<Job[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState<PendingAction>(null)
@@ -184,12 +182,6 @@ export default function JobsPage() {
 
   return (
     <>
-      <PageHeader
-        title={m.title}
-        subtitle={m.subtitle}
-        actions={<ToggleSwitch checked={allAgents} onChange={setAllAgents} label={m.allWorkspaces} />}
-      />
-
       <div className="mc-stack mc-gap-32">
         {error && (
           <Alert

@@ -9,6 +9,7 @@ import { normalizePath } from '@/components/shell/NavRail'
 import { AgentSwitcher } from './AgentSwitcher'
 import { IconLink } from './IconButton'
 import { useT } from '@/lib/i18n/I18nProvider'
+import { QUEUE_HREF } from '@/lib/routes'
 
 interface PageHeaderProps {
   title: React.ReactNode
@@ -44,7 +45,7 @@ export function PageHeader({ title, subtitle, actions, back, showGlobal = true }
         <div className="mc-topbar__actions">
           {actions}
           {global && shell.activeJobs > 0 && (
-            <Link href="/jobs/" className="mc-status-pill">
+            <Link href={QUEUE_HREF} className="mc-status-pill">
               <span className="mc-spinner mc-spinner--sm" aria-hidden="true" />
               <span>
                 <span className="mc-mono">{shell.activeJobs}</span> {t.ui.runningJobs(shell.activeJobs)}

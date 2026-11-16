@@ -34,7 +34,6 @@ export const brief: Messages['brief'] = {
     all: 'All campaigns',
     withoutCampaign: 'No campaign',
     archived: (name) => `${name} (archived)`,
-    allWorkspaces: 'All workspaces',
     noneInFilter: 'No clips for this campaign',
     noneInFilterDescription: 'This campaign may have clips in another workspace. Turn on "All workspaces" to see them.',
     ready: 'Meets the brief',

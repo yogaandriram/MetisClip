@@ -1,5 +1,5 @@
 // Bahasa Indonesia: the source dictionary. Add every key in en/jobs.ts too (tsc checks it).
-// Antrian (app/(dashboard)/jobs) and job texts shared with Beranda and Cari Video.
+// Antrian (the queue tab of Hasil Clip, app/(dashboard)/clips) and job texts shared with Beranda and Cari Video.
 export const jobs = {
   /** Short pipeline step names for the pills (DESIGN.md §8.9) */
   stepShort: {
@@ -8,9 +8,6 @@ export const jobs = {
     processing: 'Proses',
   },
   progressLabel: 'Progres job',
-  title: 'Antrian Job',
-  subtitle: 'Semua proses analisis dan pemotongan. Job yang terputus (misalnya karena aplikasi ditutup) bisa dilanjutkan dari checkpoint terakhir.',
-  allWorkspaces: 'Semua workspace',
   loadFailed: 'Gagal memuat antrian',
   resumed: 'Job dilanjutkan',
   cancelled: 'Job dibatalkan',

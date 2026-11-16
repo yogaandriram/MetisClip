@@ -5,7 +5,6 @@ export const shell = {
     dashboard: 'Beranda',
     campaigns: 'Campaign',
     discover: 'Cari Video',
-    jobs: 'Antrian',
     clips: 'Hasil Clip',
     brand: 'Brand Template',
     settings: 'Pengaturan',

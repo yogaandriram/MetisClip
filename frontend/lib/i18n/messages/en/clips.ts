@@ -1,8 +1,14 @@
 import type { Messages } from '../id'
 
 export const clips: Messages['clips'] = {
-  title: 'Clip Results',
-  subtitle: 'Click a clip to open the subtitle editor.',
+  title: 'Clips',
+  subtitle: 'Clips made by the AI and the jobs that make them.',
+  allWorkspaces: 'All workspaces',
+  tabs: {
+    label: 'Clips or queue',
+    clips: 'Clips',
+    queue: 'Queue',
+  },
   galleryName: 'the clip gallery',
   loadFailed: "Couldn't load the clips",
   deleted: 'Clip deleted',

@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { usePathname } from 'next/navigation'
-import { Clapperboard, Film, LayoutGrid, ListChecks, Megaphone, Palette, Settings } from 'lucide-react'
+import { Clapperboard, Film, LayoutGrid, Megaphone, Palette, Settings } from 'lucide-react'
 import { Providers } from '@/components/Providers'
 import { NavRail, normalizePath, type RailItem } from '@/components/shell/NavRail'
 import { ShellProvider, useShell } from '@/components/shell/ShellContext'
@@ -15,7 +15,7 @@ const NAV_ITEMS: (Omit<RailItem, 'name'> & { key: keyof Messages['shell']['nav']
   { key: 'dashboard', href: '/dashboard/', icon: LayoutGrid },
   { key: 'campaigns', href: '/campaigns/', icon: Megaphone },
   { key: 'discover', href: '/discover/', icon: Clapperboard },
-  { key: 'jobs', href: '/jobs/', icon: ListChecks },
+  // Hasil Clip holds the job queue too (its Antrian tab), so it carries the running-job count
   { key: 'clips', href: '/clips/', icon: Film },
   { key: 'brand', href: '/brand-template/', icon: Palette },
   { key: 'settings', href: '/settings/', icon: Settings },
@@ -41,7 +41,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 
   const items: RailItem[] = NAV_ITEMS.map(({ key, ...item }) => {
     const name = t.shell.nav[key] as string
-    return item.href === '/jobs/' ? { ...item, name, count: activeJobs } : { ...item, name }
+    return key === 'clips' ? { ...item, name, count: activeJobs } : { ...item, name }
   })
 
   return (

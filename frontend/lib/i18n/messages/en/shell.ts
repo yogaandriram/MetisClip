@@ -5,7 +5,6 @@ export const shell: Messages['shell'] = {
     dashboard: 'Home',
     campaigns: 'Campaigns',
     discover: 'Find Video',
-    jobs: 'Queue',
     clips: 'Clips',
     brand: 'Brand Template',
     settings: 'Settings',

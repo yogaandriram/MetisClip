@@ -42,6 +42,7 @@ import {
   jobStepLabel,
 } from '@/lib/format'
 import { tm } from '@/lib/i18n'
+import { QUEUE_HREF } from '@/lib/routes'
 import { useT } from '@/lib/i18n/I18nProvider'
 
 const CONTENT: React.CSSProperties = { maxWidth: 760, margin: '0 auto' }
@@ -481,8 +482,8 @@ function JobProgress({ jobId }: { jobId: string }) {
                 {p.resume}
               </Button>
             )}
-            <ButtonLink href="/jobs/" variant="secondary" size="sm" icon={<ListChecks size={16} aria-hidden="true" />}>
-              {t.shell.nav.jobs}
+            <ButtonLink href={QUEUE_HREF} variant="secondary" size="sm" icon={<ListChecks size={16} aria-hidden="true" />}>
+              {t.clips.tabs.queue}
             </ButtonLink>
           </div>
         </div>

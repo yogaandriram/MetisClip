@@ -40,7 +40,6 @@ export const brief = {
     all: 'Semua campaign',
     withoutCampaign: 'Tanpa campaign',
     archived: (name: string) => `${name} (diarsipkan)`,
-    allWorkspaces: 'Semua workspace',
     noneInFilter: 'Tidak ada clip untuk campaign ini',
     noneInFilterDescription: 'Clip campaign ini mungkin ada di workspace lain. Aktifkan "Semua workspace" untuk melihatnya.',
     ready: 'Sesuai brief',

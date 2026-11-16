@@ -29,6 +29,7 @@ import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
 import { api, type Clip, type DashboardStats, type Job, type SecretName } from '@/lib/engine'
 import { mediaUrl } from '@/lib/media'
+import { QUEUE_HREF } from '@/lib/routes'
 import { providerInfo } from '@/lib/llmProviders'
 import { ACTIVE_JOB_STATUSES, errorMessage, formatClock, formatCompactNumber, formatDateTime, jobSource } from '@/lib/format'
 import { tm, type Messages } from '@/lib/i18n'
@@ -229,8 +230,8 @@ export default function DashboardOverview() {
               title={m.latestJobs.title}
               size="sm"
               action={
-                <ButtonLink href="/jobs/" variant="ghost" size="sm" iconRight={<ArrowRight size={16} aria-hidden="true" />}>
-                  {t.shell.nav.jobs}
+                <ButtonLink href={QUEUE_HREF} variant="ghost" size="sm" iconRight={<ArrowRight size={16} aria-hidden="true" />}>
+                  {t.clips.tabs.queue}
                 </ButtonLink>
               }
             />
@@ -248,7 +249,7 @@ export default function DashboardOverview() {
                   const title = jobSource(job).text || m.latestJobs.fallbackTitle
                   const active = ACTIVE_JOB_STATUSES.includes(job.status)
                   return (
-                    <Link key={job.id} href="/jobs/" style={{ display: 'block', textDecoration: 'none' }}>
+                    <Link key={job.id} href={QUEUE_HREF} style={{ display: 'block', textDecoration: 'none' }}>
                       {active ? (
                         <ProgressRow label={title} value={`${Math.round(job.progress_pct)}%`} percent={job.progress_pct} />
                       ) : (
@@ -311,7 +312,7 @@ function HeroCard({ job, loading }: { job: Job | null; loading: boolean }) {
   return (
     <Card tone="ink" className="mc-col-3 mc-stat" style={{ justifyContent: 'space-between' }}>
       <Contour />
-      <Notch icon={<ArrowUpRight size={18} />} position="end" label={m.seeQueue} href="/jobs/" />
+      <Notch icon={<ArrowUpRight size={18} />} position="end" label={m.seeQueue} href={QUEUE_HREF} />
       <h2 className="mc-h2 mc-card__body">{m.running}</h2>
       <div className="mc-card__body mc-stack mc-gap-12">
         <div className="mc-display">{running ? `${Math.round(job.progress_pct)}%` : m.queued}</div>
