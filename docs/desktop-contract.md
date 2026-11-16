@@ -166,7 +166,7 @@ Rules:
 | PUT | `/api/brand-templates/{id}` | `Partial<BrandTemplateInput>` (`name`, or sections; each section replaces the stored one). `layout_settings` is validated (see "Layout" below): unknown keys are dropped, numbers clamped, a wrong type is a 400 | `{brand_template: BrandTemplate}` |
 | DELETE | `/api/brand-templates/{id}` | — | `{ok: true}`; 400 for the last template. Its clips fall back to their agent's default, agents using it get the oldest template, and asset copies no other template uses are deleted |
 | POST | `/api/brand-templates/{id}/assets` | multipart: `file`, `kind` | `{value: "asset://library/_brand/<template id>/<file>", path}`. `kind: "companion"` (MP4, MOV or WEBM) is converted first (silent, 30 fps, short side ≤ 1080 px, first 180 s) and also returns `duration`; 400 with an Indonesian message when it is not a readable video |
-| GET | `/api/campaigns` | `?status=active\|archived` | `{campaigns: Campaign[]}` (newest change first, with `clip_count`, `exported_count` and `source_count`; without `sources` and `draft`) |
+| GET | `/api/campaigns` | `?status=active\|archived` | `{campaigns: Campaign[]}` (newest change first, with `clip_count`, `exported_count`, `source_count` and `has_draft` (a reading waits for review); without `sources` and `draft`) |
 | POST | `/api/campaigns` | `{name, client?, brand_template_id?, brief?}` | `{campaign: Campaign}` |
 | GET | `/api/campaigns/{id}` | — | `{campaign: Campaign}` |
 | PUT | `/api/campaigns/{id}` | `CampaignInput` (`brief` = a reviewed brief: replaces the stored one, `version` + 1 when it differs, and clears `draft`) | `{campaign: Campaign}` |

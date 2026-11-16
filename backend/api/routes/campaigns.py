@@ -81,10 +81,13 @@ def list_campaigns(status: Optional[str] = None):
     q: dict[str, Any] = {"status": status} if status in ("active", "archived") else {}
     counts = svc.counts()
     out = []
-    for d in get_db().campaigns.find(q, {"sources.text": 0, "draft": 0}).sort("updated_at", -1):
+    for d in get_db().campaigns.find(q, {"sources.text": 0, "draft.brief": 0, "draft.unreadable": 0}).sort("updated_at", -1):
         dto = campaign_dto(d, counts=counts.get(d["_id"]))
         dto["source_count"] = len(d.get("sources") or [])
+        # A reading waiting for review; the draft itself comes with the detail
+        dto["has_draft"] = bool(d.get("draft"))
         dto.pop("sources", None)
+        dto.pop("draft", None)
         out.append(dto)
     return {"campaigns": out}
 

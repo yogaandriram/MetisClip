@@ -675,6 +675,8 @@ def test_campaign_api_flow(client, secrets, monkeypatch, tmp_path, db):
     camp = _wait_parse(client, cid)
     assert camp["parse"]["status"] == "done" and camp["draft"]["brief"]["must_include"] == ["Tokopedia"]
     assert camp["version"] == 1  # nothing is used until the user saves the reviewed brief
+    listed = client.get("/api/campaigns").json()["campaigns"]
+    assert listed[0]["has_draft"] is True and "draft" not in listed[0]
 
     camp = client.put(f"/api/campaigns/{cid}", json={"brief": camp["draft"]["brief"]}).json()["campaign"]
     assert camp["version"] == 2 and camp["draft"] is None and camp["brief"]["post"]["hashtags"] == ["#TokopediaRamadan"]
@@ -682,6 +684,7 @@ def test_campaign_api_flow(client, secrets, monkeypatch, tmp_path, db):
     assert camp["version"] == 2  # the same brief again is not a new version
     listed = client.get("/api/campaigns").json()["campaigns"]
     assert listed[0]["id"] == cid and listed[0]["source_count"] == 2 and "sources" not in listed[0]
+    assert listed[0]["has_draft"] is False
 
     # A job for the campaign keeps a snapshot of its brief; a custom duration is accepted
     from backend.api.routes import jobs as jobs_route
