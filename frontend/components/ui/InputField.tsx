@@ -5,6 +5,7 @@ import { Eye, EyeOff } from 'lucide-react'
 import { cx } from '@/lib/cx'
 import { Field } from './Field'
 import { IconButton } from './IconButton'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 interface InputFieldProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> {
   label?: React.ReactNode
@@ -44,6 +45,7 @@ export const InputField = React.forwardRef<HTMLInputElement, InputFieldProps>(fu
   },
   ref,
 ) {
+  const t = useT()
   const autoId = useId()
   const inputId = id || autoId
   const [ownReveal, setOwnReveal] = useState(false)
@@ -53,7 +55,7 @@ export const InputField = React.forwardRef<HTMLInputElement, InputFieldProps>(fu
     <IconButton
       size="sm"
       variant="ghost"
-      label={shown ? 'Sembunyikan' : 'Tampilkan'}
+      label={shown ? t.ui.hide : t.ui.show}
       tooltip="end"
       icon={shown ? <EyeOff size={16} /> : <Eye size={16} />}
       onClick={() => (onRevealToggle ? onRevealToggle() : setOwnReveal((v) => !v))}

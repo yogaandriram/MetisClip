@@ -2,6 +2,7 @@ import React from 'react'
 import { AlertTriangle, Check, Clock, PauseCircle, X } from 'lucide-react'
 import { cx } from '@/lib/cx'
 import { CLIP_STATUS, JOB_STATUS } from '@/lib/format'
+import { useT } from '@/lib/i18n/I18nProvider'
 import type { ClipStatus, JobStatus, RenderStatus } from '@/lib/engine'
 
 /**
@@ -38,12 +39,12 @@ const TONE_ICON: Record<BadgeTone, React.ReactNode> = {
   error: <AlertTriangle size={14} aria-hidden="true" />,
 }
 
-const RENDER_BADGE: Record<RenderStatus, { label: string; tone: BadgeTone }> = {
-  queued: { label: 'Antri render', tone: 'neutral' },
-  rendering: { label: 'Merender', tone: 'ink' },
-  completed: { label: 'Selesai', tone: 'success' },
-  failed: { label: 'Gagal', tone: 'error' },
-  cancelled: { label: 'Dibatalkan', tone: 'quiet' },
+const RENDER_TONE: Record<RenderStatus, BadgeTone> = {
+  queued: 'neutral',
+  rendering: 'ink',
+  completed: 'success',
+  failed: 'error',
+  cancelled: 'quiet',
 }
 
 type StatusBadgeProps =
@@ -51,10 +52,15 @@ type StatusBadgeProps =
   | { kind: 'clip'; status: ClipStatus; size?: 'sm' | 'md'; className?: string }
   | { kind: 'render'; status: RenderStatus; size?: 'sm' | 'md'; className?: string }
 
-/** Job, clip or render status with its standard tone, icon and Indonesian label. */
+/** Job, clip or render status with its standard tone, icon and label in the current language. */
 export function StatusBadge(props: StatusBadgeProps) {
+  const t = useT()
   const meta =
-    props.kind === 'job' ? JOB_STATUS[props.status] : props.kind === 'clip' ? CLIP_STATUS[props.status] : RENDER_BADGE[props.status]
+    props.kind === 'job'
+      ? JOB_STATUS[props.status]
+      : props.kind === 'clip'
+        ? CLIP_STATUS[props.status]
+        : RENDER_TONE[props.status] && { tone: RENDER_TONE[props.status], label: t.status.renderBadge[props.status] }
   if (!meta) return null
   return (
     <Badge tone={meta.tone} icon={TONE_ICON[meta.tone]} size={props.size} className={props.className}>
@@ -71,13 +77,14 @@ interface ScoreBadgeProps {
 
 /** Viral score: ≥ 80 leaf, 60–79 dew, below 60 outlined (DESIGN.md §8.5). */
 export function ScoreBadge({ score, size = 'md', className }: ScoreBadgeProps) {
+  const t = useT()
   const value = Math.round(score ?? 0)
   const level = value >= 80 ? 'high' : value >= 60 ? 'mid' : 'low'
   return (
     <span
       className={cx('mc-score', `mc-score--${level}`, size === 'sm' && 'mc-score--sm', 'mc-tip', className)}
-      data-tip="Skor viral"
-      aria-label={`Skor viral ${value}`}
+      data-tip={t.ui.viralScore}
+      aria-label={t.ui.viralScoreValue(value)}
       role="img"
     >
       {value}

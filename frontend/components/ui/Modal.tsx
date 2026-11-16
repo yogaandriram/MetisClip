@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { cx } from '@/lib/cx'
 import { IconButton } from './IconButton'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 interface ModalProps {
   isOpen: boolean
@@ -22,6 +23,7 @@ const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select
 
 /** Dialog with focus trap, Escape to close and focus return (DESIGN.md §8.12). */
 export function Modal({ isOpen, onClose, title, size = 'sm', footer, busy = false, children }: ModalProps) {
+  const t = useT()
   const [mounted, setMounted] = useState(false)
   const panel = useRef<HTMLDivElement>(null)
   const titleId = useId()
@@ -89,7 +91,7 @@ export function Modal({ isOpen, onClose, title, size = 'sm', footer, busy = fals
           ) : (
             <span />
           )}
-          <IconButton label="Tutup" icon={<X size={18} />} variant="ghost" size="sm" tooltip="end" onClick={onClose} disabled={busy} />
+          <IconButton label={t.common.close} icon={<X size={18} />} variant="ghost" size="sm" tooltip="end" onClick={onClose} disabled={busy} />
         </div>
         {children}
         {footer && <div className="mc-modal__foot">{footer}</div>}

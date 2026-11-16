@@ -4,6 +4,7 @@ import React, { useId } from 'react'
 import { Minus, Plus } from 'lucide-react'
 import { Field } from './Field'
 import { IconButton } from './IconButton'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 interface NumberStepperProps {
   value: number
@@ -22,6 +23,7 @@ interface NumberStepperProps {
 
 /** − value + in a pill (DESIGN.md §8.2). */
 export function NumberStepper({ value, onChange, min = 0, max = 99, step = 1, label, hint, format, ariaLabel, className }: NumberStepperProps) {
+  const t = useT()
   const id = useId()
   const clamp = (v: number) => Math.min(max, Math.max(min, v))
   const text = format ? format(value) : String(value)
@@ -47,9 +49,9 @@ export function NumberStepper({ value, onChange, min = 0, max = 99, step = 1, la
           }
         }}
       >
-        <IconButton size="sm" variant="ghost" label="Kurangi" icon={<Minus size={16} />} disabled={value <= min} onClick={() => onChange(clamp(value - step))} tabIndex={-1} />
+        <IconButton size="sm" variant="ghost" label={t.ui.decrease} icon={<Minus size={16} />} disabled={value <= min} onClick={() => onChange(clamp(value - step))} tabIndex={-1} />
         <span className="mc-stepper__value">{text}</span>
-        <IconButton size="sm" variant="ghost" label="Tambah" icon={<Plus size={16} />} disabled={value >= max} onClick={() => onChange(clamp(value + step))} tabIndex={-1} />
+        <IconButton size="sm" variant="ghost" label={t.ui.increase} icon={<Plus size={16} />} disabled={value >= max} onClick={() => onChange(clamp(value + step))} tabIndex={-1} />
       </div>
     </Field>
   )

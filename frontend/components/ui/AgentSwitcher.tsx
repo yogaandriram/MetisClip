@@ -6,6 +6,7 @@ import { Check, ChevronDown, Users } from 'lucide-react'
 import { useAgent } from '@/contexts/AgentContext'
 import { useDismiss } from '@/hooks/useDismiss'
 import { Avatar } from './Avatar'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 /** Active workspace as a pill in the top bar, with a popover to switch or manage workspaces. */
 export function AgentSwitcher() {
@@ -15,7 +16,8 @@ export function AgentSwitcher() {
   const close = useCallback(() => setOpen(false), [])
   useDismiss(root, open, close)
 
-  const name = activeAgent ? activeAgent.name : isAgentLoading ? 'Memuat workspace…' : 'Pilih workspace'
+  const t = useT()
+  const name = activeAgent ? activeAgent.name : isAgentLoading ? t.ui.workspaceSwitcher.loading : t.ui.workspaceSwitcher.choose
 
   return (
     <div ref={root} className="mc-popover-anchor">
@@ -24,7 +26,7 @@ export function AgentSwitcher() {
         className="mc-pillgroup__item"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`Workspace aktif: ${name}. Ganti workspace`}
+        aria-label={t.ui.workspaceSwitcher.active(name)}
         onClick={() => setOpen((v) => !v)}
         style={{ paddingLeft: activeAgent ? 6 : 16 }}
       >
@@ -37,7 +39,7 @@ export function AgentSwitcher() {
 
       {open && (
         <div role="menu" className="mc-popover mc-popover--end" style={{ width: 280 }}>
-          <div className="mc-menu-label">Workspace</div>
+          <div className="mc-menu-label">{t.ui.workspaceSwitcher.heading}</div>
           {agents.length > 0 ? (
             agents.map((agent) => {
               const selected = activeAgent?.id === agent.id
@@ -60,12 +62,12 @@ export function AgentSwitcher() {
               )
             })
           ) : (
-            <div className="mc-menu-label">Belum ada workspace. Buat satu untuk mulai.</div>
+            <div className="mc-menu-label">{t.ui.workspaceSwitcher.empty}</div>
           )}
           <div className="mc-menu-sep" role="separator" />
           <Link href="/agents/" role="menuitem" className="mc-menu-item" onClick={close}>
             <Users size={16} aria-hidden="true" />
-            Kelola workspace
+            {t.ui.workspaceSwitcher.manage}
           </Link>
         </div>
       )}

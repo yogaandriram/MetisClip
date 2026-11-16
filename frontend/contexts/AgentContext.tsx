@@ -3,6 +3,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { api, type Agent } from '@/lib/engine'
 import { errorMessage } from '@/lib/format'
+import { tm } from '@/lib/i18n'
 import { useEngine } from './EngineContext'
 
 const STORAGE_KEY = 'activeAgentId'
@@ -57,7 +58,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       })
       return list
     } catch (err) {
-      setAgentError(errorMessage(err, 'Gagal memuat daftar workspace'))
+      setAgentError(errorMessage(err, tm().shell.workspacesLoadFailed))
       return []
     } finally {
       setIsAgentLoading(false)

@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useId, useState } from 'react'
 import { AppWindow, Cpu, Download, FolderOpen, HardDrive, KeyRound, Mic, Save, Users } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { Alert, Button, Card, CardHeader, Field, IconButton, InputField, PageHeader, SelectField, Skeleton, ToggleSwitch } from '@/components/ui'
+import { Alert, Button, Card, CardHeader, Field, IconButton, InputField, LanguageSwitch, PageHeader, SelectField, Skeleton, ToggleSwitch } from '@/components/ui'
 import { LlmSection } from '@/components/settings/LlmFields'
 import { WhisperSection } from '@/components/settings/WhisperFields'
 import { AgentForm, toAgentInput, type AgentFormValue } from '@/components/agents/AgentForm'
@@ -12,6 +12,7 @@ import { useEngine } from '@/contexts/EngineContext'
 import { api, type EncoderSetting, type ResourceStatus, type SecretName, type Settings } from '@/lib/engine'
 import { errorMessage } from '@/lib/format'
 import { isDesktop } from '@/lib/media'
+import { getLang } from '@/lib/i18n'
 
 const ENCODER_LABELS: Record<EncoderSetting, string> = {
   auto: 'Otomatis (pilih yang tercepat)',
@@ -124,7 +125,7 @@ export default function SettingsPage() {
     if (!settings) return
     setSaving(true)
     try {
-      const { settings: next } = await api.settings.update(settings)
+      const { settings: next } = await api.settings.update({ ...settings, app: { ...settings.app, language: getLang() } })
       setSettings(next)
       setSavedSettings(JSON.stringify(next))
       refreshSystemInfo()
@@ -411,19 +412,23 @@ export default function SettingsPage() {
 
         <Card>
           <CardHeader size="sm" icon={headerIcon(AppWindow)} title="Aplikasi" />
-          {!settings ? (
-            <SettingsSkeleton />
-          ) : (
-            <div className="mc-stack mc-gap-20">
-              <ToggleSwitch
-                label="Tetap berjalan di tray saat ditutup"
-                hint="Job yang berjalan tidak terhenti ketika jendela ditutup."
-                checked={settings.app.close_to_tray}
-                onChange={(v) => patch('app', { ...settings.app, close_to_tray: v })}
-              />
-              <ToggleSwitch label="Pembaruan otomatis" checked={settings.app.auto_update} onChange={(v) => patch('app', { ...settings.app, auto_update: v })} />
-            </div>
-          )}
+          <div className="mc-stack mc-gap-20">
+            {/* Applies and saves at once, outside the Save button below */}
+            <LanguageSwitch withLabel />
+            {!settings ? (
+              <SettingsSkeleton />
+            ) : (
+              <div className="mc-stack mc-gap-20">
+                <ToggleSwitch
+                  label="Tetap berjalan di tray saat ditutup"
+                  hint="Job yang berjalan tidak terhenti ketika jendela ditutup."
+                  checked={settings.app.close_to_tray}
+                  onChange={(v) => patch('app', { ...settings.app, close_to_tray: v })}
+                />
+                <ToggleSwitch label="Pembaruan otomatis" checked={settings.app.auto_update} onChange={(v) => patch('app', { ...settings.app, auto_update: v })} />
+              </div>
+            )}
+          </div>
         </Card>
 
         {settings && (

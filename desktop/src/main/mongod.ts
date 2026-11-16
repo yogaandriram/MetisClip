@@ -4,6 +4,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { createLogger } from './logger'
+import { tr } from './i18n'
 import { freePort, isAlive, killTree, onLines, portIsFree, processExePath, sleep, tcpConnect, waitExit } from './procs'
 
 const log = createLogger('mongod')
@@ -85,7 +86,7 @@ export class MongodManager {
   /** Start mongod and resolve with the port once it accepts TCP connections. */
   async start(preferredPort?: number): Promise<number> {
     if (!fs.existsSync(this.opts.exe)) {
-      throw new Error(`mongod.exe tidak ditemukan di ${this.opts.exe}. Jalankan scripts\\fetch-binaries.ps1 (dev) atau instal ulang aplikasi.`)
+      throw new Error(tr().mongod.exeMissing(this.opts.exe))
     }
     fs.mkdirSync(this.dbPath, { recursive: true })
     fs.mkdirSync(this.opts.logsDir, { recursive: true })
@@ -109,7 +110,7 @@ export class MongodManager {
         if (attempt < MAX_START_ATTEMPTS) await this.recoverOrphan()
       }
     }
-    throw new Error(`MongoDB gagal dijalankan: ${lastError}`)
+    throw new Error(tr().mongod.startFailed(String(lastError)))
   }
 
   private spawnOnce(port: number): Promise<void> {
@@ -139,7 +140,7 @@ export class MongodManager {
       const onEarlyExit = (code: number | null) => {
         if (settled) return
         settled = true
-        reject(new Error(`mongod berhenti saat start (exit ${code}). ${this.lastLogError() || ''}`.trim()))
+        reject(new Error(tr().mongod.exitedAtStart(code, this.lastLogError() || '')))
       }
       child.once('exit', onEarlyExit)
       child.once('error', (err) => {
@@ -160,7 +161,7 @@ export class MongodManager {
           }
           if (Date.now() - started > READY_TIMEOUT_MS) {
             settled = true
-            reject(new Error(`mongod tidak merespons dalam ${READY_TIMEOUT_MS / 1000} detik`))
+            reject(new Error(tr().mongod.noResponse(READY_TIMEOUT_MS / 1000)))
             return
           }
           await sleep(200)
@@ -208,7 +209,7 @@ export class MongodManager {
     const now = Date.now()
     this.crashTimes = this.crashTimes.filter((t) => now - t < CRASH_WINDOW_MS)
     if (this.crashTimes.length >= MAX_CRASH_RESTARTS) {
-      this.opts.onFatal('MongoDB berhenti berulang kali. Buka folder log untuk detailnya.')
+      this.opts.onFatal(tr().mongod.crashLoop)
       return
     }
     this.crashTimes.push(now)

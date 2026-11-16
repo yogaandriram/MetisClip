@@ -116,6 +116,10 @@ def _validate(s: dict) -> None:
     if not 0 <= reserve <= 16:
         raise SettingsError("Cadangan RAM harus antara 0 (otomatis) dan 16 GB")
     res["reserve_gb"] = round(reserve, 2)
+    from backend.core import i18n
+
+    if not i18n.is_lang(s["app"].get("language")):
+        raise SettingsError("Bahasa tampilan tidak dikenal")
     try:
         s["cache_limit_gb"] = max(1, float(s["cache_limit_gb"]))
         s["db"]["wiredtiger_cache_gb"] = min(4.0, max(0.25, float(s["db"]["wiredtiger_cache_gb"])))
@@ -157,4 +161,7 @@ def update_settings(patch: dict) -> dict[str, Any]:
         {"_id": "settings", **stored, "updated_at": datetime.now(timezone.utc)},
         upsert=True,
     )
+    from backend.core import i18n
+
+    i18n.set_language(merged["app"]["language"])
     return merged

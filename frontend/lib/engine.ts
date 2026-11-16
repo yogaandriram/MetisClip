@@ -1,6 +1,7 @@
 // Typed client for the local MetisClip engine (FastAPI sidecar).
 // This file is the source of truth for request/response shapes — the engine
 // (backend/) must match it. See docs/desktop-contract.md §6.
+import { tm, type Lang } from './i18n'
 
 // ---------------------------------------------------------------------------
 // DTOs
@@ -240,7 +241,8 @@ export interface Settings {
   resources: { auto: boolean; reserve_gb: number }
   ytdlp: { player_client: string; cookies_file: string | null }
   db: { wiredtiger_cache_gb: number }
-  app: { close_to_tray: boolean; auto_update: boolean; language: 'id' }
+  /** language: the UI language, mirrored for the engine's own messages (lib/i18n) */
+  app: { close_to_tray: boolean; auto_update: boolean; language: Lang }
 }
 
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
@@ -448,7 +450,7 @@ export function getEngineInfoSync(): MetisEngineInfo | null {
 }
 
 function requireInfo(): MetisEngineInfo {
-  if (!cachedInfo) throw new EngineError(0, 'Engine belum siap')
+  if (!cachedInfo) throw new EngineError(0, tm().shell.engine.notReady)
   return cachedInfo
 }
 
@@ -479,10 +481,10 @@ async function request<T>(method: string, path: string, opts: { query?: Query; b
   try {
     res = await fetch(`${info.baseUrl}${path}${qs(opts.query)}`, { method, headers, body, cache: 'no-store' })
   } catch {
-    throw new EngineError(0, 'Tidak dapat terhubung ke engine MetisClip')
+    throw new EngineError(0, tm().shell.engine.cannotConnect)
   }
   if (!res.ok) {
-    let detail = `Permintaan gagal (HTTP ${res.status})`
+    let detail = tm().shell.engine.requestFailed(res.status)
     try {
       const data = await res.json()
       if (typeof data?.detail === 'string') detail = data.detail

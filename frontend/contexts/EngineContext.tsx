@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { AlertTriangle, RefreshCw, Power } from 'lucide-react'
 import { api, getEngineInfo, type SystemInfo } from '@/lib/engine'
 import { errorMessage } from '@/lib/format'
+import { tm } from '@/lib/i18n'
+import { useT } from '@/lib/i18n/I18nProvider'
 import { Button, Card, Logo, Skeleton, Spinner } from '@/components/ui'
 
 type EngineContextValue = {
@@ -20,7 +22,7 @@ type Phase = 'connecting' | 'ready' | 'error'
 
 /**
  * Waits for the local engine before rendering children (skeleton while starting,
- * Indonesian error state with "Coba lagi"). Once ready, children stay mounted during an
+ * error state with "Coba lagi" in the current language). Once ready, children stay mounted during an
  * engine restart and a banner is shown instead, so unsaved edits are not lost.
  */
 export function EngineGate({ children, requireDataRoot = true }: { children: React.ReactNode; requireDataRoot?: boolean }) {
@@ -75,8 +77,8 @@ export function EngineGate({ children, requireDataRoot = true }: { children: Rea
         if (cancelled) return
         setMessage(
           window.metis
-            ? errorMessage(err, 'Engine MetisClip gagal dijalankan.')
-            : `${errorMessage(err)}. Pastikan engine berjalan di ${process.env.NEXT_PUBLIC_ENGINE_URL || 'http://127.0.0.1:8000'} (lihat frontend/.env.example).`
+            ? errorMessage(err, tm().shell.engine.failedToStart)
+            : `${errorMessage(err)}. ${tm().shell.engine.devHint(process.env.NEXT_PUBLIC_ENGINE_URL || 'http://127.0.0.1:8000')}`
         )
         updatePhase('error')
       } finally {
@@ -96,7 +98,7 @@ export function EngineGate({ children, requireDataRoot = true }: { children: Rea
           setMessage(status.message || null)
           updatePhase('connecting')
         } else if (status.state === 'error' || status.state === 'stopped') {
-          setMessage(status.message || 'Engine MetisClip berhenti.')
+          setMessage(status.message || tm().shell.engine.stopped)
           updatePhase('error')
         }
       })
@@ -131,6 +133,7 @@ export function useEngine(): EngineContextValue {
 }
 
 function EngineSkeleton({ message }: { message: string | null }) {
+  const t = useT()
   return (
     <div className="mc-shell" aria-busy="true">
       <div className="mc-shell__logo">
@@ -145,7 +148,7 @@ function EngineSkeleton({ message }: { message: string | null }) {
             <Skeleton width={280} height={32} radius="full" />
             <div className="mc-row mc-muted">
               <Spinner size="sm" />
-              <span role="status">{message || 'Menghubungkan ke engine MetisClip…'}</span>
+              <span role="status">{message || t.shell.engine.connecting}</span>
             </div>
           </div>
           <Skeleton width={320} height={48} radius="full" />
@@ -163,24 +166,25 @@ function EngineSkeleton({ message }: { message: string | null }) {
 }
 
 function EngineErrorScreen({ message, onRetry }: { message: string | null; onRetry: () => void }) {
+  const t = useT()
   return (
     <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24 }}>
       <Card padding="lg" style={{ maxWidth: 560, width: '100%', borderRadius: 'var(--r-xl)' }}>
         <div className="mc-stack mc-gap-20">
           <Logo size="sm" />
           <div className="mc-stack mc-gap-8">
-            <h1 className="mc-h2">Engine MetisClip tidak dapat dihubungi</h1>
+            <h1 className="mc-h2">{t.shell.engine.unreachableTitle}</h1>
             <p className="mc-muted" style={{ overflowWrap: 'anywhere' }}>
-              {message || 'Terjadi kesalahan saat menyalakan engine lokal.'}
+              {message || t.shell.engine.unreachableFallback}
             </p>
           </div>
           <div className="mc-row mc-row--wrap">
             <Button variant="primary" onClick={onRetry} icon={<RefreshCw size={16} />}>
-              Coba lagi
+              {t.common.retry}
             </Button>
             {typeof window !== 'undefined' && window.metis && (
               <Button variant="secondary" onClick={() => window.metis?.relaunch()} icon={<Power size={16} />}>
-                Mulai ulang aplikasi
+                {t.shell.engine.relaunch}
               </Button>
             )}
           </div>
@@ -191,6 +195,7 @@ function EngineErrorScreen({ message, onRetry }: { message: string | null; onRet
 }
 
 function EngineBanner({ phase, message, onRetry }: { phase: Phase; message: string | null; onRetry: () => void }) {
+  const t = useT()
   const isError = phase === 'error'
   return (
     <div
@@ -214,10 +219,10 @@ function EngineBanner({ phase, message, onRetry }: { phase: Phase; message: stri
       }}
     >
       {isError ? <AlertTriangle size={16} aria-hidden="true" /> : <Spinner size="sm" />}
-      <span>{message || (isError ? 'Engine berhenti.' : 'Engine sedang dimulai ulang…')}</span>
+      <span>{message || (isError ? t.shell.engine.bannerStopped : t.shell.engine.bannerRestarting)}</span>
       {isError && (
         <Button variant="primary" size="sm" onClick={onRetry}>
-          Coba lagi
+          {t.common.retry}
         </Button>
       )}
     </div>

@@ -3,6 +3,7 @@
 import React from 'react'
 import { Modal } from './Modal'
 import { Button } from './Button'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 interface ConfirmModalProps {
   isOpen: boolean
@@ -24,8 +25,8 @@ export function ConfirmModal({
   isOpen,
   title,
   message,
-  confirmLabel = 'Ya, lanjutkan',
-  cancelLabel = 'Batal',
+  confirmLabel,
+  cancelLabel,
   danger = false,
   confirmIcon,
   loading = false,
@@ -33,6 +34,7 @@ export function ConfirmModal({
   onClose,
   children,
 }: ConfirmModalProps) {
+  const t = useT()
   return (
     <Modal
       isOpen={isOpen}
@@ -42,10 +44,10 @@ export function ConfirmModal({
       footer={
         <>
           <Button variant="ghost" onClick={onClose} disabled={loading}>
-            {cancelLabel}
+            {cancelLabel ?? t.common.cancel}
           </Button>
           <Button variant="primary" icon={confirmIcon} onClick={onConfirm} loading={loading} data-autofocus={danger ? undefined : true}>
-            {confirmLabel}
+            {confirmLabel ?? t.ui.confirm}
           </Button>
         </>
       }

@@ -9,6 +9,7 @@ import { Backend } from './engine'
 import { registerIpc } from './ipc'
 import { dataRootAvailable, dataRootOverride, ensureStructure, readBootstrap } from './data-root'
 import { loadWindowState, MIN_HEIGHT, MIN_WIDTH, trackWindowState } from './window-state'
+import { getLanguage, tr } from './i18n'
 
 configureUserData()
 registerSchemePrivileges()
@@ -23,11 +24,12 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 }
 
-/** Built-in Indonesian error page (shown when the UI itself cannot be loaded). */
+/** Built-in error page in the UI language (shown when the UI itself cannot be loaded). */
 function errorPage(detail: string): string {
   const logs = getPaths().logsDir
   const retry = entryUrl('/')
-  return `<!doctype html><html lang="id"><head><meta charset="utf-8"><title>MetisClip</title>
+  const m = tr().errorPage
+  return `<!doctype html><html lang="${getLanguage()}"><head><meta charset="utf-8"><title>MetisClip</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
 <style>
   /* Same tokens as frontend/styles/tokens.css: canvas mist, surface card, ink text and buttons. */
@@ -44,14 +46,14 @@ function errorPage(detail: string): string {
   button.secondary:hover{background:#DDF6D2}
   button:focus-visible{outline:2px solid #16240F;outline-offset:3px}
 </style></head><body><div class="card">
-  <h1>Tampilan MetisClip tidak bisa dimuat</h1>
-  <p>Terjadi masalah saat membuka antarmuka aplikasi.</p>
+  <h1>${escapeHtml(m.title)}</h1>
+  <p>${escapeHtml(m.body)}</p>
   <code>${escapeHtml(detail)}</code>
-  <p>Detail tersimpan di folder log:</p>
+  <p>${escapeHtml(m.logsAt)}</p>
   <code>${escapeHtml(logs)}</code>
   <div class="row">
-    <button id="retry">Coba lagi</button>
-    <button id="logs" class="secondary">Buka folder log</button>
+    <button id="retry">${escapeHtml(m.retry)}</button>
+    <button id="logs" class="secondary">${escapeHtml(m.openLogs)}</button>
   </div>
 </div>
 <script>
@@ -122,7 +124,7 @@ function createWindow(): BrowserWindow {
   })
   wc.on('render-process-gone', (_e, details) => {
     log.error(`renderer berhenti: ${details.reason} (exit ${details.exitCode})`)
-    if (details.reason !== 'clean-exit' && !win.isDestroyed()) showErrorPage(win, `Renderer berhenti: ${details.reason}`)
+    if (details.reason !== 'clean-exit' && !win.isDestroyed()) showErrorPage(win, tr().rendererGone(details.reason))
   })
   wc.on('console-message', (e) => {
     const level = (e as unknown as { level?: string | number }).level
@@ -163,7 +165,7 @@ function startBackend(): void {
     ensureStructure(root)
   }
   if (!dataRootAvailable(root)) {
-    backend.fail(`Folder data tidak ditemukan: ${root}. Sambungkan kembali drive-nya lalu coba lagi, atau pilih lokasi lain.`)
+    backend.fail(tr().dataRootMissing(root))
     return
   }
   void backend.start(root)

@@ -6,7 +6,7 @@ import { AlertTriangle, ArrowLeft, ArrowRight, Check, FolderOpen, Plus, RefreshC
 import toast from 'react-hot-toast'
 import { api, getEngineInfo, type SecretName, type SystemCheck } from '@/lib/engine'
 import { errorMessage, formatBytes } from '@/lib/format'
-import { Alert, Badge, Blob, Button, Card, Divider, Field, InputField, Logo, Skeleton, Spinner, WizardSteps } from '@/components/ui'
+import { Alert, Badge, Blob, Button, Card, Divider, Field, InputField, LanguageSwitch, Logo, Skeleton, Spinner, WizardSteps } from '@/components/ui'
 import { SecretField } from '@/components/settings/SecretField'
 import { LlmSection, type LlmValue } from '@/components/settings/LlmFields'
 import { AgentForm, toAgentInput } from '@/components/agents/AgentForm'
@@ -102,8 +102,10 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
     <>
       <Card tone="dew" style={{ minHeight: 220, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 24 }}>
         <Blob />
-        <div className="mc-card__body">
+        <div className="mc-card__body mc-row mc-row--between mc-row--top mc-row--wrap mc-gap-16">
           <Logo />
+          {/* First choice of the wizard, so every later step is in the user's language */}
+          <LanguageSwitch size="sm" />
         </div>
         <div className="mc-card__body mc-stack mc-gap-4" style={{ maxWidth: '60%' }}>
           <span className="mc-label mc-moss">Pengaturan awal</span>

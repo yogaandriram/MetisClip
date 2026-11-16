@@ -1,9 +1,12 @@
-// Small formatting helpers shared by the desktop UI (Bahasa Indonesia).
+// Small formatting helpers shared by the desktop UI. Text and number/date formats follow the current
+// UI language (lib/i18n): labels are getters, so they are read at render time.
+import { localeTag, tm } from './i18n'
 import { EngineError, type ClipStatus, type Job, type JobStatus, type JobStep, type RenderStatus } from './engine'
 
 import type { BadgeTone } from '@/components/ui/Badge'
 
-export function errorMessage(err: unknown, fallback = 'Terjadi kesalahan yang tidak terduga'): string {
+export function errorMessage(err: unknown, fallback?: string): string {
+  fallback = fallback ?? tm().common.unexpectedError
   if (err instanceof EngineError) return err.message
   if (err instanceof Error && err.message) return err.message
   if (typeof err === 'string' && err) return err
@@ -20,7 +23,7 @@ export function formatBytes(bytes: number | null | undefined): string {
     value /= 1024
     i++
   }
-  return `${value.toLocaleString('id-ID', { maximumFractionDigits: value >= 100 ? 0 : 1 })} ${units[i]}`
+  return `${value.toLocaleString(localeTag(), { maximumFractionDigits: value >= 100 ? 0 : 1 })} ${units[i]}`
 }
 
 /** 75.4 -> "1:15" */
@@ -35,67 +38,77 @@ export function formatDate(iso: string | null | undefined): string {
   if (!iso) return '-'
   const d = new Date(iso)
   if (isNaN(d.getTime())) return '-'
-  return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
+  return d.toLocaleDateString(localeTag(), { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return '-'
   const d = new Date(iso)
   if (isNaN(d.getTime())) return '-'
-  return d.toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return d.toLocaleString(localeTag(), { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 export function formatCompactNumber(n: number | null | undefined): string {
   if (n === null || n === undefined || !isFinite(n)) return '0'
-  if (n >= 1_000_000) return `${(n / 1_000_000).toLocaleString('id-ID', { maximumFractionDigits: 1 })} jt`
-  if (n >= 1_000) return `${(n / 1_000).toLocaleString('id-ID', { maximumFractionDigits: 1 })} rb`
-  return n.toLocaleString('id-ID')
+  if (n >= 1_000_000) return `${(n / 1_000_000).toLocaleString(localeTag(), { maximumFractionDigits: 1 })} ${tm().status.millionSuffix}`
+  if (n >= 1_000) return `${(n / 1_000).toLocaleString(localeTag(), { maximumFractionDigits: 1 })} ${tm().status.thousandSuffix}`
+  return n.toLocaleString(localeTag())
 }
 
-export const JOB_STEPS: { id: JobStep; label: string }[] = [
-  { id: 'discovery', label: 'Mencari video sumber di YouTube' },
-  { id: 'analysis', label: 'Menganalisis transkrip & memilih momen viral' },
-  { id: 'processing', label: 'Memotong klip, crop wajah & membuat subtitle' },
-]
+const JOB_STEP_IDS: JobStep[] = ['discovery', 'analysis', 'processing']
+
+export const JOB_STEPS: { id: JobStep; label: string }[] = JOB_STEP_IDS.map((id) => ({
+  id,
+  get label() {
+    return tm().status.steps[id]
+  },
+}))
 
 export function jobStepLabel(step: JobStep | null | undefined): string {
-  return JOB_STEPS.find((s) => s.id === step)?.label || 'Menunggu antrian'
+  return JOB_STEPS.find((s) => s.id === step)?.label || tm().status.steps.waiting
 }
 
-export const JOB_STATUS: Record<JobStatus, { label: string; tone: BadgeTone }> = {
-  pending: { label: 'Menunggu', tone: 'neutral' },
-  running: { label: 'Berjalan', tone: 'ink' },
-  interrupted: { label: 'Terputus', tone: 'warning' },
-  cancelled: { label: 'Dibatalkan', tone: 'quiet' },
-  completed: { label: 'Selesai', tone: 'success' },
-  failed: { label: 'Gagal', tone: 'error' },
+const JOB_TONES: Record<JobStatus, BadgeTone> = {
+  pending: 'neutral',
+  running: 'ink',
+  interrupted: 'warning',
+  cancelled: 'quiet',
+  completed: 'success',
+  failed: 'error',
 }
+
+/** Label (current language) and badge tone per job status. */
+export const JOB_STATUS = labelled(JOB_TONES, (s) => tm().status.job[s])
 
 export const ACTIVE_JOB_STATUSES: JobStatus[] = ['pending', 'running']
 export const RESUMABLE_JOB_STATUSES: JobStatus[] = ['interrupted', 'failed', 'cancelled']
 
-export const CLIP_STATUS: Record<ClipStatus, { label: string; tone: BadgeTone }> = {
-  processing: { label: 'Diproses', tone: 'ink' },
-  ready: { label: 'Siap', tone: 'accent' },
-  rendering: { label: 'Dirender', tone: 'ink' },
-  exported: { label: 'Diekspor', tone: 'success' },
-  failed: { label: 'Gagal', tone: 'error' },
+const CLIP_TONES: Record<ClipStatus, BadgeTone> = {
+  processing: 'ink',
+  ready: 'accent',
+  rendering: 'ink',
+  exported: 'success',
+  failed: 'error',
 }
 
-export const RENDER_STATUS: Record<RenderStatus, string> = {
-  queued: 'Menunggu antrian render…',
-  rendering: 'Membakar subtitle ke video…',
-  completed: 'Video selesai dirender',
-  failed: 'Render gagal',
-  cancelled: 'Render dibatalkan',
-}
+export const CLIP_STATUS = labelled(CLIP_TONES, (s) => tm().status.clip[s])
 
-export const CLIP_DURATION_OPTIONS = [
-  { value: '30-45', label: '30 - 45 detik (Ultra Short)' },
-  { value: '45-60', label: '45 - 60 detik (Shorts/Reels)' },
-  { value: '60-75', label: '60 - 75 detik (Story)' },
-  { value: '75-90', label: '75 - 90 detik (Deep-dive)' },
-]
+const RENDER_STATUSES: RenderStatus[] = ['queued', 'rendering', 'completed', 'failed', 'cancelled']
+
+/** Render progress line per render status (current language). */
+export const RENDER_STATUS = Object.defineProperties(
+  {} as Record<RenderStatus, string>,
+  Object.fromEntries(RENDER_STATUSES.map((s) => [s, { enumerable: true, get: () => tm().status.render[s] }]))
+)
+
+const CLIP_DURATIONS = ['30-45', '45-60', '60-75', '75-90'] as const
+
+export const CLIP_DURATION_OPTIONS: { value: (typeof CLIP_DURATIONS)[number]; label: string }[] = CLIP_DURATIONS.map((value) => ({
+  value,
+  get label() {
+    return tm().status.durations[value]
+  },
+}))
 
 /** Video containers Cari Video accepts for upload (backend/agents/nodes/discovery.py VIDEO_EXTENSIONS). */
 export const VIDEO_FILE_EXTENSIONS = ['mp4', 'mkv', 'mov', 'webm', 'm4v', 'avi']
@@ -108,11 +121,25 @@ export function fileName(path: string): string {
 /** What a job was made from, for job lists: the YouTube link or the uploaded file's name. */
 export function jobSource(job: Job): { kind: 'link' | 'file'; label: string; text: string } {
   if (job.source.type === 'local_file' && job.source.local_file_path) {
-    return { kind: 'file', label: 'File', text: fileName(job.source.local_file_path) }
+    return { kind: 'file', label: tm().status.source.file, text: fileName(job.source.local_file_path) }
   }
-  return { kind: 'link', label: 'Link', text: job.source.youtube_url || '-' }
+  return { kind: 'link', label: tm().status.source.link, text: job.source.youtube_url || '-' }
 }
 
 export function isYoutubeUrl(value: string): boolean {
   return /^(https?:\/\/)?((www|m|music)\.)?(youtube\.com|youtu\.be)\/.+/i.test(value.trim())
+}
+
+/** { status: { label (getter, current language), tone } } */
+function labelled<S extends string>(tones: Record<S, BadgeTone>, label: (s: S) => string): Record<S, { label: string; tone: BadgeTone }> {
+  const out = {} as Record<S, { label: string; tone: BadgeTone }>
+  for (const s of Object.keys(tones) as S[]) {
+    out[s] = {
+      tone: tones[s],
+      get label() {
+        return label(s)
+      },
+    }
+  }
+  return out
 }

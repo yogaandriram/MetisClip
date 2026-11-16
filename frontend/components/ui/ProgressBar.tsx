@@ -1,6 +1,7 @@
 import React from 'react'
 import { Check, AlertTriangle } from 'lucide-react'
 import { cx } from '@/lib/cx'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 interface ProgressBarProps {
   /** 0–100; leave undefined for an indeterminate bar (work is running, amount unknown) */
@@ -13,7 +14,9 @@ interface ProgressBarProps {
 }
 
 /** 8 px bar, ink fill; on ink cards the fill turns leaf (DESIGN.md §8.9). Driven by WS events only. */
-export function ProgressBar({ value, label = 'Progres', showValue = false, className }: ProgressBarProps) {
+export function ProgressBar({ value, label, showValue = false, className }: ProgressBarProps) {
+  const t = useT()
+  label = label ?? t.ui.progress
   const known = typeof value === 'number' && isFinite(value)
   const pct = known ? Math.min(100, Math.max(0, value as number)) : 0
   return (

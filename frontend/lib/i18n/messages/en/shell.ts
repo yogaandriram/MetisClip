@@ -1,0 +1,44 @@
+import type { Messages } from '../id'
+
+export const shell: Messages['shell'] = {
+  nav: {
+    dashboard: 'Home',
+    discover: 'Find Video',
+    jobs: 'Queue',
+    clips: 'Clips',
+    brand: 'Brand Template',
+    settings: 'Settings',
+    system: 'System',
+    withRunning: (name: string, n: number) => `${name}, ${n} running`,
+  },
+  systemHint: {
+    dbProblem: 'Database problem',
+    engineActive: 'Local engine running',
+  },
+  logoHome: 'MetisClip, go to Home',
+  loadingApp: 'Loading MetisClip…',
+  notFound: {
+    message: 'Page not found.',
+    backHome: 'Back to Home',
+  },
+  engine: {
+    connecting: 'Connecting to the MetisClip engine…',
+    failedToStart: 'The MetisClip engine failed to start.',
+    devHint: (base: string) => `Make sure the engine is running at ${base} (see frontend/.env.example).`,
+    stopped: 'The MetisClip engine stopped.',
+    unreachableTitle: "Can't reach the MetisClip engine",
+    unreachableFallback: 'Something went wrong while starting the local engine.',
+    relaunch: 'Restart the app',
+    bannerStopped: 'The engine stopped.',
+    bannerRestarting: 'The engine is restarting…',
+    notReady: 'The engine is not ready yet',
+    cannotConnect: "Can't connect to the MetisClip engine",
+    requestFailed: (status: number) => `Request failed (HTTP ${status})`,
+  },
+  workspacesLoadFailed: "Couldn't load the workspace list",
+  language: {
+    label: 'Display language',
+    hint: "Language of the menus, buttons and messages in the app. It doesn't change the language of videos or subtitles.",
+    changed: 'Display language changed to English',
+  },
+}

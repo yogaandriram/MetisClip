@@ -6,6 +6,7 @@ import type { Backend } from './engine'
 import { dataRootAvailable, defaultDataRoot, ensureStructure, readBootstrap, validateDataRoot, writeBootstrap } from './data-root'
 import { createLogger } from './logger'
 import { isTrustedUrl } from './paths'
+import { getLanguage, isLang, setLanguage, tr } from './i18n'
 
 const log = createLogger('ipc')
 
@@ -28,6 +29,8 @@ export const CH = {
   openExternal: 'metis:open-external',
   notify: 'metis:notify',
   relaunch: 'metis:relaunch',
+  getLanguage: 'metis:get-language',
+  setLanguage: 'metis:set-language',
 } as const
 
 function trusted(e: IpcMainInvokeEvent | IpcMainEvent): boolean {
@@ -40,22 +43,22 @@ function trusted(e: IpcMainInvokeEvent | IpcMainEvent): boolean {
 
 function handle<T>(channel: string, fn: (e: IpcMainInvokeEvent, ...args: any[]) => Promise<T> | T): void {
   ipcMain.handle(channel, async (e, ...args) => {
-    if (!trusted(e)) throw new Error('Akses ditolak')
+    if (!trusted(e)) throw new Error(tr().ipc.denied)
     return fn(e, ...args)
   })
 }
 
 function str(v: unknown, max = 4096): string {
-  if (typeof v !== 'string') throw new Error('Argumen harus berupa teks')
-  if (v.length > max) throw new Error('Argumen terlalu panjang')
+  if (typeof v !== 'string') throw new Error(tr().ipc.notText)
+  if (v.length > max) throw new Error(tr().ipc.tooLong)
   return v
 }
 
 function existingAbsPath(v: unknown): string {
   const p = str(v)
-  if (!path.isAbsolute(p)) throw new Error('Path harus absolut')
+  if (!path.isAbsolute(p)) throw new Error(tr().ipc.notAbsolute)
   const resolved = path.resolve(p)
-  if (!fs.existsSync(resolved)) throw new Error('File atau folder tidak ditemukan')
+  if (!fs.existsSync(resolved)) throw new Error(tr().ipc.notFound)
   return resolved
 }
 
@@ -82,10 +85,10 @@ export function registerIpc(backend: Backend): void {
     if (!check.ok) return { ok: false, error: check.problems.join(' ') }
     try {
       ensureStructure(check.path)
-      if (!dataRootAvailable(check.path)) return { ok: false, error: 'Folder data tidak bisa dibuat.' }
+      if (!dataRootAvailable(check.path)) return { ok: false, error: tr().dataRoot.cannotCreate }
       writeBootstrap(check.path)
     } catch (e) {
-      return { ok: false, error: `Gagal menyiapkan folder data: ${(e as Error).message}` }
+      return { ok: false, error: tr().dataRoot.setupFailed((e as Error).message) }
     }
     log.info(`setDataRoot: ${check.path} (data lama: ${check.existingData})`)
     return backend.start(check.path)
@@ -94,7 +97,7 @@ export function registerIpc(backend: Backend): void {
   handle(CH.selectFolder, async (e, opts?: { title?: string; defaultPath?: string }) => {
     const win = BrowserWindow.fromWebContents(e.sender)
     const options: Electron.OpenDialogOptions = {
-      title: typeof opts?.title === 'string' ? opts.title : 'Pilih folder',
+      title: typeof opts?.title === 'string' ? opts.title : tr().ipc.chooseFolder,
       defaultPath: typeof opts?.defaultPath === 'string' ? opts.defaultPath : undefined,
       properties: ['openDirectory', 'createDirectory', 'dontAddToRecent'],
     }
@@ -110,7 +113,7 @@ export function registerIpc(backend: Backend): void {
           .map((f) => ({ name: f.name, extensions: f.extensions.filter((x) => typeof x === 'string').map((x) => x.replace(/^\./, '')) }))
       : undefined
     const options: Electron.OpenDialogOptions = {
-      title: typeof opts?.title === 'string' ? opts.title : 'Pilih file',
+      title: typeof opts?.title === 'string' ? opts.title : tr().ipc.chooseFile,
       defaultPath: typeof opts?.defaultPath === 'string' ? opts.defaultPath : undefined,
       filters,
       properties: ['openFile', 'dontAddToRecent'],
@@ -129,7 +132,7 @@ export function registerIpc(backend: Backend): void {
     const stat = fs.statSync(target)
     if (stat.isFile() && BLOCKED_EXT.has(path.extname(target).toLowerCase())) {
       log.warn(`openPath ditolak (executable): ${target}`)
-      return { ok: false, error: 'File program/skrip tidak boleh dibuka dari aplikasi.' }
+      return { ok: false, error: tr().ipc.blockedExecutable }
     }
     const err = await shell.openPath(target)
     return err ? { ok: false, error: err } : { ok: true }
@@ -145,7 +148,7 @@ export function registerIpc(backend: Backend): void {
 
   handle(CH.openExternal, async (_e, u: unknown) => {
     const url = new URL(str(u))
-    if (!['https:', 'http:', 'mailto:'].includes(url.protocol)) throw new Error('Hanya tautan http(s) yang boleh dibuka')
+    if (!['https:', 'http:', 'mailto:'].includes(url.protocol)) throw new Error(tr().ipc.httpOnly)
     await shell.openExternal(url.toString())
   })
 
@@ -153,6 +156,18 @@ export function registerIpc(backend: Backend): void {
     if (!trusted(e) || typeof title !== 'string') return
     if (!Notification.isSupported()) return
     new Notification({ title: title.slice(0, 200), body: typeof body === 'string' ? body.slice(0, 1000) : undefined }).show()
+  })
+
+  // Read once by the preload when a window loads (sync, so the first paint is in the right language)
+  ipcMain.on(CH.getLanguage, (e) => {
+    e.returnValue = trusted(e) ? getLanguage() : 'id'
+  })
+
+  handle(CH.setLanguage, async (_e, lang: unknown) => {
+    if (!isLang(lang)) throw new Error(tr().ipc.notText)
+    if (!setLanguage(lang)) return
+    log.info(`bahasa tampilan: ${lang}`)
+    await backend.applyLanguage(lang)
   })
 
   ipcMain.on(CH.relaunch, (e) => {
