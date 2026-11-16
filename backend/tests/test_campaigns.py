@@ -171,8 +171,8 @@ def test_brief_is_read_from_text_and_images(monkeypatch, tmp_path):
     calls = []
 
     def chat(system, user, **kw):
-        calls.append({"user": user, "images": kw.get("images")})
-        return BRIEF_JSON
+        calls.append({"system": system, "user": user, "images": kw.get("images")})
+        return {**BRIEF_JSON, "seen": [{"image": 1, "first_line": "Hashtag #TokopediaRamadan"}]}
 
     monkeypatch.setattr(brief_ai.ocr, "available", lambda: True)
     monkeypatch.setattr(brief_ai.ocr, "read_image", lambda path, work, cancel=None: "Hashtag #TokopediaRamadan")
@@ -183,10 +183,38 @@ def test_brief_is_read_from_text_and_images(monkeypatch, tmp_path):
     res = brief_ai.read_brief(sources, resolve=lambda rel: shot if rel else None, work_dir=tmp_path / "w")
 
     assert res["brief"]["must_include"] == ["Tokopedia"] and res["name"] == "Tokopedia Ramadan"
-    assert res["used_ocr"] and res["used_vision"]
+    assert res["used_ocr"] and res["used_vision"] and len(calls) == 1
     assert "[1] Chat\nWajib sebut Tokopedia" in calls[0]["user"]
-    assert "text found by OCR" in calls[0]["user"] and "#TokopediaRamadan" in calls[0]["user"]
+    # the model reads the picture itself: OCR mistakes must not override it
+    assert "text found by OCR" not in calls[0]["user"] and "image 1: [2] shot.png" in calls[0]["user"]
+    assert '"seen"' in calls[0]["system"]
     assert len(calls[0]["images"]) == 1 and calls[0]["images"][0][1].startswith("image/")
+
+
+def test_a_router_that_drops_the_images_is_caught(monkeypatch, tmp_path):
+    """Some OpenAI-compatible routers drop image parts without an error; the model then answers from the
+    text alone. Its "seen" lines do not match the OCR text, so the brief is read again from the OCR text."""
+    from backend.agents.tools import brief_ai
+
+    shot = _png(tmp_path / "shot.png")
+    calls = []
+
+    def chat(system, user, **kw):
+        calls.append({"user": user, "images": kw.get("images")})
+        return {**BRIEF_JSON, "seen": [{"image": 1, "first_line": "Brief campaign"}]} if kw.get("images") else BRIEF_JSON
+
+    monkeypatch.setattr(brief_ai.ocr, "available", lambda: True)
+    monkeypatch.setattr(brief_ai.ocr, "read_image", lambda path, work, cancel=None: "Deadline 30 November 2026")
+    monkeypatch.setattr(brief_ai.llm, "supports_vision", lambda t=None: True)
+    monkeypatch.setattr(brief_ai.llm, "chat_json", chat)
+    res = brief_ai.read_brief([{"kind": "image", "name": "s.png", "path": "s.png"}],
+                              resolve=lambda rel: shot, work_dir=tmp_path / "w")
+    assert [bool(c["images"]) for c in calls] == [True, False]
+    assert "Deadline 30 November 2026" in calls[1]["user"] and not res["used_vision"]
+
+    assert brief_ai._saw_images({"seen": [{"image": 1, "first_line": "deadline 30 november"}]},
+                                [("[1] s", shot, "Deadline: 30 November 2026")])
+    assert brief_ai._saw_images({}, [("[1] s", shot, "")])   # nothing to compare: trusted
 
 
 def test_a_model_without_vision_reads_the_ocr_text(monkeypatch, tmp_path):
