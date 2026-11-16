@@ -1,4 +1,6 @@
-"""Campaigns: a shared library of client briefs (collection `campaigns`), chosen per job.
+"""Campaigns (collection `campaigns`): the container of everything the app makes (they replaced the
+workspaces on 2026-11-16). Every job follows one or more campaigns, every clip belongs to one, and a
+campaign's clips live in <DATA_ROOT>/library/<slug>/. A campaign with an empty brief is a plain one.
 
 A campaign holds the brief material as the user gave it (`sources`: typed text, documents,
 screenshots; files under <DATA_ROOT>/library/_campaigns/<id>/), the brief the pipeline acts on
@@ -17,7 +19,7 @@ from typing import Any
 
 from backend.core import events, i18n
 from backend.core.db import get_db, new_id, utcnow
-from backend.core.paths import get_paths
+from backend.core.paths import get_paths, slugify
 from backend.models.documents import CampaignDoc, CampaignSourceDoc, clean_brief
 from backend.services import brief_sources
 
@@ -57,12 +59,41 @@ def get(campaign_id: str | None) -> dict[str, Any] | None:
     return get_db().campaigns.find_one({"_id": campaign_id})
 
 
+# Brief fields that only inform the user; a brief with nothing else is empty
+_INFO_ONLY = ("language", "payout", "submission", "questions")
+
+
+def has_brief(brief: dict[str, Any] | None) -> bool:
+    """Whether a brief asks for anything. Without one the campaign is plain: no brief in the prompts, no
+    fit score, no checklist and no automatic post text."""
+    b, empty = clean_brief(brief or {}), clean_brief({})
+    return any(b.get(k) != empty.get(k) for k in b if k not in _INFO_ONLY)
+
+
+def unique_slug(name: str, exclude_id: str | None = None) -> str:
+    """A library folder name for a campaign that no other campaign uses."""
+    base = slugify(name)
+    slug, n = base, 2
+    db = get_db()
+    while db.campaigns.find_one({"slug": slug, **({"_id": {"$ne": exclude_id}} if exclude_id else {})}, {"_id": 1}):
+        slug = f"{base}-{n}"
+        n += 1
+    return slug
+
+
+def slug_of(doc: dict[str, Any] | None) -> str:
+    """The campaign's library folder (older documents without one: from the name)."""
+    doc = doc or {}
+    return doc.get("slug") or slugify(doc.get("name") or "") or "campaign"
+
+
 def create(name: str, *, client: str = "", brief: dict[str, Any] | None = None,
            brand_template_id: str | None = None) -> dict[str, Any]:
     now = utcnow()
-    doc = CampaignDoc(_id=new_id(), name=name, client=client, brief=clean_brief(brief or {}),
+    doc = CampaignDoc(_id=new_id(), name=name, client=client, slug=unique_slug(name), brief=clean_brief(brief or {}),
                       brand_template_id=brand_template_id, created_at=now, updated_at=now).to_mongo()
     get_db().campaigns.insert_one(doc)
+    events.publish({"type": "campaign.updated", "id": doc["_id"]})
     return doc
 
 
@@ -74,16 +105,60 @@ def save(doc: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def delete(campaign_id: str) -> None:
-    """The campaign and its brief files. Its clips stay (they lose the campaign link)."""
+def _inside_library(path: Path) -> bool:
+    try:
+        return get_paths().library_dir.resolve() in path.resolve().parents
+    except OSError:
+        return False
+
+
+def delete(campaign_id: str, *, delete_files: bool = False) -> int:
+    """The campaign with everything in it: its clips (and their renders), its brief files, and the jobs
+    that follow only this campaign (with their source videos); other jobs just stop following it.
+    Clip folders are deleted only with `delete_files`. Dependants go first, one collection at a time
+    (no transactions), so a crash part-way is safe to repeat. Returns the number of deleted clips."""
+    from backend.core.queue import runner
+
     db = get_db()
+    doc = db.campaigns.find_one({"_id": campaign_id}, {"slug": 1, "name": 1}) or {}
+    for job in db.discovery_jobs.find({"campaign_ids": campaign_id, "status": {"$in": ["pending", "running"]}}, {"_id": 1}):
+        runner.cancel_job(job["_id"])
+    clips = list(db.clips.find({"campaign_id": campaign_id}, {"_id": 1, "files": 1}))
+    clip_ids = [c["_id"] for c in clips]
+    for rj in db.render_jobs.find({"clip_id": {"$in": clip_ids}, "status": {"$in": ["queued", "rendering"]}}, {"_id": 1}):
+        runner.cancel_render(rj["_id"])
+    db.render_jobs.delete_many({"clip_id": {"$in": clip_ids}})
+    db.clips.delete_many({"campaign_id": campaign_id})
+    only_this = [j["_id"] for j in db.discovery_jobs.find({"campaign_ids": {"$size": 1, "$all": [campaign_id]}}, {"_id": 1})]
+    db.source_videos.delete_many({"job_id": {"$in": only_this}})
+    db.discovery_jobs.delete_many({"_id": {"$in": only_this}})
+    db.discovery_jobs.update_many({"campaign_ids": campaign_id},
+                                  {"$pull": {"campaign_ids": campaign_id, "campaigns": {"id": campaign_id}}})
     db.campaigns.delete_one({"_id": campaign_id})
-    db.clips.update_many({"campaign_id": campaign_id}, {"$unset": {"campaign_id": ""}})
+
     folder = asset_dir(campaign_id)
     root = (get_paths().library_dir / ASSETS_DIRNAME).resolve()
     if folder.is_dir() and root in folder.resolve().parents:
         shutil.rmtree(folder, ignore_errors=True)
+    if delete_files:
+        # Each clip has its own folder (a moment shared with another campaign is hard-linked, so the
+        # other clip keeps its files); the campaign folder goes too once it is empty
+        data_root = get_paths().data_root
+        for clip in clips:
+            raw = (clip.get("files") or {}).get("raw")
+            target = (data_root / raw).parent if raw else None
+            if target and target.is_dir() and _inside_library(target) and target.name == clip["_id"]:
+                shutil.rmtree(target, ignore_errors=True)
+        own = get_paths().campaign_library(slug_of(doc)) if doc else None
+        if own and own.is_dir() and _inside_library(own):
+            try:
+                own.rmdir()  # only when empty: another campaign's clips may share an old workspace folder
+            except OSError:
+                pass
+    for cid in clip_ids:
+        events.publish({"type": "clip.deleted", "id": cid})
     events.publish({"type": "campaign.deleted", "id": campaign_id})
+    return len(clip_ids)
 
 
 def counts() -> dict[str, dict[str, int]]:
@@ -100,7 +175,7 @@ def counts() -> dict[str, dict[str, int]]:
 
 def snapshot(doc: dict[str, Any]) -> dict[str, Any]:
     """What a job keeps of a campaign."""
-    return {"id": doc["_id"], "name": doc.get("name") or "", "version": doc.get("version", 1),
+    return {"id": doc["_id"], "name": doc.get("name") or "", "slug": slug_of(doc), "version": doc.get("version", 1),
             "brief": clean_brief(doc.get("brief") or {}), "brand_template_id": doc.get("brand_template_id")}
 
 

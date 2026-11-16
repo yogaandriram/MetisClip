@@ -6,7 +6,7 @@ export const setup = {
     data: 'Lokasi data',
     keys: 'API key',
     check: 'Cek sistem',
-    agent: 'Workspace',
+    campaign: 'Campaign',
   },
   welcome: {
     eyebrow: 'Pengaturan awal',
@@ -65,14 +65,14 @@ export const setup = {
     problems: (n: number) =>
       `${n} komponen bermasalah. Anda tetap bisa melanjutkan, tetapi sebagian fitur mungkin gagal sampai masalahnya diperbaiki.`,
   },
-  agent: {
-    title: 'Buat workspace pertama',
+  campaign: {
+    title: 'Buat campaign pertama',
     subtitle:
-      'Workspace adalah ruang kerja untuk satu niche/channel: durasi klip default dan brand template sendiri. Anda bisa membuat lebih dari satu nanti.',
-    created: (name: string) => `Workspace "${name}" dibuat`,
-    existing: (n: number) => `Anda sudah punya ${n} workspace di folder data ini.`,
+      'Campaign menyimpan semua yang Anda buat di MetisClip: video yang diproses, klip, brief, dan brand template. Untuk channel sendiri cukup beri nama; brief dari agency bisa ditambahkan nanti.',
+    created: (name: string) => `Campaign "${name}" dibuat`,
+    existing: (n: number) => `Anda sudah punya ${n} campaign di folder data ini.`,
     createStart: 'Buat & mulai',
-    createNew: 'Buat workspace baru',
+    createNew: 'Buat campaign baru',
     goHome: 'Masuk ke Beranda',
   },
 }

@@ -205,11 +205,13 @@ def _storage() -> dict:
         free, total = du.free, du.total
     except OSError:
         free = total = 0
-    per_agent = []
-    for agent in get_db().super_agents.find({}, {"name": 1, "slug": 1}):
-        slug = agent.get("slug")
-        per_agent.append({"agent_id": agent["_id"], "name": agent.get("name", ""),
-                          "bytes": _dir_size(paths.agent_library(slug)) if slug else 0})
+    # Each campaign's library folder (an old workspace folder became the folder of the campaign made from it)
+    from backend.services.campaigns import slug_of
+
+    per_campaign = []
+    for campaign in get_db().campaigns.find({}, {"name": 1, "slug": 1}).sort("created_at", 1):
+        per_campaign.append({"campaign_id": campaign["_id"], "name": campaign.get("name", ""),
+                             "bytes": _dir_size(paths.campaign_library(slug_of(campaign)))})
     return {
         "data_root": str(paths.data_root),
         "drive_free_bytes": free,
@@ -219,7 +221,7 @@ def _storage() -> dict:
         "cache_bytes": _dir_size(paths.cache_dir),
         "backups_bytes": _dir_size(paths.backups_dir),
         "models_bytes": _dir_size(paths.models_dir),
-        "per_agent": per_agent,
+        "per_campaign": per_campaign,
     }
 
 

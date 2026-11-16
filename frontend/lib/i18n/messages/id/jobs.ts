@@ -12,7 +12,6 @@ export const jobs = {
   resumed: 'Job dilanjutkan',
   cancelled: 'Job dibatalkan',
   deleted: 'Job dihapus',
-  deletedWorkspace: 'Workspace terhapus',
   /** "45-60 detik · maks. 3 klip"; max 0 = unlimited */
   config: (duration: string, max: number) => `${duration} detik · maks. ${max || '∞'} klip`,
   createdAt: (date: string) => `dibuat ${date}`,
@@ -31,7 +30,6 @@ export const jobs = {
   columns: {
     status: 'Status',
     source: 'Sumber',
-    workspace: 'Workspace',
     settings: 'Pengaturan',
     created: 'Dibuat',
     actions: 'Aksi',

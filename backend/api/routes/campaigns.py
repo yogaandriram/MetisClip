@@ -1,5 +1,6 @@
-"""Campaign library: client briefs from any material (typed text, documents, screenshots), read by the
-LLM into a brief the user reviews, then chosen per job (services/campaigns.py)."""
+"""Campaigns, the container of every job and clip: client briefs from any material (typed text,
+documents, screenshots), read by the LLM into a brief the user reviews (services/campaigns.py). A
+campaign with an empty brief is a plain one, e.g. the user's own channel."""
 from __future__ import annotations
 
 from typing import Any, Literal, Optional
@@ -144,10 +145,12 @@ def update_campaign(campaign_id: str, body: CampaignUpdate):
 
 
 @router.delete("/{campaign_id}")
-def delete_campaign(campaign_id: str):
+def delete_campaign(campaign_id: str, delete_files: bool = False):
+    """The campaign with its clips and the jobs that follow only it; `delete_files` also removes the
+    clips' folders from disk."""
     _get(campaign_id)
-    svc.delete(campaign_id)
-    return {"ok": True}
+    deleted = svc.delete(campaign_id, delete_files=delete_files)
+    return {"ok": True, "deleted_clips": deleted}
 
 
 class TextSource(BaseModel):

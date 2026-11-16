@@ -58,7 +58,7 @@ export const system = {
     cache: 'Cache',
     backups: 'Backup',
     models: 'Model Whisper lokal',
-    perWorkspace: 'Library per workspace',
+    perCampaign: 'Library per campaign',
   },
   info: {
     title: 'Informasi',

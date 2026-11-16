@@ -24,6 +24,7 @@ from backend.core import llm
 from backend.core.config import config
 from backend.core.db import get_db
 from backend.core import i18n
+from backend.services import campaigns as campaign_svc
 
 M = i18n.messages({
     "analyzing_part": {
@@ -606,7 +607,7 @@ def _for_campaign(cands: list[dict[str, Any]], units: list[Unit], k: int, campai
 
 
 def _segment(ctx: JobContext, video: dict[str, Any], units: list[Unit], c: dict[str, Any],
-             campaign: dict[str, Any] | None) -> dict[str, Any] | None:
+             campaign: dict[str, Any] | None, plain: bool = False) -> dict[str, Any] | None:
     start, end = clip_times(units, c["i"], c["j"], video.get("duration_seconds"))
     if end - start < 5:
         return None
@@ -628,7 +629,9 @@ def _segment(ctx: JobContext, video: dict[str, Any], units: list[Unit], c: dict[
         "rationale": c["rationale"],
         "rank_score": c.get("rank_score", c["viral_score"]),
     }
-    if campaign:
+    if campaign and plain:
+        seg["campaign_id"] = cid  # no brief, so no fit
+    elif campaign:
         fit = c.get("fit")
         seg.update({
             "campaign_id": cid,
@@ -642,16 +645,20 @@ def _analyze_video(ctx: JobContext, video: dict[str, Any], lo: float, hi: float,
                    transcript: list[dict[str, Any]], use_llm: bool,
                    campaigns: list[dict[str, Any]] | None = None, note: str = "") -> list[dict[str, Any]]:
     campaigns = campaigns or []
+    # Only campaigns with a brief go into the prompts; a plain campaign (empty brief) takes the best
+    # moments by viral score, like a job without campaigns
+    briefed = [c for c in campaigns if campaign_svc.has_brief(c.get("brief"))]
+    plain = [c for c in campaigns if not campaign_svc.has_brief(c.get("brief"))]
     title = video.get("title") or video.get("youtube_id") or "video"
     units = build_units(transcript)
     if not units:
         return []
     if use_llm:
-        cands = _scan(ctx, title, units, lo, hi, campaigns, note)
+        cands = _scan(ctx, title, units, lo, hi, briefed, note)
         cands.sort(key=lambda c: c["viral_score"], reverse=True)
         # The best candidates are compared side by side; the rest (only kept when max clips is 0) keep their scan score
-        top = RANK_MAX_CANDIDATES + 4 * max(0, len(campaigns) - 1)
-        cands = _rank(ctx, title, units, cands[:top], lo, hi, campaigns, note) + cands[top:]
+        top = RANK_MAX_CANDIDATES + 4 * max(0, len(briefed) - 1)
+        cands = _rank(ctx, title, units, cands[:top], lo, hi, briefed, note) + cands[top:]
     else:
         cands = _mock(units, lo, hi)
 
@@ -659,9 +666,13 @@ def _analyze_video(ctx: JobContext, video: dict[str, Any], lo: float, hi: float,
         picked = _pick(cands, "viral_score", per_video)
         return [seg for c in picked if (seg := _segment(ctx, video, units, c, None))]
 
-    # Each campaign chooses on its own: a moment may become a clip for two campaigns (the Processor cuts it once)
     out: list[dict[str, Any]] = []
-    for k, campaign in enumerate(campaigns):
+    for campaign in plain:
+        picked = _pick(cands, "viral_score", per_video)
+        out.extend(seg for c in picked if (seg := _segment(ctx, video, units, c, campaign, plain=True)))
+
+    # Each campaign chooses on its own: a moment may become a clip for two campaigns (the Processor cuts it once)
+    for k, campaign in enumerate(briefed):
         limit = campaign_limit(per_video, campaign)
         ok, dropped = _for_campaign(cands, units, k, campaign, lo, hi)
         picked = _pick(ok, "rank_score", limit)

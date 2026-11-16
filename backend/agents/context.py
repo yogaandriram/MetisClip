@@ -22,9 +22,7 @@ class JobContext:
     def __init__(self, job: dict[str, Any], cancel: CancelToken):
         self.job = job
         self.id: str = job["_id"]
-        self.agent_id: str | None = job.get("agent_id")
         self.cancel = cancel
-        self.agent = get_db().super_agents.find_one({"_id": self.agent_id}) if self.agent_id else None
         self.cache_dir: Path = get_paths().job_cache(self.id)
         self._lock = threading.Lock()
 
@@ -39,12 +37,18 @@ class JobContext:
         return self.job.get("source") or {}
 
     @property
-    def agent_slug(self) -> str:
-        return (self.agent or {}).get("slug") or "_tanpa-workspace"
+    def campaign_ids(self) -> list[str]:
+        return [c for c in self.job.get("campaign_ids") or [] if c]
 
-    @property
-    def timezone(self) -> str:
-        return (self.agent or {}).get("timezone") or "Asia/Jakarta"
+    def campaign_slug(self, campaign_id: str | None) -> str:
+        """The library folder of a campaign's clips (from the campaign as it is now, else the job's snapshot)."""
+        from backend.services import campaigns
+
+        live = campaigns.get(campaign_id)
+        if live:
+            return campaigns.slug_of(live)
+        snap = next((c for c in self.job.get("campaigns") or [] if c.get("id") == campaign_id), None)
+        return campaigns.slug_of(snap) if snap else "campaign"
 
     def check(self) -> None:
         self.cancel.check()
@@ -59,7 +63,7 @@ class JobContext:
         evt = {
             "type": "job.progress",
             "id": self.id,
-            "agent_id": self.agent_id,
+            "campaign_ids": self.campaign_ids,
             "status": doc.get("status"),
             "current_step": doc.get("current_step"),
             "progress_pct": round(float(doc.get("progress_pct", 0)), 1),

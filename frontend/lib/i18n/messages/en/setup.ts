@@ -6,7 +6,7 @@ export const setup: Messages['setup'] = {
     data: 'Data location',
     keys: 'API keys',
     check: 'System check',
-    agent: 'Workspace',
+    campaign: 'Campaign',
   },
   welcome: {
     eyebrow: 'First-time setup',
@@ -64,13 +64,13 @@ export const setup: Messages['setup'] = {
     problems: (n: number) =>
       `${n} ${n === 1 ? 'component has a problem' : 'components have problems'}. You can still continue, but some features may fail until the problem is fixed.`,
   },
-  agent: {
-    title: 'Create your first workspace',
-    subtitle: 'A workspace is the place for one niche/channel, with its own default clip length and brand template. You can create more later.',
-    created: (name: string) => `Workspace "${name}" created`,
-    existing: (n: number) => `You already have ${n} ${n === 1 ? 'workspace' : 'workspaces'} in this data folder.`,
+  campaign: {
+    title: 'Create your first campaign',
+    subtitle: "A campaign holds everything you make in MetisClip: the videos you process, the clips, the brief and the brand template. For your own channel a name is enough; an agency's brief can be added later.",
+    created: (name: string) => `Campaign "${name}" created`,
+    existing: (n: number) => `You already have ${n} ${n === 1 ? 'campaign' : 'campaigns'} in this data folder.`,
     createStart: 'Create & start',
-    createNew: 'Create a new workspace',
+    createNew: 'Create a new campaign',
     goHome: 'Go to Home',
   },
 }

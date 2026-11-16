@@ -8,7 +8,7 @@ import { BriefChecklist } from '@/components/brief/BriefChecklist'
 import { PostCopyEditor } from '@/components/brief/PostCopyEditor'
 import { useEngine } from '@/contexts/EngineContext'
 import { api, type BriefCheck, type Campaign, type ClipDetail } from '@/lib/engine'
-import { campaignHref } from '@/lib/brief'
+import { campaignHref, isBriefEmpty } from '@/lib/brief'
 import { errorMessage } from '@/lib/format'
 import { tm } from '@/lib/i18n'
 import { useT } from '@/lib/i18n/I18nProvider'
@@ -83,15 +83,14 @@ export function CampaignPanel({ detail, dirty, onDetail, onNavigate }: CampaignP
     }
   }
 
-  const move = async (campaignId: string) => {
-    const next = campaignId || null
-    if (next === (clip.campaign_id ?? null)) return
+  const move = async (next: string) => {
+    if (!next || next === clip.campaign_id) return
     setMoving(true)
     try {
       await api.clips.setCampaign(clip.id, next)
       await reload()
-      const name = library?.find((c) => c.id === next)?.name
-      toast.success(next && name ? b.moved(name) : b.unlinked)
+      const name = library?.find((c) => c.id === next)?.name || ''
+      toast.success(b.moved(name))
     } catch (err) {
       toast.error(errorMessage(err, b.moveFailed))
     } finally {
@@ -128,18 +127,32 @@ export function CampaignPanel({ detail, dirty, onDetail, onNavigate }: CampaignP
     }
   }
 
-  // Campaign choice: the active ones, plus the clip's own when it is archived
+  // Campaign choice: the active ones, plus the clip's own when it is archived (a placeholder only for a
+  // clip that has none, e.g. one whose campaign was deleted while the editor was open)
   const options = [
-    { value: '', label: b.noCampaignOption },
+    ...(clip.campaign_id ? [] : [{ value: '', label: b.noCampaignOption }]),
     ...(library || [])
       .filter((c) => c.status === 'active' || c.id === clip.campaign_id)
       .map((c) => ({ value: c.id, label: c.status === 'archived' ? b.archivedOption(c.name) : c.name })),
     ...(campaign && !(library || []).some((c) => c.id === campaign.id) ? [{ value: campaign.id, label: campaign.name }] : []),
   ]
 
+  const plain = !!campaign && isBriefEmpty(campaign.brief)
   const fit = clip.brief_fit
   const summary = check?.summary
   const fitLevel = fit == null ? 'low' : fit >= 80 ? 'high' : fit >= 60 ? 'mid' : 'low'
+
+  const postCopy = (
+    <section className="mc-stack mc-gap-12" aria-labelledby="brief-post-title">
+      <div className="mc-stack mc-gap-4">
+        <h3 id="brief-post-title" className="mc-body-lg mc-label">
+          {t.brief.post.title}
+        </h3>
+        <p className="mc-caption mc-muted">{t.brief.post.hint}</p>
+      </div>
+      <PostCopyEditor clip={clip} onSaved={reload} />
+    </section>
+  )
 
   return (
     <div className="mc-stack mc-gap-20">
@@ -178,6 +191,22 @@ export function CampaignPanel({ detail, dirty, onDetail, onNavigate }: CampaignP
             <span className="mc-caption mc-muted">{library && library.length === 0 ? b.noCampaigns : b.noCampaignBody}</span>
           </div>
         </div>
+      ) : plain ? (
+        <>
+          <div className="mc-brief-none">
+            <Megaphone size={20} aria-hidden="true" />
+            <div className="mc-stack mc-gap-4">
+              <span className="mc-label">{b.plainTitle}</span>
+              <span className="mc-caption mc-muted">{b.plainBody}</span>
+              <span>
+                <button type="button" className="mc-link mc-caption" onClick={() => onNavigate(campaignHref(campaign.id))}>
+                  {b.addBrief}
+                </button>
+              </span>
+            </div>
+          </div>
+          {postCopy}
+        </>
       ) : (
         <>
           <section className="mc-stack mc-gap-12" aria-label={b.fit}>
@@ -220,15 +249,7 @@ export function CampaignPanel({ detail, dirty, onDetail, onNavigate }: CampaignP
 
           <Divider />
 
-          <section className="mc-stack mc-gap-12" aria-labelledby="brief-post-title">
-            <div className="mc-stack mc-gap-4">
-              <h3 id="brief-post-title" className="mc-body-lg mc-label">
-                {t.brief.post.title}
-              </h3>
-              <p className="mc-caption mc-muted">{t.brief.post.hint}</p>
-            </div>
-            <PostCopyEditor clip={clip} onSaved={reload} />
-          </section>
+          {postCopy}
         </>
       )}
     </div>

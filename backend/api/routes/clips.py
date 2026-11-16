@@ -122,20 +122,17 @@ class _BriefContext:
 
     def check(self, clip: dict) -> dict | None:
         campaign = self.campaign(clip["campaign_id"]) if clip.get("campaign_id") else None
-        if not campaign:
+        if not campaign or not campaign_svc.has_brief(campaign.get("brief")):
             return None
-        key = f"{clip.get('brand_template_id')}|{clip.get('agent_id')}"
+        key = f"{clip.get('brand_template_id')}|{clip.get('campaign_id')}"
         if key not in self.templates:
             self.templates[key] = brand_templates.for_clip(clip)
         return brief_check.check(clip, campaign, self.templates[key], channel_name(clip))
 
 
 @router.get("/api/clips")
-def list_clips(agent_id: Optional[str] = None, job_id: Optional[str] = None, status: Optional[str] = None,
-               campaign_id: Optional[str] = None):
+def list_clips(job_id: Optional[str] = None, status: Optional[str] = None, campaign_id: Optional[str] = None):
     q: dict = {}
-    if agent_id:
-        q["agent_id"] = agent_id
     if job_id:
         q["job_id"] = job_id
     if status:
@@ -170,21 +167,23 @@ def get_clip(clip_id: str):
         "channel": channel_name(clip),
         # The shots of the clip's face scan (duo and auto layouts); null before the scan
         "scenes": layout_svc.scene_info(clip),
-        # The template in effect (the clip's own choice, else its agent's default); null = built-in
+        # The template in effect (the clip's own choice, else its campaign's, else the default template)
         "brand_template": brand_template_dto(tpl),
         **_campaign_info(clip, tpl),
     }
 
 
 def _campaign_info(clip: dict, tpl: dict | None) -> dict[str, Any]:
-    """The clip's campaign (without the brief material) and its brief checklist; null without one."""
+    """The clip's campaign (without the brief material) and its brief checklist (null for a plain
+    campaign, whose brief is empty)."""
     campaign = campaign_svc.get(clip.get("campaign_id")) if clip.get("campaign_id") else None
     if not campaign:
         return {"campaign": None, "brief_check": None}
     dto = campaign_dto(campaign)
     dto.pop("sources", None)
     dto.pop("draft", None)
-    return {"campaign": dto, "brief_check": brief_check.check(clip, campaign, tpl, channel_name(clip))}
+    check = brief_check.check(clip, campaign, tpl, channel_name(clip)) if campaign_svc.has_brief(campaign.get("brief")) else None
+    return {"campaign": dto, "brief_check": check}
 
 
 class PostCopy(BaseModel):
@@ -254,28 +253,29 @@ def set_brief_manual(clip_id: str, body: ManualCheck):
 
 
 class ClipCampaign(BaseModel):
-    campaign_id: Optional[str] = None
+    campaign_id: str = Field(min_length=1)
 
 
 @router.put("/api/clips/{clip_id}/campaign")
 def set_clip_campaign(clip_id: str, body: ClipCampaign):
-    """Put a clip under a campaign (or take it out). What belonged to the old campaign goes: its fit score
-    and reason, the ticked manual rules, and the post text (a basic one for the new brief takes its place;
-    "Tulis ulang dengan AI" writes a better one)."""
+    """Move a clip to another campaign (every clip belongs to one). What belonged to the old campaign goes:
+    its fit score and reason, the ticked manual rules, and the post text (a basic one for the new brief
+    takes its place, none for a plain campaign; "Tulis ulang dengan AI" writes a better one). The media
+    files stay where they are."""
     clip = _get(clip_id)
     if body.campaign_id == clip.get("campaign_id"):
         return {"clip": clip_dto(clip)}
-    stale = {"brief_fit": "", "brief_reason": "", "brief_manual": ""}
-    if body.campaign_id:
-        campaign = campaign_svc.get(body.campaign_id)
-        if not campaign:
-            raise http_error(400, M("campaign_not_found"))
-        op: dict[str, Any] = {"$set": {"campaign_id": body.campaign_id, "updated_at": utcnow(),
-                                       "post_copy": post_copy_ai.fallback(clip, campaign.get("brief") or {})},
-                              "$unset": stale}
+    campaign = campaign_svc.get(body.campaign_id)
+    if not campaign:
+        raise http_error(400, M("campaign_not_found"))
+    brief = campaign.get("brief") or {}
+    sets: dict[str, Any] = {"campaign_id": body.campaign_id, "updated_at": utcnow()}
+    unsets = {"brief_fit": "", "brief_reason": "", "brief_manual": ""}
+    if campaign_svc.has_brief(brief):
+        sets["post_copy"] = post_copy_ai.fallback(clip, brief)
     else:
-        op = {"$unset": {"campaign_id": "", **stale}, "$set": {"updated_at": utcnow()}}
-    get_db().clips.update_one({"_id": clip_id}, op)
+        unsets["post_copy"] = ""
+    get_db().clips.update_one({"_id": clip_id}, {"$set": sets, "$unset": unsets})
     events.publish({"type": "clip.updated", "id": clip_id})
     return {"clip": clip_dto(_get(clip_id))}
 
@@ -298,7 +298,7 @@ class SubtitleUpdate(BaseModel):
     reset_layout: bool = False
     # The clip's title (shown by the podcast layout's header and the card's post text)
     hook_text: Optional[str] = Field(default=None, max_length=300)
-    # Switch the clip's brand template (null = follow the agent's default)
+    # Switch the clip's brand template (null = follow its campaign's template)
     brand_template_id: Optional[str] = None
 
 

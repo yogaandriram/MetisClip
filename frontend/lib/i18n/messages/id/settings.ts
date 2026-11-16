@@ -2,7 +2,7 @@
 // Pengaturan page and the shared settings fields (components/settings), which the Setup Wizard reuses.
 export const settings = {
   title: 'Pengaturan',
-  subtitle: 'Preferensi workspace, API key, pemrosesan video, dan penyimpanan lokal.',
+  subtitle: 'API key, pemrosesan video, dan penyimpanan lokal.',
   loadFailed: 'Gagal memuat pengaturan',
   loadErrorTitle: 'Pengaturan tidak dapat dimuat',
   saved: 'Pengaturan disimpan',
@@ -10,14 +10,6 @@ export const settings = {
   folderOpenFailed: 'Folder tidak dapat dibuka',
   unsaved: 'Ada perubahan yang belum disimpan',
   saveAll: 'Simpan pengaturan',
-  workspace: {
-    title: (name: string) => `Workspace: ${name}`,
-    titleEmpty: 'Workspace',
-    subtitle: 'Nilai default untuk job baru di workspace ini.',
-    save: 'Simpan workspace',
-    saved: 'Pengaturan workspace disimpan',
-    none: 'Pilih atau buat workspace lewat pemilih workspace di kanan atas.',
-  },
   llmCard: {
     title: 'Model AI (LLM)',
     subtitle: 'API key disimpan di Windows Credential Manager. Klik ikon mata untuk melihat key yang tersimpan.',

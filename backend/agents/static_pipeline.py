@@ -38,7 +38,7 @@ M = i18n.messages({
 logger = logging.getLogger(__name__)
 
 
-def _finish(job_id: str, agent_id: str | None, status: str, error: str | None = None, step: str = "system") -> None:
+def _finish(job_id: str, campaign_ids: list[str], status: str, error: str | None = None, step: str = "system") -> None:
     db = get_db()
     update: dict = {"$set": {"status": status, "finished_at": utcnow()}}
     if status == "completed":
@@ -46,7 +46,7 @@ def _finish(job_id: str, agent_id: str | None, status: str, error: str | None = 
     if error:
         update["$push"] = {"errors": {"$each": [{"step": step, "message": error[:1000], "at": utcnow()}], "$slice": -50}}
     db.discovery_jobs.update_one({"_id": job_id}, update)
-    events.publish({"type": "job.status", "id": job_id, "agent_id": agent_id, "status": status, "error": error})
+    events.publish({"type": "job.status", "id": job_id, "campaign_ids": campaign_ids, "status": status, "error": error})
 
 
 def run_job(job_id: str, cancel: CancelToken) -> None:
@@ -60,7 +60,7 @@ def run_job(job_id: str, cancel: CancelToken) -> None:
         logger.info("Job %s is no longer pending; skipping", job_id)
         return
     ctx = JobContext(job, cancel)
-    events.publish({"type": "job.status", "id": job_id, "agent_id": ctx.agent_id, "status": "running"})
+    events.publish({"type": "job.status", "id": job_id, "campaign_ids": ctx.campaign_ids, "status": "running"})
     logger.info("Job %s started (%s)", job_id, job["source"].get("type"))
     step = job.get("current_step") or "discovery"
     try:
@@ -91,18 +91,18 @@ def run_job(job_id: str, cancel: CancelToken) -> None:
         ctx.check()
 
         partial = len(clips) < len(segments)
-        _finish(job_id, ctx.agent_id, "completed",
+        _finish(job_id, ctx.campaign_ids, "completed",
                 M("partial", failed=len(segments) - len(clips), total=len(segments)) if partial else None, "processing")
         logger.info("Job %s completed: %s clip(s)", job_id, len(clips))
     except Cancelled:
         status = "interrupted" if cancel.reason == "shutdown" else "cancelled"
-        _finish(job_id, ctx.agent_id, status)
+        _finish(job_id, ctx.campaign_ids, status)
         logger.info("Job %s %s", job_id, status)
     except (PipelineError, llm.LLMError) as exc:
-        _finish(job_id, ctx.agent_id, "failed", str(exc), step)
+        _finish(job_id, ctx.campaign_ids, "failed", str(exc), step)
         logger.warning("Job %s failed at %s: %s", job_id, step, exc)
     except Exception as exc:
         logger.exception("Job %s crashed at %s", job_id, step)
-        _finish(job_id, ctx.agent_id, "failed", M("unexpected", error=exc), step)
+        _finish(job_id, ctx.campaign_ids, "failed", M("unexpected", error=exc), step)
     finally:
         shutil.rmtree(ctx.cache_dir, ignore_errors=True)

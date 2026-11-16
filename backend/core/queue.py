@@ -109,8 +109,8 @@ class JobRunner:
             {"$set": {"status": "cancelled", "finished_at": utcnow()}},
         )
         if res.modified_count:
-            job = db.discovery_jobs.find_one({"_id": job_id}, {"agent_id": 1})
-            events.publish({"type": "job.status", "id": job_id, "agent_id": (job or {}).get("agent_id"), "status": "cancelled"})
+            job = db.discovery_jobs.find_one({"_id": job_id}, {"campaign_ids": 1})
+            events.publish({"type": "job.status", "id": job_id, "campaign_ids": (job or {}).get("campaign_ids") or [], "status": "cancelled"})
         with self._lock:
             token = self._tokens.get(job_id)
         if token:

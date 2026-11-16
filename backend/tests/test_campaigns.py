@@ -479,23 +479,18 @@ def test_campaign_limits():
 
 # ---------------------------------------------------------------- the Processor with briefs
 
-def _ctx_for(db, agent, job):
+def _ctx_for(db, job):
     from backend.agents.context import JobContext
     from backend.core.procs import CancelToken
 
     return JobContext(job, CancelToken())
 
 
-def _agent_and_job(db, campaigns):
-    from backend.services import brand_templates
-
-    tid = brand_templates.ensure_default()
-    agent = {"_id": new_id(), "name": "A", "slug": "a", "default_brand_template_id": tid, "created_at": utcnow()}
-    db.super_agents.insert_one(agent)
-    job = {"_id": new_id(), "agent_id": agent["_id"], "source": {"type": "url"}, "config": {}, "status": "running",
+def _job(db, campaigns):
+    job = {"_id": new_id(), "source": {"type": "url"}, "config": {}, "status": "running",
            "checkpoint": {}, "campaigns": campaigns, "campaign_ids": [c["id"] for c in campaigns], "created_at": utcnow()}
     db.discovery_jobs.insert_one(job)
-    return agent, job
+    return job
 
 
 def test_a_moment_for_two_campaigns_is_cut_once(db, monkeypatch, paths):
@@ -505,25 +500,26 @@ def test_a_moment_for_two_campaigns_is_cut_once(db, monkeypatch, paths):
     tpl = brand_templates.create("Kampanye", {"ai_settings": {"keywords": False}})
     ca = csvc.create("Tokopedia", brief={"must_include": ["Tokopedia"], "post": {"hashtags": ["#ad"]}},
                      brand_template_id=tpl["_id"])
-    cb = csvc.create("Lain", brief={})
-    agent, job = _agent_and_job(db, [csvc.snapshot(ca), csvc.snapshot(cb)])
-    ctx = _ctx_for(db, agent, job)
+    cb = csvc.create("Lain", brief={"post": {"hashtags": ["#lain"]}})
+    cc = csvc.create("Channel sendiri")  # a plain campaign: no brief
+    job = _job(db, [csvc.snapshot(ca), csvc.snapshot(cb), csvc.snapshot(cc)])
+    ctx = _ctx_for(db, job)
 
     def seg(cid):
-        return {"segment_id": an.segment_id(job["_id"], "AAAAAAAAAAA", 100, 150, cid), "source_video_id": "sv1",
-                "youtube_id": "AAAAAAAAAAA", "start_time": 100.0, "end_time": 150.0, "duration_seconds": 50.0,
-                "viral_score": 80, "hook_text": f"hook {cid}", "tags": [], "rationale": "", "campaign_id": cid,
-                "brief_fit": 70, "brief_reason": "pas"}
+        out = {"segment_id": an.segment_id(job["_id"], "AAAAAAAAAAA", 100, 150, cid), "source_video_id": "sv1",
+               "youtube_id": "AAAAAAAAAAA", "start_time": 100.0, "end_time": 150.0, "duration_seconds": 50.0,
+               "viral_score": 80, "hook_text": f"hook {cid}", "tags": [], "rationale": "", "campaign_id": cid}
+        return out if cid == cc["_id"] else {**out, "brief_fit": 70, "brief_reason": "pas"}
 
     cut = []
 
     def fake_process(c, s, limits=(None, None)):
         cut.append(s["segment_id"])
-        folder = paths.clip_dir("a", s["segment_id"])
+        folder = paths.clip_dir(c.campaign_slug(s["campaign_id"]), s["segment_id"])
         folder.mkdir(parents=True, exist_ok=True)
         (folder / "raw.mp4").write_bytes(b"video")
         (folder / "thumb.jpg").write_bytes(b"jpg")
-        doc = ClipDoc(_id=s["segment_id"], agent_id=agent["_id"], job_id=job["_id"], source_video_id="sv1",
+        doc = ClipDoc(_id=s["segment_id"], job_id=job["_id"], source_video_id="sv1",
                       youtube_id="AAAAAAAAAAA", start_time=100.2, end_time=149.8, duration_seconds=49.6,
                       files={"raw": paths.to_relative(folder / "raw.mp4"), "thumbnail": paths.to_relative(folder / "thumb.jpg")},
                       subtitle={"words": [{"word": "di", "start": 0, "end": 0.2}, {"word": "toko", "start": 0.2, "end": 0.5},
@@ -533,9 +529,11 @@ def test_a_moment_for_two_campaigns_is_cut_once(db, monkeypatch, paths):
         return doc
 
     monkeypatch.setattr(processor, "process_segment", fake_process)
-    clips = processor.run(ctx, [seg(ca["_id"]), seg(cb["_id"])])
+    clips = processor.run(ctx, [seg(ca["_id"]), seg(cb["_id"]), seg(cc["_id"])])
 
-    assert len(cut) == 1 and len(clips) == 2
+    assert len(cut) == 1 and len(clips) == 3
+    base = db.clips.find_one({"_id": seg(ca["_id"])["segment_id"]})
+    assert paths.from_relative(base["files"]["raw"]).parent.parent.name == "tokopedia"  # the campaign's folder
     derived = db.clips.find_one({"_id": seg(cb["_id"])["segment_id"]})
     assert derived["start_time"] == 100.2 and derived["hook_text"] == f"hook {cb['_id']}"
     assert derived["campaign_id"] == cb["_id"] and derived["brief_fit"] == 70
@@ -545,11 +543,15 @@ def test_a_moment_for_two_campaigns_is_cut_once(db, monkeypatch, paths):
     assert derived["files"]["source"] is None
     # Its own marks: the other campaign requires no words, and the base's emoji is not copied
     assert not any(w.get("keyword") or w.get("emoji") for w in derived["subtitle"]["words"])
-    # A campaign without a template uses the workspace's default; the post text has the required tags
-    assert derived["brand_template_id"] == agent["default_brand_template_id"]
-    assert derived["post_copy"]["source"] == "basic"
+    # A campaign without a template uses the default template; the post text has the required tags
+    assert derived["brand_template_id"] == brand_templates.ensure_default()
+    assert derived["post_copy"]["source"] == "basic" and derived["post_copy"]["hashtags"] == ["#lain"]
+    # The plain campaign's clip: no fit, no post text, its own folder
+    own = db.clips.find_one({"_id": seg(cc["_id"])["segment_id"]})
+    assert own["campaign_id"] == cc["_id"] and own.get("brief_fit") is None and not own.get("post_copy")
+    assert paths.from_relative(own["files"]["raw"]).parent.parent.name == "channel-sendiri"
     done = db.discovery_jobs.find_one({"_id": job["_id"]})["checkpoint"]["done_segment_ids"]
-    assert set(done) == {seg(ca["_id"])["segment_id"], seg(cb["_id"])["segment_id"]}
+    assert set(done) == {seg(c["_id"])["segment_id"] for c in (ca, cb, cc)}
 
 
 def test_required_words_are_marked_with_the_campaign_template(db):
@@ -690,8 +692,7 @@ def test_campaign_api_flow(client, secrets, monkeypatch, tmp_path, db):
     from backend.api.routes import jobs as jobs_route
 
     monkeypatch.setattr(jobs_route.runner, "submit_job", lambda job_id: None)
-    agent = client.post("/api/agents", json={"name": "Podcast"}).json()["agent"]
-    body = {"agent_id": agent["id"], "youtube_url": "https://youtu.be/abcdefghijk", "clip_duration": "20-40",
+    body = {"youtube_url": "https://youtu.be/abcdefghijk", "clip_duration": "20-40",
             "campaign_ids": [cid], "note": "fokus tips"}
     r = client.post("/api/jobs", json=body)
     assert r.status_code == 200, r.text
@@ -702,16 +703,22 @@ def test_campaign_api_flow(client, secrets, monkeypatch, tmp_path, db):
     assert stored_job["campaigns"][0]["brief"]["must_include"] == ["Tokopedia"]
     assert client.post("/api/jobs", json={**body, "clip_duration": "5-8"}).status_code == 400
     assert client.post("/api/jobs", json={**body, "campaign_ids": ["nope"]}).status_code == 400
+    r = client.post("/api/jobs", json={**body, "campaign_ids": []})
+    assert r.status_code == 400 and "minimal satu campaign" in r.json()["detail"]
+    assert client.get("/api/jobs", params={"campaign_id": cid}).json()["jobs"][0]["id"] == job["id"]
+    assert client.get("/api/jobs", params={"campaign_id": "other"}).json()["jobs"] == []
     client.put(f"/api/campaigns/{cid}", json={"status": "archived"})
     assert "diarsipkan" in client.post("/api/jobs", json=body).json()["detail"]
     client.put(f"/api/campaigns/{cid}", json={"status": "active"})
 
     # A clip of the campaign: list filter, checklist, post text, manual ticks, export text file
     clip_id = new_id()
-    db.clips.insert_one(ClipDoc(_id=clip_id, agent_id=agent["id"], job_id=None, source_video_id=None, youtube_id="x",
+    db.clips.insert_one(ClipDoc(_id=clip_id, job_id=None, source_video_id=None, youtube_id="x",
                                 start_time=0, end_time=45, duration_seconds=45, status="ready", campaign_id=cid,
                                 brief_fit=80, subtitle={"words": [{"word": "Tokopedia", "start": 0, "end": 1}]}).to_mongo())
-    db.clips.insert_one(ClipDoc(_id=new_id(), agent_id=agent["id"], job_id=None, source_video_id=None, youtube_id="y",
+    plain = client.post("/api/campaigns", json={"name": "Polos"}).json()["campaign"]
+    plain_clip = new_id()
+    db.clips.insert_one(ClipDoc(_id=plain_clip, job_id=None, source_video_id=None, youtube_id="y", campaign_id=plain["id"],
                                 start_time=0, end_time=45, duration_seconds=45, status="ready").to_mongo())
     listed = client.get("/api/clips", params={"campaign_id": cid}).json()["clips"]
     assert [c["id"] for c in listed] == [clip_id] and listed[0]["campaign_name"] == "Tokopedia Ramadan"
@@ -720,6 +727,11 @@ def test_campaign_api_flow(client, secrets, monkeypatch, tmp_path, db):
     assert detail["campaign"]["id"] == cid and "sources" not in detail["campaign"]
     kinds = {i["id"]: i["status"] for i in detail["brief_check"]["items"]}
     assert kinds["required_words"] == "ok" and kinds["post_copy"] == "fail"
+    # A plain campaign's clip has no checklist
+    [listed_plain] = client.get("/api/clips", params={"campaign_id": plain["id"]}).json()["clips"]
+    assert listed_plain["brief_summary"] is None and listed_plain["campaign_name"] == "Polos"
+    detail = client.get(f"/api/clips/{plain_clip}").json()
+    assert detail["campaign"]["id"] == plain["id"] and detail["brief_check"] is None
 
     # Moving a clip to another campaign drops what belonged to the old one
     other = client.post("/api/campaigns", json={"name": "Lain", "brief": {"post": {"hashtags": ["#Lain"]}}}).json()["campaign"]
@@ -728,8 +740,10 @@ def test_campaign_api_flow(client, secrets, monkeypatch, tmp_path, db):
     stored = db.clips.find_one({"_id": clip_id})
     assert moved["campaign_id"] == other["id"] and "brief_fit" not in stored and "brief_manual" not in stored
     assert stored["post_copy"]["hashtags"] == ["#Lain"] and stored["post_copy"]["source"] == "basic"
-    client.put(f"/api/clips/{clip_id}/campaign", json={"campaign_id": None})
-    assert "campaign_id" not in db.clips.find_one({"_id": clip_id})
+    # Every clip belongs to a campaign; moving to a plain one drops the post text
+    assert client.put(f"/api/clips/{clip_id}/campaign", json={"campaign_id": None}).status_code == 422
+    client.put(f"/api/clips/{clip_id}/campaign", json={"campaign_id": plain["id"]})
+    assert "post_copy" not in db.clips.find_one({"_id": clip_id})
     client.put(f"/api/clips/{clip_id}/campaign", json={"campaign_id": cid})
     client.delete(f"/api/campaigns/{other['id']}")
 
@@ -757,12 +771,16 @@ def test_campaign_api_flow(client, secrets, monkeypatch, tmp_path, db):
     client.post("/api/clips/export", json={"clip_ids": [clip_id], "dest_dir": str(out_dir)})
     assert not video.with_suffix(".txt").exists()
 
-    # Deleting the campaign keeps its clips and its files folder goes
+    # Deleting the campaign deletes its clips, its brief files and the job that followed only it; the
+    # clip files stay unless asked
     folder = get_paths().library_dir / "_campaigns" / cid
     assert folder.is_dir()
-    assert client.delete(f"/api/campaigns/{cid}").status_code == 200
-    assert db.clips.find_one({"_id": clip_id}).get("campaign_id") is None and not folder.exists()
+    r = client.delete(f"/api/campaigns/{cid}")
+    assert r.status_code == 200 and r.json()["deleted_clips"] == 1
+    assert db.clips.find_one({"_id": clip_id}) is None and not folder.exists() and final.exists()
+    assert db.discovery_jobs.find_one({"_id": job["id"]}) is None
     assert client.get(f"/api/campaigns/{cid}").status_code == 404
+    assert db.clips.find_one({"_id": plain_clip})["campaign_id"] == plain["id"]
 
 
 def test_parse_failure_and_restart_recovery(client, secrets, monkeypatch, db):
@@ -798,4 +816,4 @@ def test_deleting_a_template_unsets_it_on_campaigns(client, db):
 def test_migration_009_creates_the_campaigns_collection(db):
     assert "campaigns" in db.list_collection_names()
     assert "campaign_id_1_created_at_-1" in {ix["name"] for ix in db.clips.list_indexes()}
-    assert db.meta.find_one({"_id": "schema"})["version"] == 9
+    assert db.meta.find_one({"_id": "schema"})["version"] >= 9

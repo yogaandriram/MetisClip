@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { Megaphone } from 'lucide-react'
 import { Alert, ButtonLink, Chip, Skeleton } from '@/components/ui'
 import type { Campaign } from '@/lib/engine'
-import { MAX_CAMPAIGNS_PER_JOB, daysUntil, formatBriefDate, isBriefEmpty, shownClient } from '@/lib/brief'
+import { MAX_CAMPAIGNS_PER_JOB, daysUntil, formatBriefDate, shownClient } from '@/lib/brief'
 import { localeTag } from '@/lib/i18n'
 import { useT } from '@/lib/i18n/I18nProvider'
 
@@ -17,7 +17,7 @@ interface CampaignPickerProps {
   onChange: (ids: string[]) => void
 }
 
-/** Cari Video: the campaigns a job follows (up to MAX_CAMPAIGNS_PER_JOB), with warnings about their briefs. */
+/** Cari Video: the campaigns a job follows (1 to MAX_CAMPAIGNS_PER_JOB), with warnings about their briefs. */
 export function CampaignPicker({ campaigns, error, value, onChange }: CampaignPickerProps) {
   const t = useT()
   const p = t.brief.picker
@@ -27,7 +27,6 @@ export function CampaignPicker({ campaigns, error, value, onChange }: CampaignPi
 
   const warnings: string[] = []
   for (const c of chosen) {
-    if (isBriefEmpty(c.brief)) warnings.push(p.emptyBrief(c.name))
     const left = daysUntil(c.brief?.deadline)
     if (left !== null && left < 0) warnings.push(p.deadlinePassed(c.name, formatBriefDate(c.brief?.deadline, localeTag())))
   }

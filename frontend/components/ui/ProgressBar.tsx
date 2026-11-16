@@ -50,7 +50,7 @@ interface ProgressRowProps {
   className?: string
 }
 
-/** Pill row with the label inside and the value on the right (storage, per-agent usage). */
+/** Pill row with the label inside and the value on the right (storage, per-campaign usage). */
 export function ProgressRow({ label, value, percent, highlight, className }: ProgressRowProps) {
   const pct = Math.min(100, Math.max(0, percent || 0))
   return (

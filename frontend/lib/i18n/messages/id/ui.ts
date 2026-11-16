@@ -15,13 +15,13 @@ export const ui = {
   /** Top bar pill: "<n> proses berjalan" (the number is shown separately) */
   runningJobs: (_n: number) => `proses berjalan`,
   newClip: 'Klip baru',
-  workspaceSwitcher: {
-    loading: 'Memuat workspace…',
-    choose: 'Pilih workspace',
-    active: (name: string) => `Workspace aktif: ${name}. Ganti workspace`,
-    heading: 'Workspace',
-    empty: 'Belum ada workspace. Buat satu untuk mulai.',
-    manage: 'Kelola workspace',
+  campaignSwitcher: {
+    loading: 'Memuat campaign…',
+    choose: 'Pilih campaign',
+    active: (name: string) => `Campaign aktif: ${name}. Ganti campaign`,
+    heading: 'Campaign aktif',
+    empty: 'Belum ada campaign aktif. Buat satu untuk mulai.',
+    manage: 'Kelola campaign',
   },
   tags: {
     remove: (tag: string) => `Hapus ${tag}`,

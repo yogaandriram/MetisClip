@@ -23,10 +23,10 @@ import {
   TextAreaField,
   type StepState,
 } from '@/components/ui'
-import { NoAgentState } from '@/components/NoAgentState'
+import { NoCampaignState } from '@/components/NoCampaignState'
 import { VideoFilePicker } from '@/components/discover/VideoFilePicker'
 import { CampaignPicker } from '@/components/brief/CampaignPicker'
-import { useAgent } from '@/contexts/AgentContext'
+import { useCampaign } from '@/contexts/CampaignContext'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
 import { api, type Campaign, type Job } from '@/lib/engine'
@@ -69,15 +69,22 @@ function Discover() {
   const router = useRouter()
   const params = useSearchParams()
   const jobId = params.get('job')
-  const { activeAgent } = useAgent()
+  const linked = params.get('campaign')
+  const { activeCampaign, activeCampaigns, setActiveCampaign } = useCampaign()
   const t = useT()
 
-  if (!activeAgent) {
+  // From a campaign page (/discover/?campaign=<id>): that campaign becomes the active one
+  const linkedActive = !!linked && activeCampaigns.some((c) => c.id === linked)
+  useEffect(() => {
+    if (linkedActive && linked) setActiveCampaign(linked)
+  }, [linkedActive, linked, setActiveCampaign])
+
+  if (!activeCampaign) {
     return (
       <div>
         <PageHeader title={t.discover.title} />
         <div style={CONTENT}>
-          <NoAgentState what={t.shell.nav.discover} />
+          <NoCampaignState what={t.shell.nav.discover} />
         </div>
       </div>
     )
@@ -101,8 +108,8 @@ function Discover() {
           <JobProgress key={jobId} jobId={jobId} />
         ) : (
           <JobForm
-            key={activeAgent.id}
-            initialCampaign={params.get('campaign')}
+            key={activeCampaign.id}
+            initialCampaign={linkedActive ? linked : activeCampaign.id}
             onCreated={(id) => router.push(`/discover/?job=${encodeURIComponent(id)}`)}
           />
         )}
@@ -113,8 +120,8 @@ function Discover() {
 
 // ---------------------------------------------------------------------------
 
-function JobForm({ onCreated, initialCampaign }: { onCreated: (jobId: string) => void; initialCampaign?: string | null }) {
-  const { activeAgent } = useAgent()
+/** The job form. `initialCampaign` is chosen when the form opens (the active campaign, or the linked one). */
+function JobForm({ onCreated, initialCampaign }: { onCreated: (jobId: string) => void; initialCampaign: string | null }) {
   const { epoch } = useEngine()
   const t = useT()
   const f = t.discover.form
@@ -122,7 +129,7 @@ function JobForm({ onCreated, initialCampaign }: { onCreated: (jobId: string) =>
   const [mode, setMode] = useState<'url' | 'file'>('url')
   const [youtubeUrl, setYoutubeUrl] = useState('')
   const [filePath, setFilePath] = useState<string | null>(null)
-  const [duration, setDuration] = useState(activeAgent?.default_duration || '45-60')
+  const [duration, setDuration] = useState('45-60')
   const [customLo, setCustomLo] = useState('30')
   const [customHi, setCustomHi] = useState('60')
   const [maxClips, setMaxClips] = useState<number>(3)
@@ -141,7 +148,7 @@ function JobForm({ onCreated, initialCampaign }: { onCreated: (jobId: string) =>
         if (cancelled) return
         setCampaigns(campaigns)
         setCampaignsError(null)
-        // Coming from a campaign page: /discover/?campaign=<id>
+        // The active campaign (or the one a campaign page linked to) is chosen to begin with
         if (initialCampaign && campaigns.some((c) => c.id === initialCampaign)) {
           setCampaignIds((prev) => (prev.length ? prev : [initialCampaign]))
         }
@@ -175,8 +182,11 @@ function JobForm({ onCreated, initialCampaign }: { onCreated: (jobId: string) =>
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!activeAgent) return
     setFormError(null)
+    if (chosen.length === 0) {
+      setFormError(b.picker.required)
+      return
+    }
     if (mode === 'url' && !isYoutubeUrl(youtubeUrl)) {
       setFormError(f.invalidUrl)
       return
@@ -192,7 +202,6 @@ function JobForm({ onCreated, initialCampaign }: { onCreated: (jobId: string) =>
     setSubmitting(true)
     try {
       const { job } = await api.jobs.create({
-        agent_id: activeAgent.id,
         ...(mode === 'url' ? { youtube_url: youtubeUrl.trim() } : { local_file_path: filePath! }),
         clip_duration: clipDuration,
         max_clips: maxClips,
@@ -320,7 +329,7 @@ function JobForm({ onCreated, initialCampaign }: { onCreated: (jobId: string) =>
           <div className="mc-row mc-row--between mc-row--wrap mc-gap-16" style={{ alignItems: 'flex-end' }}>
             <NumberStepper
               label={f.maxClips}
-              hint={chosen.length > 0 ? b.picker.perCampaign : undefined}
+              hint={chosen.length > 1 ? b.picker.perCampaign : undefined}
               value={maxClips}
               onChange={setMaxClips}
               min={0}

@@ -11,7 +11,6 @@ export const jobs: Messages['jobs'] = {
   resumed: 'Job resumed',
   cancelled: 'Job cancelled',
   deleted: 'Job deleted',
-  deletedWorkspace: 'Deleted workspace',
   config: (duration: string, max: number) => `${duration} sec · max. ${max || '∞'} ${max === 1 ? 'clip' : 'clips'}`,
   createdAt: (date: string) => `created ${date}`,
   emptyTitle: 'The queue is empty',
@@ -29,7 +28,6 @@ export const jobs: Messages['jobs'] = {
   columns: {
     status: 'Status',
     source: 'Source',
-    workspace: 'Workspace',
     settings: 'Settings',
     created: 'Created',
     actions: 'Actions',

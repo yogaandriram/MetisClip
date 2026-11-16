@@ -61,8 +61,15 @@ def fake_world(monkeypatch, db, secrets):
     return downloads
 
 
-def _make_job(db, agent_id):
-    job = JobDoc(_id=new_id(), agent_id=agent_id,
+def _campaign(name):
+    """A plain campaign (no brief): its clips are the best moments by viral score."""
+    from backend.services import campaigns
+
+    return campaigns.snapshot(campaigns.create(name))
+
+
+def _make_job(db, campaign):
+    job = JobDoc(_id=new_id(), campaign_ids=[campaign["id"]], campaigns=[campaign],
                  source=JobSource(type="url", youtube_url=URL),
                  config=JobConfig(clip_duration="45-60", max_clips=2, max_clips_per_video=2)).to_mongo()
     db.discovery_jobs.insert_one(job)
@@ -70,9 +77,8 @@ def _make_job(db, agent_id):
 
 
 def test_link_job_clips_its_video_and_resume_is_idempotent(db, fake_world):
-    db.super_agents.insert_one({"_id": "agent-1", "name": "Agen", "slug": "agen", "timezone": "Asia/Jakarta",
-                                "created_at": utcnow()})
-    job_id = _make_job(db, "agent-1")
+    camp = _campaign("Agen")
+    job_id = _make_job(db, camp)
     static_pipeline.run_job(job_id, procs.CancelToken())
 
     job = db.discovery_jobs.find_one({"_id": job_id})
@@ -83,7 +89,7 @@ def test_link_job_clips_its_video_and_resume_is_idempotent(db, fake_world):
     assert {c["hook_text"] for c in clips} == {"pertama", "kedua"}
     assert {c["youtube_id"] for c in clips} == {VID} and fake_world == [VID, VID]
     for c in clips:
-        assert c["status"] == "ready" and c["agent_id"] == "agent-1"
+        assert c["status"] == "ready" and c["campaign_id"] == camp["id"] and c.get("brief_fit") is None
         raw = get_paths().from_relative(c["files"]["raw"])
         assert raw.exists() and raw.stat().st_size > 0
         assert c["files"]["raw"].startswith("library/agen/")
@@ -136,9 +142,9 @@ def test_upload_job_clips_the_local_file(db, secrets, monkeypatch, tmp_path):
     monkeypatch.setattr(whisper, "transcribe", fake_transcribe)
     monkeypatch.setattr(analyzer.llm, "chat_json", chat)
     monkeypatch.setattr(processor.ytdlp, "download_section", lambda *a, **k: pytest.fail("an upload never downloads"))
-    db.super_agents.insert_one({"_id": "agent-u", "name": "Agen", "slug": "agen-u", "timezone": "Asia/Jakarta",
-                                "created_at": utcnow()})
-    job = JobDoc(_id=new_id(), agent_id="agent-u", source=JobSource(type="local_file", local_file_path=str(video_path)),
+    camp = _campaign("Agen Upload")
+    job = JobDoc(_id=new_id(), campaign_ids=[camp["id"]], campaigns=[camp],
+                 source=JobSource(type="local_file", local_file_path=str(video_path)),
                  config=JobConfig(clip_duration="45-60", max_clips=2, max_clips_per_video=2)).to_mongo()
     db.discovery_jobs.insert_one(job)
     static_pipeline.run_job(job["_id"], procs.CancelToken())
@@ -180,7 +186,7 @@ def test_upload_job_fails_clearly_when_the_file_is_gone(db, secrets, tmp_path):
     gone = str(tmp_path / "dipindah.mp4")
     job_id = new_id()
     db.discovery_jobs.insert_one(JobDoc(
-        _id=job_id, agent_id=None, source=JobSource(type="local_file", local_file_path=gone),
+        _id=job_id, source=JobSource(type="local_file", local_file_path=gone),
         config=JobConfig(clip_duration="45-60", max_clips=1, max_clips_per_video=1),
     ).to_mongo())
     db.source_videos.insert_one({"_id": "sv-gone", "job_id": job_id, "file_path": gone, "created_at": utcnow()})
@@ -196,7 +202,7 @@ def test_upload_job_fails_clearly_when_the_file_is_gone(db, secrets, tmp_path):
 
 
 def test_cancel_marks_job_cancelled(db, fake_world):
-    job_id = _make_job(db, None)
+    job_id = _make_job(db, _campaign("Agen"))
     token = procs.CancelToken()
     token.cancel()
     static_pipeline.run_job(job_id, token)
@@ -208,7 +214,7 @@ def test_missing_llm_key_fails_with_indonesian_message_in_production(db, fake_wo
 
     secrets.delete_secret("llm_api_key")
     monkeypatch.setattr(config, "env", "production")
-    job_id = _make_job(db, None)
+    job_id = _make_job(db, _campaign("Agen"))
     static_pipeline.run_job(job_id, procs.CancelToken())
     job = db.discovery_jobs.find_one({"_id": job_id})
     assert job["status"] == "failed"

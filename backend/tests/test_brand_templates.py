@@ -16,9 +16,9 @@ def client(db, secrets):
         yield c
 
 
-def _clip(db, agent_id, template_id=None):
+def _clip(db, campaign_id, template_id=None):
     cid = new_id()
-    doc = ClipDoc(_id=cid, agent_id=agent_id, job_id=None, source_video_id=None, youtube_id="x", start_time=0,
+    doc = ClipDoc(_id=cid, campaign_id=campaign_id, job_id=None, source_video_id=None, youtube_id="x", start_time=0,
                   end_time=10, duration_seconds=10, status="ready", brand_template_id=template_id).to_mongo()
     db.clips.insert_one(doc)
     return cid
@@ -35,21 +35,24 @@ def test_library_crud_and_usage(client, db):
     assert client.put(f"/api/brand-templates/{b['id']}", json={"name": "  "}).status_code == 400
     assert client.post("/api/brand-templates", json={"name": ""}).status_code == 400
 
-    agent = client.post("/api/agents", json={"name": "Agent", "default_brand_template_id": a["id"]}).json()["agent"]
-    assert agent["default_brand_template_id"] == a["id"]
-    assert client.put(f"/api/agents/{agent['id']}", json={"default_brand_template_id": "nope"}).status_code == 400
-    clip_a = _clip(db, agent["id"], a["id"])
-    _clip(db, agent["id"], a["id"])
+    camp = client.post("/api/campaigns", json={"name": "Channel", "brand_template_id": a["id"]}).json()["campaign"]
+    assert camp["brand_template_id"] == a["id"]
+    plain = client.post("/api/campaigns", json={"name": "Polos"}).json()["campaign"]
+    clip_a = _clip(db, camp["id"], a["id"])
+    _clip(db, camp["id"], a["id"])
 
     listed = {t["id"]: t for t in client.get("/api/brand-templates").json()["brand_templates"]}
     assert [t["name"] for t in listed.values()] == ["Template Default", "Podcast Gelap", "Edukasi"]
-    assert listed[a["id"]]["used_by_agents"] == [{"id": agent["id"], "name": "Agent"}]
+    assert listed[a["id"]]["used_by_campaigns"] == [{"id": camp["id"], "name": "Channel"}]
+    # A campaign without its own template counts for the default template
+    assert listed[default["id"]]["used_by_campaigns"] == [{"id": plain["id"], "name": "Polos"}]
+    assert listed[default["id"]]["is_default"] is True and listed[a["id"]]["is_default"] is False
     assert listed[a["id"]]["clip_count"] == 2 and listed[b["id"]]["clip_count"] == 0
 
-    # Deleting a template: its clips follow the agent default again, the agent gets the oldest template
+    # Deleting a template: its clips follow their campaign, the campaign follows the default template
     assert client.delete(f"/api/brand-templates/{a['id']}").json() == {"ok": True}
     assert "brand_template_id" not in db.clips.find_one({"_id": clip_a})
-    assert db.super_agents.find_one({"_id": agent["id"]})["default_brand_template_id"] == default["id"]
+    assert db.campaigns.find_one({"_id": camp["id"]})["brand_template_id"] is None
     assert client.get(f"/api/clips/{clip_a}").json()["brand_template"]["id"] == default["id"]
     client.delete(f"/api/brand-templates/{b['id']}")
     r = client.delete(f"/api/brand-templates/{default['id']}")
@@ -57,13 +60,13 @@ def test_library_crud_and_usage(client, db):
 
 
 def test_clip_switches_template(client, db):
-    agent = client.post("/api/agents", json={"name": "A"}).json()["agent"]
-    default_id = agent["default_brand_template_id"]
+    camp = client.post("/api/campaigns", json={"name": "A"}).json()["campaign"]
+    default_id = client.get("/api/brand-templates").json()["brand_templates"][0]["id"]
     client.put(f"/api/brand-templates/{default_id}", json={"caption_settings": {"mode": "lumina"}, "brand_settings": {"logoUrl": "x"}})
     other = client.post("/api/brand-templates", json={"name": "Neon"}).json()["brand_template"]
     client.put(f"/api/brand-templates/{other['id']}", json={"caption_settings": {"mode": "neonpulse", "fontSize": 40},
                                                            "ai_settings": {"pauses": True}})
-    cid = _clip(db, agent["id"])  # no own choice -> agent default
+    cid = _clip(db, camp["id"])  # no own choice, no campaign template -> the default template
     d = client.get(f"/api/clips/{cid}").json()
     assert d["brand_template"]["id"] == default_id and d["effective_style"] == {"mode": "lumina"}
 

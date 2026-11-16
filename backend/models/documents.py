@@ -64,20 +64,6 @@ class BrandTemplateDoc(Doc):
     updated_at: datetime = Field(default_factory=_now)
 
 
-class AgentDoc(Doc):
-    name: str = Field(min_length=1, max_length=80)
-    slug: str
-    niche: Optional[str] = None
-    default_duration: str = "45-60"
-    timezone: str = "Asia/Jakarta"
-    # Template used by this agent's new clips (brand_templates._id)
-    default_brand_template_id: Optional[str] = None
-    created_at: datetime = Field(default_factory=_now)
-
-    @field_validator("default_duration")
-    @classmethod
-    def _dur(cls, v: str) -> str:
-        return v if v in DURATIONS else "45-60"
 
 
 # ---------------------------------------------------------------- campaign briefs
@@ -320,12 +306,16 @@ class CampaignSourceDoc(BaseModel):
 
 
 class CampaignDoc(Doc):
-    """A campaign in the shared library (collection `campaigns`), chosen per job."""
+    """A campaign (collection `campaigns`): the container of everything the app makes. Every job follows
+    one or more campaigns and every clip belongs to one. A campaign with an empty brief is a plain one
+    (e.g. the user's own channel): its clips are chosen by viral score only."""
 
     name: str = Field(min_length=1, max_length=80)
     client: str = Field(default="", max_length=80)
     status: CampaignStatus = "active"
-    # Template for this campaign's clips (null = the workspace's default)
+    # Library folder of its clips: <DATA_ROOT>/library/<slug>/<clip id>/ (kept when the campaign is renamed)
+    slug: str = ""
+    # Template for this campaign's clips (null = the default template, brand_templates.ensure_default)
     brand_template_id: Optional[str] = None
     sources: list[dict[str, Any]] = Field(default_factory=list)
     brief: dict[str, Any] = Field(default_factory=lambda: clean_brief({}))
@@ -359,7 +349,6 @@ class JobCheckpoint(BaseModel):
 
 
 class JobDoc(Doc):
-    agent_id: Optional[str]
     source: JobSource
     config: JobConfig
     status: JobStatus = "pending"
@@ -369,8 +358,8 @@ class JobDoc(Doc):
     processed_scenes: int = 0
     checkpoint: JobCheckpoint = Field(default_factory=JobCheckpoint)
     errors: list[dict[str, Any]] = Field(default_factory=list)
-    # Campaigns the clips are made for (may be empty), and each one's brief as it was when the job was
-    # created: {id, name, version, brief, brand_template_id}. A later brief edit does not change a job.
+    # Campaigns the clips are made for (at least one), and each one's brief as it was when the job was
+    # created: {id, name, slug, version, brief, brand_template_id}. A later brief edit does not change a job.
     campaign_ids: list[str] = Field(default_factory=list)
     campaigns: list[dict[str, Any]] = Field(default_factory=list)
     # Extra instructions for this video only (added to every campaign's brief)
@@ -382,7 +371,6 @@ class JobDoc(Doc):
 
 class SourceVideoDoc(Doc):
     job_id: str
-    agent_id: Optional[str]
     # A YouTube video, or an uploaded file used in place (never copied)
     youtube_id: Optional[str] = None
     file_path: Optional[str] = None
@@ -415,7 +403,6 @@ class ClipFiles(BaseModel):
 
 
 class ClipDoc(Doc):
-    agent_id: Optional[str]
     job_id: Optional[str]
     source_video_id: Optional[str]
     youtube_id: Optional[str]
@@ -433,9 +420,10 @@ class ClipDoc(Doc):
     layout_style: dict[str, Any] = Field(default_factory=dict)
     source_width: Optional[int] = None
     source_height: Optional[int] = None
-    # Brand template of this clip (set from the agent's default at creation, switchable in the editor)
+    # Brand template of this clip (its campaign's at creation, switchable in the editor)
     brand_template_id: Optional[str] = None
-    # The campaign the clip was made for, how well it fits that brief (0-100, from the Analyzer) and why
+    # The campaign the clip belongs to, how well it fits that brief (0-100, from the Analyzer; None for a
+    # plain campaign) and why
     campaign_id: Optional[str] = None
     brief_fit: Optional[float] = None
     brief_reason: str = ""

@@ -4,14 +4,17 @@ export const clips = {
   title: 'Hasil Clip',
   /** One line for both tabs, so switching tabs never moves the page */
   subtitle: 'Clip buatan AI dan job yang membuatnya.',
-  allWorkspaces: 'Semua workspace',
+  allCampaigns: 'Semua campaign',
+  /** A link from an archived campaign's page: its clips, outside the active campaign */
+  viewingArchived: (name: string) => `Menampilkan klip campaign arsip ${name}.`,
+  backToActive: 'Kembali ke campaign aktif',
   /** The two tabs of the page: the gallery and the job queue */
   tabs: {
     label: 'Clip atau antrian',
     clips: 'Clip',
     queue: 'Antrian',
   },
-  /** Fills "… untuk mulai menggunakan {what}" in the no-workspace state */
+  /** Fills "… untuk mulai menggunakan {what}" in the no-campaign state */
   galleryName: 'galeri clip',
   loadFailed: 'Gagal memuat clip',
   deleted: 'Clip dihapus',
@@ -25,7 +28,7 @@ export const clips = {
   newClip: 'Klip baru',
   filterAria: 'Filter status clip',
   noneWithStatus: 'Tidak ada clip dengan status ini',
-  noneWithStatusDescription: (status: string) => `Belum ada clip berstatus "${status}" untuk workspace ini.`,
+  noneWithStatusDescription: (status: string) => `Belum ada clip berstatus "${status}".`,
   showAll: 'Tampilkan semua',
   openEditor: (hook: string, score: number, status: string, clock: string) => `Buka editor: ${hook} (skor viral ${score}, ${status}, durasi ${clock})`,
   edit: 'Edit',

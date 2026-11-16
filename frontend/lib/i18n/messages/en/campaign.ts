@@ -3,8 +3,20 @@ import type { Messages } from '../id'
 export const campaign: Messages['campaign'] = {
   title: 'Campaigns',
 
+  noCampaign: {
+    thisPage: 'this page',
+    loadFailed: "Couldn't load the campaigns",
+    emptyTitle: 'No campaigns yet',
+    emptyDescription: (what: string) =>
+      `Create your first campaign to start using ${what}. Every job, clip, brief and brand template lives in a campaign.`,
+    create: 'Create campaign',
+    allArchivedTitle: 'Every campaign is archived',
+    allArchivedDescription: (what: string) => `Make a campaign active again or create a new one to open ${what}.`,
+    manage: 'Manage campaigns',
+  },
+
   library: {
-    subtitle: 'Briefs from agencies or brands. Pick a campaign when you make clips, and the clips follow its brief.',
+    subtitle: 'Every job, clip and brief lives in a campaign. Choose the active one at the top right.',
     create: 'New campaign',
     tabsLabel: 'Show campaigns',
     tabActive: 'Active',
@@ -13,9 +25,9 @@ export const campaign: Messages['campaign'] = {
     loadErrorTitle: 'Campaigns cannot be shown yet',
     emptyTitle: 'No campaigns yet',
     emptyText:
-      'Create a campaign, then add the brief from the agency: text, documents or screenshots. The AI reads it into rules that are used to pick moments and write the post text.',
+      "Create a campaign for your own channel or for an agency's brief. A brief can be added any time (text, documents or screenshots), and the AI reads it into rules that are used to pick moments and write the post text.",
     emptyArchivedTitle: 'No archived campaigns',
-    emptyArchivedText: 'Archive a finished campaign from its page. Archived campaigns are not offered when you choose campaigns on Find Video.',
+    emptyArchivedText: 'Archive a finished campaign from its page. Archived campaigns are not offered in the campaign switcher or on Find Video.',
     open: (name: string) => `Open campaign ${name}`,
     clips: (n: number) => (n === 1 ? '1 clip' : `${n} clips`),
     exported: (n: number) => `${n} exported`,
@@ -70,19 +82,21 @@ export const campaign: Messages['campaign'] = {
     client: 'Client or brand',
     clientPlaceholder: 'optional',
     template: 'Brand template',
-    templateDefault: 'Workspace default',
-    templateHint: "How this campaign's clips look. \"Workspace default\" uses the template of the workspace the job runs in.",
+    templateDefault: 'Default template',
+    templateHint: "How this campaign's clips look. \"Default template\" uses the template marked Default on Brand Template.",
     archive: 'Archive',
     unarchive: 'Make active again',
     archived: (name: string) => `${name} archived`,
     unarchived: (name: string) => `${name} is active again`,
-    archivedNote: 'This campaign is archived, so it is not offered when you choose campaigns on Find Video.',
+    archivedNote: 'This campaign is archived, so it is not offered in the campaign switcher or on Find Video.',
     delete: 'Delete campaign',
     deleteTitle: (name: string) => `Delete campaign ${name}?`,
     deleteBody: (clips: number) =>
       clips > 0
-        ? `The ${clips === 1 ? 'clip' : `${clips} clips`} made for this campaign stay, but are no longer linked to it. The brief material is deleted.`
-        : 'The brief material is deleted too. This cannot be undone.',
+        ? `The ${clips === 1 ? 'clip' : `${clips} clips`} of this campaign, the jobs made only for it and the brief material are deleted from the database. This cannot be undone.`
+        : 'The jobs made only for this campaign and the brief material are deleted too. This cannot be undone.',
+    deleteFiles: "Also delete this campaign's clip video files from the data folder",
+    deleteFilesHint: 'If unticked, the video files stay in the library folder.',
     deleteConfirm: 'Delete permanently',
     deleted: (name: string) => `${name} deleted`,
   },
@@ -95,7 +109,7 @@ export const campaign: Messages['campaign'] = {
     noTarget: 'The brief sets no target number of clips.',
     viewClips: 'View clips',
     makeClips: 'Make clips',
-    makeHint: 'On Find Video, pick this campaign before you start.',
+    makeHint: 'Find Video opens with this campaign already chosen.',
     versionNote:
       'The saved brief applies to new jobs and to the clip checklist. Jobs that are already running keep the brief they started with.',
   },

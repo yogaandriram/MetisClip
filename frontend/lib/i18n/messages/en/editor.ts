@@ -135,7 +135,7 @@ export const editor: Messages['editor'] = {
   templateSelect: "This clip's Brand Template",
   templateHint: "Switching the template applies that template's caption style, logo and AI settings to this clip.",
   builtInTemplate: 'MetisClip default',
-  workspaceDefault: (name: string) => `${name} (workspace default)`,
+  campaignDefault: (name: string) => `${name} (campaign template)`,
   resetToTemplate: 'Reset to template',
 
   layoutTitle: 'Layout',

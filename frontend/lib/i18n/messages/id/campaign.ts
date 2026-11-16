@@ -3,8 +3,22 @@
 export const campaign = {
   title: 'Campaign',
 
+  /** NoCampaignState: pages that need an active campaign */
+  noCampaign: {
+    /** Default for {what} below */
+    thisPage: 'halaman ini',
+    loadFailed: 'Gagal memuat campaign',
+    emptyTitle: 'Belum ada campaign',
+    emptyDescription: (what: string) =>
+      `Buat campaign pertama untuk mulai menggunakan ${what}. Semua job, klip, brief, dan brand template tersimpan di dalam campaign.`,
+    create: 'Buat campaign',
+    allArchivedTitle: 'Semua campaign diarsipkan',
+    allArchivedDescription: (what: string) => `Aktifkan lagi salah satu campaign atau buat yang baru untuk membuka ${what}.`,
+    manage: 'Kelola campaign',
+  },
+
   library: {
-    subtitle: 'Brief dari agency atau brand. Pilih campaign saat membuat klip, lalu klipnya mengikuti brief itu.',
+    subtitle: 'Semua job, klip, dan brief tersimpan di dalam campaign. Campaign aktif dipilih di kanan atas.',
     create: 'Campaign baru',
     tabsLabel: 'Tampilkan campaign',
     tabActive: 'Aktif',
@@ -13,9 +27,9 @@ export const campaign = {
     loadErrorTitle: 'Campaign belum bisa ditampilkan',
     emptyTitle: 'Belum ada campaign',
     emptyText:
-      'Buat campaign, lalu tambahkan brief dari agency: teks, dokumen, atau screenshot. AI membacanya menjadi aturan yang dipakai saat memilih momen dan menulis teks posting.',
+      'Buat campaign untuk channel sendiri atau untuk brief dari agency. Brief bisa ditambahkan kapan saja (teks, dokumen, atau screenshot), lalu AI membacanya menjadi aturan saat memilih momen dan menulis teks posting.',
     emptyArchivedTitle: 'Belum ada campaign yang diarsipkan',
-    emptyArchivedText: 'Campaign yang sudah selesai bisa diarsipkan dari halamannya. Campaign yang diarsipkan tidak muncul saat memilih campaign di Cari Video.',
+    emptyArchivedText: 'Campaign yang sudah selesai bisa diarsipkan dari halamannya. Campaign yang diarsipkan tidak muncul di pemilih campaign dan di Cari Video.',
     open: (name: string) => `Buka campaign ${name}`,
     clips: (n: number) => `${n} klip`,
     exported: (n: number) => `${n} diekspor`,
@@ -70,19 +84,21 @@ export const campaign = {
     client: 'Klien atau brand',
     clientPlaceholder: 'opsional',
     template: 'Brand template',
-    templateDefault: 'Default workspace',
-    templateHint: 'Tampilan klip campaign ini. "Default workspace" memakai template workspace tempat job dibuat.',
+    templateDefault: 'Template bawaan',
+    templateHint: 'Tampilan klip campaign ini. "Template bawaan" memakai template yang ditandai Bawaan di Brand Template.',
     archive: 'Arsipkan',
     unarchive: 'Aktifkan lagi',
     archived: (name: string) => `${name} diarsipkan`,
     unarchived: (name: string) => `${name} aktif lagi`,
-    archivedNote: 'Campaign ini diarsipkan, jadi tidak muncul saat memilih campaign di Cari Video.',
+    archivedNote: 'Campaign ini diarsipkan, jadi tidak muncul di pemilih campaign dan di Cari Video.',
     delete: 'Hapus campaign',
     deleteTitle: (name: string) => `Hapus campaign ${name}?`,
     deleteBody: (clips: number) =>
       clips > 0
-        ? `${clips} klip yang dibuat untuk campaign ini tetap ada, tetapi tidak lagi terhubung ke campaign. Bahan brief ikut dihapus.`
-        : 'Bahan brief ikut dihapus. Tindakan ini tidak bisa dibatalkan.',
+        ? `${clips} klip campaign ini, job yang hanya untuk campaign ini, dan bahan brief ikut dihapus dari database. Tindakan ini tidak bisa dibatalkan.`
+        : 'Job yang hanya untuk campaign ini dan bahan brief ikut dihapus. Tindakan ini tidak bisa dibatalkan.',
+    deleteFiles: 'Hapus juga file video klip campaign ini dari folder data',
+    deleteFilesHint: 'Jika tidak dicentang, file video tetap ada di folder library.',
     deleteConfirm: 'Hapus permanen',
     deleted: (name: string) => `${name} dihapus`,
   },
@@ -95,7 +111,7 @@ export const campaign = {
     noTarget: 'Brief tidak menentukan target jumlah klip.',
     viewClips: 'Lihat klip',
     makeClips: 'Buat klip',
-    makeHint: 'Di Cari Video, pilih campaign ini sebelum memulai proses.',
+    makeHint: 'Cari Video terbuka dengan campaign ini sudah terpilih.',
     versionNote:
       'Brief yang disimpan berlaku untuk job baru dan untuk checklist klip. Job yang sedang berjalan tetap memakai brief saat job itu dibuat.',
   },

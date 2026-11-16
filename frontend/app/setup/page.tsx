@@ -9,11 +9,11 @@ import { errorMessage, formatBytes } from '@/lib/format'
 import { Alert, Badge, Blob, Button, Card, Divider, Field, InputField, LanguageSwitch, Logo, Skeleton, Spinner, WizardSteps } from '@/components/ui'
 import { SecretField } from '@/components/settings/SecretField'
 import { LlmSection, type LlmValue } from '@/components/settings/LlmFields'
-import { AgentForm, toAgentInput } from '@/components/agents/AgentForm'
+import { rememberActiveCampaign } from '@/contexts/CampaignContext'
 import { localeTag } from '@/lib/i18n'
 import { useT } from '@/lib/i18n/I18nProvider'
 
-const STEPS = ['welcome', 'data', 'keys', 'check', 'agent'] as const
+const STEPS = ['welcome', 'data', 'keys', 'check', 'campaign'] as const
 
 type StepId = (typeof STEPS)[number]
 
@@ -35,7 +35,7 @@ export default function SetupPage() {
             {step === 'data' && <DataStep onNext={next} onBack={back} />}
             {step === 'keys' && <KeysStep onNext={next} onBack={back} />}
             {step === 'check' && <CheckStep onNext={next} onBack={back} />}
-            {step === 'agent' && <AgentStep onBack={back} onDone={() => router.replace('/dashboard/')} />}
+            {step === 'campaign' && <CampaignStep onBack={back} onDone={() => router.replace('/dashboard/')} />}
           </div>
         </div>
       </Card>
@@ -577,44 +577,45 @@ function CheckStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
 
 // ---------------------------------------------------------------------------
 
-function AgentStep({ onBack, onDone }: { onBack: () => void; onDone: () => void }) {
+function CampaignStep({ onBack, onDone }: { onBack: () => void; onDone: () => void }) {
   const t = useT()
-  const m = t.setup.agent
+  const m = t.setup.campaign
+  const c = t.campaign.createDialog
   const [existing, setExisting] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
+  const [name, setName] = useState('')
+  const [client, setClient] = useState('')
+  const [creating, setCreating] = useState(false)
 
   useEffect(() => {
-    api.agents
+    api.campaigns
       .list()
-      .then(({ agents }) => {
-        setExisting(agents.length)
-        setShowForm(agents.length === 0)
+      .then(({ campaigns }) => {
+        setExisting(campaigns.length)
+        setShowForm(campaigns.length === 0)
       })
       .catch((err) => setError(errorMessage(err)))
   }, [])
 
-  const create = async (value: Parameters<typeof toAgentInput>[0]) => {
+  const create = async () => {
+    if (!name.trim() || creating) return
+    setCreating(true)
     try {
-      const { agent } = await api.agents.create(toAgentInput(value))
-      try {
-        window.localStorage.setItem('activeAgentId', agent.id)
-      } catch {
-        /* not remembered */
-      }
-      toast.success(m.created(agent.name))
+      const { campaign } = await api.campaigns.create({ name: name.trim(), client: client.trim() })
+      rememberActiveCampaign(campaign.id)
+      toast.success(m.created(campaign.name))
       onDone()
     } catch (err) {
-      toast.error(errorMessage(err))
+      toast.error(errorMessage(err, c.failed))
+    } finally {
+      setCreating(false)
     }
   }
 
   return (
     <>
-      <StepTitle
-        title={m.title}
-        subtitle={m.subtitle}
-      />
+      <StepTitle title={m.title} subtitle={m.subtitle} />
       {error ? (
         <Alert tone="error">{error}</Alert>
       ) : existing === null ? (
@@ -623,7 +624,34 @@ function AgentStep({ onBack, onDone }: { onBack: () => void; onDone: () => void 
         <>
           {existing > 0 && <Alert tone="success">{m.existing(existing)}</Alert>}
           {showForm ? (
-            <AgentForm submitLabel={m.createStart} onSubmit={create} onCancel={existing > 0 ? () => setShowForm(false) : undefined} />
+            <form
+              className="mc-stack"
+              onSubmit={(e) => {
+                e.preventDefault()
+                create()
+              }}
+            >
+              <InputField
+                label={c.name}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={80}
+                placeholder={c.namePlaceholder}
+                hint={c.hint}
+                autoFocus
+              />
+              <InputField label={c.client} value={client} onChange={(e) => setClient(e.target.value)} maxLength={80} placeholder={c.clientPlaceholder} />
+              <div className="mc-row mc-gap-8">
+                <Button type="submit" variant="primary" loading={creating} disabled={!name.trim()}>
+                  {m.createStart}
+                </Button>
+                {existing > 0 && (
+                  <Button variant="ghost" onClick={() => setShowForm(false)} disabled={creating}>
+                    {t.common.cancel}
+                  </Button>
+                )}
+              </div>
+            </form>
           ) : (
             <div>
               <Button variant="secondary" onClick={() => setShowForm(true)} icon={<Plus size={16} aria-hidden="true" />}>

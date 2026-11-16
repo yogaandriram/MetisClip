@@ -2,22 +2,23 @@
 
 import React, { useCallback, useRef, useState } from 'react'
 import Link from 'next/link'
-import { Check, ChevronDown, Users } from 'lucide-react'
-import { useAgent } from '@/contexts/AgentContext'
+import { Check, ChevronDown, Megaphone } from 'lucide-react'
+import { useCampaign } from '@/contexts/CampaignContext'
 import { useDismiss } from '@/hooks/useDismiss'
 import { Avatar } from './Avatar'
 import { useT } from '@/lib/i18n/I18nProvider'
 
-/** Active workspace as a pill in the top bar, with a popover to switch or manage workspaces. */
-export function AgentSwitcher() {
-  const { activeAgent, agents, setActiveAgent, isAgentLoading } = useAgent()
+/** The active campaign as a pill in the top bar, with a popover to switch or manage campaigns. */
+export function CampaignSwitcher() {
+  const { activeCampaign, activeCampaigns, setActiveCampaign, isCampaignLoading } = useCampaign()
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
   const close = useCallback(() => setOpen(false), [])
   useDismiss(root, open, close)
 
   const t = useT()
-  const name = activeAgent ? activeAgent.name : isAgentLoading ? t.ui.workspaceSwitcher.loading : t.ui.workspaceSwitcher.choose
+  const m = t.ui.campaignSwitcher
+  const name = activeCampaign ? activeCampaign.name : isCampaignLoading ? m.loading : m.choose
 
   return (
     <div ref={root} className="mc-popover-anchor">
@@ -26,11 +27,11 @@ export function AgentSwitcher() {
         className="mc-pillgroup__item"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={t.ui.workspaceSwitcher.active(name)}
+        aria-label={m.active(name)}
         onClick={() => setOpen((v) => !v)}
-        style={{ paddingLeft: activeAgent ? 6 : 16 }}
+        style={{ paddingLeft: activeCampaign ? 6 : 16 }}
       >
-        {activeAgent && <Avatar name={activeAgent.name} seed={activeAgent.id} size={28} />}
+        {activeCampaign && <Avatar name={activeCampaign.name} seed={activeCampaign.id} size={28} />}
         <span className="mc-truncate" style={{ maxWidth: 200 }}>
           {name}
         </span>
@@ -39,35 +40,35 @@ export function AgentSwitcher() {
 
       {open && (
         <div role="menu" className="mc-popover mc-popover--end" style={{ width: 280 }}>
-          <div className="mc-menu-label">{t.ui.workspaceSwitcher.heading}</div>
-          {agents.length > 0 ? (
-            agents.map((agent) => {
-              const selected = activeAgent?.id === agent.id
+          <div className="mc-menu-label">{m.heading}</div>
+          {activeCampaigns.length > 0 ? (
+            activeCampaigns.map((campaign) => {
+              const selected = activeCampaign?.id === campaign.id
               return (
                 <button
-                  key={agent.id}
+                  key={campaign.id}
                   type="button"
                   role="menuitemradio"
                   aria-checked={selected}
                   className="mc-menu-item"
                   onClick={() => {
-                    setActiveAgent(agent)
+                    setActiveCampaign(campaign.id)
                     close()
                   }}
                 >
-                  <Avatar name={agent.name} seed={agent.id} size={28} />
-                  <span className="mc-grow mc-truncate">{agent.name}</span>
+                  <Avatar name={campaign.name} seed={campaign.id} size={28} />
+                  <span className="mc-grow mc-truncate">{campaign.name}</span>
                   {selected && <Check size={16} aria-hidden="true" />}
                 </button>
               )
             })
           ) : (
-            <div className="mc-menu-label">{t.ui.workspaceSwitcher.empty}</div>
+            <div className="mc-menu-label">{m.empty}</div>
           )}
           <div className="mc-menu-sep" role="separator" />
-          <Link href="/agents/" role="menuitem" className="mc-menu-item" onClick={close}>
-            <Users size={16} aria-hidden="true" />
-            {t.ui.workspaceSwitcher.manage}
+          <Link href="/campaigns/" role="menuitem" className="mc-menu-item" onClick={close}>
+            <Megaphone size={16} aria-hidden="true" />
+            {m.manage}
           </Link>
         </div>
       )}
@@ -75,4 +76,4 @@ export function AgentSwitcher() {
   )
 }
 
-export default AgentSwitcher
+export default CampaignSwitcher

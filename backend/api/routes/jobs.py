@@ -32,9 +32,9 @@ M = i18n.messages({
         "id": "Ruang disk tinggal {gb} GB",
         "en": "Only {gb} GB of disk space left",
     },
-    "no_workspace": {
-        "id": "Workspace tidak ditemukan. Pilih workspace terlebih dahulu.",
-        "en": "Workspace not found. Choose a workspace first.",
+    "no_campaign": {
+        "id": "Pilih minimal satu campaign untuk job ini",
+        "en": "Choose at least one campaign for this job",
     },
     "bad_duration": {
         "id": "Durasi klip tidak valid",
@@ -84,13 +84,13 @@ router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 
 class JobCreate(BaseModel):
-    agent_id: str
     # Exactly one source: a YouTube link, or a video file on this PC (used in place, never copied)
     youtube_url: Optional[str] = None
     local_file_path: Optional[str] = None
     clip_duration: str = "45-60"
     max_clips: int = Field(default=3, ge=0, le=100)
-    # Campaigns the clips are made for: each brief guides the choice, and every campaign gets its own clips
+    # Campaigns the clips are made for (at least one): each brief guides the choice, and every campaign
+    # gets its own clips
     campaign_ids: list[str] = Field(default_factory=list)
     # Extra instructions for this video only
     note: str = Field(default="", max_length=2000)
@@ -125,12 +125,12 @@ def _check_disk() -> None:
 def create_job(body: JobCreate):
     _check_disk()
     db = get_db()
-    if not db.super_agents.find_one({"_id": body.agent_id}, {"_id": 1}):
-        raise http_error(400, M("no_workspace"))
     lohi = duration_range(body.clip_duration)
     if lohi is None:
         raise http_error(400, M("bad_duration"))
     ids = list(dict.fromkeys(i for i in body.campaign_ids if i))
+    if not ids:
+        raise http_error(400, M("no_campaign"))
     if len(ids) > MAX_CAMPAIGNS_PER_JOB:
         raise http_error(400, M("too_many_campaigns", n=MAX_CAMPAIGNS_PER_JOB))
     chosen = []
@@ -160,7 +160,6 @@ def create_job(body: JobCreate):
         source = JobSource(type="local_file", local_file_path=str(path))
     doc = JobDoc(
         _id=new_id(),
-        agent_id=body.agent_id,
         source=source,
         config=JobConfig(
             clip_duration=format_duration(*lohi),
@@ -172,16 +171,16 @@ def create_job(body: JobCreate):
         note=body.note.strip(),
     ).to_mongo()
     db.discovery_jobs.insert_one(doc)
-    events.publish({"type": "job.status", "id": doc["_id"], "agent_id": doc["agent_id"], "status": "pending"})
+    events.publish({"type": "job.status", "id": doc["_id"], "campaign_ids": doc["campaign_ids"], "status": "pending"})
     runner.submit_job(doc["_id"])
     return {"job": job_dto(doc)}
 
 
 @router.get("")
-def list_jobs(agent_id: Optional[str] = None, status: Optional[str] = None, limit: int = 50):
+def list_jobs(campaign_id: Optional[str] = None, status: Optional[str] = None, limit: int = 50):
     q: dict = {}
-    if agent_id:
-        q["agent_id"] = agent_id
+    if campaign_id:
+        q["campaign_ids"] = campaign_id
     if status:
         q["status"] = status
     docs = get_db().discovery_jobs.find(q).sort("created_at", -1).limit(max(1, min(500, limit)))
@@ -213,7 +212,7 @@ def resume_job(job_id: str):
     if not job:
         _get(job_id)
         raise http_error(409, M("not_resumable"))
-    events.publish({"type": "job.status", "id": job_id, "agent_id": job.get("agent_id"), "status": "pending"})
+    events.publish({"type": "job.status", "id": job_id, "campaign_ids": job.get("campaign_ids") or [], "status": "pending"})
     runner.submit_job(job_id)
     return {"job": job_dto(job)}
 

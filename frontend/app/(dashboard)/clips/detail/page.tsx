@@ -777,7 +777,11 @@ function ClipEditor() {
   const clip = detail.clip
   const activeTemplate = templateById(present.templateId)
   const brand = activeTemplate?.brand_settings || null
-  const agentDefaultId = templates.find((t) => (t.used_by_agents || []).some((a) => a.id === clip.agent_id))?.id || null
+  // The template the clip's campaign uses (its own choice, else the default template)
+  const campaignTemplateId =
+    (detail.campaign?.brand_template_id && templates.some((tpl) => tpl.id === detail.campaign?.brand_template_id)
+      ? detail.campaign.brand_template_id
+      : templates.find((tpl) => tpl.is_default)?.id) || null
   const overlaySrc = brand?.overlayUrl ? assetUrl(brand.overlayUrl) : ''
   // Layout: template ⊕ this clip's override. Podcast shows source.mp4; until it exists, the clip stays full
   const layout = resolveLayout(activeTemplate?.layout_settings, present.layout)
@@ -1250,7 +1254,7 @@ function ClipEditor() {
                   ...(present.templateId ? [] : [{ value: '', label: m.builtInTemplate }]),
                   ...(templates.length ? templates : activeTemplate ? [activeTemplate] : []).map((tpl) => ({
                     value: tpl.id,
-                    label: tpl.id === agentDefaultId ? m.workspaceDefault(tpl.name) : tpl.name,
+                    label: tpl.id === campaignTemplateId ? m.campaignDefault(tpl.name) : tpl.name,
                   })),
                 ]}
                 onChange={(e) => e.target.value && chooseTemplate(e.target.value)}

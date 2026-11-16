@@ -5,7 +5,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 export const brand: Messages['brand'] = {
   page: {
     title: 'Brand Template',
-    subtitle: 'Save several clip styles and use them in any workspace',
+    subtitle: 'Save several clip styles and use them in any campaign',
     undo: 'Undo',
     redo: 'Redo',
     reload: 'Reload from the database',
@@ -34,7 +34,7 @@ export const brand: Messages['brand'] = {
     duplicated: 'Template duplicated',
     created: 'New template created',
     deleted: (name) => `Template "${name}" deleted`,
-    madeDefault: (workspace, name) => `New clips from ${workspace} use "${name}"`,
+    usedFor: (campaign, name) => `Clips of ${campaign} use "${name}"`,
   },
   nameDialog: {
     renameTitle: 'Rename template',
@@ -56,9 +56,9 @@ export const brand: Messages['brand'] = {
   },
   deleteDialog: {
     title: (name) => `Delete template "${name}"?`,
-    defaultFor: (workspaces) => `This template is the default for ${workspaces}. Those workspaces will use the oldest template.`,
+    usedBy: (campaigns) => `${campaigns} use this template. Those campaigns will use the default template.`,
     body: (clips) =>
-      `${clips === 1 ? '1 clip that uses this template goes back to its workspace’s default template.' : `${clips} clips that use this template go back to their workspace’s default template.`} Logos and brand files used only by this template are deleted too. This cannot be undone.`,
+      `${clips === 1 ? '1 clip that chose this template goes back to its campaign’s template.' : `${clips} clips that chose this template go back to their campaign’s template.`} Logos and brand files used only by this template are deleted too. This cannot be undone.`,
     confirm: 'Delete template',
   },
   defaultsDialog: {
@@ -72,9 +72,11 @@ export const brand: Messages['brand'] = {
     actions: 'Template actions',
     deleteLast: 'Delete (at least 1 template is needed)',
     delete: 'Delete template',
-    defaultFor: (workspaces) => `Default for ${workspaces}`,
+    usedBy: (campaigns) => `Used by ${campaigns}`,
+    isDefault: 'Default',
     clipCount: (n) => plural(n, 'clip', 'clips'),
-    makeDefault: (workspace) => `Make default for ${workspace}`,
+    usedFor: (campaign) => `Used by ${campaign}`,
+    useFor: (campaign) => `Use for ${campaign}`,
   },
   selected: '(selected)',
   ai: {

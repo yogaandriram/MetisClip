@@ -344,6 +344,7 @@ def _migrations():
         m007_local_whisper,
         m008_caption_safe_position,
         m009_campaigns,
+        m010_campaigns_replace_workspaces,
     )
 
     return [
@@ -356,6 +357,7 @@ def _migrations():
         (7, "local_whisper", m007_local_whisper.up),
         (8, "caption_safe_position", m008_caption_safe_position.up),
         (9, "campaigns", m009_campaigns.up),
+        (10, "campaigns_replace_workspaces", m010_campaigns_replace_workspaces.up),
     ]
 
 

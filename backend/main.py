@@ -82,10 +82,10 @@ def create_app(request_shutdown: Callable[[], None] | None = None) -> FastAPI:
         app.state.request_shutdown()
         return {"ok": True}
 
-    from backend.api.routes import (agents, brand_templates, campaigns, clips, dashboard, files, jobs, settings, system,
-                                    whisper, ws)
+    from backend.api.routes import (brand_templates, campaigns, clips, dashboard, files, jobs, settings, system, whisper,
+                                    ws)
 
-    for r in (system.router, settings.router, whisper.router, agents.router, brand_templates.router, campaigns.router,
+    for r in (system.router, settings.router, whisper.router, brand_templates.router, campaigns.router,
               files.router, jobs.router, clips.router, dashboard.router, ws.router):
         app.include_router(r)
     return app

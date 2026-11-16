@@ -12,7 +12,6 @@ import { dashboard } from './dashboard'
 import { discover } from './discover'
 import { jobs } from './jobs'
 import { clips } from './clips'
-import { workspace } from './workspace'
 import { editor } from './editor'
 import { captions } from './captions'
 import { brand } from './brand'
@@ -32,7 +31,6 @@ export const en: Messages = {
   discover,
   jobs,
   clips,
-  workspace,
   editor,
   captions,
   brand,

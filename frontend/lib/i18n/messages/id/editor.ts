@@ -146,7 +146,7 @@ export const editor = {
   templateSelect: 'Brand Template clip ini',
   templateHint: 'Mengganti template memakai gaya caption, logo, dan pengaturan AI dari template itu untuk clip ini.',
   builtInTemplate: 'Bawaan MetisClip',
-  workspaceDefault: (name: string) => `${name} (default workspace)`,
+  campaignDefault: (name: string) => `${name} (template campaign)`,
   resetToTemplate: 'Reset ke template',
 
   layoutTitle: 'Layout',

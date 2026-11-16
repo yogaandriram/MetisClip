@@ -9,26 +9,7 @@ import { tm, type Lang } from './i18n'
 
 export type ISODate = string
 
-export interface Agent {
-  id: string
-  name: string
-  niche: string | null
-  default_duration: string
-  timezone: string
-  /** Brand template used by this agent's new clips */
-  default_brand_template_id: string | null
-  created_at: ISODate
-}
-
-export interface AgentInput {
-  name: string
-  niche?: string | null
-  default_duration?: string
-  timezone?: string
-  default_brand_template_id?: string | null
-}
-
-/** A named template in the shared brand template library (used by any workspace). */
+/** A named template in the shared brand template library (used by any campaign). */
 export interface BrandTemplate {
   id: string
   name: string
@@ -38,8 +19,10 @@ export interface BrandTemplate {
   ai_settings: Record<string, any>
   created_at: ISODate | null
   updated_at: ISODate | null
-  /** Agents whose default this template is (list / detail responses) */
-  used_by_agents?: { id: string; name: string }[]
+  /** Campaigns whose clips use this template (list / detail responses) */
+  used_by_campaigns?: { id: string; name: string }[]
+  /** The template campaigns without their own template use (the oldest one) */
+  is_default?: boolean
   /** Clips that use this template */
   clip_count?: number
 }
@@ -130,7 +113,7 @@ export interface Campaign {
   name: string
   client: string
   status: 'active' | 'archived'
-  /** Template for this campaign's clips (null = the workspace's default) */
+  /** Template for this campaign's clips (null = the default template, BrandTemplate.is_default) */
   brand_template_id: string | null
   /** Missing in list responses (see source_count) */
   sources?: CampaignSource[]
@@ -211,7 +194,6 @@ export interface JobError {
 
 export interface Job {
   id: string
-  agent_id: string | null
   source: {
     /** 'url' | 'local_file'. Databases from before the keyword search was removed may hold other types. */
     type: string
@@ -240,15 +222,14 @@ export interface Job {
 
 /** Exactly one source: a YouTube link, or a video file on this PC (used in place, never copied). */
 export interface JobCreate {
-  agent_id: string
   youtube_url?: string
   /** Absolute path; the engine checks that it is a readable video with sound */
   local_file_path?: string
   /** '30-45' | '45-60' | '60-75' | '75-90', or a custom 'lo-hi' between 10 and 180 seconds (at least 5 apart) */
   clip_duration?: string
   max_clips?: number
-  /** Up to 5 campaigns: each brief guides the choice, and each campaign gets its own clips */
-  campaign_ids?: string[]
+  /** 1 to 5 active campaigns (required): each brief guides the choice, and each campaign gets its own clips */
+  campaign_ids: string[]
   note?: string
 }
 
@@ -286,7 +267,6 @@ export interface ClipFiles {
 
 export interface Clip {
   id: string
-  agent_id: string | null
   job_id: string | null
   source_video_id: string | null
   youtube_id: string | null
@@ -307,7 +287,7 @@ export interface Clip {
   /** Size of files.source */
   source_width?: number | null
   source_height?: number | null
-  /** The clip's brand template (null = its agent's default) */
+  /** The clip's brand template (null = its campaign's template) */
   brand_template_id: string | null
   /** The campaign the clip was made for, how well it fits that brief (0-100) and why */
   campaign_id?: string | null
@@ -347,7 +327,7 @@ export interface ClipDetail {
   channel?: string
   /** The shots of the clip's face scan (duo and auto layouts); null before the scan */
   scenes?: ClipScenes | null
-  /** The template in effect (the clip's own choice, else its agent's default); null = built-in */
+  /** The template in effect (the clip's own choice, else its campaign's, else the default); null = built-in */
   brand_template: BrandTemplate | null
   /** The clip's campaign (without its brief material) and its checklist; null without one */
   campaign?: Campaign | null
@@ -363,7 +343,7 @@ export interface SubtitleUpdate {
   reset_layout?: boolean
   /** The clip's title (podcast layout header) */
   hook_text?: string
-  /** Switch the clip's brand template (null = follow the agent's default) */
+  /** Switch the clip's brand template (null = follow its campaign's template) */
   brand_template_id?: string | null
 }
 
@@ -472,7 +452,7 @@ export interface StorageInfo {
   backups_bytes: number
   /** <DATA_ROOT>\models (local Whisper models) */
   models_bytes: number
-  per_agent: { agent_id: string; name: string; bytes: number }[]
+  per_campaign: { campaign_id: string; name: string; bytes: number }[]
 }
 
 export interface WhisperModelDownload {
@@ -550,7 +530,7 @@ export type EngineEvent =
   | {
       type: 'job.progress'
       id: string
-      agent_id: string | null
+      campaign_ids?: string[]
       status: JobStatus
       current_step: JobStep | null
       progress_pct: number
@@ -558,8 +538,8 @@ export type EngineEvent =
       processed_scenes: number
       message?: string
     }
-  | { type: 'job.status'; id: string; agent_id: string | null; status: JobStatus; error?: string | null }
-  | { type: 'clip.created'; id: string; job_id: string | null; agent_id: string | null }
+  | { type: 'job.status'; id: string; campaign_ids?: string[]; status: JobStatus; error?: string | null }
+  | { type: 'clip.created'; id: string; job_id: string | null; campaign_id?: string | null }
   | { type: 'clip.updated'; id: string }
   | { type: 'clip.deleted'; id: string }
   | { type: 'brand_template.updated'; id: string }
@@ -713,6 +693,16 @@ export function toAbsolutePath(dataRoot: string, relativePath: string): string {
 // Events (WebSocket with auto-reconnect)
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether a job or clip event concerns this campaign. Events without campaign info count, so a page
+ * reloads once too often rather than missing a change.
+ */
+export function eventForCampaign(e: EngineEvent, campaignId: string): boolean {
+  if (e.type === 'job.progress' || e.type === 'job.status') return !e.campaign_ids || e.campaign_ids.includes(campaignId)
+  if (e.type === 'clip.created') return !e.campaign_id || e.campaign_id === campaignId
+  return false
+}
+
 type EventHandler = (e: EngineEvent) => void
 const handlers = new Set<EventHandler>()
 let socket: WebSocket | null = null
@@ -832,12 +822,6 @@ export const api = {
       request<{ models: string[] }>('POST', '/api/llm/models', { body: { provider, ...(opts.value ? { value: opts.value } : {}), ...(opts.base_url ? { base_url: opts.base_url } : {}) } }),
   },
 
-  agents: {
-    list: () => request<{ agents: Agent[] }>('GET', '/api/agents'),
-    create: (input: AgentInput) => request<{ agent: Agent }>('POST', '/api/agents', { body: input }),
-    update: (id: string, patch: Partial<AgentInput>) => request<{ agent: Agent }>('PUT', `/api/agents/${id}`, { body: patch }),
-    remove: (id: string, deleteFiles = false) => request<{ ok: true }>('DELETE', `/api/agents/${id}`, { query: { delete_files: deleteFiles } }),
-  },
 
   brandTemplates: {
     list: () => request<{ brand_templates: BrandTemplate[] }>('GET', '/api/brand-templates'),
@@ -847,7 +831,7 @@ export const api = {
       request<{ brand_template: BrandTemplate }>('POST', '/api/brand-templates', { body: { name, copy_from: copyFrom || null } }),
     update: (id: string, patch: BrandTemplateInput) =>
       request<{ brand_template: BrandTemplate }>('PUT', `/api/brand-templates/${id}`, { body: patch }),
-    /** Its clips fall back to their agent's default; refused for the last template */
+    /** Its clips and campaigns fall back to the default template; refused for the last template */
     remove: (id: string) => request<{ ok: true }>('DELETE', `/api/brand-templates/${id}`),
     /** Uploads a brand asset; store the returned `value` (asset://…) in brand_settings */
     uploadAsset: (id: string, file: File, kind: string) => {
@@ -864,8 +848,8 @@ export const api = {
     get: (id: string) => request<{ campaign: Campaign }>('GET', `/api/campaigns/${id}`),
     create: (input: CampaignInput & { name: string }) => request<{ campaign: Campaign }>('POST', '/api/campaigns', { body: input }),
     update: (id: string, patch: CampaignInput) => request<{ campaign: Campaign }>('PUT', `/api/campaigns/${id}`, { body: patch }),
-    /** Its clips stay (they lose the campaign link) */
-    remove: (id: string) => request<{ ok: true }>('DELETE', `/api/campaigns/${id}`),
+    /** Deletes the campaign with its clips; jobs that follow only this campaign go too (files only with deleteFiles) */
+    remove: (id: string, deleteFiles = false) => request<{ ok: true }>('DELETE', `/api/campaigns/${id}`, { query: { delete_files: deleteFiles } }),
     addText: (id: string, text: string, name = '') =>
       request<{ campaign: Campaign }>('POST', `/api/campaigns/${id}/sources/text`, { body: { text, name } }),
     /** A document (PDF, DOCX, TXT, MD) or an image (screenshot, also pasted from the clipboard) */
@@ -881,7 +865,7 @@ export const api = {
   },
 
   jobs: {
-    list: (query: { agent_id?: string; status?: JobStatus; limit?: number } = {}) => request<{ jobs: Job[] }>('GET', '/api/jobs', { query }),
+    list: (query: { campaign_id?: string; status?: JobStatus; limit?: number } = {}) => request<{ jobs: Job[] }>('GET', '/api/jobs', { query }),
     get: (id: string) => request<{ job: Job }>('GET', `/api/jobs/${id}`),
     create: (input: JobCreate) => request<{ job: Job }>('POST', '/api/jobs', { body: input }),
     cancel: (id: string) => request<{ job: Job }>('POST', `/api/jobs/${id}/cancel`),
@@ -890,7 +874,7 @@ export const api = {
   },
 
   clips: {
-    list: (query: { agent_id?: string; job_id?: string; status?: ClipStatus; campaign_id?: string } = {}) => request<{ clips: Clip[] }>('GET', '/api/clips', { query }),
+    list: (query: { campaign_id?: string; job_id?: string; status?: ClipStatus } = {}) => request<{ clips: Clip[] }>('GET', '/api/clips', { query }),
     get: (id: string) => request<ClipDetail>('GET', `/api/clips/${id}`),
     updateSubtitles: (id: string, update: SubtitleUpdate) => request<{ clip: Clip }>('PUT', `/api/clips/${id}/subtitles`, { body: update }),
     /** One LLM call: mark keywords and/or pick emojis on the saved words (replaces earlier AI marks). */
@@ -911,8 +895,8 @@ export const api = {
     generatePostCopy: (id: string) => request<{ clip: Clip }>('POST', `/api/clips/${id}/post-copy/generate`),
     setBriefManual: (id: string, rule: string, checked: boolean) =>
       request<{ clip: Clip; brief_check: BriefCheck | null }>('PUT', `/api/clips/${id}/brief-manual`, { body: { rule, checked } }),
-    /** Put the clip under a campaign (null = none) */
-    setCampaign: (id: string, campaignId: string | null) =>
+    /** Move the clip to another campaign */
+    setCampaign: (id: string, campaignId: string) =>
       request<{ clip: Clip }>('PUT', `/api/clips/${id}/campaign`, { body: { campaign_id: campaignId } }),
   },
 
@@ -923,6 +907,6 @@ export const api = {
   },
 
   dashboard: {
-    stats: (agentId: string) => request<DashboardStats>('GET', '/api/dashboard/stats', { query: { agent_id: agentId } }),
+    stats: (campaignId: string) => request<DashboardStats>('GET', '/api/dashboard/stats', { query: { campaign_id: campaignId } }),
   },
 }

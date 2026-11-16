@@ -14,13 +14,13 @@ export const ui: Messages['ui'] = {
   stepDone: 'Done',
   runningJobs: (n: number) => (n === 1 ? 'job running' : 'jobs running'),
   newClip: 'New clip',
-  workspaceSwitcher: {
-    loading: 'Loading workspaces…',
-    choose: 'Choose a workspace',
-    active: (name: string) => `Active workspace: ${name}. Switch workspace`,
-    heading: 'Workspace',
-    empty: 'No workspaces yet. Create one to get started.',
-    manage: 'Manage workspaces',
+  campaignSwitcher: {
+    loading: 'Loading campaigns…',
+    choose: 'Choose a campaign',
+    active: (name: string) => `Active campaign: ${name}. Switch campaign`,
+    heading: 'Active campaign',
+    empty: 'No active campaigns yet. Create one to get started.',
+    manage: 'Manage campaigns',
   },
   tags: {
     remove: (tag: string) => `Remove ${tag}`,

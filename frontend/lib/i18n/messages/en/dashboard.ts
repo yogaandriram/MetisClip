@@ -28,7 +28,7 @@ export const dashboard: Messages['dashboard'] = {
   },
   latestClips: {
     title: 'Latest clips',
-    made: (n: number, shown: string) => `${shown} ${n === 1 ? 'clip' : 'clips'} made in this workspace`,
+    made: (n: number, shown: string) => `${shown} ${n === 1 ? 'clip' : 'clips'} made in this campaign`,
     seeAll: 'See all',
     emptyTitle: 'No clips yet',
     emptyDescription: 'Paste a YouTube link or choose a video file in Find Video to make your first clips.',

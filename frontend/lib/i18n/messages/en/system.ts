@@ -58,7 +58,7 @@ export const system: Messages['system'] = {
     cache: 'Cache',
     backups: 'Backups',
     models: 'Local Whisper models',
-    perWorkspace: 'Library per workspace',
+    perCampaign: 'Library per campaign',
   },
   info: {
     title: 'Information',

@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Captions, ChevronDown, Image as ImageIcon, LayoutTemplate, Redo, RefreshCw, RotateCcw, Save, Trash2, Type, Undo } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { useAgent } from '@/contexts/AgentContext'
+import { useCampaign } from '@/contexts/CampaignContext'
 import { useEngine } from '@/contexts/EngineContext'
 import { Alert, Badge, Button, Card, ConfirmModal, IconButton, InputField, Modal, PageHeader, Skeleton } from '@/components/ui'
 import { api, type BrandTemplate } from '@/lib/engine'
@@ -21,7 +21,7 @@ import { CaptionSettingsPanel, presetLabel } from './components/CaptionSettingsP
 import { AiSettingsPanel } from './components/AiSettingsPanel'
 import { BrandSettingsPanel } from './components/BrandSettingsPanel'
 import { TemplatePreviewCanvas } from './components/TemplatePreviewCanvas'
-import { TemplateLibraryBar } from './components/TemplateLibraryBar'
+import { TemplateLibraryBar, campaignTemplateId } from './components/TemplateLibraryBar'
 
 type Section = 'layout_settings' | 'caption_settings' | 'ai_settings' | 'brand_settings'
 type PanelId = 'caption' | 'ai' | 'overlay' | 'layout'
@@ -118,7 +118,7 @@ function SettingsSection({ id, title, icon, summary, open, onToggle, children }:
 
 export default function BrandTemplatePage() {
   const t = useT()
-  const { activeAgent, isAgentLoading, refreshAgents } = useAgent()
+  const { activeCampaign, isCampaignLoading, refreshCampaigns } = useCampaign()
   const { epoch } = useEngine()
 
   const [templates, setTemplates] = useState<BrandTemplate[]>([])
@@ -157,7 +157,7 @@ export default function BrandTemplatePage() {
     writeStoredId(tpl.id)
   }, [])
 
-  /** Reload the library; open `preferId`, else the active agent's default, else the last one used. */
+  /** Reload the library; open `preferId`, else the active campaign's template, else the last one used. */
   const loadAll = useCallback(
     async (preferId?: string | null) => {
       setLoaded(false)
@@ -165,7 +165,7 @@ export default function BrandTemplatePage() {
       try {
         const { brand_templates } = await api.brandTemplates.list()
         setTemplates(brand_templates)
-        const wanted = [preferId, activeAgent?.default_brand_template_id, readStoredId()]
+        const wanted = [preferId, activeCampaign ? campaignTemplateId(activeCampaign, brand_templates) : null, readStoredId()]
         const tpl = wanted.map((id) => id && brand_templates.find((x) => x.id === id)).find(Boolean) || brand_templates[0]
         if (tpl) applyTemplate(tpl)
       } catch (err) {
@@ -174,19 +174,19 @@ export default function BrandTemplatePage() {
         setLoaded(true)
       }
     },
-    // The agent only decides the first template shown; switching agents later keeps the open template
+    // The campaign only decides the first template shown; switching campaigns later keeps the open template
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [applyTemplate],
   )
 
-  // First load once the agents are known (the active agent's default is opened first). Later agent
-  // refreshes (e.g. "Jadikan default") must not reload the editor and drop unsaved changes.
+  // First load once the campaigns are known (the active campaign's template is opened first). Later
+  // campaign refreshes (e.g. "Pakai untuk campaign") must not reload the editor and drop unsaved changes.
   const initRef = useRef(false)
   useEffect(() => {
-    if (isAgentLoading || initRef.current) return
+    if (isCampaignLoading || initRef.current) return
     initRef.current = true
     loadAll(null)
-  }, [isAgentLoading, loadAll])
+  }, [isCampaignLoading, loadAll])
 
   // A link to /brand-template/#layout (e.g. from the clip editor) opens that section and scrolls to it.
   // Read once the library has loaded: by then a client-side navigation has committed the URL.
@@ -297,8 +297,10 @@ export default function BrandTemplatePage() {
     try {
       await api.brandTemplates.remove(selected.id)
       const list = await refreshList()
-      await refreshAgents()
-      const next = list.find((x) => x.id === activeAgent?.default_brand_template_id) || list[0]
+      const fresh = await refreshCampaigns()
+      const campaign = activeCampaign ? fresh.find((c) => c.id === activeCampaign.id) || null : null
+      const wantedId = campaign ? campaignTemplateId(campaign, list) : null
+      const next = list.find((x) => x.id === wantedId) || list[0]
       if (next) applyTemplate(next)
       toast.success(t.brand.toasts.deleted(selected.name))
       setConfirmDelete(false)
@@ -309,13 +311,13 @@ export default function BrandTemplatePage() {
     }
   }
 
-  const makeDefault = async () => {
-    if (!activeAgent || !selected) return
+  const useForCampaign = async () => {
+    if (!activeCampaign || !selected) return
     setSettingDefault(true)
     try {
-      await api.agents.update(activeAgent.id, { default_brand_template_id: selected.id })
-      await Promise.all([refreshAgents(), refreshList()])
-      toast.success(t.brand.toasts.madeDefault(activeAgent.name, selected.name))
+      await api.campaigns.update(activeCampaign.id, { brand_template_id: selected.id })
+      await Promise.all([refreshCampaigns(), refreshList()])
+      toast.success(t.brand.toasts.usedFor(activeCampaign.name, selected.name))
     } catch (err) {
       toast.error(errorMessage(err))
     } finally {
@@ -418,14 +420,14 @@ export default function BrandTemplatePage() {
           <TemplateLibraryBar
             templates={templates}
             selected={selected}
-            activeAgent={activeAgent}
+            activeCampaign={activeCampaign}
             settingDefault={settingDefault}
             onSelect={selectTemplate}
             onCreate={() => guard(() => setNameDialog({ mode: 'create', value: t.brand.nameDialog.defaultName(templates.length + 1) }))}
             onDuplicate={() => selected && guard(() => setNameDialog({ mode: 'duplicate', value: t.brand.nameDialog.copyName(selected.name).slice(0, 80) }))}
             onRename={() => selected && setNameDialog({ mode: 'rename', value: selected.name })}
             onDelete={() => setConfirmDelete(true)}
-            onMakeDefault={makeDefault}
+            onMakeDefault={useForCampaign}
           />
 
           <div className="mc-stack">
@@ -582,8 +584,8 @@ export default function BrandTemplatePage() {
         title={t.brand.deleteDialog.title(selected?.name || '')}
         message={
           <div className="mc-stack mc-gap-8">
-            {(selected?.used_by_agents || []).length > 0 && (
-              <p>{t.brand.deleteDialog.defaultFor((selected?.used_by_agents || []).map((a) => a.name).join(', '))}</p>
+            {(selected?.used_by_campaigns || []).length > 0 && (
+              <p>{t.brand.deleteDialog.usedBy((selected?.used_by_campaigns || []).map((c) => c.name).join(', '))}</p>
             )}
             <p>{t.brand.deleteDialog.body(selected?.clip_count || 0)}</p>
           </div>

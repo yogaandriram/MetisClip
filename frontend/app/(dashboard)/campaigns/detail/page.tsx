@@ -67,6 +67,7 @@ function CampaignDetail() {
   const [confirmLoad, setConfirmLoad] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [deleteFiles, setDeleteFiles] = useState(false)
   const deletingRef = useRef(false)
 
   const live = useRef({ campaign, form, formFrom, loadedJson, details })
@@ -274,7 +275,7 @@ function CampaignDetail() {
     setDeleting(true)
     deletingRef.current = true
     try {
-      await api.campaigns.remove(campaign.id)
+      await api.campaigns.remove(campaign.id, deleteFiles)
       toast.success(m.info.deleted(campaign.name))
       setConfirmDelete(false)
       router.push('/campaigns/')
@@ -413,7 +414,19 @@ function CampaignDetail() {
         loading={deleting}
         onConfirm={deleteCampaign}
         onClose={() => !deleting && setConfirmDelete(false)}
-      />
+      >
+        {(campaign.clip_count || 0) > 0 && (
+          <label className="mc-row mc-row--top mc-gap-12" style={{ cursor: 'pointer' }}>
+            <input type="checkbox" checked={deleteFiles} onChange={(e) => setDeleteFiles(e.target.checked)} disabled={deleting} style={{ marginTop: 1 }} />
+            <span>
+              {m.info.deleteFiles}
+              <span className="mc-caption mc-muted" style={{ display: 'block', marginTop: 2 }}>
+                {m.info.deleteFilesHint}
+              </span>
+            </span>
+          </label>
+        )}
+      </ConfirmModal>
     </>
   )
 }

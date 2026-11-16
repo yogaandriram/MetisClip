@@ -37,7 +37,7 @@ export const shell = {
     cannotConnect: 'Tidak dapat terhubung ke engine MetisClip',
     requestFailed: (status: number) => `Permintaan gagal (HTTP ${status})`,
   },
-  workspacesLoadFailed: 'Gagal memuat daftar workspace',
+  campaignsLoadFailed: 'Gagal memuat daftar campaign',
   language: {
     label: 'Bahasa tampilan',
     hint: 'Bahasa menu, tombol dan pesan di aplikasi. Bahasa video dan subtitle tidak berubah.',

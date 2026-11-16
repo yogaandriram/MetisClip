@@ -32,7 +32,7 @@ def _clip(db, paths, *, source: bool = False, source_video_id: str | None = None
     if source:
         (folder / "source.mp4").write_bytes(b"source")
         files["source"] = paths.to_relative(folder / "source.mp4")
-    doc = ClipDoc(_id=cid, agent_id=None, job_id=None, source_video_id=source_video_id, youtube_id=youtube_id,
+    doc = ClipDoc(_id=cid, job_id=None, source_video_id=source_video_id, youtube_id=youtube_id,
                   start_time=754.0, end_time=799.5, duration_seconds=45.5, hook_text="Rahasia yang jarang orang tahu",
                   status="ready", files=files, source_width=1920 if source else None,
                   source_height=1080 if source else None).to_mongo()
@@ -89,11 +89,11 @@ def test_template_layout_is_validated(client, db):
 
 
 def test_clip_layout_override_and_title(client, db, paths):
-    agent = client.post("/api/agents", json={"name": "Podcast"}).json()["agent"]
-    tpl_id = agent["default_brand_template_id"]
+    camp = client.post("/api/campaigns", json={"name": "Podcast"}).json()["campaign"]
+    tpl_id = client.get("/api/brand-templates").json()["brand_templates"][0]["id"]
     client.put(f"/api/brand-templates/{tpl_id}", json={"layout_settings": {"safeZone": "all", "mode": "podcast"}})
     clip = _clip(db, paths)
-    db.clips.update_one({"_id": clip["_id"]}, {"$set": {"agent_id": agent["id"]}})
+    db.clips.update_one({"_id": clip["_id"]}, {"$set": {"campaign_id": camp["id"]}})
 
     r = client.put(f"/api/clips/{clip['_id']}/subtitles", json={"layout": {"frame": {"y": 170}}, "hook_text": "  Judul   baru  "})
     assert r.status_code == 200
@@ -112,7 +112,7 @@ def test_clip_layout_override_and_title(client, db, paths):
 
 def test_build_props_podcast(db, paths):
     sv_id = new_id()
-    db.source_videos.insert_one({"_id": sv_id, "job_id": "j", "agent_id": None, "youtube_id": "yt123",
+    db.source_videos.insert_one({"_id": sv_id, "job_id": "j", "youtube_id": "yt123",
                                  "title": "Video", "channel_name": "Podcast Kita", "created_at": utcnow()})
     tpl_id = new_id()
     db.brand_templates.insert_one({"_id": tpl_id, "name": "P", "created_at": utcnow(), "updated_at": utcnow(),
@@ -181,7 +181,7 @@ def test_prepare_source_from_youtube(client, db, paths, monkeypatch):
 def test_prepare_source_from_the_uploaded_file(db, paths, tmp_path):
     video = _fake_video(tmp_path / "unggahan ü.mp4", "200x200")
     sv_id = new_id()
-    db.source_videos.insert_one({"_id": sv_id, "job_id": "j", "agent_id": None, "youtube_id": None, "title": "u",
+    db.source_videos.insert_one({"_id": sv_id, "job_id": "j", "youtube_id": None, "title": "u",
                                  "file_path": str(video), "created_at": utcnow()})
     clip = _clip(db, paths, source_video_id=sv_id, youtube_id=None)
     db.clips.update_one({"_id": clip["_id"]}, {"$set": {"start_time": 0.2, "end_time": 0.8}})
@@ -301,7 +301,7 @@ def test_speaker_suggest_endpoint(client, db, paths, monkeypatch):
     from backend.core import llm
 
     sv_id = new_id()
-    db.source_videos.insert_one({"_id": sv_id, "job_id": "j", "agent_id": None, "youtube_id": "yt123",
+    db.source_videos.insert_one({"_id": sv_id, "job_id": "j", "youtube_id": "yt123",
                                  "title": "dr. Andi Pratama: Cara Diet yang Benar", "channel_name": "Podcast Sehat",
                                  "created_at": utcnow()})
     clip = _clip(db, paths, source_video_id=sv_id)

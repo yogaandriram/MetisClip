@@ -27,7 +27,7 @@ export const dashboard = {
   },
   latestClips: {
     title: 'Klip terbaru',
-    made: (n: number, shown: string) => `${shown} klip dibuat di workspace ini`,
+    made: (n: number, shown: string) => `${shown} klip dibuat di campaign ini`,
     seeAll: 'Lihat semua',
     emptyTitle: 'Belum ada klip',
     emptyDescription: 'Tempel link YouTube atau pilih file video di Cari Video untuk membuat klip pertama.',

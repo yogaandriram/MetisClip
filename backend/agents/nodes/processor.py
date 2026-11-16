@@ -4,7 +4,7 @@ smart crop -> 1080x1920 -> thumbnail -> clip.
 Each segment uses its OWN source: a YouTube section download (its own youtube_id, fixes K1) or a
 frame-accurate cut of the uploaded video file. Clip ids are deterministic
 (uuid5 of job, video, start, end, campaign) and written with an upsert, so resuming never
-duplicates clips. Files go to <DATA_ROOT>\\library\\<agent>\\<clip_id>\\.
+duplicates clips. Files go to <DATA_ROOT>\\library\\<campaign slug>\\<clip_id>\\.
 
 When several campaigns of a job chose the same moment, it is cut and tracked once: the other clips get
 hard links to the same files (a copy where links are not possible) and their own words, template and
@@ -30,6 +30,7 @@ from backend.core.paths import get_paths
 from backend.core.procs import Cancelled
 from backend.models.documents import ClipDoc
 from backend.services import brand_templates, layout
+from backend.services import campaigns as campaign_svc
 from backend.core import i18n
 
 M = i18n.messages({
@@ -178,14 +179,14 @@ def _campaign(ctx: JobContext, seg: dict[str, Any]) -> dict[str, Any] | None:
 
 def _template_id(ctx: JobContext, seg: dict[str, Any]) -> str | None:
     """The clip's brand template: its campaign's (as set now, else when the job started), else the
-    workspace's default."""
+    default template."""
     campaign = _campaign(ctx, seg)
     if campaign:
         live = get_db().campaigns.find_one({"_id": campaign["id"]}, {"brand_template_id": 1})
         tid = (live or campaign).get("brand_template_id")
         if tid and brand_templates.get(tid):
             return tid
-    return (ctx.agent or {}).get("default_brand_template_id")
+    return brand_templates.ensure_default()
 
 
 def _brief_marks(words: list[dict[str, Any]], campaign: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -199,7 +200,7 @@ def _ai_marks(ctx: JobContext, words: list[dict[str, Any]], template_id: str | N
     """Brand template AI subtitle settings: keywords / emojis (one LLM call). Never fails the clip."""
     from backend.services.render import effective_ai
 
-    tpl = brand_templates.get(template_id) if template_id else brand_templates.for_agent(ctx.agent)
+    tpl = brand_templates.get(template_id) if template_id else None
     ai = effective_ai(None, tpl or {})
     if not words or not (ai["keywords"] or ai["emojis"]):
         return words
@@ -218,7 +219,7 @@ def process_segment(ctx: JobContext, seg: dict[str, Any], limits: Limits = (None
     paths = get_paths()
     work = ctx.cache_dir / clip_id
     work.mkdir(parents=True, exist_ok=True)
-    out_dir = paths.clip_dir(ctx.agent_slug, clip_id)
+    out_dir = paths.clip_dir(ctx.campaign_slug(seg.get("campaign_id")), clip_id)
     out_dir.mkdir(parents=True, exist_ok=True)
     raw = out_dir / "raw.mp4"
     thumb = out_dir / "thumb.jpg"
@@ -268,7 +269,6 @@ def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw
     now = utcnow()
     doc = ClipDoc(
         _id=clip_id,
-        agent_id=ctx.agent_id,
         job_id=ctx.id,
         source_video_id=seg.get("source_video_id"),
         youtube_id=seg["youtube_id"],
@@ -300,9 +300,18 @@ def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw
 
 
 def _campaign_fields(seg: dict[str, Any]) -> dict[str, Any]:
+    """The clip's campaign, and its fit to the brief (none for a plain campaign)."""
     if not seg.get("campaign_id"):
         return {}
     return {"campaign_id": seg["campaign_id"], "brief_fit": seg.get("brief_fit"), "brief_reason": seg.get("brief_reason") or ""}
+
+
+def _brief_now(campaign: dict[str, Any] | None) -> dict[str, Any]:
+    """The campaign's brief as it is now (else the job's snapshot of it)."""
+    if not campaign:
+        return {}
+    live = get_db().campaigns.find_one({"_id": campaign.get("id")}, {"brief": 1})
+    return (live or campaign).get("brief") or {}
 
 
 def _save(ctx: JobContext, doc: dict[str, Any], campaign: dict[str, Any] | None) -> dict[str, Any]:
@@ -311,7 +320,8 @@ def _save(ctx: JobContext, doc: dict[str, Any], campaign: dict[str, Any] | None)
     if existing:
         doc["created_at"] = existing.get("created_at", doc["created_at"])
         doc["post_copy"] = existing.get("post_copy")
-    if campaign and not doc.get("post_copy"):
+    # Post text follows a brief; a plain campaign's clips get it only when the user asks (editor)
+    if campaign and not doc.get("post_copy") and campaign_svc.has_brief(_brief_now(campaign)):
         doc["post_copy"] = _post_copy(ctx, doc, campaign)
     db.clips.replace_one({"_id": doc["_id"]}, doc, upsert=True)
     return doc
@@ -321,8 +331,7 @@ def _post_copy(ctx: JobContext, doc: dict[str, Any], campaign: dict[str, Any]) -
     """Text for posting the clip, following the brief (one LLM call). Never fails the clip."""
     from backend.agents.tools import post_copy_ai
 
-    live = get_db().campaigns.find_one({"_id": campaign.get("id")}, {"brief": 1, "name": 1})
-    brief = (live or campaign).get("brief") or {}
+    brief = _brief_now(campaign)
     sv = get_db().source_videos.find_one({"_id": doc.get("source_video_id")}, {"title": 1, "channel_name": 1}) \
         if doc.get("source_video_id") else None
     try:
@@ -349,7 +358,7 @@ def derive_clip(ctx: JobContext, seg: dict[str, Any], base: dict[str, Any]) -> d
     (marked for its own template and brief), template and campaign fields."""
     paths = get_paths()
     clip_id = seg["segment_id"]
-    out_dir = paths.clip_dir(ctx.agent_slug, clip_id)
+    out_dir = paths.clip_dir(ctx.campaign_slug(seg.get("campaign_id")), clip_id)
     out_dir.mkdir(parents=True, exist_ok=True)
     files: dict[str, Any] = {"final": None}
     try:
@@ -374,7 +383,6 @@ def derive_clip(ctx: JobContext, seg: dict[str, Any], base: dict[str, Any]) -> d
     now = utcnow()
     doc = ClipDoc(
         _id=clip_id,
-        agent_id=ctx.agent_id,
         job_id=ctx.id,
         source_video_id=base.get("source_video_id"),
         youtube_id=base.get("youtube_id"),
@@ -420,6 +428,12 @@ def run(ctx: JobContext, segments: list[dict[str, Any]]) -> list[dict[str, Any]]
     from backend.core.settings_store import get_settings
 
     db = get_db()
+    # Segments analysed before campaigns replaced the workspaces carry no campaign: they belong to the
+    # job's campaign (the clip id stays the segment id, so a resumed job still finds its clips)
+    first = next(iter(ctx.campaign_ids), None)
+    for seg in segments:
+        if not seg.get("campaign_id") and first:
+            seg["campaign_id"] = first
     done = set((ctx.job.get("checkpoint") or {}).get("done_segment_ids") or [])
     results: list[dict[str, Any]] = []
     todo = []
@@ -460,7 +474,7 @@ def run(ctx: JobContext, segments: list[dict[str, Any]]) -> list[dict[str, Any]]
             completed += 1
             pct = 40 + 55 * completed / max(1, total)
         ctx.progress(pct, inc_processed=1, message=M("clip_done", done=completed, total=total))
-        events.publish({"type": "clip.created", "id": clip["_id"], "job_id": ctx.id, "agent_id": ctx.agent_id})
+        events.publish({"type": "clip.created", "id": clip["_id"], "job_id": ctx.id, "campaign_id": clip.get("campaign_id")})
 
     def failed(seg: dict[str, Any], exc: Exception) -> None:
         logger.exception("Clip %s failed", seg["segment_id"])

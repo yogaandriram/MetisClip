@@ -140,7 +140,7 @@ def run(ctx: JobContext) -> list[dict[str, Any]]:
 
     # Deterministic id: re-running discovery after a crash never duplicates rows
     vid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"metisclip:{ctx.id}:{identity}"))
-    doc = SourceVideoDoc(_id=vid, job_id=ctx.id, agent_id=ctx.agent_id, **video).to_mongo()
+    doc = SourceVideoDoc(_id=vid, job_id=ctx.id, **video).to_mongo()
     get_db().source_videos.replace_one({"_id": vid}, doc, upsert=True)
     ctx.progress(15, step="discovery", message=M("source_video", title=doc["title"]))
     return [doc]

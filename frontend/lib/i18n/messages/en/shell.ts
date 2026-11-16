@@ -36,7 +36,7 @@ export const shell: Messages['shell'] = {
     cannotConnect: "Can't connect to the MetisClip engine",
     requestFailed: (status: number) => `Request failed (HTTP ${status})`,
   },
-  workspacesLoadFailed: "Couldn't load the workspace list",
+  campaignsLoadFailed: "Couldn't load the campaign list",
   language: {
     label: 'Display language',
     hint: "Language of the menus, buttons and messages in the app. It doesn't change the language of videos or subtitles.",

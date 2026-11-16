@@ -6,7 +6,7 @@ path relative to the current working directory.
 
 Data root layout (chosen by the user, e.g. D:\\MetisClip):
     db\\          MongoDB dbPath (managed by mongod)
-    library\\     media: {agent-slug}\\{clip_id}\\raw.mp4 | final.mp4 | thumb.jpg, {agent-slug}\\_assets\\
+    library\\     media: {campaign-slug}\\{clip_id}\\raw.mp4 | final.mp4 | thumb.jpg, _brand\\, _campaigns\\
     exports\\     default export target
     cache\\       temporary files, purged per job
     backups\\     EJSON database backups
@@ -120,11 +120,11 @@ class Paths:
             raise PathOutsideRoot(f"{rel!r} escapes the data root")
         return p
 
-    def agent_library(self, agent_slug: str) -> Path:
-        return self.library_dir / agent_slug
+    def campaign_library(self, campaign_slug: str) -> Path:
+        return self.library_dir / campaign_slug
 
-    def clip_dir(self, agent_slug: str, clip_id: str) -> Path:
-        return self.library_dir / agent_slug / clip_id
+    def clip_dir(self, campaign_slug: str, clip_id: str) -> Path:
+        return self.library_dir / campaign_slug / clip_id
 
     def job_cache(self, job_id: str) -> Path:
         return self.cache_dir / f"job-{job_id}"
@@ -189,4 +189,4 @@ def slugify(text: str, max_len: int = 32) -> str:
     """'Podcast Bisnis & Startup' -> 'podcast-bisnis-startup' (ASCII, short, filesystem-safe)."""
     norm = unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode("ascii").lower()
     slug = _slug_re.sub("-", norm).strip("-")
-    return (slug[:max_len].strip("-")) or "workspace"
+    return (slug[:max_len].strip("-")) or "campaign"

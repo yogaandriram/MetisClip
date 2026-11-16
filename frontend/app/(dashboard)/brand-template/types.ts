@@ -43,8 +43,6 @@ export interface BrandSettings {
 export interface TemplateConfig {
   id?: string;
   name?: string;
-  agent_id?: string;
-  user_id?: string;
   layout_settings: LayoutSettings;
   caption_settings: CaptionSettings;
   ai_settings: AiSettings;

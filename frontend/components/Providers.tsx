@@ -2,7 +2,7 @@
 
 import React, { useEffect } from 'react'
 import { EngineGate, useEngine } from '@/contexts/EngineContext'
-import { AgentProvider } from '@/contexts/AgentContext'
+import { CampaignProvider } from '@/contexts/CampaignContext'
 import { api } from '@/lib/engine'
 import { useI18n } from '@/lib/i18n/I18nProvider'
 
@@ -20,12 +20,12 @@ function EngineLanguageSync() {
   return null
 }
 
-/** Engine connection gate + workspace state for every page inside the app shell. */
+/** Engine connection gate + the campaign library and active campaign for every page inside the app shell. */
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <EngineGate>
       <EngineLanguageSync />
-      <AgentProvider>{children}</AgentProvider>
+      <CampaignProvider>{children}</CampaignProvider>
     </EngineGate>
   )
 }

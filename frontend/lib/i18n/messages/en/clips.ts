@@ -3,7 +3,9 @@ import type { Messages } from '../id'
 export const clips: Messages['clips'] = {
   title: 'Clips',
   subtitle: 'Clips made by the AI and the jobs that make them.',
-  allWorkspaces: 'All workspaces',
+  allCampaigns: 'All campaigns',
+  viewingArchived: (name: string) => `Showing the clips of the archived campaign ${name}.`,
+  backToActive: 'Back to the active campaign',
   tabs: {
     label: 'Clips or queue',
     clips: 'Clips',
@@ -22,7 +24,7 @@ export const clips: Messages['clips'] = {
   newClip: 'New clips',
   filterAria: 'Filter clips by status',
   noneWithStatus: 'No clips with this status',
-  noneWithStatusDescription: (status: string) => `This workspace has no clips with the status "${status}" yet.`,
+  noneWithStatusDescription: (status: string) => `No clips with the status "${status}" yet.`,
   showAll: 'Show all',
   openEditor: (hook: string, score: number, status: string, clock: string) => `Open editor: ${hook} (viral score ${score}, ${status}, length ${clock})`,
   edit: 'Edit',

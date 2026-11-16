@@ -1,13 +1,11 @@
 'use client'
 
 import React, { useCallback, useEffect, useId, useState } from 'react'
-import { AppWindow, Cpu, Download, FolderOpen, HardDrive, KeyRound, Mic, Save, Users } from 'lucide-react'
+import { AppWindow, Cpu, Download, FolderOpen, HardDrive, KeyRound, Mic, Save } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Alert, Button, Card, CardHeader, Field, IconButton, InputField, LanguageSwitch, PageHeader, SelectField, Skeleton, ToggleSwitch } from '@/components/ui'
 import { LlmSection } from '@/components/settings/LlmFields'
 import { WhisperSection } from '@/components/settings/WhisperFields'
-import { AgentForm, toAgentInput, type AgentFormValue } from '@/components/agents/AgentForm'
-import { useAgent } from '@/contexts/AgentContext'
 import { useEngine } from '@/contexts/EngineContext'
 import { api, type EncoderSetting, type ResourceStatus, type SecretName, type Settings } from '@/lib/engine'
 import { errorMessage } from '@/lib/format'
@@ -80,7 +78,6 @@ const headerIcon = (Icon: React.ElementType) => <Icon size={18} aria-hidden="tru
 export default function SettingsPage() {
   const t = useT()
   const m = t.settings
-  const { activeAgent, refreshAgents } = useAgent()
   const { epoch, systemInfo, refreshSystemInfo } = useEngine()
   const desktop = isDesktop()
 
@@ -150,17 +147,6 @@ export default function SettingsPage() {
     })
   }
 
-  const saveAgent = async (value: AgentFormValue) => {
-    if (!activeAgent) return
-    try {
-      await api.agents.update(activeAgent.id, toAgentInput(value))
-      await refreshAgents()
-      toast.success(m.workspace.saved)
-    } catch (err) {
-      toast.error(errorMessage(err))
-    }
-  }
-
   const pickFolder = async (title: string, current: string | undefined) => (window.metis ? window.metis.selectFolder({ title, defaultPath: current }) : null)
 
   const openFolder = async (path: string | undefined | null) => {
@@ -187,30 +173,6 @@ export default function SettingsPage() {
       <PageHeader title={m.title} subtitle={m.subtitle} />
 
       <div className="mc-stack mc-gap-20" style={{ maxWidth: 760 }}>
-        <Card>
-          <CardHeader
-            size="sm"
-            icon={headerIcon(Users)}
-            title={activeAgent ? m.workspace.title(activeAgent.name) : m.workspace.titleEmpty}
-            subtitle={m.workspace.subtitle}
-          />
-          {activeAgent ? (
-            <AgentForm
-              key={activeAgent.id}
-              submitLabel={m.workspace.save}
-              initial={{
-                name: activeAgent.name,
-                niche: activeAgent.niche || '',
-                default_duration: activeAgent.default_duration || '45-60',
-                default_brand_template_id: activeAgent.default_brand_template_id || '',
-              }}
-              onSubmit={saveAgent}
-            />
-          ) : (
-            <p className="mc-muted">{m.workspace.none}</p>
-          )}
-        </Card>
-
         {loadError && (
           <Alert
             tone="error"

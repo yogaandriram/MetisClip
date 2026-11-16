@@ -1,8 +1,9 @@
 """Brand templates: a shared library of named templates (collection `brand_templates`).
 
-Every workspace points at one default template (`super_agents.default_brand_template_id`); new
-clips copy that id into `clips.brand_template_id`, and the clip editor can switch it. A clip whose
-template is gone falls back to its agent's default, then to the built-in defaults ({}).
+A campaign may pick a template (`campaigns.brand_template_id`); otherwise its clips use the default
+template, the oldest one (`ensure_default`). New clips copy the id into `clips.brand_template_id`, and
+the clip editor can switch it. A clip whose template is gone falls back to its campaign's template,
+then to the default template.
 
 Brand assets (logo, overlay, sample video) are copies stored in <DATA_ROOT>/library/_brand/<id>/ and
 referenced as `asset://<relative path>` inside brand_settings.
@@ -56,18 +57,26 @@ def ensure_default() -> str:
     return first["_id"] if first else create(M("default_name"))["_id"]
 
 
-def for_agent(agent: dict[str, Any] | None) -> dict[str, Any] | None:
-    return get((agent or {}).get("default_brand_template_id"))
+def default_id() -> str | None:
+    """The default template (the oldest), without creating one."""
+    first = get_db().brand_templates.find_one({}, {"_id": 1}, sort=[("created_at", 1)])
+    return first["_id"] if first else None
 
 
-def for_clip(clip: dict[str, Any], agent: dict[str, Any] | None = None) -> dict[str, Any] | None:
-    """The template a clip uses: its own choice, else its agent's default, else None (built-in)."""
+def for_campaign(campaign: dict[str, Any] | None) -> dict[str, Any] | None:
+    """A campaign's template: its own choice, else the default template."""
+    return get((campaign or {}).get("brand_template_id")) or get(default_id())
+
+
+def for_clip(clip: dict[str, Any]) -> dict[str, Any] | None:
+    """The template a clip uses: its own choice, else its campaign's, else the default template
+    (None only while the library is empty: the built-in settings)."""
     tpl = get(clip.get("brand_template_id"))
     if tpl:
         return tpl
-    if agent is None and clip.get("agent_id"):
-        agent = get_db().super_agents.find_one({"_id": clip["agent_id"]}, {"default_brand_template_id": 1})
-    return for_agent(agent)
+    cid = clip.get("campaign_id")
+    campaign = get_db().campaigns.find_one({"_id": cid}, {"brand_template_id": 1}) if cid else None
+    return for_campaign(campaign)
 
 
 def asset_dir(template_id: str) -> Path:

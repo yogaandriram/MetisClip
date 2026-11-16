@@ -382,13 +382,13 @@ export default function SystemPage() {
                   <ProgressRow label={m.storage.models} value={formatBytes(storage.models_bytes)} percent={pct(storage.models_bytes, appTotal)} />
                 </div>
 
-                {storage.per_agent.length > 0 && (
+                {(storage.per_campaign || []).length > 0 && (
                   <div className="mc-stack mc-gap-8">
-                    <span className="mc-label">{m.storage.perWorkspace}</span>
-                    {[...storage.per_agent]
+                    <span className="mc-label">{m.storage.perCampaign}</span>
+                    {[...storage.per_campaign]
                       .sort((a, b) => b.bytes - a.bytes)
-                      .map((a) => (
-                        <ProgressRow key={a.agent_id} label={a.name} value={formatBytes(a.bytes)} percent={pct(a.bytes, storage.library_bytes)} />
+                      .map((c) => (
+                        <ProgressRow key={c.campaign_id} label={c.name} value={formatBytes(c.bytes)} percent={pct(c.bytes, storage.library_bytes)} />
                       ))}
                   </div>
                 )}

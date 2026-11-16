@@ -18,10 +18,9 @@ import {
   Tag,
   type StepState,
 } from '@/components/ui'
-import { useAgent } from '@/contexts/AgentContext'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
-import { api, type Job, type JobStatus, type JobStep } from '@/lib/engine'
+import { api, eventForCampaign, type Job, type JobStatus, type JobStep } from '@/lib/engine'
 import { ACTIVE_JOB_STATUSES, RESUMABLE_JOB_STATUSES, errorMessage, formatDateTime, jobSource, jobStepLabel } from '@/lib/format'
 import { tm, type Messages } from '@/lib/i18n'
 import { useT } from '@/lib/i18n/I18nProvider'
@@ -48,10 +47,12 @@ function pipelineSteps(t: Messages, job: Job): { id: string; label: string; stat
   })
 }
 
-/** The Antrian tab of Hasil Clip: jobs that need the user first, then running ones, then the history. */
-export function JobQueue({ allAgents }: { allAgents: boolean }) {
+/**
+ * The Antrian tab of Hasil Clip: jobs that need the user first, then running ones, then the history.
+ * `campaignId` scopes it to the jobs that follow that campaign (undefined = every job).
+ */
+export function JobQueue({ campaignId }: { campaignId: string | undefined }) {
   const router = useRouter()
-  const { activeAgent, agents } = useAgent()
   const { epoch } = useEngine()
   const t = useT()
   const m = t.jobs
@@ -60,17 +61,15 @@ export function JobQueue({ allAgents }: { allAgents: boolean }) {
   const [pending, setPending] = useState<PendingAction>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
 
-  const agentFilter = allAgents ? undefined : activeAgent?.id
-
   const load = useCallback(async () => {
     try {
-      const { jobs } = await api.jobs.list({ agent_id: agentFilter, limit: 100 })
+      const { jobs } = await api.jobs.list({ campaign_id: campaignId, limit: 100 })
       setJobs(jobs)
       setError(null)
     } catch (err) {
       setError(errorMessage(err, tm().jobs.loadFailed))
     }
-  }, [agentFilter])
+  }, [campaignId])
 
   useEffect(() => {
     setJobs(null)
@@ -81,7 +80,7 @@ export function JobQueue({ allAgents }: { allAgents: boolean }) {
     if (e.type === 'job.progress') {
       if (!jobs) return
       if (!jobs.some((j) => j.id === e.id)) {
-        if (!agentFilter || e.agent_id === agentFilter) load()
+        if (!campaignId || eventForCampaign(e, campaignId)) load()
         return
       }
       setJobs((prev) =>
@@ -90,7 +89,7 @@ export function JobQueue({ allAgents }: { allAgents: boolean }) {
         ) ?? prev
       )
     } else if (e.type === 'job.status') {
-      if (!agentFilter || e.agent_id === agentFilter) load()
+      if (!campaignId || eventForCampaign(e, campaignId)) load()
     }
   })
 
@@ -129,17 +128,15 @@ export function JobQueue({ allAgents }: { allAgents: boolean }) {
     }
   }
 
-  const agentName = (id: string | null) => agents.find((a) => a.id === id)?.name || m.deletedWorkspace
   const openDetail = (job: Job) => router.push(`/discover/?job=${encodeURIComponent(job.id)}`)
 
   const meta = (job: Job) => (
     <>
-      {allAgents && `${agentName(job.agent_id)} · `}
       {m.config(job.config.clip_duration, job.config.max_clips_per_video)} · {m.createdAt(formatDateTime(job.created_at))}
     </>
   )
 
-  /** The campaigns the job follows and its note for this video (nothing for a plain job) */
+  /** The campaigns the job follows and its note for this video */
   const briefInfo = (job: Job) => {
     const campaigns = job.campaigns || []
     if (campaigns.length === 0 && !job.note) return null
@@ -303,7 +300,6 @@ export function JobQueue({ allAgents }: { allAgents: boolean }) {
                         <tr>
                           <th>{m.columns.status}</th>
                           <th>{m.columns.source}</th>
-                          {allAgents && <th>{m.columns.workspace}</th>}
                           <th>{m.columns.settings}</th>
                           <th>{m.columns.created}</th>
                           <th className="mc-num">{m.columns.actions}</th>
@@ -328,7 +324,6 @@ export function JobQueue({ allAgents }: { allAgents: boolean }) {
                                   )}
                                 </div>
                               </td>
-                              {allAgents && <td className="mc-truncate">{agentName(job.agent_id)}</td>}
                               <td className="mc-muted" style={{ whiteSpace: 'nowrap' }}>
                                 {m.config(job.config.clip_duration, job.config.max_clips_per_video)}
                               </td>

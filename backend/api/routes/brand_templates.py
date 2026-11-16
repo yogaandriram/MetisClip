@@ -1,4 +1,4 @@
-"""Brand template library: named templates shared by every workspace, plus their brand assets."""
+"""Brand template library: named templates shared by every campaign, plus their brand assets."""
 from __future__ import annotations
 
 import logging
@@ -65,21 +65,26 @@ _safe_name = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 def _usage() -> tuple[dict[str, list[dict]], dict[str, int]]:
+    """{template id: campaigns that picked it} and {template id: clips using it}. Campaigns without
+    their own template count for the default template."""
     db = get_db()
-    agents: dict[str, list[dict]] = {}
-    for a in db.super_agents.find({}, {"name": 1, "default_brand_template_id": 1}).sort("created_at", 1):
-        if a.get("default_brand_template_id"):
-            agents.setdefault(a["default_brand_template_id"], []).append(a)
+    default = bts.default_id()
+    campaigns: dict[str, list[dict]] = {}
+    for c in db.campaigns.find({}, {"name": 1, "brand_template_id": 1}).sort("created_at", 1):
+        tid = c.get("brand_template_id") or default
+        if tid:
+            campaigns.setdefault(tid, []).append(c)
     counts = {row["_id"]: row["n"] for row in db.clips.aggregate([
         {"$match": {"brand_template_id": {"$type": "string"}}},
         {"$group": {"_id": "$brand_template_id", "n": {"$sum": 1}}},
     ])}
-    return agents, counts
+    return campaigns, counts
 
 
 def _dto(doc: dict) -> dict:
-    agents, counts = _usage()
-    return brand_template_dto(doc, used_by_agents=agents.get(doc["_id"], []), clip_count=counts.get(doc["_id"], 0))  # type: ignore[return-value]
+    campaigns, counts = _usage()
+    return brand_template_dto(doc, used_by_campaigns=campaigns.get(doc["_id"], []), clip_count=counts.get(doc["_id"], 0),
+                              is_default=doc["_id"] == bts.default_id())  # type: ignore[return-value]
 
 
 def _get(template_id: str) -> dict:
@@ -100,10 +105,13 @@ def _name(value: Optional[str]) -> str:
 
 @router.get("/api/brand-templates")
 def list_templates():
-    agents, counts = _usage()
+    campaigns, counts = _usage()
+    default = bts.default_id()
     docs = get_db().brand_templates.find({}).sort("created_at", 1)
     return {"brand_templates": [
-        brand_template_dto(d, used_by_agents=agents.get(d["_id"], []), clip_count=counts.get(d["_id"], 0)) for d in docs
+        brand_template_dto(d, used_by_campaigns=campaigns.get(d["_id"], []), clip_count=counts.get(d["_id"], 0),
+                           is_default=d["_id"] == default)
+        for d in docs
     ]}
 
 
@@ -165,10 +173,8 @@ def delete_template(template_id: str):
     if db.brand_templates.count_documents({}) <= 1:
         raise http_error(400, M("keep_one"))
     db.brand_templates.delete_one({"_id": template_id})
-    # Clips fall back to their agent's default; agents get the oldest remaining template
+    # Clips fall back to their campaign's template; campaigns to the default template (the oldest left)
     db.clips.update_many({"brand_template_id": template_id}, {"$unset": {"brand_template_id": ""}})
-    fallback = bts.ensure_default()
-    db.super_agents.update_many({"default_brand_template_id": template_id}, {"$set": {"default_brand_template_id": fallback}})
     db.campaigns.update_many({"brand_template_id": template_id}, {"$set": {"brand_template_id": None}})
     bts.delete_unused_assets(doc)
     events.publish({"type": "brand_template.deleted", "id": template_id})

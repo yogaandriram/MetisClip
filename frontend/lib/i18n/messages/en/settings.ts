@@ -4,7 +4,7 @@ const plural = (n: number, one: string, many: string) => (n === 1 ? one : many)
 
 export const settings: Messages['settings'] = {
   title: 'Settings',
-  subtitle: 'Workspace preferences, API keys, video processing and local storage.',
+  subtitle: 'API keys, video processing and local storage.',
   loadFailed: "Couldn't load the settings",
   loadErrorTitle: "Settings couldn't be loaded",
   saved: 'Settings saved',
@@ -12,14 +12,6 @@ export const settings: Messages['settings'] = {
   folderOpenFailed: "The folder couldn't be opened",
   unsaved: 'You have unsaved changes',
   saveAll: 'Save settings',
-  workspace: {
-    title: (name: string) => `Workspace: ${name}`,
-    titleEmpty: 'Workspace',
-    subtitle: 'Defaults for new jobs in this workspace.',
-    save: 'Save workspace',
-    saved: 'Workspace settings saved',
-    none: 'Choose or create a workspace with the workspace switcher at the top right.',
-  },
   llmCard: {
     title: 'AI model (LLM)',
     subtitle: 'API keys are stored in Windows Credential Manager. Click the eye icon to view a stored key.',

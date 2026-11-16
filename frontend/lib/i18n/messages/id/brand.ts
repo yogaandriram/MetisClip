@@ -3,7 +3,7 @@
 export const brand = {
   page: {
     title: 'Brand Template',
-    subtitle: 'Simpan beberapa gaya clip dan pakai di workspace mana pun',
+    subtitle: 'Simpan beberapa gaya clip dan pakai di campaign mana pun',
     undo: 'Urungkan',
     redo: 'Ulangi',
     reload: 'Muat ulang dari database',
@@ -33,7 +33,7 @@ export const brand = {
     duplicated: 'Template diduplikat',
     created: 'Template baru dibuat',
     deleted: (name: string) => `Template "${name}" dihapus`,
-    madeDefault: (workspace: string, name: string) => `Clip baru dari ${workspace} memakai "${name}"`,
+    usedFor: (campaign: string, name: string) => `Clip campaign ${campaign} memakai "${name}"`,
   },
   nameDialog: {
     renameTitle: 'Ganti nama template',
@@ -57,9 +57,9 @@ export const brand = {
   },
   deleteDialog: {
     title: (name: string) => `Hapus template "${name}"?`,
-    defaultFor: (workspaces: string) => `Template ini default untuk ${workspaces}. Workspace tersebut akan memakai template paling lama.`,
+    usedBy: (campaigns: string) => `Template ini dipakai ${campaigns}. Campaign tersebut akan memakai template bawaan.`,
     body: (clips: number) =>
-      `${clips} clip yang memakai template ini akan kembali ke template default workspace-nya. Logo dan file brand yang hanya dipakai template ini ikut dihapus. Tindakan ini tidak bisa dibatalkan.`,
+      `${clips} clip yang memilih template ini akan kembali ke template campaign-nya. Logo dan file brand yang hanya dipakai template ini ikut dihapus. Tindakan ini tidak bisa dibatalkan.`,
     confirm: 'Hapus template',
   },
   defaultsDialog: {
@@ -73,9 +73,14 @@ export const brand = {
     actions: 'Aksi template',
     deleteLast: 'Hapus (minimal 1 template)',
     delete: 'Hapus template',
-    defaultFor: (workspaces: string) => `Default ${workspaces}`,
+    /** Campaigns whose clips use the template */
+    usedBy: (campaigns: string) => `Dipakai ${campaigns}`,
+    /** The template campaigns without their own template use */
+    isDefault: 'Bawaan',
     clipCount: (n: number) => `${n} clip`,
-    makeDefault: (workspace: string) => `Jadikan default ${workspace}`,
+    /** The template is the active campaign's template */
+    usedFor: (campaign: string) => `Dipakai ${campaign}`,
+    useFor: (campaign: string) => `Pakai untuk ${campaign}`,
   },
   /** Screen-reader suffix of the chosen preset tile */
   selected: '(dipilih)',

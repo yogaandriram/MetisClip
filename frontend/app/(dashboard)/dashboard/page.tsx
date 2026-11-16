@@ -23,11 +23,11 @@ import {
   StatusBadge,
   iconButtonClass,
 } from '@/components/ui'
-import { NoAgentState } from '@/components/NoAgentState'
-import { useAgent } from '@/contexts/AgentContext'
+import { NoCampaignState } from '@/components/NoCampaignState'
+import { useCampaign } from '@/contexts/CampaignContext'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
-import { api, type Clip, type DashboardStats, type Job, type SecretName } from '@/lib/engine'
+import { api, eventForCampaign, type Clip, type DashboardStats, type Job, type SecretName } from '@/lib/engine'
 import { mediaUrl } from '@/lib/media'
 import { QUEUE_HREF } from '@/lib/routes'
 import { providerInfo } from '@/lib/llmProviders'
@@ -46,7 +46,8 @@ function summary(t: Messages, ready: number | null, running: number | null, fail
 }
 
 export default function DashboardOverview() {
-  const { activeAgent } = useAgent()
+  const { activeCampaign } = useCampaign()
+  const campaignId = activeCampaign?.id
   const { epoch } = useEngine()
   const t = useT()
   const m = t.dashboard
@@ -57,10 +58,10 @@ export default function DashboardOverview() {
   const [llmLabel, setLlmLabel] = useState('LLM')
   const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(async (agentId: string) => {
+  const load = useCallback(async (id: string) => {
     setError(null)
     try {
-      const [s, j, c] = await Promise.all([api.dashboard.stats(agentId), api.jobs.list({ agent_id: agentId, limit: 5 }), api.clips.list({ agent_id: agentId })])
+      const [s, j, c] = await Promise.all([api.dashboard.stats(id), api.jobs.list({ campaign_id: id, limit: 5 }), api.clips.list({ campaign_id: id })])
       setStats(s)
       setJobs(j.jobs.slice(0, 5))
       setClips(c.clips)
@@ -73,8 +74,8 @@ export default function DashboardOverview() {
     setStats(null)
     setJobs(null)
     setClips(null)
-    if (activeAgent) load(activeAgent.id)
-  }, [activeAgent, load, epoch])
+    if (campaignId) load(campaignId)
+  }, [campaignId, load, epoch])
 
   useEffect(() => {
     Promise.all([api.secrets.status(), api.settings.get()])
@@ -89,19 +90,19 @@ export default function DashboardOverview() {
   }, [epoch])
 
   useEngineEvents((e) => {
-    if (!activeAgent) return
+    if (!campaignId) return
     if (e.type === 'job.progress') {
       setJobs((prev) => prev?.map((j) => (j.id === e.id ? { ...j, status: e.status, current_step: e.current_step, progress_pct: e.progress_pct, total_scenes: e.total_scenes, processed_scenes: e.processed_scenes } : j)) ?? prev)
     } else if (e.type === 'job.status' || e.type === 'clip.created' || e.type === 'clip.deleted') {
-      if (e.type === 'clip.deleted' || e.agent_id === activeAgent.id) load(activeAgent.id)
+      if (e.type === 'clip.deleted' || eventForCampaign(e, campaignId)) load(campaignId)
     }
   })
 
-  if (!activeAgent) {
+  if (!activeCampaign || !campaignId) {
     return (
       <>
         <PageHeader title={m.title} subtitle={m.subtitle} />
-        <NoAgentState what={m.title} />
+        <NoCampaignState what={m.title} />
       </>
     )
   }
@@ -113,7 +114,7 @@ export default function DashboardOverview() {
 
   return (
     <>
-      <PageHeader title={activeAgent.name} subtitle={summary(t, readyCount, activeJobs ? activeJobs.length : null, !!error)} />
+      <PageHeader title={activeCampaign.name} subtitle={summary(t, readyCount, activeJobs ? activeJobs.length : null, !!error)} />
 
       <div className="mc-stack mc-gap-32">
         {missingKeys.length > 0 && (
@@ -135,7 +136,7 @@ export default function DashboardOverview() {
           <Alert
             tone="error"
             action={
-              <Button variant="secondary" size="sm" onClick={() => load(activeAgent.id)}>
+              <Button variant="secondary" size="sm" onClick={() => load(campaignId)}>
                 {t.common.retry}
               </Button>
             }

@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { Copy, MoreHorizontal, Pencil, Plus, Star, Trash2 } from 'lucide-react'
-import type { Agent, BrandTemplate } from '@/lib/engine'
+import type { BrandTemplate, Campaign } from '@/lib/engine'
 import { Button, Card, Dropdown, iconButtonClass } from '@/components/ui'
 import type { Messages } from '@/lib/i18n'
 import { useT } from '@/lib/i18n/I18nProvider'
@@ -10,7 +10,7 @@ import { useT } from '@/lib/i18n/I18nProvider'
 interface TemplateLibraryBarProps {
   templates: BrandTemplate[]
   selected: BrandTemplate | null
-  activeAgent: Agent | null
+  activeCampaign: Campaign | null
   settingDefault: boolean
   onSelect: (id: string) => void
   onCreate: () => void
@@ -21,18 +21,25 @@ interface TemplateLibraryBarProps {
 }
 
 function usageText(tpl: BrandTemplate, t: Messages): string {
-  const agents = tpl.used_by_agents || []
+  const campaigns = tpl.used_by_campaigns || []
   const parts: string[] = []
-  if (agents.length) parts.push(t.brand.library.defaultFor(agents.map((a) => a.name).join(', ')))
+  if (tpl.is_default) parts.push(t.brand.library.isDefault)
+  if (campaigns.length) parts.push(t.brand.library.usedBy(campaigns.map((c) => c.name).join(', ')))
   parts.push(t.brand.library.clipCount(tpl.clip_count ?? 0))
   return parts.join(' · ')
 }
 
-/** Template library: pick, create, duplicate, rename, delete; make it the active agent's default. */
+/** The template a campaign's clips use: its own, else the default template. */
+export function campaignTemplateId(campaign: Campaign, templates: BrandTemplate[]): string | null {
+  if (campaign.brand_template_id && templates.some((tpl) => tpl.id === campaign.brand_template_id)) return campaign.brand_template_id
+  return templates.find((tpl) => tpl.is_default)?.id ?? null
+}
+
+/** Template library: pick, create, duplicate, rename, delete; use it for the active campaign. */
 export const TemplateLibraryBar: React.FC<TemplateLibraryBarProps> = ({
   templates,
   selected,
-  activeAgent,
+  activeCampaign,
   settingDefault,
   onSelect,
   onCreate,
@@ -42,7 +49,7 @@ export const TemplateLibraryBar: React.FC<TemplateLibraryBarProps> = ({
   onMakeDefault,
 }) => {
   const t = useT()
-  const isAgentDefault = !!(activeAgent && selected && activeAgent.default_brand_template_id === selected.id)
+  const usedByActive = !!(activeCampaign && selected && campaignTemplateId(activeCampaign, templates) === selected.id)
   const onlyOne = templates.length <= 1
 
   return (
@@ -106,12 +113,12 @@ export const TemplateLibraryBar: React.FC<TemplateLibraryBarProps> = ({
                   />
                 </div>
 
-                {activeAgent && (
+                {activeCampaign && (
                   <div style={{ marginTop: 'var(--s-3)' }}>
-                    {isAgentDefault ? (
+                    {usedByActive ? (
                       <p className="mc-row mc-gap-8 mc-caption mc-moss">
                         <Star size={14} aria-hidden="true" />
-                        <span className="mc-truncate">{t.brand.library.defaultFor(activeAgent.name)}</span>
+                        <span className="mc-truncate">{t.brand.library.usedFor(activeCampaign.name)}</span>
                       </p>
                     ) : (
                       <Button
@@ -122,7 +129,7 @@ export const TemplateLibraryBar: React.FC<TemplateLibraryBarProps> = ({
                         loading={settingDefault}
                         icon={<Star size={16} aria-hidden="true" />}
                       >
-                        <span className="mc-truncate">{t.brand.library.makeDefault(activeAgent.name)}</span>
+                        <span className="mc-truncate">{t.brand.library.useFor(activeCampaign.name)}</span>
                       </Button>
                     )}
                   </div>
