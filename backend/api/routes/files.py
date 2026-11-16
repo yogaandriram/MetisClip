@@ -9,6 +9,18 @@ from fastapi.responses import FileResponse
 
 from backend.api.dto import http_error
 from backend.core.paths import PathOutsideRoot, get_paths
+from backend.core import i18n
+
+M = i18n.messages({
+    "not_found": {
+        "id": "File tidak ditemukan",
+        "en": "File not found",
+    },
+    "denied": {
+        "id": "Akses ditolak",
+        "en": "Access denied",
+    },
+})
 
 router = APIRouter(tags=["files"])
 
@@ -22,18 +34,18 @@ _BLOCKED_TOP = {".metisclip", "db"}
 
 def serve_relative(rel: str, *, download_name: str | None = None) -> FileResponse:
     if not rel:
-        raise http_error(404, "File tidak ditemukan")
+        raise http_error(404, M("not_found"))
     paths = get_paths()
     try:
         path: Path = paths.from_relative(rel)
         # Check the *resolved* location so 'library/../.metisclip/…' cannot sneak through
         parts = path.relative_to(paths.data_root.resolve()).parts
     except (PathOutsideRoot, ValueError):
-        raise http_error(403, "Akses ditolak")
+        raise http_error(403, M("denied"))
     if not parts or parts[0].lower() in _BLOCKED_TOP:
-        raise http_error(403, "Akses ditolak")
+        raise http_error(403, M("denied"))
     if not path.is_file():
-        raise http_error(404, "File tidak ditemukan")
+        raise http_error(404, M("not_found"))
     media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     return FileResponse(
         path,

@@ -6,8 +6,10 @@ import { usePathname } from 'next/navigation'
 import { ArrowLeft, Plus } from 'lucide-react'
 import { useShell } from '@/components/shell/ShellContext'
 import { normalizePath } from '@/components/shell/NavRail'
-import { AgentSwitcher } from './AgentSwitcher'
+import { CampaignSwitcher } from './CampaignSwitcher'
 import { IconLink } from './IconButton'
+import { useT } from '@/lib/i18n/I18nProvider'
+import { QUEUE_HREF } from '@/lib/routes'
 
 interface PageHeaderProps {
   title: React.ReactNode
@@ -16,7 +18,7 @@ interface PageHeaderProps {
   actions?: React.ReactNode
   /** Back button before the title */
   back?: { href: string; label: string }
-  /** Agent switcher, "+ Klip baru" and the jobs pill (default true inside the shell) */
+  /** Campaign switcher, "+ Klip baru" and the jobs pill (default true inside the shell) */
   showGlobal?: boolean
 }
 
@@ -25,6 +27,7 @@ interface PageHeaderProps {
  * page actions and the global pills on the right.
  */
 export function PageHeader({ title, subtitle, actions, back, showGlobal = true }: PageHeaderProps) {
+  const t = useT()
   const shell = useShell()
   const pathname = normalizePath(usePathname())
   const global = showGlobal && shell
@@ -42,20 +45,20 @@ export function PageHeader({ title, subtitle, actions, back, showGlobal = true }
         <div className="mc-topbar__actions">
           {actions}
           {global && shell.activeJobs > 0 && (
-            <Link href="/jobs/" className="mc-status-pill">
+            <Link href={QUEUE_HREF} className="mc-status-pill">
               <span className="mc-spinner mc-spinner--sm" aria-hidden="true" />
               <span>
-                <span className="mc-mono">{shell.activeJobs}</span> proses berjalan
+                <span className="mc-mono">{shell.activeJobs}</span> {t.ui.runningJobs(shell.activeJobs)}
               </span>
             </Link>
           )}
           {global && (
             <div className="mc-pillgroup">
-              <AgentSwitcher />
+              <CampaignSwitcher />
               {pathname !== '/discover' && (
                 <Link href="/discover/" className="mc-pillgroup__item mc-pillgroup__item--soft">
                   <Plus size={16} aria-hidden="true" />
-                  Klip baru
+                  {t.ui.newClip}
                 </Link>
               )}
             </div>

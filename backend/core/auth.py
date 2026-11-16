@@ -6,6 +6,14 @@ import json
 from urllib.parse import parse_qs
 
 from backend.core.config import config
+from backend.core import i18n
+
+M = i18n.messages({
+    "bad_token": {
+        "id": "Token tidak valid",
+        "en": "Invalid token",
+    },
+})
 
 _PUBLIC_HTTP = {("GET", "/health")}
 _DEV_PUBLIC = {"/docs", "/openapi.json", "/redoc", "/docs/oauth2-redirect"}
@@ -48,7 +56,7 @@ class TokenAuthMiddleware:
         if kind == "websocket":
             await send({"type": "websocket.close", "code": 4401})
             return
-        body = json.dumps({"detail": "Token tidak valid"}).encode()
+        body = json.dumps({"detail": M.text("bad_token", i18n.offline_language())}).encode()  # no DB lookup here
         await send(
             {
                 "type": "http.response.start",

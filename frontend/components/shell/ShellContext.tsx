@@ -8,7 +8,7 @@ import { api, type JobStatus } from '@/lib/engine'
 import { ACTIVE_JOB_STATUSES } from '@/lib/format'
 
 type ShellContextValue = {
-  /** Pending + running jobs across all agents, kept live through engine events */
+  /** Pending + running jobs across all campaigns, kept live through engine events */
   activeJobs: number
 }
 

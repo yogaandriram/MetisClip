@@ -13,6 +13,14 @@ import threading
 from backend.core.config import config
 from backend.core.llm_providers import LLM_SECRETS
 from backend.core.logging_setup import redactor
+from backend.core import i18n
+
+M = i18n.messages({
+    "empty": {
+        "id": "Nilai secret kosong",
+        "en": "The secret value is empty",
+    },
+})
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +77,7 @@ def get_secret(name: str) -> str | None:
 def set_secret(name: str, value: str) -> None:
     value = (value or "").strip()
     if not value:
-        raise ValueError("Nilai secret kosong")
+        raise ValueError(M("empty"))
     _kr().set_password(config.keyring_service, name, value)
     redactor.add_secret(value)
 

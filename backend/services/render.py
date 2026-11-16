@@ -1,7 +1,7 @@
 """Export render: Remotion worker (render-engine/dist/render.js) run via Electron-as-Node.
 
 Contract: docs/desktop-contract.md §7. Output lands in
-<DATA_ROOT>\\library\\<agent>\\<clip_id>\\final.mp4 and is then copied to the export folder
+<DATA_ROOT>\\library\\<campaign slug>\\<clip_id>\\final.mp4 and is then copied to the export folder
 (Pengaturan → Folder ekspor), see `services.exports`.
 """
 from __future__ import annotations
@@ -23,7 +23,40 @@ from backend.core import events, procs, resources, workload
 from backend.core.config import config, node_command
 from backend.core.db import get_db, utcnow
 from backend.core.logging_setup import redactor
-from backend.core.paths import get_paths, slugify
+from backend.core.paths import get_paths
+from backend.services import layout as layout_svc
+from backend.core import i18n
+
+M = i18n.messages({
+    "clip_missing": {
+        "id": "Klip atau file raw tidak ditemukan",
+        "en": "The clip or its raw file was not found",
+    },
+    "needs_source": {
+        "id": "Layout {name} butuh video sumber: {error}",
+        "en": "The {name} layout needs the source video: {error}",
+    },
+    "needs_faces": {
+        "id": "Layout {name} butuh analisis wajah: {error}",
+        "en": "The {name} layout needs a face analysis: {error}",
+    },
+    "no_worker": {
+        "id": "Render worker tidak ditemukan (render-engine/dist/render.js). Jalankan build render-engine.",
+        "en": "The render worker was not found (render-engine/dist/render.js). Build render-engine first.",
+    },
+    "no_message": {
+        "id": "Render gagal tanpa pesan error",
+        "en": "The render failed without an error message",
+    },
+    "failed": {
+        "id": "Render gagal",
+        "en": "The render failed",
+    },
+    "exit_code": {
+        "id": "Render worker keluar dengan kode {code}",
+        "en": "The render worker exited with code {code}",
+    },
+})
 
 logger = logging.getLogger(__name__)
 FPS = 30
@@ -92,17 +125,46 @@ def effective_ai(clip: dict[str, Any] | None, bt: dict[str, Any] | None) -> dict
     return {**DEFAULT_AI_SETTINGS, **clean_ai((bt or {}).get("ai_settings")), **clean_ai(clip_ai)}
 
 
+def media_url(clip_id: str, kind: str) -> str:
+    return f"{config.base_url}/api/clips/{clip_id}/media/{kind}?token={config.token}"
+
+
+def source_aspect(clip: dict[str, Any]) -> float:
+    w, h = clip.get("source_width"), clip.get("source_height")
+    return round(w / h, 5) if isinstance(w, int) and isinstance(h, int) and w > 0 and h > 0 else round(16 / 9, 5)
+
+
+def channel_name(clip: dict[str, Any]) -> str:
+    if not clip.get("source_video_id"):
+        return ""
+    sv = get_db().source_videos.find_one({"_id": clip["source_video_id"]}, {"channel_name": 1})
+    return str((sv or {}).get("channel_name") or "")
+
+
 def build_props(clip: dict[str, Any]) -> dict[str, Any]:
     bt = template_for(clip)
-    return {
-        "videoUrl": f"{config.base_url}/api/clips/{clip['_id']}/media/raw?token={config.token}",
+    lay = layout_svc.effective_layout(clip, bt)
+    props: dict[str, Any] = {
+        "videoUrl": media_url(clip["_id"], "raw"),
         "words": (clip.get("subtitle") or {}).get("words") or [],
         "style": effective_style(clip, bt),
         "brandSettings": resolve_assets(bt.get("brand_settings") or {}),
         "ai": effective_ai(clip, bt),
         # Source length; the composition shortens itself when pauses/filler words are cut
         "durationInFrames": max(1, int(round(float(clip.get("duration_seconds") or 1) * FPS))),
+        "layout": resolve_assets(lay),
+        "title": clip.get("hook_text") or "",
+        "clipId": clip["_id"],  # picks where the companion loop starts (split layout)
     }
+    # Podcast, card, duo and auto layouts: the original-ratio cut (same timeline as raw.mp4); without
+    # one the clip stays full. Duo and auto also need the shots of the face scan.
+    if layout_svc.needs_source(lay) and (clip.get("files") or {}).get("source"):
+        props["sourceUrl"] = media_url(clip["_id"], "source")
+        props["sourceAspect"] = source_aspect(clip)
+        props["channel"] = channel_name(clip)
+        if layout_svc.needs_faces(lay):
+            props["scenes"] = layout_svc.scene_info(clip)
+    return props
 
 
 def _clip_out_dir(clip: dict[str, Any]) -> Path:
@@ -110,9 +172,9 @@ def _clip_out_dir(clip: dict[str, Any]) -> Path:
     raw = (clip.get("files") or {}).get("raw")
     if raw:
         return paths.from_relative(raw).parent
-    agent = get_db().super_agents.find_one({"_id": clip.get("agent_id")}, {"slug": 1, "name": 1}) if clip.get("agent_id") else None
-    slug = (agent or {}).get("slug") or slugify((agent or {}).get("name") or "") if agent else "_tanpa-workspace"
-    return paths.clip_dir(slug, clip["_id"])
+    from backend.services.campaigns import get as get_campaign, slug_of
+
+    return paths.clip_dir(slug_of(get_campaign(clip.get("campaign_id"))), clip["_id"])
 
 
 def _publish(render_id: str, clip_id: str, status: str, **extra: Any) -> None:
@@ -169,8 +231,9 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
     clip_id = rj["clip_id"]
     clip = db.clips.find_one({"_id": clip_id})
     if not clip or not (clip.get("files") or {}).get("raw"):
-        db.render_jobs.update_one({"_id": render_id}, {"$set": {"status": "failed", "error": "Klip atau file raw tidak ditemukan", "finished_at": utcnow()}})
-        _publish(render_id, clip_id, "failed", error="Klip atau file raw tidak ditemukan")
+        missing = M("clip_missing")
+        db.render_jobs.update_one({"_id": render_id}, {"$set": {"status": "failed", "error": missing, "finished_at": utcnow()}})
+        _publish(render_id, clip_id, "failed", error=missing)
         return
     db.clips.update_one({"_id": clip_id}, {"$set": {"status": "rendering", "updated_at": utcnow()}})
     events.publish({"type": "clip.updated", "id": clip_id})
@@ -184,10 +247,32 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
     error: str | None = None
     status = "failed"
     try:
+        lay = layout_svc.effective_layout(clip, template_for(clip))
+        problem = layout_svc.companion_problem(lay)
+        if problem:
+            raise RuntimeError(problem)
+        def step(message: str) -> None:
+            events.publish({"type": "render.progress", "id": render_id, "clip_id": clip_id,
+                            "status": "rendering", "progress_pct": 0.0, "message": message})
+
+        # Clips made before these layouts did not keep their original-ratio video or their face scan
+        name = layout_svc.mode_name(str(lay.get("mode")))
+        if layout_svc.needs_source(lay) and not layout_svc.source_path(clip):
+            try:
+                clip = layout_svc.prepare_source(clip, cancel, on_step=step)
+            except layout_svc.SourceError as exc:
+                raise RuntimeError(M("needs_source", name=name, error=exc)) from exc
+            cancel.check()
+        if layout_svc.needs_faces(lay) and not layout_svc.scene_info(clip):
+            try:
+                clip = layout_svc.prepare_faces(clip, cancel, on_step=step)
+            except layout_svc.SourceError as exc:
+                raise RuntimeError(M("needs_faces", name=name, error=exc)) from exc
+            cancel.check()
         props_path.write_text(json.dumps(build_props(clip), ensure_ascii=False), encoding="utf-8")
         script = paths.render_dir / "dist" / "render.js"
         if not script.exists():
-            raise RuntimeError("Render worker tidak ditemukan (render-engine/dist/render.js). Jalankan build render-engine.")
+            raise RuntimeError(M("no_worker"))
         prefix, extra_env = node_command()
         cmd = prefix + [str(script), "--props", str(props_path), "--out", str(tmp_out), "--gl", "angle"]
         bundle = paths.render_dir / "build"
@@ -201,7 +286,8 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
                             "status": "rendering", "progress_pct": 0.0, "message": info.message()})
 
         # The RAM guard sizes the render: Chrome tabs that fit, the lean encoder and frame cache
-        with resources.render_slot(cancel=cancel, on_wait=waiting) as tabs:
+        extra = resources.LAYOUT_RENDER_MB.get(str(lay.get("mode")), 0)
+        with resources.render_slot(cancel=cancel, on_wait=waiting, extra_mb=extra) as tabs:
             low = tabs is not None
             if tabs is not None:
                 cmd += ["--concurrency", str(tabs),
@@ -214,7 +300,7 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
             _finish(render_id, clip, tmp_out)
             status = "completed"
             return
-        error = error or "Render gagal tanpa pesan error"
+        error = error or M("no_message")
     except procs.Cancelled:
         status = "cancelled"
     except Exception as exc:
@@ -276,7 +362,7 @@ def _run_worker(cmd: list[str], extra_env: dict[str, str], render_id: str, clip_
             elif kind == "done":
                 done = True
             elif kind == "error":
-                error = str(msg.get("message") or "Render gagal")
+                error = str(msg.get("message") or M("failed"))
         code = proc.wait()
         t.join(timeout=5)
     finally:
@@ -285,5 +371,5 @@ def _run_worker(cmd: list[str], extra_env: dict[str, str], render_id: str, clip_
     if cancel.cancelled:
         raise procs.Cancelled(cancel.reason)
     if code != 0 and not error:
-        error = "\n".join(list(stderr_tail)[-5:]) or f"Render worker keluar dengan kode {code}"
+        error = "\n".join(list(stderr_tail)[-5:]) or M("exit_code", code=code)
     return error, (code == 0 and (done or error is None))

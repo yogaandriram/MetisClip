@@ -8,24 +8,20 @@ import { SecretField } from '@/components/settings/SecretField'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
 import { api, type Settings, type WhisperModelId, type WhisperModelInfo, type WhisperProvider, type WhisperStatus } from '@/lib/engine'
 import { errorMessage, formatBytes } from '@/lib/format'
+import { localeTag, type Messages } from '@/lib/i18n'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 type WhisperSettings = Settings['whisper']
 
-const PROVIDER_OPTIONS: { value: WhisperProvider; label: string }[] = [
-  { value: 'auto', label: 'Otomatis' },
-  { value: 'local', label: 'Selalu lokal' },
-  { value: 'groq', label: 'Selalu Groq' },
-]
+const PROVIDERS: WhisperProvider[] = ['auto', 'local', 'groq']
 
 const MODEL_LABEL: Record<WhisperModelId, string> = { small: 'Small', 'large-v3-turbo': 'Large v3 Turbo' }
 
-function providerHint(provider: WhisperProvider, groqKey: boolean, localOk: boolean): string {
-  if (provider === 'groq') return 'Selalu lewat Groq (online). Tanpa API key atau tanpa internet, transkripsi gagal.'
-  if (provider === 'local') return 'Selalu di komputer ini. Tidak butuh internet setelah model terunduh, tetapi lebih lambat dan memakai CPU.'
-  if (!localOk) return 'Whisper lokal tidak tersedia di instalasi ini, jadi mode Otomatis hanya memakai Groq.'
-  return groqKey
-    ? 'Memakai Groq selama online. Saat offline, kuota Groq habis, atau Groq gagal, transkripsi pindah ke Whisper lokal sehingga job tetap jalan.'
-    : 'API key Groq belum diisi, jadi transkripsi memakai Whisper lokal di komputer ini. Isi key Groq di bawah agar lebih cepat saat online.'
+function providerHint(m: Messages['settings']['whisper'], provider: WhisperProvider, groqKey: boolean, localOk: boolean): string {
+  if (provider === 'groq') return m.hintGroq
+  if (provider === 'local') return m.hintLocal
+  if (!localOk) return m.hintNoLocal
+  return groqKey ? m.hintAutoWithKey : m.hintAutoNoKey
 }
 
 interface WhisperSectionProps {
@@ -39,6 +35,8 @@ interface WhisperSectionProps {
 
 /** Pengaturan → Transkripsi: engine choice, local models (download / delete) and the Groq key. */
 export function WhisperSection({ value, onChange, groqConfigured, groqValue, onGroqValue, onGroqConfigured }: WhisperSectionProps) {
+  const t = useT()
+  const m = t.settings.whisper
   const [status, setStatus] = useState<WhisperStatus | null>(null)
   const [statusError, setStatusError] = useState<string | null>(null)
   const [toDelete, setToDelete] = useState<WhisperModelInfo | null>(null)
@@ -49,9 +47,9 @@ export function WhisperSection({ value, onChange, groqConfigured, groqValue, onG
       setStatus(await api.whisper.status())
       setStatusError(null)
     } catch (err) {
-      setStatusError(errorMessage(err, 'Status Whisper lokal tidak dapat dimuat'))
+      setStatusError(errorMessage(err, m.statusFailed))
     }
-  }, [])
+  }, [m.statusFailed])
 
   useEffect(() => {
     loadStatus()
@@ -62,13 +60,13 @@ export function WhisperSection({ value, onChange, groqConfigured, groqValue, onG
     if (e.status === 'downloading') {
       setStatus((s) =>
         s
-          ? { ...s, models: s.models.map((m) => (m.id === e.id ? { ...m, download: { status: 'downloading', progress: e.progress, error: null } } : m)) }
+          ? { ...s, models: s.models.map((x) => (x.id === e.id ? { ...x, download: { status: 'downloading', progress: e.progress, error: null } } : x)) }
           : s,
       )
       return
     }
-    if (e.status === 'completed') toast.success(`Model ${MODEL_LABEL[e.id]} siap dipakai`)
-    if (e.status === 'failed') toast.error(e.message || 'Unduhan model gagal')
+    if (e.status === 'completed') toast.success(m.modelReady(MODEL_LABEL[e.id]))
+    if (e.status === 'failed') toast.error(e.message || m.downloadFailed)
     loadStatus()
   })
 
@@ -76,7 +74,7 @@ export function WhisperSection({ value, onChange, groqConfigured, groqValue, onG
     try {
       await api.whisper.download(id)
       setStatus((s) =>
-        s ? { ...s, models: s.models.map((m) => (m.id === id ? { ...m, download: { status: 'downloading', progress: 0, error: null } } : m)) } : s,
+        s ? { ...s, models: s.models.map((x) => (x.id === id ? { ...x, download: { status: 'downloading', progress: 0, error: null } } : x)) } : s,
       )
     } catch (err) {
       toast.error(errorMessage(err))
@@ -96,7 +94,7 @@ export function WhisperSection({ value, onChange, groqConfigured, groqValue, onG
     setDeleting(true)
     try {
       await api.whisper.remove(toDelete.id)
-      toast.success(`Model ${toDelete.label} dihapus`)
+      toast.success(m.modelRemoved(toDelete.label))
       setToDelete(null)
       loadStatus()
     } catch (err) {
@@ -114,30 +112,41 @@ export function WhisperSection({ value, onChange, groqConfigured, groqValue, onG
     : null
   const usedFor = (id: WhisperModelId) => {
     if (!effective || value.provider === 'groq') return null
-    const uses = [effective.transcript === id && 'transkrip video', effective.subtitle === id && 'subtitle klip'].filter(Boolean)
-    return uses.length ? `Dipakai untuk ${uses.join(' dan ')}` : null
+    const transcript = effective.transcript === id
+    const subtitle = effective.subtitle === id
+    return transcript && subtitle ? m.usedForBoth : transcript ? m.usedForTranscript : subtitle ? m.usedForSubtitle : null
   }
 
   const autoHint = status
-    ? `Otomatis di PC ini (${status.cpu_cores} inti, ${status.ram_gb.toLocaleString('id-ID')} GB RAM): transkrip video panjang memakai ${MODEL_LABEL[status.local.auto_models.transcript]}, subtitle klip memakai ${MODEL_LABEL[status.local.auto_models.subtitle]}.`
+    ? m.autoHint(
+        status.cpu_cores,
+        status.ram_gb.toLocaleString(localeTag()),
+        MODEL_LABEL[status.local.auto_models.transcript],
+        MODEL_LABEL[status.local.auto_models.subtitle],
+      )
     : undefined
 
   return (
     <div className="mc-stack mc-gap-20">
-      <Field label="Mesin transkripsi" hint={providerHint(value.provider, groqConfigured, localOk)}>
-        <ChoiceChips ariaLabel="Mesin transkripsi" options={PROVIDER_OPTIONS} value={value.provider} onChange={(provider) => onChange({ ...value, provider })} />
+      <Field label={m.engine} hint={providerHint(m, value.provider, groqConfigured, localOk)}>
+        <ChoiceChips
+          ariaLabel={m.engine}
+          options={PROVIDERS.map((p) => ({ value: p, label: m.providers[p] }))}
+          value={value.provider}
+          onChange={(provider) => onChange({ ...value, provider })}
+        />
       </Field>
 
       <Divider />
 
       <div className="mc-stack mc-gap-12">
-        <h3 className="mc-h3">Whisper lokal</h3>
+        <h3 className="mc-h3">{m.localHeading}</h3>
         {statusError && (
           <Alert
             tone="error"
             action={
               <Button variant="secondary" size="sm" onClick={loadStatus}>
-                Coba lagi
+                {t.common.retry}
               </Button>
             }
           >
@@ -147,76 +156,75 @@ export function WhisperSection({ value, onChange, groqConfigured, groqValue, onG
         {!status && !statusError ? (
           <Skeleton height={120} radius="md" />
         ) : status && !status.local.available ? (
-          <Alert tone="warning" title="Whisper lokal tidak ditemukan">
-            File whisper-cli tidak ada di folder aplikasi. Pasang ulang MetisClip untuk memakai transkripsi lokal.
+          <Alert tone="warning" title={m.localMissingTitle}>
+            {m.localMissingBody}
           </Alert>
         ) : status ? (
           <>
             <SelectField
-              label="Model lokal"
-              hint={value.local_model === 'auto' ? autoHint : 'Model ini dipakai untuk transkrip video dan subtitle klip.'}
+              label={m.localModel}
+              hint={value.local_model === 'auto' ? autoHint : m.fixedModelHint}
               value={value.local_model}
               options={[
-                { value: 'auto', label: 'Otomatis (disarankan)' },
-                { value: 'small', label: 'Small: cepat' },
-                { value: 'large-v3-turbo', label: 'Large v3 Turbo: lebih akurat, lebih lambat' },
+                { value: 'auto', label: m.modelOptions.auto },
+                { value: 'small', label: m.modelOptions.small },
+                { value: 'large-v3-turbo', label: m.modelOptions['large-v3-turbo'] },
               ]}
               onChange={(e) => onChange({ ...value, local_model: e.target.value as WhisperSettings['local_model'] })}
             />
             <div className="mc-stack mc-gap-8">
-              {status.models.map((m) => {
-                const dl = m.download
+              {status.models.map((model) => {
+                const dl = model.download
                 const downloading = dl?.status === 'downloading'
-                const use = usedFor(m.id)
+                const use = usedFor(model.id)
                 return (
-                  <Card key={m.id} tone="dew" padding="sm" className="mc-stack mc-gap-8">
+                  <Card key={model.id} tone="dew" padding="sm" className="mc-stack mc-gap-8">
                     <div className="mc-row mc-row--wrap mc-gap-12">
                       <div className="mc-stack mc-gap-4 mc-grow" style={{ minWidth: 220 }}>
                         <div className="mc-row mc-row--wrap mc-gap-8">
-                          <span className="mc-label">{m.label}</span>
-                          <span className="mc-mono mc-caption">{formatBytes(m.size_bytes)}</span>
-                          {m.installed ? (
+                          <span className="mc-label">{model.label}</span>
+                          <span className="mc-mono mc-caption">{formatBytes(model.size_bytes)}</span>
+                          {model.installed ? (
                             <Badge tone="success" size="sm">
-                              Terpasang
+                              {m.installed}
                             </Badge>
                           ) : downloading ? (
                             <Badge tone="ink" size="sm">
-                              Mengunduh
+                              {m.downloading}
                             </Badge>
                           ) : (
                             <Badge tone="neutral" size="sm" icon={<Download size={14} aria-hidden="true" />}>
-                              Belum diunduh
+                              {m.notDownloaded}
                             </Badge>
                           )}
                         </div>
-                        <span className="mc-caption mc-muted">{m.description}</span>
+                        <span className="mc-caption mc-muted">{model.description}</span>
                         {use && <span className="mc-caption">{use}</span>}
                       </div>
                       <div className="mc-row mc-gap-8">
-                        {m.installed ? (
-                          <Button variant="ghost" size="sm" icon={<Trash2 size={16} aria-hidden="true" />} onClick={() => setToDelete(m)}>
-                            Hapus
+                        {model.installed ? (
+                          <Button variant="ghost" size="sm" icon={<Trash2 size={16} aria-hidden="true" />} onClick={() => setToDelete(model)}>
+                            {t.common.delete}
                           </Button>
                         ) : downloading ? (
-                          <Button variant="ghost" size="sm" icon={<X size={16} aria-hidden="true" />} onClick={() => cancel(m.id)}>
-                            Batalkan
+                          <Button variant="ghost" size="sm" icon={<X size={16} aria-hidden="true" />} onClick={() => cancel(model.id)}>
+                            {m.cancelDownload}
                           </Button>
                         ) : (
-                          <Button variant="secondary" size="sm" icon={<Download size={16} aria-hidden="true" />} onClick={() => download(m.id)}>
-                            Unduh
+                          <Button variant="secondary" size="sm" icon={<Download size={16} aria-hidden="true" />} onClick={() => download(model.id)}>
+                            {m.download}
                           </Button>
                         )}
                       </div>
                     </div>
-                    {downloading && <ProgressBar value={dl.progress} label={`Unduhan model ${m.label}`} showValue />}
+                    {downloading && <ProgressBar value={dl.progress} label={m.downloadProgress(model.label)} showValue />}
                     {dl?.status === 'failed' && dl.error && <span className="mc-caption">{dl.error}</span>}
                   </Card>
                 )
               })}
             </div>
             <p className="mc-caption mc-muted">
-              Model yang belum diunduh akan diunduh otomatis saat pertama dipakai (sekali saja, butuh internet). Whisper lokal memakai {status.local.threads} thread
-              CPU dengan prioritas rendah, mentranskripsi satu audio pada satu waktu, dan menunggu bila export video sedang berjalan.
+              {m.localNote(status.local.threads)}
             </p>
           </>
         ) : null}
@@ -225,14 +233,14 @@ export function WhisperSection({ value, onChange, groqConfigured, groqValue, onG
       <Divider />
 
       <div className="mc-stack mc-gap-20">
-        <h3 className="mc-h3">Groq (online)</h3>
+        <h3 className="mc-h3">{m.groqHeading}</h3>
         <SecretField
           name="groq_api_key"
-          label="API key Groq"
+          label={m.groqKey}
           description={
             value.provider === 'local'
-              ? 'Tidak dipakai selama mesin transkripsi diatur ke Selalu lokal.'
-              : 'Opsional. Groq jauh lebih cepat dan tidak memakai CPU komputer ini. Key bisa dibuat gratis di console.groq.com.'
+              ? m.groqUnused
+              : m.groqOptional
           }
           configured={groqConfigured}
           value={groqValue}
@@ -243,7 +251,7 @@ export function WhisperSection({ value, onChange, groqConfigured, groqValue, onG
           }}
         />
         <InputField
-          label="Model Whisper Groq"
+          label={m.groqModel}
           value={value.model}
           onChange={(e) => onChange({ ...value, model: e.target.value })}
           placeholder="whisper-large-v3-turbo"
@@ -254,9 +262,9 @@ export function WhisperSection({ value, onChange, groqConfigured, groqValue, onG
 
       <ConfirmModal
         isOpen={!!toDelete}
-        title={`Hapus model ${toDelete?.label ?? ''}?`}
-        message={`File model (${toDelete ? formatBytes(toDelete.size_bytes) : ''}) dihapus dari folder data. Bila dibutuhkan lagi, model diunduh ulang saat pertama dipakai.`}
-        confirmLabel="Hapus model"
+        title={m.removeTitle(toDelete?.label ?? '')}
+        message={m.removeMessage(toDelete ? formatBytes(toDelete.size_bytes) : '')}
+        confirmLabel={m.removeConfirm}
         confirmIcon={<Trash2 size={16} aria-hidden="true" />}
         danger
         loading={deleting}

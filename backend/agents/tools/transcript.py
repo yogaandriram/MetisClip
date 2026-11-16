@@ -19,6 +19,38 @@ from backend.core.config import config
 from backend.core.db import get_db, utcnow
 from backend.core.procs import CancelToken, Cancelled
 from backend.core.paths import get_paths
+from backend.core import i18n
+
+M = i18n.messages({
+    "split_failed": {
+        "id": "Gagal memecah audio untuk transkripsi",
+        "en": "Couldn't split the audio for transcription",
+    },
+    "part": {
+        "id": "bagian {part}/{parts}",
+        "en": "part {part}/{parts}",
+    },
+    "whisper_part": {
+        "id": "Transkripsi Whisper {part}…",
+        "en": "Whisper transcription {part}…",
+    },
+    "audio_from_file": {
+        "id": "Mengambil audio dari video untuk Whisper…",
+        "en": "Taking the audio from the video for Whisper…",
+    },
+    "no_youtube_subs": {
+        "id": "Subtitle YouTube tidak tersedia, mengunduh audio untuk Whisper…",
+        "en": "No YouTube subtitles, downloading the audio for Whisper…",
+    },
+    "failed": {
+        "id": "Transkrip video {video} tidak bisa dibuat: {error}",
+        "en": "The transcript of video {video} couldn't be made: {error}",
+    },
+    "unavailable": {
+        "id": "Transkrip video {video} tidak tersedia. {reason} Lalu lanjutkan job ini.",
+        "en": "The transcript of video {video} is not available. {reason} Then resume this job.",
+    },
+})
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +102,7 @@ def _whisper_chunks(
     a resumed job (or a retry after a crash) continues with the next chunk instead of starting over.
     """
     if not chunks:
-        raise PipelineError("Gagal memecah audio untuk transkripsi")
+        raise PipelineError(M("split_failed"))
     db = get_db()
     partial = db.transcripts.find_one({"_id": _partial_id(key)}) or {}
     done: dict[str, Any] = partial.get("chunks") if partial.get("chunk_seconds") == CHUNK_SECONDS else None
@@ -89,9 +121,9 @@ def _whisper_chunks(
         if str(i) in done:
             segments.extend(done[str(i)])
             continue
-        label = f"bagian {i + 1}/{len(chunks)}"
+        label = M("part", part=i + 1, parts=len(chunks))
         if on_status:
-            on_status(f"Transkripsi Whisper {label}…")
+            on_status(M("whisper_part", part=label))
         status = (lambda msg, label=label: on_status(f"{msg} ({label})")) if on_status else None
         payload = whisper.transcribe(chunk, words=False, cancel=cancel, on_status=status)
         offset = i * CHUNK_SECONDS
@@ -119,11 +151,11 @@ def _from_whisper(
     try:
         if video.get("file_path"):
             if on_status:
-                on_status("Mengambil audio dari video untuk Whisper…")
+                on_status(M("audio_from_file"))
             audio = Path(video["file_path"])
         else:
             if on_status:
-                on_status("Subtitle YouTube tidak tersedia, mengunduh audio untuk Whisper…")
+                on_status(M("no_youtube_subs"))
             audio = ytdlp.download_audio(video["youtube_id"], work, cancel)
         chunks = ffmpeg_ops.chunk_audio(audio, work / "chunks", CHUNK_SECONDS, cancel)
         return _whisper_chunks(cache_key(video), chunks, cancel, on_status)
@@ -161,12 +193,12 @@ def get_transcript(
         except Exception as exc:
             logger.warning("Whisper transcript failed for %s: %s", _label(video), exc)
             if not config.is_dev:
-                raise PipelineError(f"Transkrip video {_label(video)} tidak bisa dibuat: {exc}") from exc
+                raise PipelineError(M("failed", video=_label(video), error=exc)) from exc
 
     if config.is_dev:
         logger.warning("Using dev mock transcript for %s", _label(video))
         return MOCK_TRANSCRIPT
-    raise PipelineError(f"Transkrip video {_label(video)} tidak tersedia. {whisper.unavailable_reason()} Lalu lanjutkan job ini.")
+    raise PipelineError(M("unavailable", video=_label(video), reason=whisper.unavailable_reason()))
 
 
 MOCK_TRANSCRIPT: list[dict[str, Any]] = [

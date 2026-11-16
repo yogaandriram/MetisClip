@@ -3,6 +3,7 @@ import { Check, ChevronDown, RotateCcw } from 'lucide-react';
 import { Button, ColorPicker, Divider, Dropdown, Field, InputField, SelectField, Slider, Tabs, ToggleSwitch } from '@/components/ui';
 import { presets } from '@/lib/presets';
 import { CaptionPositionControls } from '@/components/captions/CaptionPositionControls';
+import { useT } from '@/lib/i18n/I18nProvider';
 import { CaptionSettings } from '../types';
 import { SUPPORTED_FONTS, FONT_WEIGHTS_MAP } from '@/lib/constants';
 
@@ -49,6 +50,8 @@ const CollapsibleSection: React.FC<{ title: string; children: React.ReactNode; d
 };
 
 export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ caption, emoji, updateCaption }) => {
+  const t = useT();
+  const c = t.brand.caption;
   const [captionTab, setCaptionTab] = useState('presets');
 
   const handlePresetSelect = (presetId: string) => {
@@ -65,22 +68,20 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
     <div className="mc-stack mc-gap-20">
       <Tabs
         tabs={[
-          { id: 'presets', label: 'Preset' },
-          { id: 'font', label: 'Font' },
-          { id: 'position', label: 'Posisi' }
+          { id: 'presets', label: c.tabs.presets },
+          { id: 'font', label: c.tabs.font },
+          { id: 'position', label: c.tabs.position }
         ]}
         activeTab={captionTab}
         onChange={setCaptionTab}
-        ariaLabel="Pengaturan caption"
+        ariaLabel={c.tabsLabel}
         size="sm"
         block
       />
 
       {captionTab === 'presets' && (
         <div className="mc-stack">
-          <p className="mc-caption mc-muted">
-            Setiap preset punya font bawaan sendiri. Memilih preset mengganti pengaturan di tab Font ke bawaannya.
-          </p>
+          <p className="mc-caption mc-muted">{c.presetsIntro}</p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 'var(--s-4)' }}>
             {presets.map(p => {
               const isSelected = caption.mode === p.id;
@@ -99,7 +100,7 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
                   <span className={isSelected ? 'mc-row mc-gap-4 mc-caption' : 'mc-row mc-gap-4 mc-caption mc-muted'}>
                     {isSelected && <Check size={14} aria-hidden="true" />}
                     {presetLabel(p.name)}
-                    {isSelected && <span className="mc-sr-only">(dipilih)</span>}
+                    {isSelected && <span className="mc-sr-only">{t.brand.selected}</span>}
                   </span>
                 </div>
               )
@@ -110,10 +111,7 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
 
       {captionTab === 'position' && (
         <div className="mc-stack">
-          <p className="mc-caption mc-muted">
-            Posisi bawaan sudah di area aman semua platform. Geser caption langsung di preview, atau atur di sini.
-            Berlaku untuk semua preset.
-          </p>
+          <p className="mc-caption mc-muted">{c.positionIntro}</p>
           <CaptionPositionControls style={caption} emoji={emoji} onChange={(updates) => updateCaption(updates)} />
         </div>
       )}
@@ -121,23 +119,23 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
       {captionTab === 'font' && (
         <div className="mc-stack mc-gap-20">
           <div className="mc-row mc-row--between">
-            <p className="mc-label">Pengaturan font</p>
+            <p className="mc-label">{c.fontSettings}</p>
             <Button
               variant="ghost"
               size="sm"
               icon={<RotateCcw size={16} aria-hidden="true" />}
               onClick={() => handlePresetSelect(caption.mode)}
-              title="Kembalikan ke font bawaan preset"
+              title={c.presetFontTitle}
             >
-              Bawaan preset
+              {c.presetFont}
             </Button>
           </div>
 
-          <Field label="Jenis font">
+          <Field label={c.fontFamily}>
             <div style={{ display: 'grid' }}>
               <Dropdown
                 width="100%"
-                triggerLabel={`Jenis font: ${caption.fontFamily}`}
+                triggerLabel={c.fontFamilyTrigger(caption.fontFamily)}
                 triggerClassName="mc-input mc-row mc-row--between"
                 trigger={
                   <>
@@ -164,14 +162,14 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
 
           <div className="mc-row mc-row--top mc-gap-16">
             <SelectField
-              label="Ketebalan"
+              label={c.weight}
               containerClassName="mc-grow"
               value={caption.fontWeight}
               options={weightOptions.map(w => ({ value: w, label: w }))}
               onChange={(e) => updateCaption({ fontWeight: e.target.value })}
             />
             <InputField
-              label="Ukuran (px)"
+              label={c.sizePx}
               type="number"
               min={10}
               max={300}
@@ -183,13 +181,13 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
           </div>
 
           <div className="mc-stack mc-gap-12">
-            <ColorPicker label="Warna teks" color={caption.fontColor} onChange={(c) => updateCaption({ fontColor: c })} />
-            <ColorPicker label="Highlight (aktif)" color={caption.highlightColor} onChange={(c) => updateCaption({ highlightColor: c })} />
+            <ColorPicker label={c.textColor} color={caption.fontColor} onChange={(v) => updateCaption({ fontColor: v })} />
+            <ColorPicker label={c.highlight} color={caption.highlightColor} onChange={(v) => updateCaption({ highlightColor: v })} />
           </div>
 
-          <CollapsibleSection title="Jarak huruf & baris">
+          <CollapsibleSection title={c.spacingSection}>
             <Slider
-              label="Jarak antar-huruf"
+              label={c.letterSpacing}
               min={-5}
               max={20}
               value={caption.letterSpacing ?? 0}
@@ -197,7 +195,7 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
               onChange={(val) => updateCaption({ letterSpacing: val })}
             />
             <Slider
-              label="Jarak antar-baris"
+              label={c.lineHeight}
               min={0.5}
               max={3.0}
               step={0.1}
@@ -206,23 +204,23 @@ export const CaptionSettingsPanel: React.FC<CaptionSettingsPanelProps> = ({ capt
             />
           </CollapsibleSection>
 
-          <CollapsibleSection title="Garis luar & bayangan">
-            <ColorPicker label="Warna garis luar" color={caption.strokeColor} onChange={(c) => updateCaption({ strokeColor: c })} />
+          <CollapsibleSection title={c.outlineSection}>
+            <ColorPicker label={c.strokeColor} color={caption.strokeColor} onChange={(v) => updateCaption({ strokeColor: v })} />
             <Slider
-              label="Tebal garis luar"
+              label={c.strokeWidth}
               min={0}
               max={50}
               value={caption.strokeWidth}
               format={px}
               onChange={(val) => updateCaption({ strokeWidth: val })}
             />
-            <ToggleSwitch label="Bayangan" checked={caption.hasShadow} onChange={(v) => updateCaption({ hasShadow: v })} />
+            <ToggleSwitch label={c.shadow} checked={caption.hasShadow} onChange={(v) => updateCaption({ hasShadow: v })} />
             {caption.hasShadow && (
               <>
-                <ColorPicker label="Warna bayangan" color={caption.shadowColor} onChange={(c) => updateCaption({ shadowColor: c })} />
-                <Slider label="Geser X" min={-100} max={100} value={caption.shadowX} format={px} onChange={(val) => updateCaption({ shadowX: val })} />
-                <Slider label="Geser Y" min={-100} max={100} value={caption.shadowY} format={px} onChange={(val) => updateCaption({ shadowY: val })} />
-                <Slider label="Blur" min={0} max={100} value={caption.shadowBlur} format={px} onChange={(val) => updateCaption({ shadowBlur: val })} />
+                <ColorPicker label={c.shadowColor} color={caption.shadowColor} onChange={(v) => updateCaption({ shadowColor: v })} />
+                <Slider label={c.shadowX} min={-100} max={100} value={caption.shadowX} format={px} onChange={(val) => updateCaption({ shadowX: val })} />
+                <Slider label={c.shadowY} min={-100} max={100} value={caption.shadowY} format={px} onChange={(val) => updateCaption({ shadowY: val })} />
+                <Slider label={c.shadowBlur} min={0} max={100} value={caption.shadowBlur} format={px} onChange={(val) => updateCaption({ shadowBlur: val })} />
               </>
             )}
           </CollapsibleSection>

@@ -16,6 +16,18 @@ from pathlib import Path
 
 from backend.core.paths import get_paths, is_frozen, repo_root
 from backend.version import __version__
+from backend.core import i18n
+
+M = i18n.messages({
+    "ytdlp_missing": {
+        "id": "yt-dlp.exe tidak ditemukan di folder bin aplikasi",
+        "en": "yt-dlp.exe was not found in the app's bin folder",
+    },
+    "node_missing": {
+        "id": "Runtime Node/Electron untuk render tidak ditemukan",
+        "en": "The Node/Electron runtime for rendering was not found",
+    },
+})
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +179,7 @@ def ytdlp_command() -> list[str]:
     found = shutil.which("yt-dlp")
     if found:
         return [found]
-    raise FileNotFoundError("yt-dlp.exe tidak ditemukan di folder bin aplikasi")
+    raise FileNotFoundError(M("ytdlp_missing"))
 
 
 def deno_path() -> str | None:
@@ -195,4 +207,4 @@ def node_command() -> tuple[list[str], dict[str, str]]:
     node = shutil.which("node")
     if node:
         return [node], {}
-    raise FileNotFoundError("Runtime Node/Electron untuk render tidak ditemukan")
+    raise FileNotFoundError(M("node_missing"))

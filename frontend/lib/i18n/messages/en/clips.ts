@@ -1,0 +1,38 @@
+import type { Messages } from '../id'
+
+export const clips: Messages['clips'] = {
+  title: 'Clips',
+  subtitle: 'Clips made by the AI and the jobs that make them.',
+  allCampaigns: 'All campaigns',
+  viewingArchived: (name: string) => `Showing the clips of the archived campaign ${name}.`,
+  backToActive: 'Back to the active campaign',
+  tabs: {
+    label: 'Clips or queue',
+    clips: 'Clips',
+    queue: 'Queue',
+  },
+  galleryName: 'the clip gallery',
+  loadFailed: "Couldn't load the clips",
+  deleted: 'Clip deleted',
+  desktopOnly: 'Only available in the desktop app',
+  noVideoFile: "The video file isn't available yet",
+  exportDialogTitle: 'Export clip to folder',
+  exported: 'Clip exported',
+  cannotExport: "The clip can't be exported yet",
+  emptyTitle: 'No clips yet',
+  emptyDescription: 'Clips made by the AI appear here automatically. Start from Find Video.',
+  newClip: 'New clips',
+  filterAria: 'Filter clips by status',
+  noneWithStatus: 'No clips with this status',
+  noneWithStatusDescription: (status: string) => `No clips with the status "${status}" yet.`,
+  showAll: 'Show all',
+  openEditor: (hook: string, score: number, status: string, clock: string) => `Open editor: ${hook} (viral score ${score}, ${status}, length ${clock})`,
+  edit: 'Edit',
+  export: 'Export',
+  delete: 'Delete clip',
+  deleteModal: {
+    title: 'Delete this clip?',
+    message: 'The clip and its video files (raw & rendered) will be permanently deleted from the data folder. This cannot be undone.',
+    confirm: 'Delete permanently',
+  },
+}

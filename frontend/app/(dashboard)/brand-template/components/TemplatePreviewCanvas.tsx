@@ -1,8 +1,11 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Play } from 'lucide-react';
 import { Stage } from '@/components/ui';
 import { assetUrl } from '@/lib/media';
 import { CaptionLayer } from '@/lib/presets/CaptionLayer';
+import { LayoutStage } from '@/lib/presets/LayoutStage';
+import { LAYOUT_LIMITS, type LayoutPatch, sampleScenes, stageRect, usesScenes, usesSource } from '@/lib/presets/layout';
+import { DUO_PLACEHOLDER, SLIDE_PLACEHOLDER } from './LayoutPresetGallery';
 import { LOGO_BASE_SIZE, logoPosition, logoScale } from '@/lib/presets/BrandOverlay';
 import type { CaptionWord } from '@/lib/presets/types';
 import {
@@ -15,6 +18,7 @@ import {
   captionRect,
   toDesign,
 } from '@/lib/presets/position';
+import { useT } from '@/lib/i18n/I18nProvider';
 import { AiSettings, CaptionSettings, BrandSettings, LayoutSettings, SafeZone, safeZoneLabel } from '../types';
 
 interface TemplatePreviewCanvasProps {
@@ -23,20 +27,25 @@ interface TemplatePreviewCanvasProps {
   brandSettings?: BrandSettings;
   layoutSettings: LayoutSettings;
   onUpdateBrand?: (updates: Partial<BrandSettings>) => void;
+  /** Podcast frame or card dragged on the preview */
+  onUpdateLayout?: (patch: LayoutPatch) => void;
+  /** Width / height of the sample video once it is loaded (the frame uses it like a clip's source) */
+  onSampleAspect?: (aspect: number) => void;
   /** Caption dragged (or moved with the arrow keys) on the preview */
   onUpdateCaption?: (updates: Partial<CaptionSettings>) => void;
 }
 
-// Sample sentence for the preview loop. "eh" shows the filler-word setting; the marked words show
-// the keyword highlight and emoji settings (in real clips the AI marks them, editable per word).
-const SAMPLE_WORDS: CaptionWord[] = [
-  { word: 'Rahasia', start: 0.0, end: 0.42 },
-  { word: 'konten', start: 0.42, end: 0.8 },
-  { word: 'viral', start: 0.8, end: 1.25, keyword: true, emoji: '🔥' },
-  { word: 'eh', start: 1.3, end: 1.6 },
-  { word: 'ternyata', start: 1.65, end: 2.1 },
-  { word: 'sederhana', start: 2.1, end: 2.65, keyword: true },
-  { word: 'banget!', start: 2.65, end: 3.15, emoji: '💡' },
+// Timing and marks of the sample sentence for the preview loop (its words come from t.brand.sample.words).
+// The 4th word is a filler word and shows the filler-word setting; the marked words show the keyword
+// highlight and emoji settings (in real clips the AI marks them, editable per word).
+const SAMPLE_TIMING: Omit<CaptionWord, 'word'>[] = [
+  { start: 0.0, end: 0.42 },
+  { start: 0.42, end: 0.8 },
+  { start: 0.8, end: 1.25, keyword: true, emoji: '🔥' },
+  { start: 1.3, end: 1.6 },
+  { start: 1.65, end: 2.1 },
+  { start: 2.1, end: 2.65, keyword: true },
+  { start: 2.65, end: 3.15, emoji: '💡' },
 ];
 const SAMPLE_LOOP = 4.3; // seconds, includes a short silence so the fade-out is visible
 
@@ -57,6 +66,14 @@ const SAFE_AREA_OUTLINE: React.CSSProperties = {
   borderRadius: 'var(--r-xs)',
   pointerEvents: 'none',
 };
+// Stand-in for a video the preview does not have (source, speaker without a sample video, companion)
+const PLACEHOLDER: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  color: 'var(--on-ink)',
+  background: 'var(--ink-soft)',
+};
 const SNAP_LINE: React.CSSProperties = { position: 'absolute', background: 'var(--leaf)', zIndex: 10, pointerEvents: 'none' };
 const CAPTION_SNAP = 6; // design px
 const ALL_SAFE = toDesign(ALL_PLATFORMS_UI);
@@ -66,13 +83,14 @@ const ALL_SAFE = toDesign(ALL_PLATFORMS_UI);
  * figures as the caption safety check (lib/presets/position.ts). Drawn on the preview only.
  */
 const SafeZoneGuide: React.FC<{ zone: SafeZone }> = ({ zone }) => {
+  const t = useT();
   if (zone === 'none') return null;
   const z = zone === 'all' ? ALL_SAFE : toDesign(PLATFORM_UI[zone]);
   return (
     <div aria-hidden="true" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 5 }}>
-      <div style={{ ...SAFE_ZONE_BAND, left: 0, right: 0, top: 0, height: z.top }}>Tab & menu</div>
-      <div style={{ ...SAFE_ZONE_BAND, left: 0, right: 0, bottom: 0, height: z.bottom }}>Judul & keterangan</div>
-      <div style={{ ...SAFE_ZONE_BAND, right: 0, top: z.top, bottom: z.bottom, width: z.right, writingMode: 'vertical-rl' }}>Tombol</div>
+      <div style={{ ...SAFE_ZONE_BAND, left: 0, right: 0, top: 0, height: z.top }}>{t.brand.preview.bandTop}</div>
+      <div style={{ ...SAFE_ZONE_BAND, left: 0, right: 0, bottom: 0, height: z.bottom }}>{t.brand.preview.bandBottom}</div>
+      <div style={{ ...SAFE_ZONE_BAND, right: 0, top: z.top, bottom: z.bottom, width: z.right, writingMode: 'vertical-rl' }}>{t.brand.preview.bandSide}</div>
       <div style={{ ...SAFE_ZONE_BAND, left: 0, top: z.top, bottom: z.bottom, width: z.left }} />
       <div style={{ ...SAFE_AREA_OUTLINE, left: z.left, right: z.right, top: z.top, bottom: z.bottom }} />
     </div>
@@ -95,7 +113,20 @@ function useLoopClock(period: number): number {
   return time;
 }
 
-export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ caption, ai, brandSettings, layoutSettings, onUpdateBrand, onUpdateCaption }) => {
+export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
+  caption,
+  ai,
+  brandSettings,
+  layoutSettings,
+  onUpdateBrand,
+  onUpdateLayout,
+  onSampleAspect,
+  onUpdateCaption,
+}) => {
+  const t = useT();
+  const P = t.brand.preview;
+  const sample = t.brand.sample;
+  const sampleWords = useMemo<CaptionWord[]>(() => SAMPLE_TIMING.map((w, i) => ({ ...w, word: sample.words[i] ?? '' })), [sample.words]);
   // Brand assets are stored as asset://<path>; no remote sample video (the app must work offline)
   const videoUrl = assetUrl(brandSettings?.sampleVideoUrl);
   const overlaySrc = assetUrl(brandSettings?.overlayUrl);
@@ -177,6 +208,57 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
     if (moves[e.key]) {
       e.preventDefault();
       onUpdateCaption(moves[e.key]);
+    }
+  };
+
+  // Podcast frame or card: dragged up and down, saved on release
+  const framed = usesSource(layoutSettings.mode);
+  const split = layoutSettings.mode === 'split';
+  const scened = usesScenes(layoutSettings.mode);
+  const auto = layoutSettings.mode === 'auto';
+  const companionUrl = assetUrl(layoutSettings.companion.videoUrl);
+  const [aspect, setAspect] = useState(16 / 9);
+  const frameStart = useRef<{ py: number; y: number } | null>(null);
+  const [frameDrag, setFrameDrag] = useState<number | null>(null);
+  const draggedLayout: LayoutSettings = frameDrag !== null ? { ...layoutSettings, frame: { ...layoutSettings.frame, y: frameDrag } } : layoutSettings;
+  // The speaker name is usually set per clip: show a sample so the tag's style can be judged here
+  const sp = draggedLayout.speaker;
+  const shownLayout: LayoutSettings = sp.enabled
+    ? { ...draggedLayout, speaker: { ...sp, name: sp.name.trim() || sample.speakerName, role: sp.name.trim() ? sp.role : sp.role || sample.speakerRole } }
+    : draggedLayout;
+  const frame = stageRect(shownLayout, aspect, sample.title);
+
+  const handleFramePointerDown = (e: React.PointerEvent) => {
+    if (!onUpdateLayout) return;
+    e.stopPropagation();
+    frameStart.current = { py: e.clientY, y: layoutSettings.frame.y };
+    setFrameDrag(layoutSettings.frame.y);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const handleFramePointerMove = (e: React.PointerEvent) => {
+    const start = frameStart.current;
+    if (!start || !containerRef.current) return;
+    const scale = containerRef.current.getBoundingClientRect().width / CANVAS_WIDTH;
+    const y = start.y + (e.clientY - start.py) / scale;
+    setFrameDrag(Math.round(Math.max(LAYOUT_LIMITS.frameY.min, Math.min(LAYOUT_LIMITS.frameY.max, CANVAS_HEIGHT - 40 - (frame?.height || 0), y))));
+  };
+  const handleFramePointerUp = (e: React.PointerEvent) => {
+    const start = frameStart.current;
+    if (!start) return;
+    e.stopPropagation();
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    frameStart.current = null;
+    if (frameDrag !== null && onUpdateLayout && frameDrag !== start.y) onUpdateLayout({ frame: { y: frameDrag } });
+    setFrameDrag(null);
+  };
+  const handleFrameKeyDown = (e: React.KeyboardEvent) => {
+    if (!onUpdateLayout) return;
+    const step = e.shiftKey ? 10 : 2;
+    const y = layoutSettings.frame.y;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      const next = e.key === 'ArrowUp' ? y - step : y + step;
+      onUpdateLayout({ frame: { y: Math.max(LAYOUT_LIMITS.frameY.min, Math.min(LAYOUT_LIMITS.frameY.max, next)) } });
     }
   };
 
@@ -274,9 +356,9 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
   return (
     <Stage className="mc-stack">
       <div className="mc-row mc-row--between">
-        <h2 className="mc-h3">Preview</h2>
+        <h2 className="mc-h3">{P.heading}</h2>
         {layoutSettings.safeZone && layoutSettings.safeZone !== 'none' && (
-          <span className="mc-caption mc-muted">Safe zone {safeZoneLabel(layoutSettings.safeZone)}</span>
+          <span className="mc-caption mc-muted">{P.safeZone(safeZoneLabel(layoutSettings.safeZone, t))}</span>
         )}
       </div>
 
@@ -292,19 +374,71 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
           overflow: 'hidden',
         }}
       >
-        {videoUrl ? (
-          <video
-            src={videoUrl}
-            autoPlay
-            loop
-            muted
-            playsInline
-            style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.8 }}
-          />
-        ) : (
-          <div className="mc-caption mc-muted" style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '0 30px' }}>
-            Unggah &quot;Video contoh&quot; di bagian Logo & video contoh untuk melihat preview di atas video Anda.
+        <LayoutStage
+          layout={shownLayout}
+          aspect={aspect}
+          title={sample.title}
+          channel={sample.channel}
+          backgroundImageUrl={assetUrl(layoutSettings.background.imageUrl)}
+          avatarUrl={assetUrl(layoutSettings.card.avatarUrl)}
+          time={clock}
+          words={sampleWords}
+          // Auto: two people, one person and a slide in turn (a third of the sample loop each)
+          scenes={sampleScenes(layoutSettings.mode, SAMPLE_LOOP / 3)}
+          renderVideo={(role, style) =>
+            (role === 'duoTop' || role === 'duoBottom') && !videoUrl ? (
+              <div style={{ ...style, ...DUO_PLACEHOLDER }} />
+            ) : (role === 'framed' || (auto && role === 'background')) && !videoUrl ? (
+              <div style={{ ...style, ...SLIDE_PLACEHOLDER }} />
+            ) : role === 'companion' ? (
+              companionUrl ? (
+                <video key={companionUrl} src={companionUrl} autoPlay loop muted playsInline style={style} />
+              ) : (
+                <div className="mc-caption" style={{ ...style, ...PLACEHOLDER }}>
+                  {P.companion}
+                </div>
+              )
+            ) : videoUrl ? (
+              <video
+                src={videoUrl}
+                autoPlay
+                loop
+                muted
+                playsInline
+                onLoadedMetadata={(e) => {
+                  const v = e.currentTarget;
+                  if (role === 'main' && v.videoWidth > 0 && v.videoHeight > 0) {
+                    setAspect(v.videoWidth / v.videoHeight);
+                    onSampleAspect?.(v.videoWidth / v.videoHeight);
+                  }
+                }}
+                style={{ ...style, opacity: framed || auto ? 1 : 0.8 }}
+              />
+            ) : role === 'main' && (framed || split || auto) ? (
+              <div className="mc-caption" style={{ ...style, ...PLACEHOLDER }}>
+                {split || auto ? P.speakerVideo : P.sourceVideo}
+              </div>
+            ) : null
+          }
+        />
+        {!videoUrl && !framed && !split && !scened && (
+          <div className="mc-caption mc-muted" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '0 30px' }}>
+            {P.noSample(t.brand.assets.sampleTitle, t.brand.sections.overlay)}
           </div>
+        )}
+        {frame && onUpdateLayout && (
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label={layoutSettings.mode === 'card' ? P.frameAriaCard : P.frameAriaVideo}
+            className={frameDrag !== null ? 'mc-drag-target is-dragging' : 'mc-drag-target'}
+            onPointerDown={handleFramePointerDown}
+            onPointerMove={handleFramePointerMove}
+            onPointerUp={handleFramePointerUp}
+            onPointerCancel={handleFramePointerUp}
+            onKeyDown={handleFrameKeyDown}
+            style={{ left: frame.left, top: frame.top, width: frame.width, height: frame.height, cursor: 'ns-resize', zIndex: 12 }}
+          />
         )}
 
         {/* Safe zone overlays (guides only, never rendered). While the caption is dragged, the
@@ -338,7 +472,7 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
           >
             <img
               src={overlaySrc}
-              alt="Brand Overlay"
+              alt={P.logoAlt}
               onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
@@ -379,12 +513,12 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
         )}
 
         {/* Caption: the same component and sizing as the clip editor and the exported video */}
-        <CaptionLayer words={SAMPLE_WORDS} time={clock} style={{ ...shownCaption, offsetTime: 0 }} ai={ai} />
+        <CaptionLayer words={sampleWords} time={clock} style={{ ...shownCaption, offsetTime: 0 }} ai={ai} />
         {onUpdateCaption && (
           <div
             role="button"
             tabIndex={0}
-            aria-label="Posisi caption. Geser untuk memindahkan, atau pakai tombol panah (Shift untuk langkah besar)."
+            aria-label={P.captionAria}
             className={capDrag ? 'mc-drag-target is-dragging' : 'mc-drag-target'}
             onPointerDown={handleCaptionPointerDown}
             onPointerMove={handleCaptionPointerMove}
@@ -405,8 +539,9 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({ ca
       </div>
 
       <p className="mc-caption mc-muted" style={{ maxWidth: `${CANVAS_WIDTH}px` }}>
-        Geser caption untuk memindahkannya.
-        {overlaySrc && ' Geser logo untuk memindahkan, tarik titik di sudutnya untuk mengubah ukuran.'}
+        {P.helpCaption}
+        {framed && ` ${layoutSettings.mode === 'card' ? P.helpCard : P.helpVideo}`}
+        {overlaySrc && ` ${P.helpLogo}`}
       </p>
     </Stage>
   );

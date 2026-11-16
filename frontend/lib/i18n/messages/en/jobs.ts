@@ -1,0 +1,45 @@
+import type { Messages } from '../id'
+
+export const jobs: Messages['jobs'] = {
+  stepShort: {
+    discovery: 'Discovery',
+    analysis: 'Analysis',
+    processing: 'Processing',
+  },
+  progressLabel: 'Job progress',
+  loadFailed: "Couldn't load the queue",
+  resumed: 'Job resumed',
+  cancelled: 'Job cancelled',
+  deleted: 'Job deleted',
+  config: (duration: string, max: number) => `${duration} sec · max. ${max || '∞'} ${max === 1 ? 'clip' : 'clips'}`,
+  createdAt: (date: string) => `created ${date}`,
+  emptyTitle: 'The queue is empty',
+  emptyDescription: 'No jobs yet. Paste a YouTube link or upload a video in Find Video.',
+  needsAction: 'Needs action',
+  running: 'Running',
+  history: 'History',
+  resume: 'Resume',
+  detail: 'Details',
+  detailAria: 'Job details',
+  cancel: 'Cancel',
+  delete: 'Delete job',
+  stoppedAt: (step: string) => `Stopped at step: ${step}.`,
+  progressClips: (done: number, total: number) => `${done}/${total} ${total === 1 ? 'clip' : 'clips'}`,
+  columns: {
+    status: 'Status',
+    source: 'Source',
+    settings: 'Settings',
+    created: 'Created',
+    actions: 'Actions',
+  },
+  cancelModal: {
+    title: 'Cancel this job?',
+    message: 'The job will stop. Clips that are already done are kept, and the job can be resumed later.',
+    confirm: 'Cancel job',
+  },
+  deleteModal: {
+    title: 'Delete the job from the queue?',
+    message: "This job's history will be deleted. The clips it made are not deleted.",
+    confirm: 'Delete job',
+  },
+}

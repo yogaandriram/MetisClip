@@ -3,6 +3,7 @@
 import React from 'react'
 import { Alert, Button, Field, Slider } from '@/components/ui'
 import type { CaptionStyle } from '@/lib/presets/defaults'
+import { useT } from '@/lib/i18n/I18nProvider'
 import {
   CENTER_X,
   DESIGN_CANVAS,
@@ -24,77 +25,73 @@ interface CaptionPositionControlsProps {
   onChange: (updates: CaptionPositionUpdate, coalesceKey?: string) => void
 }
 
-const QUICK: { id: QuickPosition; label: string }[] = [
-  { id: 'top', label: 'Atas' },
-  { id: 'middle', label: 'Tengah' },
-  { id: 'bottom', label: 'Bawah' },
-]
-
-const listJoin = (items: string[]) => (items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} dan ${items[items.length - 1]}`)
+const QUICK: QuickPosition[] = ['top', 'middle', 'bottom']
 
 /**
  * Caption position: quick spots inside the area every platform leaves free, fine sliders, and
  * whether TikTok, IG Reels or YT Shorts would cover part of the caption (lib/presets/position.ts).
  */
 export function CaptionPositionControls({ style, emoji, onChange }: CaptionPositionControlsProps) {
+  const t = useT()
+  const m = t.captions
   const covered = coveredBy(style, emoji)
   const current = QUICK.find((q) => {
-    const p = quickPosition(q.id, style, emoji)
+    const p = quickPosition(q, style, emoji)
     return Math.round(style.positionX) === p.positionX && Math.round(style.positionY) === p.positionY
-  })?.id
+  })
 
   return (
     <div className="mc-stack">
-      <Field label="Posisi cepat" hint="Ketiganya berada di area yang tidak tertutup tampilan TikTok, IG Reels, dan YT Shorts.">
-        <div role="group" aria-label="Posisi cepat caption" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 'var(--s-2)' }}>
+      <Field label={m.quickLabel} hint={m.quickHint}>
+        <div role="group" aria-label={m.quickGroup} style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 'var(--s-2)' }}>
           {QUICK.map((q) => (
             <Button
-              key={q.id}
+              key={q}
               size="sm"
-              variant={current === q.id ? 'primary' : 'secondary'}
-              aria-pressed={current === q.id}
-              onClick={() => onChange(quickPosition(q.id, style, emoji))}
+              variant={current === q ? 'primary' : 'secondary'}
+              aria-pressed={current === q}
+              onClick={() => onChange(quickPosition(q, style, emoji))}
             >
-              {q.label}
+              {m.quick[q]}
             </Button>
           ))}
         </div>
       </Field>
 
       <Slider
-        label="Posisi vertikal"
+        label={m.vertical}
         min={POSITION_LIMITS.y.min}
         max={POSITION_LIMITS.y.max}
         value={Math.round(style.positionY)}
-        hint="Jarak bagian bawah caption dari bawah video."
+        hint={m.verticalHint}
         format={(v) => `${Math.round((v / DESIGN_CANVAS.height) * 100)}%`}
         onChange={(v) => onChange({ positionY: v }, 'positionY')}
       />
       <Slider
-        label="Posisi horizontal"
+        label={m.horizontal}
         min={POSITION_LIMITS.x.min}
         max={POSITION_LIMITS.x.max}
         value={Math.round(style.positionX)}
-        hint={`${Math.round((CENTER_X / DESIGN_CANVAS.width) * 100)}% = tengah video.`}
+        hint={m.horizontalHint(Math.round((CENTER_X / DESIGN_CANVAS.width) * 100))}
         format={(v) => `${Math.round((v / DESIGN_CANVAS.width) * 100)}%`}
         onChange={(v) => onChange({ positionX: v }, 'positionX')}
       />
 
       {covered.length === 0 ? (
-        <Alert tone="success" title="Aman di semua platform">
-          Caption tidak tertutup judul, keterangan, atau tombol TikTok, IG Reels, dan YT Shorts.
+        <Alert tone="success" title={m.safeTitle}>
+          {m.safeBody}
         </Alert>
       ) : (
         <Alert
           tone="warning"
-          title={`Bisa tertutup tampilan ${listJoin(covered.map((p) => PLATFORM_LABELS[p]))}`}
+          title={m.coveredTitle(m.listJoin(covered.map((p) => PLATFORM_LABELS[p])))}
           action={
             <Button size="sm" variant="secondary" onClick={() => onChange(moveIntoSafeArea(style, emoji))}>
-              Pindahkan ke area aman
+              {m.moveToSafe}
             </Button>
           }
         >
-          Sebagian caption berada di area judul, keterangan, atau tombol aplikasi tersebut.
+          {m.coveredBody}
         </Alert>
       )}
     </div>

@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, TypedDict
 
 class PipelineState(TypedDict, total=False):
     job_id: str
-    agent_id: Optional[str]
+    campaign_ids: list[str]
     youtube_url: Optional[str]
     clip_duration: str  # '30-45' | '45-60' | '60-75' | '75-90'
     max_clips: int

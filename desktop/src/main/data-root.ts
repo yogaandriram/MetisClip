@@ -6,6 +6,7 @@ import { app } from 'electron'
 import { getPaths } from './paths'
 import { powershell } from './procs'
 import { createLogger } from './logger'
+import { tr } from './i18n'
 
 const log = createLogger('data-root')
 
@@ -194,7 +195,7 @@ export async function validateDataRoot(input: string): Promise<DataRootCheck> {
   }
 
   if (!raw || !path.win32.isAbsolute(raw) || !/^[A-Za-z]:[\\/]/.test(raw)) {
-    problems.push('Path harus berupa folder lengkap di drive lokal, misalnya D:\\MetisClip.')
+    problems.push(tr().dataRoot.notAbsolute)
     return result
   }
   const p = path.resolve(raw)
@@ -202,7 +203,7 @@ export async function validateDataRoot(input: string): Promise<DataRootCheck> {
   const root = path.parse(p).root.toUpperCase()
 
   if (p.toUpperCase() === root) {
-    problems.push('Pilih atau buat sebuah folder, jangan langsung akar drive (misalnya D:\\MetisClip, bukan D:\\).')
+    problems.push(tr().dataRoot.driveRoot)
   }
 
   // Not inside cloud-sync folders (resolve junctions / redirected known folders when the path exists)
@@ -218,29 +219,29 @@ export async function validateDataRoot(input: string): Promise<DataRootCheck> {
   }
   const cloud = cloudSyncReason(p) || cloudSyncReason(real)
   if (cloud) {
-    problems.push(`Folder ini ada di dalam ${cloud}. Aplikasi sinkronisasi cloud bisa merusak file database, pilih folder lain (misalnya D:\\MetisClip).`)
+    problems.push(tr().dataRoot.cloud(cloud))
   }
 
   const winDir = (process.env.SystemRoot || process.env.windir || 'C:\\Windows').toLowerCase()
   const lower = p.toLowerCase()
-  if (lower === winDir || lower.startsWith(winDir + '\\')) problems.push('Folder sistem Windows tidak boleh dipakai.')
+  if (lower === winDir || lower.startsWith(winDir + '\\')) problems.push(tr().dataRoot.windowsDir)
   if (app.isPackaged) {
     const appDir = path.dirname(process.execPath).toLowerCase()
     if (lower === appDir || lower.startsWith(appDir + '\\')) {
-      problems.push('Jangan simpan data di dalam folder instalasi aplikasi (akan terhapus saat update/uninstall).')
+      problems.push(tr().dataRoot.installDir)
     }
   }
 
   // Drive type and free space
   const info = await driveInfo(root)
   if (info) {
-    if (info.type === 'NoRootDirectory') problems.push(`Drive ${root} tidak ditemukan.`)
-    else if (!info.ready) problems.push(`Drive ${root} tidak siap atau tidak terpasang.`)
-    else if (info.type === 'Removable') problems.push(`Drive ${root} adalah drive lepas-pasang (flashdisk/kartu memori). Pilih drive lokal tetap.`)
-    else if (info.type === 'Network') problems.push(`Drive ${root} adalah drive jaringan. Database harus berada di drive lokal.`)
-    else if (info.type === 'CDRom') problems.push(`Drive ${root} adalah drive CD/DVD.`)
-    else if (info.type === 'Ram') problems.push(`Drive ${root} adalah RAM disk (isinya hilang saat restart).`)
-    else if (info.type !== 'Fixed') warnings.push(`Jenis drive ${root} tidak dikenali (${info.type}).`)
+    if (info.type === 'NoRootDirectory') problems.push(tr().dataRoot.driveMissing(root))
+    else if (!info.ready) problems.push(tr().dataRoot.driveNotReady(root))
+    else if (info.type === 'Removable') problems.push(tr().dataRoot.removable(root))
+    else if (info.type === 'Network') problems.push(tr().dataRoot.network(root))
+    else if (info.type === 'CDRom') problems.push(tr().dataRoot.cdrom(root))
+    else if (info.type === 'Ram') problems.push(tr().dataRoot.ramDisk(root))
+    else if (info.type !== 'Fixed') warnings.push(tr().dataRoot.unknownType(root, info.type))
     result.freeBytes = info.free
     result.totalBytes = info.total
   } else if (existing) {
@@ -249,33 +250,33 @@ export async function validateDataRoot(input: string): Promise<DataRootCheck> {
       result.freeBytes = s.free
       result.totalBytes = s.total
     }
-    warnings.push(`Jenis drive ${root} tidak bisa diperiksa.`)
+    warnings.push(tr().dataRoot.typeUnchecked(root))
   } else {
-    problems.push(`Drive ${root} tidak ditemukan.`)
+    problems.push(tr().dataRoot.driveMissing(root))
   }
 
   if (existing && fs.existsSync(p) && !fs.statSync(p).isDirectory()) {
-    problems.push('Path tersebut adalah file, bukan folder.')
+    problems.push(tr().dataRoot.isFile)
   }
 
   if (problems.length === 0) {
     const err = writableCheck(p)
-    if (err) problems.push(`Folder tidak bisa ditulisi (${err}). Pilih folder lain yang bisa Anda ubah.`)
+    if (err) problems.push(tr().dataRoot.notWritable(err))
   }
 
   if (result.totalBytes > 0) {
     const freeGb = (result.freeBytes / GB).toFixed(1)
-    if (result.freeBytes < MIN_BLOCK_BYTES) problems.push(`Ruang kosong di ${root} hanya ${freeGb} GB. Minimal 2 GB, disarankan 15 GB atau lebih.`)
-    else if (result.freeBytes < MIN_OK_BYTES) warnings.push(`Ruang kosong di ${root} ${freeGb} GB. Disarankan minimal 15 GB untuk video dan database.`)
+    if (result.freeBytes < MIN_BLOCK_BYTES) problems.push(tr().dataRoot.lowSpaceBlock(root, freeGb))
+    else if (result.freeBytes < MIN_OK_BYTES) warnings.push(tr().dataRoot.lowSpaceWarn(root, freeGb))
   }
 
-  if (p.length > MAX_PATH_OK) warnings.push(`Path cukup panjang (${p.length} karakter). Path pendek (maks. 60) lebih aman, misalnya D:\\MetisClip.`)
+  if (p.length > MAX_PATH_OK) warnings.push(tr().dataRoot.longPath(p.length))
 
   result.existingData = hasExistingData(p)
   if (!result.existingData && fs.existsSync(p)) {
     try {
       const entries = fs.readdirSync(p).filter((n) => !SUBFOLDERS.includes(n))
-      if (entries.length > 0) warnings.push('Folder ini tidak kosong. File yang sudah ada tidak akan diubah.')
+      if (entries.length > 0) warnings.push(tr().dataRoot.notEmpty)
     } catch {
       // ignore
     }

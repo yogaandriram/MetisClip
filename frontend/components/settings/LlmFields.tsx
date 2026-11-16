@@ -7,6 +7,7 @@ import { LLM_PROVIDERS, providerInfo } from '@/lib/llmProviders'
 import { errorMessage } from '@/lib/format'
 import { Button, ChoiceChips, Field, InputField, SelectField } from '@/components/ui'
 import { SecretField } from '@/components/settings/SecretField'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 export type LlmValue = Settings['llm']
 
@@ -16,7 +17,7 @@ interface LlmSectionProps {
   /** Which secrets are stored (booleans from the engine) */
   secrets: Record<SecretName, boolean>
   onSecretConfigured: (name: SecretName, configured: boolean) => void
-  /** Persist the LLM settings (provider, model, base URL) so "Tes" checks what is on screen */
+  /** Persist the LLM settings (provider, model, base URL) so "Test" checks what is on screen */
   persist: () => Promise<void>
   allowRemove?: boolean
 }
@@ -27,6 +28,8 @@ const inlineIcon: React.CSSProperties = { display: 'inline-block', verticalAlign
 
 /** Provider picker (six providers + OpenAI-compatible), its API key, model and, for compatible endpoints, the base URL. */
 export function LlmSection({ value, onChange, secrets, onSecretConfigured, persist, allowRemove = true }: LlmSectionProps) {
+  const t = useT()
+  const m = t.settings.llm
   const [keys, setKeys] = useState<Partial<Record<LlmSecretName, string>>>({})
   const [models, setModels] = useState<Partial<Record<LlmProvider, string[]>>>({})
   const [loadingModels, setLoadingModels] = useState(false)
@@ -51,9 +54,9 @@ export function LlmSection({ value, onChange, secrets, onSecretConfigured, persi
     try {
       const res = await api.llm.models(value.provider, { value: keyValue.trim() || undefined, base_url: compatible ? value.base_url : undefined })
       setModels((prev) => ({ ...prev, [value.provider]: res.models }))
-      if (!res.models.length) setModelsError('Penyedia tidak mengembalikan model teks. Ketik nama model secara manual.')
+      if (!res.models.length) setModelsError(m.noModels)
     } catch (err) {
-      setModelsError(errorMessage(err, 'Daftar model gagal dimuat'))
+      setModelsError(errorMessage(err, m.modelsFailed))
     } finally {
       setLoadingModels(false)
     }
@@ -67,7 +70,7 @@ export function LlmSection({ value, onChange, secrets, onSecretConfigured, persi
         {secrets[p.secret] && (
           <>
             <KeyRound size={14} aria-hidden="true" />
-            <span className="mc-sr-only">, API key tersimpan</span>
+            <span className="mc-sr-only">{m.keyStored}</span>
           </>
         )}
       </>
@@ -77,21 +80,20 @@ export function LlmSection({ value, onChange, secrets, onSecretConfigured, persi
   return (
     <div className="mc-stack mc-gap-20">
       <Field
-        label="Penyedia LLM"
+        label={m.provider}
         hint={
           <>
-            Dipakai untuk menganalisis transkrip, memilih momen viral, dan menandai kata kunci/emoji. Tanda <KeyRound size={12} aria-hidden="true" style={inlineIcon} /> berarti
-            API key penyedia itu sudah tersimpan.
+            {m.providerHintBefore} <KeyRound size={12} aria-hidden="true" style={inlineIcon} /> {m.providerHintAfter}
           </>
         }
       >
-        <ChoiceChips ariaLabel="Penyedia LLM" options={providerOptions} value={value.provider} onChange={choose} />
+        <ChoiceChips ariaLabel={m.provider} options={providerOptions} value={value.provider} onChange={choose} />
       </Field>
 
       {compatible && (
         <InputField
           label="Base URL"
-          hint="Alamat endpoint yang memakai format API OpenAI, biasanya diakhiri /v1."
+          hint={m.baseUrlHint}
           placeholder="https://…/v1"
           value={value.base_url}
           onChange={(e) => onChange({ ...value, base_url: e.target.value })}
@@ -103,14 +105,14 @@ export function LlmSection({ value, onChange, secrets, onSecretConfigured, persi
       <SecretField
         key={provider.secret}
         name={provider.secret}
-        label={compatible ? 'API key OpenAI-compatible' : `API key ${provider.label}`}
+        label={compatible ? m.keyLabelCompatible : m.keyLabel(provider.label)}
         description={
           provider.keyUrl ? (
             <a href={provider.keyUrl} target="_blank" rel="noreferrer" className="mc-link" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              Buat API key {provider.label} <ExternalLink size={14} aria-hidden="true" />
+              {m.createKey(provider.label)} <ExternalLink size={14} aria-hidden="true" />
             </a>
           ) : (
-            'Key dari layanan pemilik Base URL di atas.'
+            m.compatibleKeyHint
           )
         }
         configured={secrets[provider.secret]}
@@ -123,7 +125,7 @@ export function LlmSection({ value, onChange, secrets, onSecretConfigured, persi
 
       <div className="mc-stack mc-gap-8">
         <div className="mc-row mc-gap-8" style={{ alignItems: 'flex-end' }}>
-          <InputField label="Model" value={model} onChange={(e) => setModel(e.target.value)} spellCheck={false} containerClassName="mc-grow" placeholder="Nama model" mono />
+          <InputField label={m.model} value={model} onChange={(e) => setModel(e.target.value)} spellCheck={false} containerClassName="mc-grow" placeholder={m.modelPlaceholder} mono />
           <Button
             type="button"
             variant="secondary"
@@ -132,14 +134,14 @@ export function LlmSection({ value, onChange, secrets, onSecretConfigured, persi
             disabled={!hasKey || (compatible && !/^https?:\/\//.test(value.base_url))}
             icon={<ListRestart size={16} aria-hidden="true" />}
           >
-            Muat daftar model
+            {m.loadModels}
           </Button>
         </div>
         {list && list.length > 0 && (
           <SelectField
-            label={`Pilih dari ${list.length} model ${provider.label}`}
+            label={m.pickFrom(list.length, provider.label)}
             value={list.includes(model) ? model : MANUAL}
-            options={[...(list.includes(model) ? [] : [{ value: MANUAL, label: model ? `${model} (diketik manual)` : 'Pilih model…' }]), ...list.map((m) => ({ value: m, label: m }))]}
+            options={[...(list.includes(model) ? [] : [{ value: MANUAL, label: model ? m.typedManually(model) : m.chooseModel }]), ...list.map((m) => ({ value: m, label: m }))]}
             onChange={(e) => e.target.value !== MANUAL && setModel(e.target.value)}
           />
         )}
@@ -149,7 +151,7 @@ export function LlmSection({ value, onChange, secrets, onSecretConfigured, persi
             {modelsError}
           </span>
         )}
-        {!hasKey && <span className="mc-caption mc-muted">Isi API key dulu untuk memuat daftar model dari {provider.label}.</span>}
+        {!hasKey && <span className="mc-caption mc-muted">{m.needKey(provider.label)}</span>}
       </div>
     </div>
   )

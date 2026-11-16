@@ -16,10 +16,11 @@ def client(db, secrets):
 
 
 def test_migration_creates_indexes_and_version(db):
-    assert db.meta.find_one({"_id": "schema"})["version"] == 8
-    assert not {"scheduled_posts", "api_cache"} & set(db.list_collection_names())
+    assert db.meta.find_one({"_id": "schema"})["version"] == 10
+    assert not {"scheduled_posts", "api_cache", "super_agents"} & set(db.list_collection_names())
     names = {ix["name"] for ix in db.clips.list_indexes()}
-    assert "agent_id_1_created_at_-1" in names
+    assert "campaign_id_1_created_at_-1" in names and "agent_id_1_created_at_-1" not in names
+    assert "campaign_ids_1_created_at_-1" in {ix["name"] for ix in db.discovery_jobs.list_indexes()}
 
 
 def test_validator_rejects_bad_status(db):
@@ -31,7 +32,7 @@ def test_validator_rejects_bad_status(db):
 def test_migration_is_idempotent(db):
     from backend.core.db import migrate
 
-    assert migrate(db) == 8
+    assert migrate(db) == 10
 
 
 def test_migration_002_removes_publishing_data(mongo):
@@ -55,9 +56,10 @@ def test_migration_002_removes_publishing_data(mongo):
                                        "checkpoint": {"analysis_done": True, "scheduling_done": True}})
         old.meta.insert_one({"_id": "schema", "version": 1})
 
-        assert dbm.migrate(old) == 8
+        assert dbm.migrate(old) == 10
         assert "scheduled_posts" not in old.list_collection_names()
-        assert "social_connections" not in old.super_agents.find_one({"_id": "a1"})
+        # The workspace became a campaign (migration 010) without the old field
+        assert "social_connections" not in old.campaigns.find_one({"name": "Agen"})
         job = old.discovery_jobs.find_one({"_id": "j1"})
         assert job["current_step"] == "processing"
         assert job["checkpoint"] == {"analysis_done": True}
@@ -92,14 +94,14 @@ def test_migration_005_removes_keyword_search(mongo, secrets):
         old.meta.insert_one({"_id": "schema", "version": 4})
         secrets.set_secret("youtube_api_key", "AIza-test-key")
 
-        assert dbm.migrate(old) == 8
+        assert dbm.migrate(old) == 10
         assert "api_cache" not in old.list_collection_names()
-        assert old.super_agents.find_one({"_id": "a1"}, {"_id": 0, "created_at": 0}) == {"name": "Agen", "niche": "bisnis"}
+        assert "default_keywords" not in old.campaigns.find_one({"name": "Agen"})
         job = old.discovery_jobs.find_one({"_id": "j1"})
         assert job["source"] == {"type": "keyword", "youtube_url": None} and job["config"] == {"clip_duration": "45-60"}
         assert set(old.source_videos.find_one({"_id": "v1"})) == {"_id", "job_id", "youtube_id", "created_at"}
         assert secrets.get_secret("youtube_api_key") is None
-        assert dbm.migrate(old) == 8  # idempotent
+        assert dbm.migrate(old) == 10  # idempotent
     finally:
         mongo.drop_database(name)
         dbm.set_db(None, None)  # type: ignore[arg-type]
@@ -125,7 +127,7 @@ def test_migration_006_accepts_uploaded_source_videos(mongo):
         with pytest.raises(WriteError):
             old.source_videos.insert_one(dict(upload))
         old.meta.insert_one({"_id": "schema", "version": 5})
-        assert dbm.migrate(old) == 8
+        assert dbm.migrate(old) == 10
         old.source_videos.insert_one(upload)
     finally:
         mongo.drop_database(name)
@@ -153,7 +155,7 @@ def test_migration_008_moves_the_old_default_caption_position(mongo):
             {"_id": "t-own", "name": "Sendiri", "caption_settings": {"mode": "lumina", "positionY": 260},
              "created_at": now, "updated_at": now},
         ])
-        clip = {"agent_id": None, "job_id": None, "source_video_id": None, "youtube_id": "x", "start_time": 0,
+        clip = {"job_id": None, "source_video_id": None, "youtube_id": "x", "start_time": 0,
                 "end_time": 10, "duration_seconds": 10, "status": "ready", "files": {}, "created_at": now, "updated_at": now}
         old.clips.insert_many([
             {**clip, "_id": "c-old", "subtitle_style": {"mode": "glitch", "positionY": 80}},
@@ -161,13 +163,17 @@ def test_migration_008_moves_the_old_default_caption_position(mongo):
             {**clip, "_id": "c-none", "subtitle_style": {}},
         ])
         old.meta.insert_one({"_id": "schema", "version": 7})
-        assert dbm.migrate(old) == 8
+        assert dbm.migrate(old) == 10
 
         assert old.brand_templates.find_one({"_id": "t-old"})["caption_settings"] == {"mode": "lumina", "fontSize": 40}
         assert old.brand_templates.find_one({"_id": "t-own"})["caption_settings"]["positionY"] == 260
         assert old.clips.find_one({"_id": "c-old"})["subtitle_style"] == {"mode": "glitch", "positionY": 190}
         assert old.clips.find_one({"_id": "c-own"})["subtitle_style"] == {"positionY": 120}
         assert old.clips.find_one({"_id": "c-none"})["subtitle_style"] == {}
+        # Clips without a workspace or campaign end up in one "Clip lama" campaign
+        [older] = list(old.campaigns.find({}))
+        assert older["name"] == "Clip lama" and older["slug"] == "clip-lama"
+        assert {c["campaign_id"] for c in old.clips.find({})} == {older["_id"]}
     finally:
         mongo.drop_database(name)
         dbm.set_db(None, None)  # type: ignore[arg-type]
@@ -178,25 +184,123 @@ def test_auth_required(db):
 
     with TestClient(create_app()) as c:
         assert c.get("/health").status_code == 200
-        assert c.get("/api/agents").status_code == 401
-        assert c.get("/api/agents", params={"token": config.token}).status_code == 200
+        assert c.get("/api/campaigns").status_code == 401
+        assert c.get("/api/campaigns", params={"token": config.token}).status_code == 200
+        assert c.get("/api/agents", params={"token": config.token}).status_code == 404  # workspaces are gone
 
 
-def test_agent_crud_and_brand_template(client):
-    r = client.post("/api/agents", json={"name": "Podcast Bisnis", "niche": "bisnis"})
-    assert r.status_code == 200
-    agent = r.json()["agent"]
-    assert agent["niche"] == "bisnis" and "default_keywords" not in agent
-    # A fresh database has one library template; new agents use the oldest one by default
+def test_campaign_is_the_container(client, db, paths):
+    from backend.models.documents import ClipDoc, JobConfig, JobDoc, JobSource
+
+    a = client.post("/api/campaigns", json={"name": "Podcast Bisnis"}).json()["campaign"]
+    b = client.post("/api/campaigns", json={"name": "Podcast Bisnis"}).json()["campaign"]
+    other = client.post("/api/campaigns", json={"name": "Lain"}).json()["campaign"]
+    slugs = {c["_id"]: c["slug"] for c in db.campaigns.find({})}
+    assert slugs[a["id"]] == "podcast-bisnis" and slugs[b["id"]] == "podcast-bisnis-2"  # one folder each
+    # A fresh database has one library template, used by campaigns without their own
     [tpl] = client.get("/api/brand-templates").json()["brand_templates"]
-    assert tpl["name"] == "Template Default" and agent["default_brand_template_id"] == tpl["id"]
-    # Same name -> unique slug
-    client.post("/api/agents", json={"name": "Podcast Bisnis"})
-    bt = client.put(f"/api/brand-templates/{tpl['id']}", json={"caption_settings": {"mode": "glitch"}}).json()
-    assert bt["brand_template"]["caption_settings"] == {"mode": "glitch"}
-    assert client.delete(f"/api/agents/{agent['id']}").json() == {"ok": True}
-    assert len(client.get("/api/brand-templates").json()["brand_templates"]) == 1  # templates outlive agents
-    assert len(client.get("/api/agents").json()["agents"]) == 1
+    assert tpl["name"] == "Template Default" and tpl["is_default"] and len(tpl["used_by_campaigns"]) == 3
+
+    # Clips and jobs: the job that follows only `a` goes with it, the shared one keeps following `other`
+    only_a = JobDoc(_id=new_id(), source=JobSource(type="url", youtube_url="https://youtu.be/abcdefghijk"), config=JobConfig(),
+                    campaign_ids=[a["id"]], status="completed").to_mongo()
+    shared = JobDoc(_id=new_id(), source=JobSource(type="url", youtube_url="https://youtu.be/abcdefghijk"), config=JobConfig(),
+                    campaign_ids=[a["id"], other["id"]], campaigns=[{"id": a["id"]}, {"id": other["id"]}],
+                    status="completed").to_mongo()
+    db.discovery_jobs.insert_many([only_a, shared])
+    clip_ids = []
+    for cid, n in ((a["id"], 2), (other["id"], 1)):
+        for _ in range(n):
+            clip_id = new_id()
+            folder = paths.clip_dir(slugs[cid], clip_id)
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / "raw.mp4").write_bytes(b"v")
+            db.clips.insert_one(ClipDoc(_id=clip_id, campaign_id=cid, job_id=shared["_id"], source_video_id=None,
+                                        youtube_id="x", start_time=0, end_time=10, duration_seconds=10, status="ready",
+                                        files={"raw": paths.to_relative(folder / "raw.mp4")}).to_mongo())
+            clip_ids.append(clip_id)
+    assert client.get("/api/dashboard/stats", params={"campaign_id": a["id"]}).json()["clipsGenerated"] == 2
+    assert client.get("/api/dashboard/stats").json()["clipsGenerated"] == 3
+    storage = client.get("/api/system/storage").json()
+    assert [c["name"] for c in storage["per_campaign"]] == ["Podcast Bisnis", "Podcast Bisnis", "Lain"]
+    assert storage["per_campaign"][0]["bytes"] == 2
+
+    r = client.delete(f"/api/campaigns/{a['id']}", params={"delete_files": True})
+    assert r.json() == {"ok": True, "deleted_clips": 2}
+    assert db.clips.count_documents({}) == 1 and db.discovery_jobs.find_one({"_id": only_a["_id"]}) is None
+    kept = db.discovery_jobs.find_one({"_id": shared["_id"]})
+    assert kept["campaign_ids"] == [other["id"]] and kept["campaigns"] == [{"id": other["id"]}]
+    assert not paths.campaign_library("podcast-bisnis").exists()  # its clip folders and the emptied folder
+    assert paths.clip_dir("lain", clip_ids[2]).exists()
+    assert len(client.get("/api/brand-templates").json()["brand_templates"]) == 1  # templates outlive campaigns
+
+
+def test_migration_010_turns_workspaces_into_campaigns(mongo, paths):
+    import os
+    import time
+
+    from backend.core import db as dbm
+    from backend.db.migrations import m001_init, m003_brand_template_library, m009_campaigns
+    from backend.db.migrations import m010_campaigns_replace_workspaces as m010
+
+    name = f"metisclip_v9_{os.getpid()}_{time.time_ns()}"
+    old = mongo[name]
+    dbm.set_db(old, mongo)
+    try:
+        m001_init.up(old)
+        m003_brand_template_library.up(old)
+        m009_campaigns.up(old)
+        now = utcnow()
+        tpl = old.brand_templates.find_one({})["_id"]
+        old.super_agents.insert_many([
+            {"_id": "w1", "name": "Podcast Bisnis", "slug": "podcast-bisnis", "niche": "bisnis",
+             "default_brand_template_id": "t-own", "created_at": now},
+            {"_id": "w2", "name": "Kosong", "slug": "kosong", "default_brand_template_id": "gone", "created_at": now},
+        ])
+        old.brand_templates.insert_one({"_id": "t-own", "name": "Sendiri", "created_at": now, "updated_at": now})
+        # A campaign made before (with a brief) whose name would take the same folder
+        old.campaigns.insert_one({"_id": "camp", "name": "Podcast Bisnis", "status": "active", "brief": {"focus": ["x"]},
+                                  "sources": [], "version": 1, "created_at": now, "updated_at": now})
+        job = {"source": {"type": "url"}, "config": {}, "status": "completed", "checkpoint": {}, "created_at": now}
+        old.discovery_jobs.insert_many([
+            {**job, "_id": "j1", "agent_id": "w1"},
+            {**job, "_id": "j2", "agent_id": "w1", "campaign_ids": ["camp"], "campaigns": [{"id": "camp"}]},
+            {**job, "_id": "j3", "agent_id": "deleted"},
+        ])
+        clip = {"job_id": "j1", "source_video_id": None, "youtube_id": "x", "start_time": 0, "end_time": 10,
+                "duration_seconds": 10, "status": "ready", "files": {}, "created_at": now, "updated_at": now}
+        old.clips.insert_many([
+            {**clip, "_id": "c1", "agent_id": "w1"},
+            {**clip, "_id": "c2", "agent_id": "w1", "campaign_id": "camp"},
+            {**clip, "_id": "c3", "agent_id": "deleted"},
+        ])
+        old.source_videos.insert_one({"_id": "sv", "job_id": "j1", "agent_id": "w1", "created_at": now})
+        old.meta.insert_one({"_id": "schema", "version": 9})
+        assert dbm.migrate(old) == 10
+        m010.up(old)  # a re-run is harmless
+
+        camps = {c["name"]: c for c in old.campaigns.find({})}
+        assert set(camps) == {"Podcast Bisnis", "Kosong", "Clip lama"} and old.campaigns.count_documents({}) == 4
+        ws = old.campaigns.find_one({"name": "Podcast Bisnis", "_id": {"$ne": "camp"}})
+        # The workspace's campaign keeps its folder and template; the older campaign got another folder
+        assert ws["slug"] == "podcast-bisnis" and ws["brand_template_id"] == "t-own" and ws["brief"]["focus"] == []
+        assert old.campaigns.find_one({"_id": "camp"})["slug"] == "podcast-bisnis-2"
+        assert camps["Kosong"]["brand_template_id"] is None  # its template was gone
+        assert old.clips.find_one({"_id": "c1"})["campaign_id"] == ws["_id"]
+        assert old.clips.find_one({"_id": "c2"})["campaign_id"] == "camp"
+        assert old.clips.find_one({"_id": "c3"})["campaign_id"] == camps["Clip lama"]["_id"]
+        j1 = old.discovery_jobs.find_one({"_id": "j1"})
+        assert j1["campaign_ids"] == [ws["_id"]] and j1["campaigns"][0]["name"] == "Podcast Bisnis"
+        assert old.discovery_jobs.find_one({"_id": "j2"})["campaign_ids"] == ["camp"]
+        assert old.discovery_jobs.find_one({"_id": "j3"})["campaign_ids"] == [camps["Clip lama"]["_id"]]
+        for coll in ("clips", "discovery_jobs", "source_videos"):
+            assert not old[coll].count_documents({"agent_id": {"$exists": True}})
+        assert "super_agents" not in old.list_collection_names()
+        assert old.meta.find_one({"_id": m010.MAP_ID}) is None
+        assert tpl
+    finally:
+        mongo.drop_database(name)
+        dbm.set_db(None, None)  # type: ignore[arg-type]
 
 
 def _video(path, *, audio=True):
@@ -211,10 +315,10 @@ def _video(path, *, audio=True):
 
 
 def test_job_sources_are_validated(client, tmp_path):
-    agent = client.post("/api/agents", json={"name": "Agen Sumber"}).json()["agent"]
+    camp = client.post("/api/campaigns", json={"name": "Sumber"}).json()["campaign"]
 
     def post(**body):
-        r = client.post("/api/jobs", json={"agent_id": agent["id"], **body})
+        r = client.post("/api/jobs", json={"campaign_ids": [camp["id"]], **body})
         return r.status_code, r.json().get("detail")
 
     one_of = (400, "Isi link YouTube atau pilih file video (salah satu)")
@@ -272,12 +376,13 @@ def test_secret_values_are_only_returned_on_reveal(client):
 
 
 def test_subtitle_update_and_effective_style(client, db):
-    agent = client.post("/api/agents", json={"name": "A"}).json()["agent"]
-    client.put(f"/api/brand-templates/{agent['default_brand_template_id']}", json={"caption_settings": {"mode": "lumina", "fontSize": 60}})
+    camp = client.post("/api/campaigns", json={"name": "A"}).json()["campaign"]
+    default_id = client.get("/api/brand-templates").json()["brand_templates"][0]["id"]
+    client.put(f"/api/brand-templates/{default_id}", json={"caption_settings": {"mode": "lumina", "fontSize": 60}})
     cid = new_id()
     from backend.models.documents import ClipDoc
 
-    db.clips.insert_one(ClipDoc(_id=cid, agent_id=agent["id"], job_id=None, source_video_id=None, youtube_id="x",
+    db.clips.insert_one(ClipDoc(_id=cid, campaign_id=camp["id"], job_id=None, source_video_id=None, youtube_id="x",
                                 start_time=0, end_time=10, duration_seconds=10, status="ready").to_mongo())
     r = client.put(f"/api/clips/{cid}/subtitles", json={"words": [{"word": "Halo", "start": 0, "end": 0.4}],
                                                          "style": {"fontSize": 80}})

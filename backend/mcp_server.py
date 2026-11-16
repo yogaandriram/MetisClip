@@ -33,16 +33,18 @@ def _call(method: str, path: str, **kw: Any) -> Any:
 
 
 @mcp.tool()
-def list_agents() -> list:
-    """List workspaces (called agents in the engine API)."""
-    return _call("GET", "/api/agents")["agents"]
+def list_campaigns() -> list:
+    """List the campaigns (every job and clip belongs to one) with their brief summary."""
+    return [{"id": c["id"], "name": c.get("name"), "client": c.get("client"), "status": c.get("status"),
+             "summary": (c.get("brief") or {}).get("summary") or ""}
+            for c in _call("GET", "/api/campaigns")["campaigns"]]
 
 
 @mcp.tool()
-def clip_youtube_video(agent_id: str, youtube_url: str, clip_duration: str = "45-60", max_clips: int = 3) -> dict:
-    """Start a full pipeline job for a YouTube link (analyze -> clip). Returns the job."""
+def clip_youtube_video(campaign_ids: list[str], youtube_url: str, clip_duration: str = "45-60", max_clips: int = 3) -> dict:
+    """Start a full pipeline job for a YouTube link (analyze -> clip) for 1-5 active campaigns. Returns the job."""
     body = {
-        "agent_id": agent_id,
+        "campaign_ids": campaign_ids,
         "youtube_url": youtube_url,
         "clip_duration": clip_duration,
         "max_clips": max_clips,
@@ -51,9 +53,11 @@ def clip_youtube_video(agent_id: str, youtube_url: str, clip_duration: str = "45
 
 
 @mcp.tool()
-def clip_local_video(agent_id: str, file_path: str, clip_duration: str = "45-60", max_clips: int = 3) -> dict:
-    """Start a full pipeline job for a video file on this PC (absolute path; used in place). Returns the job."""
-    body = {"agent_id": agent_id, "local_file_path": file_path, "clip_duration": clip_duration, "max_clips": max_clips}
+def clip_local_video(campaign_ids: list[str], file_path: str, clip_duration: str = "45-60", max_clips: int = 3) -> dict:
+    """Start a full pipeline job for a video file on this PC (absolute path; used in place) for 1-5 active
+    campaigns. Returns the job."""
+    body = {"campaign_ids": campaign_ids, "local_file_path": file_path, "clip_duration": clip_duration,
+            "max_clips": max_clips}
     return _call("POST", "/api/jobs", json=body)["job"]
 
 
@@ -64,9 +68,9 @@ def job_status(job_id: str) -> dict:
 
 
 @mcp.tool()
-def list_clips(agent_id: Optional[str] = None, job_id: Optional[str] = None) -> list:
+def list_clips(campaign_id: Optional[str] = None, job_id: Optional[str] = None) -> list:
     """Clips with hook text, viral score and status."""
-    params = {k: v for k, v in {"agent_id": agent_id, "job_id": job_id}.items() if v}
+    params = {k: v for k, v in {"campaign_id": campaign_id, "job_id": job_id}.items() if v}
     clips = _call("GET", "/api/clips", params=params)["clips"]
     for c in clips:
         c.pop("subtitle_data", None)

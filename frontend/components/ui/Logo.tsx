@@ -1,6 +1,7 @@
 import React from 'react'
 import Link from 'next/link'
 import { cx } from '@/lib/cx'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 /** The play mark in leaf on an ink circle. */
 export function LogoMark({ size = 26 }: { size?: number }) {
@@ -19,11 +20,12 @@ interface LogoProps {
 }
 
 export function Logo({ size = 'md', href, className }: LogoProps) {
+  const t = useT()
   const classes = cx('mc-logo', size === 'sm' && 'mc-logo--sm', className)
   const mark = <LogoMark size={size === 'sm' ? 20 : 26} />
   if (href) {
     return (
-      <Link href={href} className={classes} aria-label="MetisClip, ke Beranda">
+      <Link href={href} className={classes} aria-label={t.shell.logoHome}>
         {mark}
       </Link>
     )

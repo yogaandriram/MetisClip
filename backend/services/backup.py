@@ -82,6 +82,6 @@ def maybe_daily_backup() -> None:
     db = _db()
     if db.discovery_jobs.count_documents({"status": "running"}) or db.render_jobs.count_documents({"status": "rendering"}):
         return
-    if not db.super_agents.count_documents({}) and not db.clips.count_documents({}):
+    if not db.campaigns.count_documents({}) and not db.clips.count_documents({}):
         return  # nothing worth backing up yet
     write_backup(reason="daily")

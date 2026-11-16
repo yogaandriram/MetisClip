@@ -11,9 +11,9 @@ router = APIRouter(tags=["dashboard"])
 
 
 @router.get("/api/dashboard/stats")
-def dashboard_stats(agent_id: Optional[str] = None):
+def dashboard_stats(campaign_id: Optional[str] = None):
+    """Numbers for Beranda: one campaign's, or all of them."""
     db = get_db()
-    q = {"agent_id": agent_id} if agent_id else {}
-    videos = db.discovery_jobs.count_documents(q)
-    clips = db.clips.count_documents(q)
+    videos = db.discovery_jobs.count_documents({"campaign_ids": campaign_id} if campaign_id else {})
+    clips = db.clips.count_documents({"campaign_id": campaign_id} if campaign_id else {})
     return {"videosProcessed": videos, "clipsGenerated": clips, "potentialViews": clips * 1250}

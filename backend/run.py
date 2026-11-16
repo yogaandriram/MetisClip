@@ -14,6 +14,34 @@ import socket
 import sys
 import threading
 import time
+from backend.core import i18n
+
+M = i18n.messages({
+    "data_folder": {
+        "id": "Folder data tidak dapat disiapkan: {error}",
+        "en": "The data folder can't be prepared: {error}",
+    },
+    "no_token": {
+        "id": "METISCLIP_TOKEN tidak di-set",
+        "en": "METISCLIP_TOKEN is not set",
+    },
+    "database": {
+        "id": "Database gagal disiapkan: {error}",
+        "en": "The database couldn't be prepared: {error}",
+    },
+    "port": {
+        "id": "Port engine tidak dapat dibuka: {error}",
+        "en": "The engine port can't be opened: {error}",
+    },
+    "server_error": {
+        "id": "Server engine gagal dijalankan: {error}",
+        "en": "The engine server failed to start: {error}",
+    },
+    "server": {
+        "id": "Server engine gagal dijalankan",
+        "en": "The engine server failed to start",
+    },
+})
 
 # stdout is reserved for the ready/fatal line; everything else goes to stderr
 _REAL_STDOUT = sys.stdout if sys.stdout is not None else open(os.devnull, "w")
@@ -28,6 +56,11 @@ def _emit(obj: dict) -> None:
         _REAL_STDOUT.flush()
     except Exception:
         pass
+
+
+def _t(key: str, **values) -> str:
+    # Startup errors come before (or instead of) the database: the language comes from METISCLIP_LANG
+    return M.text(key, i18n.offline_language(), **values)
 
 
 def _fatal(message: str) -> None:
@@ -108,7 +141,7 @@ def main() -> None:
         paths.ensure()
         setup_logging()
     except Exception as exc:
-        _fatal(f"Folder data tidak dapat disiapkan: {exc}")
+        _fatal(_t("data_folder", error=exc))
         return
 
     log = logging.getLogger("metisclip")
@@ -116,7 +149,7 @@ def main() -> None:
 
     log.info("MetisClip engine %s starting (env=%s, data_root=%s)", config.version, config.env, paths.data_root)
     if not config.token:
-        _fatal("METISCLIP_TOKEN tidak di-set")
+        _fatal(_t("no_token"))
 
     from backend.core import db as dbm
     from backend.core.procs import kill_all
@@ -133,7 +166,7 @@ def main() -> None:
         return
     except Exception as exc:
         log.exception("Database initialisation failed")
-        _fatal(f"Database gagal disiapkan: {exc}")
+        _fatal(_t("database", error=exc))
         return
 
     try:
@@ -142,7 +175,7 @@ def main() -> None:
         sock.listen(128)
         config.port = sock.getsockname()[1]
     except OSError as exc:
-        _fatal(f"Port engine tidak dapat dibuka: {exc}")
+        _fatal(_t("port", error=exc))
         return
 
     import uvicorn
@@ -184,8 +217,8 @@ def main() -> None:
         try:
             await task
         except BaseException as exc:  # noqa: BLE001
-            _fatal(f"Server engine gagal dijalankan: {exc}")
-        _fatal("Server engine gagal dijalankan")
+            _fatal(_t("server_error", error=exc))
+        _fatal(_t("server"))
 
     try:
         asyncio.run(serve())

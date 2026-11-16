@@ -20,6 +20,7 @@ class Provider:
     reasoning: bool = False  # models may spend output tokens on thinking: give the limit headroom
     effort: bool = False  # send reasoning_effort="low" (dropped automatically if refused)
     completion_tokens: bool = False  # OpenAI's own API: max_completion_tokens instead of max_tokens
+    vision: bool = True  # accepts images (campaign brief screenshots); False skips straight to OCR
 
 
 PROVIDERS: dict[str, Provider] = {
@@ -32,7 +33,8 @@ PROVIDERS: dict[str, Provider] = {
         Provider("gemini", "Google Gemini", "gemini_api_key", "https://generativelanguage.googleapis.com/v1beta/openai",
                  "gemini-3.6-flash", reasoning=True, effort=True),
         Provider("xai", "xAI (Grok)", "xai_api_key", "https://api.x.ai/v1", "grok-4.3", reasoning=True),
-        Provider("deepseek", "DeepSeek", "deepseek_api_key", "https://api.deepseek.com", "deepseek-flash"),
+        Provider("deepseek", "DeepSeek", "deepseek_api_key", "https://api.deepseek.com", "deepseek-flash",
+                 vision=False),
         Provider("qwen", "Alibaba Qwen", "qwen_api_key", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
                  "qwen-plus"),
         # 9Router, Groq, OpenRouter, Together AI, … : any endpoint that speaks the OpenAI format

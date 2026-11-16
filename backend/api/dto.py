@@ -12,23 +12,12 @@ def http_error(status: int, detail: str) -> HTTPException:
     return HTTPException(status_code=status, detail=detail)
 
 
-def agent_dto(doc: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": doc["_id"],
-        "name": doc.get("name", ""),
-        "niche": doc.get("niche"),
-        "default_duration": doc.get("default_duration", "45-60"),
-        "timezone": doc.get("timezone", "Asia/Jakarta"),
-        "default_brand_template_id": doc.get("default_brand_template_id"),
-        "created_at": iso(doc.get("created_at")),
-    }
-
-
 def brand_template_dto(
     doc: dict[str, Any] | None,
     *,
-    used_by_agents: list[dict[str, Any]] | None = None,
+    used_by_campaigns: list[dict[str, Any]] | None = None,
     clip_count: int | None = None,
+    is_default: bool | None = None,
 ) -> dict[str, Any] | None:
     if not doc:
         return None
@@ -42,8 +31,10 @@ def brand_template_dto(
         "created_at": iso(doc.get("created_at")),
         "updated_at": iso(doc.get("updated_at")),
     }
-    if used_by_agents is not None:
-        out["used_by_agents"] = [{"id": a["_id"], "name": a.get("name") or ""} for a in used_by_agents]
+    if used_by_campaigns is not None:
+        out["used_by_campaigns"] = [{"id": c["_id"], "name": c.get("name") or ""} for c in used_by_campaigns]
+    if is_default is not None:
+        out["is_default"] = is_default
     if clip_count is not None:
         out["clip_count"] = clip_count
     return out
@@ -60,6 +51,11 @@ def job_dto(doc: dict[str, Any]) -> dict[str, Any]:
     }
     d.setdefault("current_step", None)
     d.setdefault("errors", [])
+    # The brief snapshots stay in the job; the list only needs which campaigns
+    d["campaigns"] = [{"id": c.get("id"), "name": c.get("name") or "", "version": c.get("version", 1)}
+                      for c in d.get("campaigns") or [] if isinstance(c, dict)]
+    d.setdefault("campaign_ids", [c["id"] for c in d["campaigns"]])
+    d.setdefault("note", "")
     d.setdefault("started_at", None)
     d.setdefault("finished_at", None)
     return d
@@ -69,7 +65,6 @@ def clip_dto(doc: dict[str, Any]) -> dict[str, Any]:
     files = doc.get("files") or {}
     return {
         "id": doc["_id"],
-        "agent_id": doc.get("agent_id"),
         "job_id": doc.get("job_id"),
         "source_video_id": doc.get("source_video_id"),
         "youtube_id": doc.get("youtube_id"),
@@ -81,13 +76,33 @@ def clip_dto(doc: dict[str, Any]) -> dict[str, Any]:
         "tags": doc.get("tags") or [],
         "rationale": doc.get("rationale", ""),
         "status": doc.get("status", "ready"),
-        "files": {"raw": files.get("raw"), "final": files.get("final"), "thumbnail": files.get("thumbnail")},
+        "files": {"raw": files.get("raw"), "final": files.get("final"), "thumbnail": files.get("thumbnail"),
+                  "source": files.get("source"), "faces": files.get("faces")},
+        "source_width": doc.get("source_width"),
+        "source_height": doc.get("source_height"),
         "subtitle_data": {"clip_id": doc["_id"], "words": (doc.get("subtitle") or {}).get("words") or []},
         "subtitle_style": doc.get("subtitle_style") or {},
+        "layout_style": doc.get("layout_style") or {},
         "brand_template_id": doc.get("brand_template_id"),
+        "campaign_id": doc.get("campaign_id"),
+        "brief_fit": doc.get("brief_fit"),
+        "brief_reason": doc.get("brief_reason") or "",
+        "post_copy": to_api(doc.get("post_copy")) if doc.get("post_copy") else None,
+        "brief_manual": doc.get("brief_manual") or {},
         "created_at": iso(doc.get("created_at")),
         "updated_at": iso(doc.get("updated_at")),
     }
+
+
+def campaign_dto(doc: dict[str, Any], *, counts: dict[str, int] | None = None) -> dict[str, Any]:
+    d = to_api(doc) or {}
+    c = counts or {}
+    d["clip_count"] = c.get("clips", 0)
+    d["exported_count"] = c.get("exported", 0)
+    d.setdefault("draft", None)
+    d.setdefault("parse", {"status": "idle"})
+    d.setdefault("brand_template_id", None)
+    return d
 
 
 def render_dto(doc: dict[str, Any]) -> dict[str, Any]:

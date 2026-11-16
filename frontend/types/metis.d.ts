@@ -15,7 +15,7 @@ declare global {
 
   interface MetisEngineStatus {
     state: MetisEngineState
-    /** Human readable (Bahasa Indonesia) detail, e.g. why the engine failed */
+    /** Human readable detail in the UI language, e.g. why the engine failed */
     message?: string
     /** Present when state === 'ready' */
     info?: MetisEngineInfo
@@ -26,9 +26,9 @@ declare global {
     ok: boolean
     /** Normalised absolute path that was checked */
     path: string
-    /** Blocking problems (Bahasa Indonesia) */
+    /** Blocking problems (in the UI language) */
     problems: string[]
-    /** Non-blocking warnings (Bahasa Indonesia) */
+    /** Non-blocking warnings (in the UI language) */
     warnings: string[]
     freeBytes: number
     totalBytes: number
@@ -46,6 +46,10 @@ declare global {
     readonly platform: string
     readonly appVersion: string
     readonly isPackaged: boolean
+    /** UI language saved by the main process ('id' | 'en'), read when the window loaded */
+    readonly language: string
+    /** Saves the UI language: main uses it for its own screens and dialogs and passes it to the engine */
+    setLanguage(lang: string): Promise<void>
 
     /** Resolves once the engine is ready (waits while starting / during first-run setup). Rejects on fatal error. */
     getEngineInfo(): Promise<MetisEngineInfo>

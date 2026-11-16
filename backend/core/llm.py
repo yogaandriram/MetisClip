@@ -8,12 +8,17 @@ Providers differ in which request parameters they accept (temperature on reasoni
 max_tokens vs max_completion_tokens, JSON mode, reasoning_effort). A request refused because of
 such a parameter is retried without it, and the adjustment is remembered per endpoint and model.
 
+Images (campaign brief screenshots) go along as OpenAI image parts or Anthropic image blocks. A model
+that refuses them raises LLMNoVision, and that is remembered per endpoint and model, so the caller
+falls back to OCR without asking again.
+
 Rate limits (HTTP 429): a short limit (per minute) is retried after the wait the provider asks for.
 A used-up quota (a daily limit, billing, or a wait of minutes) raises LLMQuotaExhausted at once,
 because retrying cannot help and every caller should stop instead of trying the next request.
 """
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import re
@@ -26,6 +31,198 @@ from urllib.parse import urlsplit
 
 from backend.core.llm_providers import PROVIDERS, Provider
 from backend.core.secrets import get_secret
+from backend.core import i18n
+
+M = i18n.messages({
+    "unknown_provider": {
+        "id": "Penyedia LLM tidak dikenal. Pilih ulang di Pengaturan.",
+        "en": "Unknown LLM provider. Choose it again in Settings.",
+    },
+    "no_base_url": {
+        "id": "Base URL LLM belum diisi di Pengaturan",
+        "en": "The LLM Base URL is not set in Settings",
+    },
+    "no_key": {
+        "id": "API key LLM ({provider}) belum diisi di Pengaturan",
+        "en": "The LLM API key ({provider}) is not set in Settings",
+    },
+    "quota_advice": {
+        "id": "Untuk lanjut sekarang, pilih model atau penyedia lain di Pengaturan.",
+        "en": "To continue now, choose another model or provider in Settings.",
+    },
+    "provider_said": {
+        "id": "Pesan penyedia: {detail}",
+        "en": "Provider message: {detail}",
+    },
+    "second": {
+        "id": "{n} detik",
+        "en": "{n} second",
+    },
+    "seconds": {
+        "id": "{n} detik",
+        "en": "{n} seconds",
+    },
+    "minute": {
+        "id": "{n} menit",
+        "en": "{n} minute",
+    },
+    "minutes": {
+        "id": "{n} menit",
+        "en": "{n} minutes",
+    },
+    "hour": {
+        "id": "{n} jam",
+        "en": "{n} hour",
+    },
+    "hours": {
+        "id": "{n} jam",
+        "en": "{n} hours",
+    },
+    "quota_back": {
+        "id": "Kuota pulih sekitar {wait} lagi.",
+        "en": "The quota resets in about {wait}.",
+    },
+    "quota_billing": {
+        "id": "Kuota atau saldo akun LLM habis ({where}).",
+        "en": "The LLM account's quota or balance is used up ({where}).",
+    },
+    "billing_advice": {
+        "id": "Periksa paket atau billing di situs penyedia, atau pilih penyedia lain di Pengaturan.",
+        "en": "Check your plan or billing on the provider's site, or choose another provider in Settings.",
+    },
+    "quota_daily": {
+        "id": "Kuota harian LLM habis ({where}).",
+        "en": "The daily LLM quota is used up ({where}).",
+    },
+    "quota_limit": {
+        "id": "Batas pemakaian LLM tercapai ({where}).",
+        "en": "The LLM usage limit was reached ({where}).",
+    },
+    "gave_up_rate": {
+        "id": "LLM terus terkena batas rate (HTTP 429) dari {where} setelah {attempts} percobaan. Coba lagi beberapa menit lagi, atau pilih model lain di Pengaturan.",
+        "en": "The LLM kept hitting the rate limit (HTTP 429) from {where} after {attempts} attempts. Try again in a few minutes, or choose another model in Settings.",
+    },
+    "gave_up_server": {
+        "id": "Server LLM sedang bermasalah (HTTP {status}, {where}) setelah {attempts} percobaan. Coba lagi nanti.",
+        "en": "The LLM server is having problems (HTTP {status}, {where}) after {attempts} attempts. Try again later.",
+    },
+    "gave_up_timeout": {
+        "id": "LLM tidak menjawab dalam batas waktu ({where}), {attempts} kali berturut-turut. Coba lagi nanti, atau pilih model yang lebih cepat di Pengaturan.",
+        "en": "The LLM didn't answer in time ({where}), {attempts} times in a row. Try again later, or choose a faster model in Settings.",
+    },
+    "gave_up_network": {
+        "id": "LLM tidak dapat dihubungi ({where}) setelah {attempts} percobaan. Periksa koneksi internet.",
+        "en": "The LLM can't be reached ({where}) after {attempts} attempts. Check your internet connection.",
+    },
+    "gave_up_network_url": {
+        "id": "LLM tidak dapat dihubungi ({where}) setelah {attempts} percobaan. Periksa koneksi internet dan Base URL di Pengaturan.",
+        "en": "The LLM can't be reached ({where}) after {attempts} attempts. Check your internet connection and the Base URL in Settings.",
+    },
+    "detail": {
+        "id": "Detail: {detail}",
+        "en": "Details: {detail}",
+    },
+    "params_rejected": {
+        "id": "Parameter permintaan ditolak oleh penyedia",
+        "en": "The provider refused the request parameters",
+    },
+    "cancelled": {
+        "id": "Dibatalkan",
+        "en": "Cancelled",
+    },
+    "key_rejected": {
+        "id": "API key {label} ditolak oleh penyedia. Periksa kembali di Pengaturan.",
+        "en": "The provider rejected the {label} API key. Check it in Settings.",
+    },
+    "model_unavailable": {
+        "id": "Model atau endpoint LLM tidak tersedia ({where}). Periksa Pengaturan.",
+        "en": "The LLM model or endpoint is not available ({where}). Check Settings.",
+    },
+    "request_rejected": {
+        "id": "{label} menolak permintaan (HTTP {status}): {detail}",
+        "en": "{label} refused the request (HTTP {status}): {detail}",
+    },
+    "retry_rate": {
+        "id": "LLM terkena batas rate (429)",
+        "en": "The LLM hit a rate limit (429)",
+    },
+    "retry_server": {
+        "id": "Server LLM sedang bermasalah (HTTP {status})",
+        "en": "The LLM server is having problems (HTTP {status})",
+    },
+    "retry_timeout": {
+        "id": "LLM tidak menjawab dalam batas waktu",
+        "en": "The LLM didn't answer in time",
+    },
+    "retry_network": {
+        "id": "LLM tidak dapat dihubungi",
+        "en": "The LLM can't be reached",
+    },
+    "retrying": {
+        "id": "{what}, mencoba lagi dalam {wait}",
+        "en": "{what}, retrying in {wait}",
+    },
+    "invalid_response": {
+        "id": "LLM mengembalikan respons yang tidak valid",
+        "en": "The LLM returned an invalid response",
+    },
+    "cannot_connect": {
+        "id": "Tidak dapat terhubung ke {label}",
+        "en": "Can't connect to {label}",
+    },
+    "key_denied": {
+        "id": "API key {label} ditolak",
+        "en": "The {label} API key was rejected",
+    },
+    "no_model_list": {
+        "id": "Penyedia ini tidak menyediakan daftar model. Ketik nama model secara manual.",
+        "en": "This provider doesn't offer a model list. Type the model name yourself.",
+    },
+    "models_failed": {
+        "id": "Daftar model gagal dimuat (HTTP {status})",
+        "en": "Couldn't load the model list (HTTP {status})",
+    },
+    "models_unreadable": {
+        "id": "Daftar model tidak dapat dibaca",
+        "en": "The model list couldn't be read",
+    },
+    "connected": {
+        "id": "Terhubung ke {label} · {model}",
+        "en": "Connected to {label} · {model}",
+    },
+    "key_denied_401": {
+        "id": "API key {label} ditolak (401)",
+        "en": "The {label} API key was rejected (401)",
+    },
+    "model_examples": {
+        "id": "Contoh model yang tersedia: {models}.",
+        "en": "Available models include: {models}.",
+    },
+    "model_missing": {
+        "id": "Model '{model}' tidak tersedia: {detail}.",
+        "en": "Model '{model}' is not available: {detail}.",
+    },
+    "key_ok_rate": {
+        "id": "Key valid, tetapi sedang terkena batas rate (429). Coba lagi sebentar lagi.",
+        "en": "The key is valid, but it is rate limited right now (429). Try again shortly.",
+    },
+    "server_trouble": {
+        "id": "Server {label} sedang bermasalah (HTTP {status}). Coba lagi nanti.",
+        "en": "The {label} server is having problems (HTTP {status}). Try again later.",
+    },
+    "timeout": {
+        "id": "{label} tidak menjawab dalam batas waktu",
+        "en": "{label} didn't answer in time",
+    },
+    "failed": {
+        "id": "Gagal: {error}",
+        "en": "Failed: {error}",
+    },
+    "no_vision": {
+        "id": "Model {where} tidak bisa membaca gambar",
+        "en": "The model {where} can't read images",
+    },
+})
 
 logger = logging.getLogger(__name__)
 
@@ -40,27 +237,29 @@ _NON_TEXT_MODEL = re.compile(
 
 
 class LLMError(RuntimeError):
-    """User-facing LLM failure (message in Bahasa Indonesia)."""
+    """User-facing LLM failure (message in the UI language)."""
 
 
 class LLMNotConfigured(LLMError):
     pass
 
 
-QUOTA_ADVICE = "Untuk lanjut sekarang, pilih model atau penyedia lain di Pengaturan."
+class LLMNoVision(LLMError):
+    """The model does not accept images."""
 
 
 class LLMQuotaExhausted(LLMError):
     """The provider's quota is used up (daily limit, billing, or a wait of minutes): retrying now cannot help."""
 
-    def __init__(self, summary: str, detail: str = "", *, advice: str = QUOTA_ADVICE,
+    def __init__(self, summary: str, detail: str = "", *, advice: str | None = None,
                  retry_after: float | None = None) -> None:
-        self.summary, self.detail, self.advice, self.retry_after = summary, detail, advice, retry_after
+        self.summary, self.detail, self.retry_after = summary, detail, retry_after
+        self.advice = M("quota_advice") if advice is None else advice
         super().__init__(self.message())
 
     def message(self, extra: str = "") -> str:
         """User-facing text; `extra` (e.g. what to do in a job) goes before the provider's own message."""
-        parts = (self.summary, self.advice, extra, f"Pesan penyedia: {self.detail}" if self.detail else "")
+        parts = (self.summary, self.advice, extra, M("provider_said", detail=self.detail) if self.detail else "")
         return " ".join(p for p in parts if p)
 
 
@@ -85,6 +284,34 @@ class _Rejected(Exception):
         super().__init__(detail)
         self.status = status
         self.detail = detail
+
+
+class _NoVision(Exception):
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+
+
+Image = tuple[bytes, str]  # (data, mime type)
+
+# Errors that mean "this model takes no images", e.g. "image input is not supported", "No endpoints
+# found that support image input", "Invalid content type. image_url is only supported by certain models"
+_NO_VISION = re.compile(
+    r"image|vision|multi-?modal|content\W*(?:type|part|block)|unknown variant|expected.*string", re.I)
+_no_vision: set[tuple[str, str]] = set()
+
+
+def supports_vision(t: "Target | None" = None) -> bool:
+    """False when the provider or this endpoint and model are known to refuse images."""
+    try:
+        t = t or target()
+    except LLMError:
+        return False
+    return t.provider.vision and (t.base_url, t.model) not in _no_vision
+
+
+def _data_url(img: Image) -> str:
+    return f"data:{img[1]};base64,{base64.b64encode(img[0]).decode('ascii')}"
 
 
 class _Retryable(Exception):
@@ -131,14 +358,14 @@ def target(provider_id: str | None = None, *, key: str | None = None, base_url: 
     s = _llm_settings()
     provider = PROVIDERS.get(provider_id or s["provider"])
     if provider is None:
-        raise LLMError("Penyedia LLM tidak dikenal. Pilih ulang di Pengaturan.")
+        raise LLMError(M("unknown_provider"))
     url = (base_url or provider.base_url or s.get("base_url") or "").strip().rstrip("/")
     if not url.startswith(("http://", "https://")):
-        raise LLMNotConfigured("Base URL LLM belum diisi di Pengaturan")
+        raise LLMNotConfigured(M("no_base_url"))
     name = (model or (s.get("models") or {}).get(provider.id) or provider.default_model).strip()
     api_key = (key or "").strip() or get_secret(provider.secret)
     if not api_key:
-        raise LLMNotConfigured(f"API key LLM ({provider.label}) belum diisi di Pengaturan")
+        raise LLMNotConfigured(M("no_key", provider=provider.label))
     return Target(provider, url, name, api_key)
 
 
@@ -267,15 +494,19 @@ def _limit_error(status: int, message: str, headers: Any = None, raw: str = "") 
     return _Retryable("rate", detail, status=status, retry_after=wait, daily=daily)
 
 
+def _unit(n: int, one: str, many: str) -> str:
+    return M(one if n == 1 else many, n=n)
+
+
 def _fmt_wait(seconds: float) -> str:
     s = int(round(seconds))
     if s < 60:
-        return f"{max(1, s)} detik"
+        return _unit(max(1, s), "second", "seconds")
     minutes = round(s / 60)
     if minutes < 60:
-        return f"{minutes} menit"
+        return _unit(minutes, "minute", "minutes")
     h, m = divmod(minutes, 60)
-    return f"{h} jam" + (f" {m} menit" if m else "")
+    return _unit(h, "hour", "hours") + (f" {_unit(m, 'minute', 'minutes')}" if m else "")
 
 
 def _where(t: Target) -> str:
@@ -287,32 +518,27 @@ def _where(t: Target) -> str:
 
 
 def _quota_error(q: _Quota, where: str) -> LLMQuotaExhausted:
-    when = f" Kuota pulih sekitar {_fmt_wait(q.retry_after)} lagi." if q.retry_after else ""
+    when = " " + M("quota_back", wait=_fmt_wait(q.retry_after)) if q.retry_after else ""
     if q.kind == "billing":
-        return LLMQuotaExhausted(f"Kuota atau saldo akun LLM habis ({where}).", q.detail,
-                                 advice="Periksa paket atau billing di situs penyedia, atau pilih penyedia lain di Pengaturan.")
+        return LLMQuotaExhausted(M("quota_billing", where=where), q.detail, advice=M("billing_advice"))
     if q.kind == "daily":
-        return LLMQuotaExhausted(f"Kuota harian LLM habis ({where}).{when}", q.detail, retry_after=q.retry_after)
-    return LLMQuotaExhausted(f"Batas pemakaian LLM tercapai ({where}).{when}", q.detail, retry_after=q.retry_after)
+        return LLMQuotaExhausted(M("quota_daily", where=where) + when, q.detail, retry_after=q.retry_after)
+    return LLMQuotaExhausted(M("quota_limit", where=where) + when, q.detail, retry_after=q.retry_after)
 
 
 def _gave_up(exc: _Retryable, where: str, attempts: int, compatible: bool) -> LLMError:
     """The error after the last retry, named after what actually went wrong."""
-    said = f" Pesan penyedia: {exc.detail}" if exc.detail else ""
+    said = " " + M("provider_said", detail=exc.detail) if exc.detail else ""
     if exc.daily:
         return _quota_error(_Quota("daily", exc.detail, exc.retry_after), where)
     if exc.kind == "rate":
-        return LLMError(f"LLM terus terkena batas rate (HTTP 429) dari {where} setelah {attempts} percobaan. "
-                        f"Coba lagi beberapa menit lagi, atau pilih model lain di Pengaturan.{said}")
+        return LLMError(M("gave_up_rate", where=where, attempts=attempts) + said)
     if exc.kind == "server":
-        return LLMError(f"Server LLM sedang bermasalah (HTTP {exc.status}, {where}) setelah {attempts} percobaan. "
-                        f"Coba lagi nanti.{said}")
+        return LLMError(M("gave_up_server", status=exc.status, where=where, attempts=attempts) + said)
     if exc.kind == "timeout":
-        return LLMError(f"LLM tidak menjawab dalam batas waktu ({where}), {attempts} kali berturut-turut. "
-                        "Coba lagi nanti, atau pilih model yang lebih cepat di Pengaturan.")
-    check = "koneksi internet dan Base URL di Pengaturan" if compatible else "koneksi internet"
-    return LLMError(f"LLM tidak dapat dihubungi ({where}) setelah {attempts} percobaan. Periksa {check}."
-                    + (f" Detail: {exc.detail}" if exc.detail else ""))
+        return LLMError(M("gave_up_timeout", where=where, attempts=attempts))
+    text = M("gave_up_network_url" if compatible else "gave_up_network", where=where, attempts=attempts)
+    return LLMError(text + (" " + M("detail", detail=exc.detail) if exc.detail else ""))
 
 
 def _sleep(seconds: float, should_stop: Callable[[], bool] | None) -> bool:
@@ -422,14 +648,18 @@ def _openai_client(t: Target, timeout: float):
 
 
 def _openai_complete(t: Target, system: str, user: str, *, temperature: float, max_tokens: int,
-                     json_mode: bool, timeout: float) -> str:
+                     json_mode: bool, timeout: float, images: list[Image] | None = None) -> str:
     import openai
 
     p = t.provider
     limit = max_tokens + (REASONING_HEADROOM if p.reasoning else 0)
+    content: Any = user
+    if images:
+        content = [{"type": "text", "text": user}] + [
+            {"type": "image_url", "image_url": {"url": _data_url(img), "detail": "high"}} for img in images]
     params: dict[str, Any] = {
         "model": t.model,
-        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}],
         "temperature": temperature,
         ("max_completion_tokens" if p.completion_tokens else "max_tokens"): limit,
     }
@@ -447,7 +677,10 @@ def _openai_complete(t: Target, system: str, user: str, *, temperature: float, m
         except openai.AuthenticationError as exc:
             raise _Auth(_provider_detail(exc)) from exc
         except (openai.NotFoundError, openai.PermissionDeniedError) as exc:
-            raise _NotFound(_provider_detail(exc)) from exc
+            detail = _provider_detail(exc)
+            if images and _NO_VISION.search(f"{detail} {exc}"):
+                raise _NoVision(detail) from exc
+            raise _NotFound(detail) from exc
         except openai.RateLimitError as exc:
             raise _limit_error(429, _provider_message(exc), getattr(exc.response, "headers", None), str(exc)) from exc
         except openai.BadRequestError as exc:
@@ -456,6 +689,8 @@ def _openai_complete(t: Target, system: str, user: str, *, temperature: float, m
                 raise _Auth(detail) from exc
             if _BILLING.search(f"{_provider_message(exc)} {exc}"):
                 raise _Quota("billing", detail) from exc
+            if images and _NO_VISION.search(f"{detail} {exc}"):
+                raise _NoVision(detail) from exc
             if not _adapt(params, f"{detail} {exc}", qkey):
                 raise _Rejected(400, detail) from exc
             logger.info("LLM %s/%s refused a parameter, retrying with %s", p.id, t.model, sorted(params))
@@ -464,12 +699,14 @@ def _openai_complete(t: Target, system: str, user: str, *, temperature: float, m
                 raise _limit_error(402, _provider_message(exc), getattr(exc.response, "headers", None), str(exc)) from exc
             if exc.status_code in (408, 409, 425, 500, 502, 503, 504, 529):
                 raise _Retryable("server", _provider_detail(exc), status=exc.status_code) from exc
+            if images and exc.status_code in (415, 422) and _NO_VISION.search(f"{_provider_detail(exc)} {exc}"):
+                raise _NoVision(_provider_detail(exc)) from exc
             raise _Rejected(exc.status_code, _provider_detail(exc)) from exc
         except openai.APITimeoutError as exc:
             raise _Retryable("timeout", str(exc)) from exc
         except openai.APIConnectionError as exc:
             raise _Retryable("network", str(exc)) from exc
-    raise _Rejected(400, "Parameter permintaan ditolak oleh penyedia")
+    raise _Rejected(400, M("params_rejected"))
 
 
 # ---------------------------------------------------------------- Anthropic (Messages API)
@@ -487,14 +724,19 @@ def _anthropic_detail(resp) -> str:
 
 
 def _anthropic_complete(t: Target, system: str, user: str, *, temperature: float, max_tokens: int,
-                        json_mode: bool, timeout: float) -> str:
+                        json_mode: bool, timeout: float, images: list[Image] | None = None) -> str:
     import httpx
 
+    content: Any = user
+    if images:
+        content = [{"type": "image", "source": {"type": "base64", "media_type": img[1],
+                                                "data": base64.b64encode(img[0]).decode("ascii")}}
+                   for img in images] + [{"type": "text", "text": user}]
     body: dict[str, Any] = {
         "model": t.model,
         "max_tokens": max_tokens,
         "system": system + (JSON_HINT if json_mode else ""),
-        "messages": [{"role": "user", "content": user}],
+        "messages": [{"role": "user", "content": content}],
         "temperature": temperature,
     }
     qkey = (t.base_url, t.model)
@@ -521,10 +763,12 @@ def _anthropic_complete(t: Target, system: str, user: str, *, temperature: float
             raise _Retryable("server", detail, status=status)
         if status == 400 and _BILLING.search(detail):  # "Your credit balance is too low …"
             raise _Quota("billing", detail)
+        if status == 400 and images and _NO_VISION.search(detail):
+            raise _NoVision(detail)
         if status == 400 and _adapt(body, detail, qkey):
             continue
         raise _Rejected(status, detail)
-    raise _Rejected(400, "Parameter permintaan ditolak oleh penyedia")
+    raise _Rejected(400, M("params_rejected"))
 
 
 def _complete(t: Target, system: str, user: str, **kw: Any) -> str:
@@ -543,31 +787,40 @@ def chat_json(
     retries: int = 3,
     on_retry: Callable[[str], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
+    images: list[Image] | None = None,
+    timeout: float = 90.0,
 ) -> dict[str, Any]:
     """JSON answer from the active provider.
 
     Retries 429 (after the wait the provider asks for), 5xx, timeouts and invalid JSON. Raises
-    LLMQuotaExhausted without retrying when the quota is used up (daily limit, billing, long wait)."""
+    LLMQuotaExhausted without retrying when the quota is used up (daily limit, billing, long wait),
+    and LLMNoVision when `images` are given to a model that refuses them."""
     t = target()
     label = t.provider.label
+    if images and not supports_vision(t):
+        raise LLMNoVision(M("no_vision", where=_where(t)))
     where = _where(t)
     last_exc: Exception | None = None
     attempts = 0
     daily_waited = False
     for attempt in range(retries + 1):
         if should_stop and should_stop():
-            raise LLMError("Dibatalkan")
+            raise LLMError(M("cancelled"))
         attempts += 1
         try:
-            content = _complete(t, system, user, temperature=temperature, max_tokens=max_tokens, json_mode=True, timeout=90.0)
+            content = _complete(t, system, user, temperature=temperature, max_tokens=max_tokens, json_mode=True,
+                                timeout=timeout, **({"images": images} if images else {}))
             return _parse_json(content)
         except _Auth as exc:
-            raise LLMNotConfigured(f"API key {label} ditolak oleh penyedia. Periksa kembali di Pengaturan.") from exc
+            raise LLMNotConfigured(M("key_rejected", label=label)) from exc
+        except _NoVision as exc:
+            _no_vision.add((t.base_url, t.model))
+            logger.info("LLM %s refused images: %s", where, exc.detail)
+            raise LLMNoVision(M("no_vision", where=where)) from exc
         except _NotFound as exc:
-            raise LLMError(f"Model atau endpoint LLM tidak tersedia ({where}). Periksa Pengaturan. "
-                           f"Pesan penyedia: {exc.detail}") from exc
+            raise LLMError(M("model_unavailable", where=where) + " " + M("provider_said", detail=exc.detail)) from exc
         except _Rejected as exc:
-            raise LLMError(f"{label} menolak permintaan (HTTP {exc.status}): {exc.detail}") from exc
+            raise LLMError(M("request_rejected", label=label, status=exc.status, detail=exc.detail)) from exc
         except _Quota as exc:
             logger.warning("LLM quota used up (%s, %s): %s", exc.kind, where, exc.detail)
             raise _quota_error(exc, where) from exc
@@ -583,17 +836,16 @@ def chat_json(
                 wait = min(MAX_INLINE_WAIT, exc.retry_after + 0.5)
             else:
                 wait = min(30.0, 2.0 * (2**attempt))
-            what = {
-                "rate": "LLM terkena batas rate (429)",
-                "server": f"Server LLM sedang bermasalah (HTTP {exc.status})",
-                "timeout": "LLM tidak menjawab dalam batas waktu",
-            }.get(exc.kind, "LLM tidak dapat dihubungi")
-            msg = f"{what}, mencoba lagi dalam {_fmt_wait(wait)}"
+            if exc.kind == "server":
+                what = M("retry_server", status=exc.status)
+            else:
+                what = M({"rate": "retry_rate", "timeout": "retry_timeout"}.get(exc.kind, "retry_network"))
+            msg = M("retrying", what=what, wait=_fmt_wait(wait))
             logger.warning("%s (%s): %s", msg, where, exc.detail)
             if on_retry:
                 on_retry(msg)
             if _sleep(wait, should_stop):
-                raise LLMError("Dibatalkan")
+                raise LLMError(M("cancelled"))
         except (ValueError, json.JSONDecodeError) as exc:
             last_exc = exc
             if attempt >= retries:
@@ -601,7 +853,7 @@ def chat_json(
             logger.warning("LLM returned invalid JSON (attempt %s): %s", attempt + 1, exc)
     if isinstance(last_exc, _Retryable):
         raise _gave_up(last_exc, where, attempts, t.provider.id == "openai_compatible") from last_exc
-    raise LLMError("LLM mengembalikan respons yang tidak valid") from last_exc
+    raise LLMError(M("invalid_response")) from last_exc
 
 
 def list_models(provider_id: str, *, key: str | None = None, base_url: str | None = None) -> list[str]:
@@ -616,17 +868,17 @@ def list_models(provider_id: str, *, key: str | None = None, base_url: str | Non
     try:
         resp = httpx.get(url, headers=headers, timeout=20.0)
     except (httpx.TimeoutException, httpx.TransportError) as exc:
-        raise LLMError(f"Tidak dapat terhubung ke {t.provider.label}") from exc
+        raise LLMError(M("cannot_connect", label=t.provider.label)) from exc
     if resp.status_code in (401, 403) or (resp.status_code == 400 and _looks_like_bad_key(resp.text)):
-        raise LLMError(f"API key {t.provider.label} ditolak")
+        raise LLMError(M("key_denied", label=t.provider.label))
     if resp.status_code == 404:
-        raise LLMError("Penyedia ini tidak menyediakan daftar model. Ketik nama model secara manual.")
+        raise LLMError(M("no_model_list"))
     if resp.status_code != 200:
-        raise LLMError(f"Daftar model gagal dimuat (HTTP {resp.status_code})")
+        raise LLMError(M("models_failed", status=resp.status_code))
     try:
         items = resp.json().get("data") or resp.json().get("models") or []
     except ValueError as exc:
-        raise LLMError("Daftar model tidak dapat dibaca") from exc
+        raise LLMError(M("models_unreadable")) from exc
     rows: list[tuple[float, str]] = []
     for item in items:
         mid = str((item or {}).get("id") or (item or {}).get("name") or "")
@@ -659,31 +911,31 @@ def test_connection(provider_id: str | None = None, api_key: str | None = None) 
     try:
         _complete(t, "You are a connection check.", "Reply with the single word: ok",
                   temperature=0, max_tokens=16, json_mode=False, timeout=30.0)
-        return True, f"Terhubung ke {label} · {t.model}"
+        return True, M("connected", label=label, model=t.model)
     except _Auth:
-        return False, f"API key {label} ditolak (401)"
+        return False, M("key_denied_401", label=label)
     except _NotFound as exc:
         hint = ""
         try:
             models = list_models(t.provider.id, key=t.key, base_url=t.base_url)
             if models:
-                hint = f" Contoh model yang tersedia: {', '.join(models[:5])}."
+                hint = " " + M("model_examples", models=", ".join(models[:5]))
         except LLMError:
             pass
-        return False, f"Model '{t.model}' tidak tersedia: {exc.detail}.{hint}"
+        return False, M("model_missing", model=t.model, detail=exc.detail) + hint
     except _Quota as exc:
         return False, _quota_error(exc, _where(t)).message()
     except _Retryable as exc:
         if exc.daily:
             return False, _quota_error(_Quota("daily", exc.detail, exc.retry_after), _where(t)).message()
         if exc.kind == "rate":
-            return True, "Key valid, tetapi sedang terkena batas rate (429). Coba lagi sebentar lagi."
+            return True, M("key_ok_rate")
         if exc.kind == "server":
-            return False, f"Server {label} sedang bermasalah (HTTP {exc.status}). Coba lagi nanti."
+            return False, M("server_trouble", label=label, status=exc.status)
         if exc.kind == "timeout":
-            return False, f"{label} tidak menjawab dalam batas waktu"
-        return False, f"Tidak dapat terhubung ke {label}"
+            return False, M("timeout", label=label)
+        return False, M("cannot_connect", label=label)
     except _Rejected as exc:
         return False, f"HTTP {exc.status}: {exc.detail}"
     except Exception as exc:
-        return False, f"Gagal: {str(exc)[:200]}"
+        return False, M("failed", error=str(exc)[:200])

@@ -1,24 +1,27 @@
 'use client'
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Captions, ChevronDown, Image as ImageIcon, Redo, RefreshCw, RotateCcw, Save, Smartphone, Trash2, Type, Undo } from 'lucide-react'
+import { Captions, ChevronDown, Image as ImageIcon, LayoutTemplate, Redo, RefreshCw, RotateCcw, Save, Trash2, Type, Undo } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { useAgent } from '@/contexts/AgentContext'
+import { useCampaign } from '@/contexts/CampaignContext'
 import { useEngine } from '@/contexts/EngineContext'
 import { Alert, Badge, Button, Card, ConfirmModal, IconButton, InputField, Modal, PageHeader, Skeleton } from '@/components/ui'
 import { api, type BrandTemplate } from '@/lib/engine'
 import { errorMessage, formatDateTime } from '@/lib/format'
+import { tm } from '@/lib/i18n'
+import { useT } from '@/lib/i18n/I18nProvider'
 import { presets } from '@/lib/presets'
 import { resolveCaptionStyle } from '@/lib/presets/defaults'
 import { resolveAi } from '@/lib/presets/captions'
+import { type LayoutPatch, mergeLayout, resolveLayout } from '@/lib/presets/layout'
 
-import { TemplateConfig, DEFAULT_TEMPLATE_CONFIG, safeZoneLabel } from './types'
-import { LayoutSettingsPanel } from './components/LayoutSettingsPanel'
+import { TemplateConfig, DEFAULT_TEMPLATE_CONFIG, LayoutSettings } from './types'
+import { LayoutSettingsPanel, layoutSummary } from './components/LayoutSettingsPanel'
 import { CaptionSettingsPanel, presetLabel } from './components/CaptionSettingsPanel'
 import { AiSettingsPanel } from './components/AiSettingsPanel'
 import { BrandSettingsPanel } from './components/BrandSettingsPanel'
 import { TemplatePreviewCanvas } from './components/TemplatePreviewCanvas'
-import { TemplateLibraryBar } from './components/TemplateLibraryBar'
+import { TemplateLibraryBar, campaignTemplateId } from './components/TemplateLibraryBar'
 
 type Section = 'layout_settings' | 'caption_settings' | 'ai_settings' | 'brand_settings'
 type PanelId = 'caption' | 'ai' | 'overlay' | 'layout'
@@ -51,7 +54,7 @@ function toConfig(tpl: BrandTemplate | null): TemplateConfig {
   // Intro/outro, music and aspect/fit were removed (never applied to clips): drop them from old templates
   const { introUrl: _intro, musicUrl: _music, ...brand } = (tpl?.brand_settings || {}) as Record<string, any>
   return {
-    layout_settings: { safeZone: layout.safeZone || DEFAULT_TEMPLATE_CONFIG.layout_settings.safeZone },
+    layout_settings: { ...resolveLayout(layout), safeZone: layout.safeZone || DEFAULT_TEMPLATE_CONFIG.layout_settings.safeZone },
     // Caption keeps only what the user set; preset defaults are merged at display time
     caption_settings: { ...(tpl ? caption : { mode: 'popshadow' }), mode } as TemplateConfig['caption_settings'],
     ai_settings: resolveAi(tpl?.ai_settings as Partial<TemplateConfig['ai_settings']> | undefined),
@@ -114,7 +117,8 @@ function SettingsSection({ id, title, icon, summary, open, onToggle, children }:
 }
 
 export default function BrandTemplatePage() {
-  const { activeAgent, isAgentLoading, refreshAgents } = useAgent()
+  const t = useT()
+  const { activeCampaign, isCampaignLoading, refreshCampaigns } = useCampaign()
   const { epoch } = useEngine()
 
   const [templates, setTemplates] = useState<BrandTemplate[]>([])
@@ -125,6 +129,8 @@ export default function BrandTemplatePage() {
   const [isSaving, setIsSaving] = useState(false)
   const [openPanels, setOpenPanels] = useState<Record<PanelId, boolean>>({ caption: true, ai: true, overlay: false, layout: false })
   const [confirmDefaults, setConfirmDefaults] = useState(false)
+  // Ratio of the template's sample video (the preview frame uses it like a clip's source)
+  const [sampleAspect, setSampleAspect] = useState(16 / 9)
   const savedRef = useRef<string>('')
 
   const [history, setHistory] = useState<TemplateConfig[]>([config])
@@ -138,7 +144,7 @@ export default function BrandTemplatePage() {
   const [deleting, setDeleting] = useState(false)
   const [settingDefault, setSettingDefault] = useState(false)
 
-  const selected = templates.find((t) => t.id === selectedId) || null
+  const selected = templates.find((x) => x.id === selectedId) || null
   const hasChanges = !!selected && JSON.stringify(config) !== savedRef.current
 
   const applyTemplate = useCallback((tpl: BrandTemplate) => {
@@ -151,7 +157,7 @@ export default function BrandTemplatePage() {
     writeStoredId(tpl.id)
   }, [])
 
-  /** Reload the library; open `preferId`, else the active agent's default, else the last one used. */
+  /** Reload the library; open `preferId`, else the active campaign's template, else the last one used. */
   const loadAll = useCallback(
     async (preferId?: string | null) => {
       setLoaded(false)
@@ -159,28 +165,38 @@ export default function BrandTemplatePage() {
       try {
         const { brand_templates } = await api.brandTemplates.list()
         setTemplates(brand_templates)
-        const wanted = [preferId, activeAgent?.default_brand_template_id, readStoredId()]
-        const tpl = wanted.map((id) => id && brand_templates.find((t) => t.id === id)).find(Boolean) || brand_templates[0]
+        const wanted = [preferId, activeCampaign ? campaignTemplateId(activeCampaign, brand_templates) : null, readStoredId()]
+        const tpl = wanted.map((id) => id && brand_templates.find((x) => x.id === id)).find(Boolean) || brand_templates[0]
         if (tpl) applyTemplate(tpl)
       } catch (err) {
-        setLoadError(errorMessage(err, 'Gagal memuat brand template'))
+        setLoadError(errorMessage(err, tm().brand.page.loadFailed))
       } finally {
         setLoaded(true)
       }
     },
-    // The agent only decides the first template shown; switching agents later keeps the open template
+    // The campaign only decides the first template shown; switching campaigns later keeps the open template
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [applyTemplate],
   )
 
-  // First load once the agents are known (the active agent's default is opened first). Later agent
-  // refreshes (e.g. "Jadikan default") must not reload the editor and drop unsaved changes.
+  // First load once the campaigns are known (the active campaign's template is opened first). Later
+  // campaign refreshes (e.g. "Pakai untuk campaign") must not reload the editor and drop unsaved changes.
   const initRef = useRef(false)
   useEffect(() => {
-    if (isAgentLoading || initRef.current) return
+    if (isCampaignLoading || initRef.current) return
     initRef.current = true
     loadAll(null)
-  }, [isAgentLoading, loadAll])
+  }, [isCampaignLoading, loadAll])
+
+  // A link to /brand-template/#layout (e.g. from the clip editor) opens that section and scrolls to it.
+  // Read once the library has loaded: by then a client-side navigation has committed the URL.
+  useEffect(() => {
+    const id = window.location.hash.slice(1)
+    if (!loaded || !Object.prototype.hasOwnProperty.call(openPanels, id)) return
+    setOpenPanels((open) => ({ ...open, [id]: true }))
+    requestAnimationFrame(() => document.getElementById(`brand-template-section-${id}-title`)?.scrollIntoView({ block: 'start' }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded])
 
   // Engine restarted: refresh names and usage only
   const epochRef = useRef(epoch)
@@ -211,7 +227,7 @@ export default function BrandTemplatePage() {
   const selectTemplate = (id: string) => {
     if (id === selectedId) return
     guard(() => {
-      const tpl = templates.find((t) => t.id === id)
+      const tpl = templates.find((x) => x.id === id)
       if (tpl) applyTemplate(tpl)
     })
   }
@@ -227,10 +243,10 @@ export default function BrandTemplatePage() {
         brand_settings: config.brand_settings as unknown as Record<string, any>,
       })
       savedRef.current = JSON.stringify(config)
-      setTemplates((list) => list.map((t) => (t.id === brand_template.id ? brand_template : t)))
-      toast.success(`"${brand_template.name}" disimpan. Clip yang memakai template ini ikut berubah saat dirender.`)
+      setTemplates((list) => list.map((x) => (x.id === brand_template.id ? brand_template : x)))
+      toast.success(t.brand.toasts.saved(brand_template.name))
     } catch (err) {
-      toast.error(errorMessage(err, 'Gagal menyimpan brand template'))
+      toast.error(errorMessage(err, t.brand.toasts.saveFailed))
     } finally {
       setIsSaving(false)
     }
@@ -258,14 +274,14 @@ export default function BrandTemplatePage() {
     try {
       if (nameDialog.mode === 'rename' && selected) {
         const { brand_template } = await api.brandTemplates.update(selected.id, { name })
-        setTemplates((list) => list.map((t) => (t.id === brand_template.id ? brand_template : t)))
-        toast.success('Nama template diubah')
+        setTemplates((list) => list.map((x) => (x.id === brand_template.id ? brand_template : x)))
+        toast.success(t.brand.toasts.renamed)
       } else {
         const copyFrom = nameDialog.mode === 'duplicate' ? selected?.id : undefined
         const { brand_template } = await api.brandTemplates.create(name, copyFrom)
         await refreshList()
         applyTemplate(brand_template)
-        toast.success(copyFrom ? 'Template diduplikat' : 'Template baru dibuat')
+        toast.success(copyFrom ? t.brand.toasts.duplicated : t.brand.toasts.created)
       }
       setNameDialog(null)
     } catch (err) {
@@ -281,10 +297,12 @@ export default function BrandTemplatePage() {
     try {
       await api.brandTemplates.remove(selected.id)
       const list = await refreshList()
-      await refreshAgents()
-      const next = list.find((t) => t.id === activeAgent?.default_brand_template_id) || list[0]
+      const fresh = await refreshCampaigns()
+      const campaign = activeCampaign ? fresh.find((c) => c.id === activeCampaign.id) || null : null
+      const wantedId = campaign ? campaignTemplateId(campaign, list) : null
+      const next = list.find((x) => x.id === wantedId) || list[0]
       if (next) applyTemplate(next)
-      toast.success(`Template "${selected.name}" dihapus`)
+      toast.success(t.brand.toasts.deleted(selected.name))
       setConfirmDelete(false)
     } catch (err) {
       toast.error(errorMessage(err))
@@ -293,13 +311,13 @@ export default function BrandTemplatePage() {
     }
   }
 
-  const makeDefault = async () => {
-    if (!activeAgent || !selected) return
+  const useForCampaign = async () => {
+    if (!activeCampaign || !selected) return
     setSettingDefault(true)
     try {
-      await api.agents.update(activeAgent.id, { default_brand_template_id: selected.id })
-      await Promise.all([refreshAgents(), refreshList()])
-      toast.success(`Clip baru dari ${activeAgent.name} memakai "${selected.name}"`)
+      await api.campaigns.update(activeCampaign.id, { brand_template_id: selected.id })
+      await Promise.all([refreshCampaigns(), refreshList()])
+      toast.success(t.brand.toasts.usedFor(activeCampaign.name, selected.name))
     } catch (err) {
       toast.error(errorMessage(err))
     } finally {
@@ -315,6 +333,13 @@ export default function BrandTemplatePage() {
     setHistory(newHistory)
     setHistoryIndex(newHistory.length - 1)
     setConfig(next)
+  }
+
+  /** Layout sections are nested: merge the patch into the full layout, keep the safe-zone guide. */
+  const updateLayout = (patch: LayoutPatch & { safeZone?: LayoutSettings['safeZone'] }) => {
+    const current = config.layout_settings
+    const next: LayoutSettings = { ...resolveLayout(mergeLayout(current, patch)), safeZone: patch.safeZone ?? current.safeZone }
+    updateConfig('layout_settings', next, true)
   }
 
   const handleUndo = () => {
@@ -347,25 +372,26 @@ export default function BrandTemplatePage() {
   const activePreset = presets.find((p) => p.id === mergedCaptionSettings.mode)
   const aiOnCount = [config.ai_settings.fillerWords, config.ai_settings.pauses, config.ai_settings.keywords, config.ai_settings.emojis].filter(Boolean).length
 
-  const nameTitle = nameDialog?.mode === 'rename' ? 'Ganti nama template' : nameDialog?.mode === 'duplicate' ? 'Duplikat template' : 'Template baru'
+  const nameTitle =
+    nameDialog?.mode === 'rename' ? t.brand.nameDialog.renameTitle : nameDialog?.mode === 'duplicate' ? t.brand.nameDialog.duplicateTitle : t.brand.nameDialog.createTitle
 
   return (
     <>
       <PageHeader
-        title="Brand Template"
-        subtitle="Simpan beberapa gaya clip dan pakai di workspace mana pun"
+        title={t.brand.page.title}
+        subtitle={t.brand.page.subtitle}
         actions={
           <>
-            <IconButton label="Urungkan" tooltip="bottom" icon={<Undo size={18} aria-hidden="true" />} onClick={handleUndo} disabled={historyIndex <= 0} />
-            <IconButton label="Ulangi" tooltip="bottom" icon={<Redo size={18} aria-hidden="true" />} onClick={handleRedo} disabled={historyIndex >= history.length - 1} />
+            <IconButton label={t.brand.page.undo} tooltip="bottom" icon={<Undo size={18} aria-hidden="true" />} onClick={handleUndo} disabled={historyIndex <= 0} />
+            <IconButton label={t.brand.page.redo} tooltip="bottom" icon={<Redo size={18} aria-hidden="true" />} onClick={handleRedo} disabled={historyIndex >= history.length - 1} />
             <IconButton
-              label="Muat ulang dari database"
+              label={t.brand.page.reload}
               tooltip="bottom"
               icon={<RefreshCw size={18} aria-hidden="true" className={!loaded ? 'animate-spin' : undefined} />}
               onClick={() => guard(() => loadAll(selectedId))}
             />
             <Button variant="primary" onClick={save} loading={isSaving} disabled={!hasChanges} icon={<Save size={16} aria-hidden="true" />}>
-              Simpan
+              {t.common.save}
             </Button>
           </>
         }
@@ -380,10 +406,10 @@ export default function BrandTemplatePage() {
       ) : loadError ? (
         <Alert
           tone="error"
-          title="Brand template tidak bisa dimuat"
+          title={t.brand.page.loadErrorTitle}
           action={
             <Button variant="secondary" size="sm" onClick={() => loadAll(selectedId)}>
-              Coba lagi
+              {t.common.retry}
             </Button>
           }
         >
@@ -394,40 +420,40 @@ export default function BrandTemplatePage() {
           <TemplateLibraryBar
             templates={templates}
             selected={selected}
-            activeAgent={activeAgent}
+            activeCampaign={activeCampaign}
             settingDefault={settingDefault}
             onSelect={selectTemplate}
-            onCreate={() => guard(() => setNameDialog({ mode: 'create', value: `Template ${templates.length + 1}` }))}
-            onDuplicate={() => selected && guard(() => setNameDialog({ mode: 'duplicate', value: `${selected.name} (salinan)`.slice(0, 80) }))}
+            onCreate={() => guard(() => setNameDialog({ mode: 'create', value: t.brand.nameDialog.defaultName(templates.length + 1) }))}
+            onDuplicate={() => selected && guard(() => setNameDialog({ mode: 'duplicate', value: t.brand.nameDialog.copyName(selected.name).slice(0, 80) }))}
             onRename={() => selected && setNameDialog({ mode: 'rename', value: selected.name })}
             onDelete={() => setConfirmDelete(true)}
-            onMakeDefault={makeDefault}
+            onMakeDefault={useForCampaign}
           />
 
           <div className="mc-stack">
             <div className="mc-row mc-row--between mc-row--top">
               <div className="mc-grow">
                 <h2 className="mc-h2 mc-truncate" title={selected?.name}>
-                  {selected?.name || 'Pengaturan'}
+                  {selected?.name || t.brand.page.untitled}
                 </h2>
                 <div className="mc-row mc-gap-8 mc-row--wrap" style={{ marginTop: 'var(--s-1)' }}>
                   {hasChanges ? (
                     <Badge tone="warning" size="sm">
-                      Belum disimpan
+                      {t.brand.page.unsaved}
                     </Badge>
                   ) : (
-                    selected?.updated_at && <span className="mc-caption mc-muted">Disimpan {formatDateTime(selected.updated_at)}</span>
+                    selected?.updated_at && <span className="mc-caption mc-muted">{t.brand.page.savedAt(formatDateTime(selected.updated_at))}</span>
                   )}
                 </div>
               </div>
               <Button variant="ghost" size="sm" onClick={() => setConfirmDefaults(true)} icon={<RotateCcw size={16} aria-hidden="true" />} disabled={!selected}>
-                Kembalikan default
+                {t.brand.page.resetDefaults}
               </Button>
             </div>
 
             <SettingsSection
               id="caption"
-              title="Caption"
+              title={t.brand.sections.caption}
               icon={<Type size={20} aria-hidden="true" />}
               summary={`${activePreset ? `${presetLabel(activePreset.name)} · ` : ''}${mergedCaptionSettings.fontFamily} ${mergedCaptionSettings.fontSize}`}
               open={openPanels.caption}
@@ -442,9 +468,9 @@ export default function BrandTemplatePage() {
 
             <SettingsSection
               id="ai"
-              title="AI subtitle"
+              title={t.brand.sections.ai}
               icon={<Captions size={20} aria-hidden="true" />}
-              summary={`${aiOnCount} dari 4 aktif`}
+              summary={t.brand.summary.aiOn(aiOnCount, 4)}
               open={openPanels.ai}
               onToggle={() => togglePanel('ai')}
             >
@@ -453,9 +479,9 @@ export default function BrandTemplatePage() {
 
             <SettingsSection
               id="overlay"
-              title="Logo & video contoh"
+              title={t.brand.sections.overlay}
               icon={<ImageIcon size={20} aria-hidden="true" />}
-              summary={config.brand_settings.overlayUrl ? 'Logo dipasang' : 'Tanpa logo'}
+              summary={config.brand_settings.overlayUrl ? t.brand.summary.logoSet : t.brand.summary.noLogo}
               open={openPanels.overlay}
               onToggle={() => togglePanel('overlay')}
             >
@@ -466,13 +492,25 @@ export default function BrandTemplatePage() {
 
             <SettingsSection
               id="layout"
-              title="Safe zone"
-              icon={<Smartphone size={20} aria-hidden="true" />}
-              summary={safeZoneLabel(config.layout_settings.safeZone)}
+              title={t.brand.sections.layout}
+              icon={<LayoutTemplate size={20} aria-hidden="true" />}
+              summary={layoutSummary(config.layout_settings, t)}
               open={openPanels.layout}
               onToggle={() => togglePanel('layout')}
             >
-              <LayoutSettingsPanel layout={config.layout_settings} updateLayout={(updates) => updateConfig('layout_settings', updates)} />
+              {selected && (
+                <LayoutSettingsPanel
+                  templateId={selected.id}
+                  layout={config.layout_settings}
+                  caption={mergedCaptionSettings}
+                  emoji={config.ai_settings.emojis}
+                  keywordsOn={config.ai_settings.keywords}
+                  brandLogoUrl={config.brand_settings.overlayUrl || ''}
+                  aspect={sampleAspect}
+                  updateLayout={updateLayout}
+                  updateCaption={(updates) => updateConfig('caption_settings', updates)}
+                />
+              )}
             </SettingsSection>
           </div>
 
@@ -482,6 +520,8 @@ export default function BrandTemplatePage() {
               ai={config.ai_settings}
               brandSettings={config.brand_settings}
               layoutSettings={config.layout_settings}
+              onSampleAspect={setSampleAspect}
+              onUpdateLayout={updateLayout}
               onUpdateBrand={(updates) => updateConfig('brand_settings', updates)}
               onUpdateCaption={(updates) => updateConfig('caption_settings', updates)}
             />
@@ -497,10 +537,10 @@ export default function BrandTemplatePage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setNameDialog(null)} disabled={nameBusy}>
-              Batal
+              {t.common.cancel}
             </Button>
             <Button type="submit" form={NAME_FORM_ID} variant="primary" loading={nameBusy} disabled={!nameDialog?.value.trim()}>
-              {nameDialog?.mode === 'rename' ? 'Simpan nama' : 'Buat template'}
+              {nameDialog?.mode === 'rename' ? t.brand.nameDialog.saveName : t.brand.nameDialog.create}
             </Button>
           </>
         }
@@ -513,23 +553,23 @@ export default function BrandTemplatePage() {
           }}
         >
           <InputField
-            label="Nama template"
+            label={t.brand.nameDialog.label}
             value={nameDialog?.value || ''}
             onChange={(e) => nameDialog && setNameDialog({ ...nameDialog, value: e.target.value })}
             maxLength={80}
             data-autofocus
             onFocus={(e) => e.currentTarget.select()}
-            placeholder="Misal: Podcast gelap, Edukasi cerah"
-            hint={nameDialog?.mode === 'duplicate' ? `Semua pengaturan "${selected?.name}" yang sudah disimpan ikut disalin.` : undefined}
+            placeholder={t.brand.nameDialog.placeholder}
+            hint={nameDialog?.mode === 'duplicate' ? t.brand.nameDialog.duplicateHint(selected?.name || '') : undefined}
           />
         </form>
       </Modal>
 
       <ConfirmModal
         isOpen={!!discardThen}
-        title="Buang perubahan?"
-        message={`Perubahan pada "${selected?.name || 'template ini'}" belum disimpan dan akan hilang.`}
-        confirmLabel="Buang & lanjutkan"
+        title={t.brand.discard.title}
+        message={t.brand.discard.message(selected?.name || t.brand.discard.thisTemplate)}
+        confirmLabel={t.brand.discard.confirm}
         danger
         onConfirm={() => {
           const action = discardThen
@@ -541,21 +581,16 @@ export default function BrandTemplatePage() {
 
       <ConfirmModal
         isOpen={confirmDelete}
-        title={`Hapus template "${selected?.name || ''}"?`}
+        title={t.brand.deleteDialog.title(selected?.name || '')}
         message={
           <div className="mc-stack mc-gap-8">
-            {(selected?.used_by_agents || []).length > 0 && (
-              <p>
-                Template ini default untuk {(selected?.used_by_agents || []).map((a) => a.name).join(', ')}. Workspace tersebut akan memakai template paling lama.
-              </p>
+            {(selected?.used_by_campaigns || []).length > 0 && (
+              <p>{t.brand.deleteDialog.usedBy((selected?.used_by_campaigns || []).map((c) => c.name).join(', '))}</p>
             )}
-            <p>
-              {selected?.clip_count || 0} clip yang memakai template ini akan kembali ke template default workspace-nya. Logo dan file brand yang hanya dipakai template ini
-              ikut dihapus. Tindakan ini tidak bisa dibatalkan.
-            </p>
+            <p>{t.brand.deleteDialog.body(selected?.clip_count || 0)}</p>
           </div>
         }
-        confirmLabel="Hapus template"
+        confirmLabel={t.brand.deleteDialog.confirm}
         confirmIcon={<Trash2 size={16} aria-hidden="true" />}
         danger
         loading={deleting}
@@ -565,9 +600,9 @@ export default function BrandTemplatePage() {
 
       <ConfirmModal
         isOpen={confirmDefaults}
-        title="Kembalikan ke pengaturan default?"
-        message="Semua pengaturan template ini diganti dengan nilai bawaan MetisClip. Perubahan baru tersimpan setelah Anda klik Simpan (bisa di-undo)."
-        confirmLabel="Pakai default"
+        title={t.brand.defaultsDialog.title}
+        message={t.brand.defaultsDialog.message}
+        confirmLabel={t.brand.defaultsDialog.confirm}
         onConfirm={resetToDefaults}
         onClose={() => setConfirmDefaults(false)}
       />

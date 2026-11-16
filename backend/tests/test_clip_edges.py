@@ -26,6 +26,12 @@ def test_edges_move_to_the_nearest_sentence_boundaries():
     assert b < 4.85
 
 
+def test_snapped_edges_stay_within_a_brief_s_length():
+    # Snapping gives 1.05-4.65 (3.6 s); a brief that accepts at most 3.4 s keeps the Analyzer's edges
+    assert ce.snap(LOCAL, None, t0=1.40, t1=4.95, total=5.5, limits=(None, 3.4)) is None
+    assert ce.snap(LOCAL, None, t0=1.40, t1=4.95, total=5.5, limits=(3.0, 4.0)) is not None
+
+
 def test_the_tail_never_reaches_into_the_next_word():
     tight = [*LOCAL[:9], {"word": "Nah", "start": 4.55, "end": 4.75}]
     _, b = ce.snap(tight, None, t0=1.40, t1=4.60, total=5.5)

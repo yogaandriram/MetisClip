@@ -25,7 +25,7 @@ def _clip(db, paths, hook="Rahasia kaya: jangan /\\ boros!") -> dict:
     raw = paths.library_dir / "podcast" / cid / "raw.mp4"
     raw.parent.mkdir(parents=True)
     raw.write_bytes(b"raw")
-    doc = ClipDoc(_id=cid, agent_id=None, job_id=None, source_video_id=None, youtube_id="x", start_time=0,
+    doc = ClipDoc(_id=cid, job_id=None, source_video_id=None, youtube_id="x", start_time=0,
                   end_time=10, duration_seconds=10, hook_text=hook, status="rendering",
                   files={"raw": paths.to_relative(raw)}).to_mongo()
     db.clips.insert_one(doc)

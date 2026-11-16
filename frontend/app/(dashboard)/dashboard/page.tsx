@@ -23,34 +23,34 @@ import {
   StatusBadge,
   iconButtonClass,
 } from '@/components/ui'
-import { NoAgentState } from '@/components/NoAgentState'
-import { useAgent } from '@/contexts/AgentContext'
+import { NoCampaignState } from '@/components/NoCampaignState'
+import { useCampaign } from '@/contexts/CampaignContext'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
-import { api, type Clip, type DashboardStats, type Job, type JobStep, type SecretName } from '@/lib/engine'
+import { api, eventForCampaign, type Clip, type DashboardStats, type Job, type SecretName } from '@/lib/engine'
 import { mediaUrl } from '@/lib/media'
+import { QUEUE_HREF } from '@/lib/routes'
 import { providerInfo } from '@/lib/llmProviders'
 import { ACTIVE_JOB_STATUSES, errorMessage, formatClock, formatCompactNumber, formatDateTime, jobSource } from '@/lib/format'
+import { tm, type Messages } from '@/lib/i18n'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 const LATEST_CLIPS = 6
 
-/** Short step names for the pills (DESIGN.md §8.9). */
-const STEP_SHORT: Record<JobStep, string> = {
-  discovery: 'Discovery',
-  analysis: 'Analisis',
-  processing: 'Proses',
-}
-
-function summary(ready: number | null, running: number | null, failed: boolean): string {
-  if (ready === null || running === null) return failed ? 'Ringkasan belum bisa dimuat.' : 'Memuat ringkasan…'
-  const clipsPart = ready > 0 ? `${ready} klip siap ekspor` : 'Belum ada klip siap ekspor'
-  const jobsPart = running > 0 ? `${running} proses berjalan` : 'tidak ada proses berjalan'
-  return `${clipsPart}, ${jobsPart}.`
+function summary(t: Messages, ready: number | null, running: number | null, failed: boolean): string {
+  const m = t.dashboard
+  if (ready === null || running === null) return failed ? m.summaryUnavailable : m.summaryLoading
+  const clipsPart = ready > 0 ? m.readyClips(ready) : m.noReadyClips
+  const jobsPart = running > 0 ? m.runningJobs(running) : m.noRunningJobs
+  return m.summary(clipsPart, jobsPart)
 }
 
 export default function DashboardOverview() {
-  const { activeAgent } = useAgent()
+  const { activeCampaign } = useCampaign()
+  const campaignId = activeCampaign?.id
   const { epoch } = useEngine()
+  const t = useT()
+  const m = t.dashboard
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [jobs, setJobs] = useState<Job[] | null>(null)
   const [clips, setClips] = useState<Clip[] | null>(null)
@@ -58,15 +58,15 @@ export default function DashboardOverview() {
   const [llmLabel, setLlmLabel] = useState('LLM')
   const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(async (agentId: string) => {
+  const load = useCallback(async (id: string) => {
     setError(null)
     try {
-      const [s, j, c] = await Promise.all([api.dashboard.stats(agentId), api.jobs.list({ agent_id: agentId, limit: 5 }), api.clips.list({ agent_id: agentId })])
+      const [s, j, c] = await Promise.all([api.dashboard.stats(id), api.jobs.list({ campaign_id: id, limit: 5 }), api.clips.list({ campaign_id: id })])
       setStats(s)
       setJobs(j.jobs.slice(0, 5))
       setClips(c.clips)
     } catch (err) {
-      setError(errorMessage(err, 'Gagal memuat ringkasan'))
+      setError(errorMessage(err, tm().dashboard.loadFailed))
     }
   }, [])
 
@@ -74,8 +74,8 @@ export default function DashboardOverview() {
     setStats(null)
     setJobs(null)
     setClips(null)
-    if (activeAgent) load(activeAgent.id)
-  }, [activeAgent, load, epoch])
+    if (campaignId) load(campaignId)
+  }, [campaignId, load, epoch])
 
   useEffect(() => {
     Promise.all([api.secrets.status(), api.settings.get()])
@@ -90,19 +90,19 @@ export default function DashboardOverview() {
   }, [epoch])
 
   useEngineEvents((e) => {
-    if (!activeAgent) return
+    if (!campaignId) return
     if (e.type === 'job.progress') {
       setJobs((prev) => prev?.map((j) => (j.id === e.id ? { ...j, status: e.status, current_step: e.current_step, progress_pct: e.progress_pct, total_scenes: e.total_scenes, processed_scenes: e.processed_scenes } : j)) ?? prev)
     } else if (e.type === 'job.status' || e.type === 'clip.created' || e.type === 'clip.deleted') {
-      if (e.type === 'clip.deleted' || e.agent_id === activeAgent.id) load(activeAgent.id)
+      if (e.type === 'clip.deleted' || eventForCampaign(e, campaignId)) load(campaignId)
     }
   })
 
-  if (!activeAgent) {
+  if (!activeCampaign || !campaignId) {
     return (
       <>
-        <PageHeader title="Beranda" subtitle="Ringkasan aktivitas agentic AI." />
-        <NoAgentState what="Beranda" />
+        <PageHeader title={m.title} subtitle={m.subtitle} />
+        <NoCampaignState what={m.title} />
       </>
     )
   }
@@ -114,22 +114,21 @@ export default function DashboardOverview() {
 
   return (
     <>
-      <PageHeader title={activeAgent.name} subtitle={summary(readyCount, activeJobs ? activeJobs.length : null, !!error)} />
+      <PageHeader title={activeCampaign.name} subtitle={summary(t, readyCount, activeJobs ? activeJobs.length : null, !!error)} />
 
       <div className="mc-stack mc-gap-32">
         {missingKeys.length > 0 && (
           <Alert
             tone="warning"
             icon={<KeyRound size={18} />}
-            title="API key belum lengkap"
+            title={m.keys.title}
             action={
               <ButtonLink href="/settings/" variant="secondary" size="sm">
-                Buka Pengaturan
+                {m.keys.openSettings}
               </ButtonLink>
             }
           >
-            {missingKeys[0] === 'groq_api_key' ? 'API key Groq' : `API key ${llmLabel}`}
-            {missingKeys.length > 1 ? ' dan API key Groq' : ''} belum diisi. Pipeline AI tidak akan berjalan tanpa key ini.
+            {m.keys.missing(missingKeys.map((k) => (k === 'groq_api_key' ? m.keys.groq : m.keys.llm(llmLabel))))}
           </Alert>
         )}
 
@@ -137,8 +136,8 @@ export default function DashboardOverview() {
           <Alert
             tone="error"
             action={
-              <Button variant="secondary" size="sm" onClick={() => load(activeAgent.id)}>
-                Coba lagi
+              <Button variant="secondary" size="sm" onClick={() => load(campaignId)}>
+                {t.common.retry}
               </Button>
             }
           >
@@ -153,17 +152,17 @@ export default function DashboardOverview() {
             blob
             icon={<Film size={18} aria-hidden="true" />}
             value={readyCount === null ? <Skeleton width={72} height={40} /> : formatCompactNumber(readyCount)}
-            label="Klip siap ekspor"
+            label={m.stats.readyClips}
           />
           <StatCard
             className="mc-col-3"
             icon={<Clapperboard size={18} aria-hidden="true" />}
             notchTone="ink"
             value={stats === null ? <Skeleton width={72} height={40} /> : formatCompactNumber(stats.videosProcessed)}
-            label="Video diproses"
+            label={m.stats.videosProcessed}
           />
           <Link href="/discover/" className="mc-card mc-card--dashed mc-card--interactive mc-stat mc-col-3" style={{ alignItems: 'center', justifyContent: 'center', gap: 16, textDecoration: 'none' }}>
-            <span className="mc-label">Buat klip baru</span>
+            <span className="mc-label">{m.stats.newClip}</span>
             <span className={iconButtonClass({ variant: 'accent', size: 'lg', tooltip: false })} aria-hidden="true">
               <Plus size={22} />
             </span>
@@ -174,11 +173,11 @@ export default function DashboardOverview() {
         <div className="mc-grid">
           <Card className="mc-col-8">
             <CardHeader
-              title="Klip terbaru"
-              subtitle={stats ? `${formatCompactNumber(stats.clipsGenerated)} klip dibuat di workspace ini` : undefined}
+              title={m.latestClips.title}
+              subtitle={stats ? m.latestClips.made(stats.clipsGenerated, formatCompactNumber(stats.clipsGenerated)) : undefined}
               action={
                 <ButtonLink href="/clips/" variant="ghost" size="sm" iconRight={<ArrowRight size={16} aria-hidden="true" />}>
-                  Lihat semua
+                  {m.latestClips.seeAll}
                 </ButtonLink>
               }
             />
@@ -191,11 +190,11 @@ export default function DashboardOverview() {
             ) : latestClips.length === 0 ? (
               <EmptyState
                 icon={Film}
-                title="Belum ada klip"
-                description="Tempel link YouTube atau pilih file video di Cari Video untuk membuat klip pertama."
+                title={m.latestClips.emptyTitle}
+                description={m.latestClips.emptyDescription}
                 action={
                   <ButtonLink href="/discover/" variant="secondary" size="sm">
-                    Buka Cari Video
+                    {m.latestClips.openDiscover}
                   </ButtonLink>
                 }
               />
@@ -207,7 +206,7 @@ export default function DashboardOverview() {
                     href={`/clips/detail/?id=${encodeURIComponent(clip.id)}`}
                     className="mc-thumb"
                     style={{ display: 'block', aspectRatio: '9 / 16' }}
-                    aria-label={`Buka klip: ${clip.hook_text || formatClock(clip.duration_seconds)}`}
+                    aria-label={m.latestClips.openClip(clip.hook_text || formatClock(clip.duration_seconds))}
                   >
                     {clip.files.thumbnail && (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -229,11 +228,11 @@ export default function DashboardOverview() {
 
           <Card tone="dew" className="mc-col-4">
             <CardHeader
-              title="Job terbaru"
+              title={m.latestJobs.title}
               size="sm"
               action={
-                <ButtonLink href="/jobs/" variant="ghost" size="sm" iconRight={<ArrowRight size={16} aria-hidden="true" />}>
-                  Antrian
+                <ButtonLink href={QUEUE_HREF} variant="ghost" size="sm" iconRight={<ArrowRight size={16} aria-hidden="true" />}>
+                  {t.clips.tabs.queue}
                 </ButtonLink>
               }
             />
@@ -244,14 +243,14 @@ export default function DashboardOverview() {
                 ))}
               </div>
             ) : jobs.length === 0 ? (
-              <p className="mc-muted">Belum ada job. Mulai dari Cari Video.</p>
+              <p className="mc-muted">{m.latestJobs.empty}</p>
             ) : (
               <div className="mc-stack mc-gap-12">
                 {jobs.map((job) => {
-                  const title = jobSource(job).text || 'Job'
+                  const title = jobSource(job).text || m.latestJobs.fallbackTitle
                   const active = ACTIVE_JOB_STATUSES.includes(job.status)
                   return (
-                    <Link key={job.id} href="/jobs/" style={{ display: 'block', textDecoration: 'none' }}>
+                    <Link key={job.id} href={QUEUE_HREF} style={{ display: 'block', textDecoration: 'none' }}>
                       {active ? (
                         <ProgressRow label={title} value={`${Math.round(job.progress_pct)}%`} percent={job.progress_pct} />
                       ) : (
@@ -277,11 +276,13 @@ export default function DashboardOverview() {
 
 /** Ink hero: the running job with live progress, or a prompt to start one. */
 function HeroCard({ job, loading }: { job: Job | null; loading: boolean }) {
+  const t = useT()
+  const m = t.dashboard.hero
   if (loading) {
     return (
       <Card tone="ink" className="mc-col-3 mc-stat" style={{ justifyContent: 'space-between' }}>
         <Contour />
-        <h2 className="mc-h2 mc-card__body">Proses berjalan</h2>
+        <h2 className="mc-h2 mc-card__body">{m.running}</h2>
         <div className="mc-card__body mc-stack mc-gap-12">
           <Skeleton width={96} height={40} />
           <Skeleton height={8} radius="full" />
@@ -294,12 +295,12 @@ function HeroCard({ job, loading }: { job: Job | null; loading: boolean }) {
     return (
       <Card tone="ink" className="mc-col-3 mc-stat" style={{ justifyContent: 'space-between' }}>
         <Contour />
-        <h2 className="mc-h2 mc-card__body">Tempel link YouTube</h2>
+        <h2 className="mc-h2 mc-card__body">{m.idleTitle}</h2>
         <div className="mc-card__body mc-stack mc-gap-12">
-          <p className="mc-muted">Tidak ada proses berjalan. Mulai dari link video panjang atau file di PC Anda.</p>
+          <p className="mc-muted">{m.idleText}</p>
           <div>
             <ButtonLink href="/discover/" variant="primary" size="sm">
-              Buka Cari Video
+              {t.dashboard.latestClips.openDiscover}
             </ButtonLink>
           </div>
         </div>
@@ -308,17 +309,17 @@ function HeroCard({ job, loading }: { job: Job | null; loading: boolean }) {
   }
 
   const running = job.status === 'running'
-  const step = job.current_step ? STEP_SHORT[job.current_step] : 'Menunggu'
+  const step = job.current_step ? t.jobs.stepShort[job.current_step] : t.status.job.pending
   return (
     <Card tone="ink" className="mc-col-3 mc-stat" style={{ justifyContent: 'space-between' }}>
       <Contour />
-      <Notch icon={<ArrowUpRight size={18} />} position="end" label="Lihat antrian" href="/jobs/" />
-      <h2 className="mc-h2 mc-card__body">Proses berjalan</h2>
+      <Notch icon={<ArrowUpRight size={18} />} position="end" label={m.seeQueue} href={QUEUE_HREF} />
+      <h2 className="mc-h2 mc-card__body">{m.running}</h2>
       <div className="mc-card__body mc-stack mc-gap-12">
-        <div className="mc-display">{running ? `${Math.round(job.progress_pct)}%` : 'Antri'}</div>
-        <ProgressBar value={job.progress_pct} label="Progres job" />
+        <div className="mc-display">{running ? `${Math.round(job.progress_pct)}%` : m.queued}</div>
+        <ProgressBar value={job.progress_pct} label={t.jobs.progressLabel} />
         {job.total_scenes > 0 ? (
-          <GooPair first={step} second={`klip ${job.processed_scenes} dari ${job.total_scenes}`} />
+          <GooPair first={step} second={m.clipOf(job.processed_scenes, job.total_scenes)} />
         ) : (
           <div>
             <Badge tone="neutral" size="sm">

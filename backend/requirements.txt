@@ -17,6 +17,9 @@ mediapipe==0.10.5
 opencv-python==4.9.0.80
 numpy==1.26.4
 imageio-ffmpeg==0.6.0
+# Campaign briefs: text and scanned pages of PDFs, and screenshots resized before they go to the LLM
+pypdfium2==5.15.2
+pillow==11.3.0
 # Dev fallback only: packaged builds use the standalone yt-dlp.exe from the bin dir
 yt-dlp==2026.10.21  # last release supporting Python 3.10; the bundled yt-dlp.exe is pinned separately
 # Optional MCP interface (off by default)

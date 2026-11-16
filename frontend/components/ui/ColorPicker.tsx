@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import { HexAlphaColorPicker } from 'react-colorful'
 import { useFloating, useClick, useInteractions, useDismiss, offset, flip, shift } from '@floating-ui/react'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 interface ColorPickerProps {
   color: string
@@ -26,6 +27,7 @@ function readRecent(): string[] {
 
 /** Swatch button that opens a color popover. Used for caption colors (content). */
 export function ColorPicker({ color, onChange, label }: ColorPickerProps) {
+  const t = useT()
   const [isOpen, setIsOpen] = useState(false)
   const [recent, setRecent] = useState<string[]>(DEFAULT_SWATCHES)
 
@@ -78,12 +80,12 @@ export function ColorPicker({ color, onChange, label }: ColorPickerProps) {
             type="text"
             className="mc-input mc-input--sm mc-input--mono"
             value={color}
-            aria-label="Kode warna"
+            aria-label={t.ui.colorCode}
             onChange={(e) => onChange(e.target.value)}
             style={{ marginTop: 12 }}
           />
           <div className="mc-caption mc-muted" style={{ margin: '12px 0 8px' }}>
-            Terakhir dipakai
+            {t.ui.recentColors}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 20px)', gap: 6 }}>
             {recent.map((c) => (

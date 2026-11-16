@@ -359,7 +359,7 @@ def test_migration_007_turns_groq_into_auto(mongo):
     try:
         old.meta.insert_one({"_id": "schema", "version": 6})
         old.app_settings.insert_one({"_id": "settings", "whisper": {"provider": "groq", "model": "whisper-large-v3"}})
-        assert dbm.migrate(old) == 8
+        assert dbm.migrate(old) == 10
         assert old.app_settings.find_one({"_id": "settings"})["whisper"] == {"provider": "auto", "model": "whisper-large-v3"}
     finally:
         mongo.drop_database(name)
@@ -380,17 +380,17 @@ def test_whisper_routes(client):
 def test_upload_jobs_need_a_transcription_engine(client, tmp_path, monkeypatch):
     from backend.tests.test_db_and_api import _video
 
-    agent = client.post("/api/agents", json={"name": "Agen Upload"}).json()["agent"]
+    camp = client.post("/api/campaigns", json={"name": "Upload"}).json()["campaign"]
     video = _video(tmp_path / "Klip Saya ü.mp4")
     monkeypatch.setattr(config, "env", "production")
     # "Selalu Groq" without a key
     client.put("/api/settings", json={"whisper": {"provider": "groq"}})
-    r = client.post("/api/jobs", json={"agent_id": agent["id"], "local_file_path": video})
+    r = client.post("/api/jobs", json={"campaign_ids": [camp["id"]], "local_file_path": video})
     assert r.status_code == 400 and "API key Groq" in r.json()["detail"]
     # "Otomatis" on an install without whisper-cli
     client.put("/api/settings", json={"whisper": {"provider": "auto"}})
     monkeypatch.setattr(whisper_local, "binary", lambda: None)
-    r = client.post("/api/jobs", json={"agent_id": agent["id"], "local_file_path": video})
+    r = client.post("/api/jobs", json={"campaign_ids": [camp["id"]], "local_file_path": video})
     assert r.status_code == 400 and "Whisper lokal tidak ditemukan" in r.json()["detail"]
 
 

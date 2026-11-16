@@ -8,6 +8,74 @@ from pathlib import Path
 
 from backend.core import procs
 from backend.core.config import deno_path, ffmpeg_path, ytdlp_command
+from backend.core import i18n
+
+M = i18n.messages({
+    "bot_check": {
+        "id": "YouTube meminta verifikasi bot. Coba 'Update yt-dlp' di halaman Sistem, atau impor cookies.txt di Pengaturan.",
+        "en": "YouTube is asking for a bot check. Try 'Update yt-dlp' on the System page, or import cookies.txt in Settings.",
+    },
+    "forbidden": {
+        "id": "YouTube menolak unduhan (HTTP 403). Biasanya yt-dlp perlu diperbarui: klik 'Update yt-dlp' di halaman Sistem, lalu lanjutkan job.",
+        "en": "YouTube refused the download (HTTP 403). yt-dlp usually needs an update: click 'Update yt-dlp' on the System page, then resume the job.",
+    },
+    "format": {
+        "id": "yt-dlp tidak dapat membaca format video dari YouTube. Klik 'Update yt-dlp' di halaman Sistem, atau ganti player client di Pengaturan.",
+        "en": "yt-dlp can't read the video formats from YouTube. Click 'Update yt-dlp' on the System page, or change the player client in Settings.",
+    },
+    "unavailable": {
+        "id": "Video YouTube tidak tersedia atau bersifat privat.",
+        "en": "The YouTube video is unavailable or private.",
+    },
+    "rate_limited": {
+        "id": "YouTube membatasi permintaan (429). Coba lagi beberapa saat lagi.",
+        "en": "YouTube is limiting requests (429). Try again in a moment.",
+    },
+    "network": {
+        "id": "Gagal mengunduh dari YouTube. Periksa koneksi internet Anda.",
+        "en": "Couldn't download from YouTube. Check your internet connection.",
+    },
+    "failed": {
+        "id": "yt-dlp gagal: {tail}",
+        "en": "yt-dlp failed: {tail}",
+    },
+    "missing_reinstall": {
+        "id": "yt-dlp tidak ditemukan. Jalankan ulang instalasi MetisClip.",
+        "en": "yt-dlp was not found. Run the MetisClip installer again.",
+    },
+    "no_section_file": {
+        "id": "Unduhan segmen video tidak menghasilkan file",
+        "en": "The video section download produced no file",
+    },
+    "no_audio_file": {
+        "id": "Unduhan audio tidak menghasilkan file",
+        "en": "The audio download produced no file",
+    },
+    "missing": {
+        "id": "yt-dlp tidak ditemukan",
+        "en": "yt-dlp was not found",
+    },
+    "not_writable": {
+        "id": "Folder {folder} tidak dapat ditulis, yt-dlp tidak dapat diperbarui",
+        "en": "Folder {folder} is not writable, so yt-dlp can't be updated",
+    },
+    "updated": {
+        "id": "yt-dlp diperbarui ke {version}",
+        "en": "yt-dlp updated to {version}",
+    },
+    "up_to_date": {
+        "id": "yt-dlp sudah versi terbaru ({version})",
+        "en": "yt-dlp is already up to date ({version})",
+    },
+    "update_failed": {
+        "id": "Update yt-dlp gagal: {tail}",
+        "en": "The yt-dlp update failed: {tail}",
+    },
+    "update_failed_offline": {
+        "id": "Update yt-dlp gagal. Periksa koneksi internet lalu coba lagi.",
+        "en": "The yt-dlp update failed. Check your internet connection and try again.",
+    },
+})
 
 logger = logging.getLogger(__name__)
 
@@ -69,22 +137,19 @@ def _base_args() -> list[str]:
 def _friendly(stderr: str) -> str:
     low = (stderr or "").lower()
     if "sign in to confirm" in low or "not a bot" in low:
-        return ("YouTube meminta verifikasi bot. Coba 'Update yt-dlp' di halaman Sistem, "
-                "atau impor cookies.txt di Pengaturan.")
+        return M("bot_check")
     if "403 forbidden" in low or "http error 403" in low:
-        return ("YouTube menolak unduhan (HTTP 403). Biasanya yt-dlp perlu diperbarui: klik "
-                "'Update yt-dlp' di halaman Sistem, lalu lanjutkan job.")
+        return M("forbidden")
     if "page needs to be reloaded" in low or "requested format is not available" in low:
-        return ("yt-dlp tidak dapat membaca format video dari YouTube. Klik 'Update yt-dlp' di halaman "
-                "Sistem, atau ganti player client di Pengaturan.")
+        return M("format")
     if "video unavailable" in low or "private video" in low:
-        return "Video YouTube tidak tersedia atau bersifat privat."
+        return M("unavailable")
     if "http error 429" in low or "too many requests" in low:
-        return "YouTube membatasi permintaan (429). Coba lagi beberapa saat lagi."
+        return M("rate_limited")
     if "unable to download" in low or "timed out" in low or "getaddrinfo" in low:
-        return "Gagal mengunduh dari YouTube. Periksa koneksi internet Anda."
+        return M("network")
     tail = "\n".join((stderr or "").strip().splitlines()[-3:])
-    return f"yt-dlp gagal: {tail[:300]}"
+    return M("failed", tail=tail[:300])
 
 
 def _run(args: list[str], cancel: procs.CancelToken | None, timeout: float) -> str:
@@ -93,7 +158,7 @@ def _run(args: list[str], cancel: procs.CancelToken | None, timeout: float) -> s
     except procs.ProcessError as exc:
         raise YtDlpError(_friendly(exc.stderr)) from exc
     except FileNotFoundError as exc:
-        raise YtDlpError("yt-dlp tidak ditemukan. Jalankan ulang instalasi MetisClip.") from exc
+        raise YtDlpError(M("missing_reinstall")) from exc
     return (res.stdout or b"").decode("utf-8", "replace")
 
 
@@ -127,7 +192,7 @@ def download_section(
         if candidates:
             candidates[0].replace(out_path)
     if not out_path.exists() or out_path.stat().st_size == 0:
-        raise YtDlpError("Unduhan segmen video tidak menghasilkan file")
+        raise YtDlpError(M("no_section_file"))
     return out_path
 
 
@@ -138,7 +203,7 @@ def download_audio(youtube_id: str, out_dir: Path, cancel: procs.CancelToken | N
     _run(_base_args() + ["-f", "ba[ext=m4a]/ba", "-o", str(template), watch_url(youtube_id)], cancel, timeout=1800)
     files = sorted(out_dir.glob(f"{youtube_id}-audio.*"))
     if not files:
-        raise YtDlpError("Unduhan audio tidak menghasilkan file")
+        raise YtDlpError(M("no_audio_file"))
     return files[0]
 
 
@@ -157,10 +222,10 @@ def self_update() -> dict:
 
     exe = ytdlp_exe()
     if exe is None:
-        return {"ok": False, "updated": False, "version": None, "message": "yt-dlp tidak ditemukan"}
+        return {"ok": False, "updated": False, "version": None, "message": M("missing")}
     if exe.parent != get_paths().tools_dir:
         return {"ok": False, "updated": False, "version": version(),
-                "message": f"Folder {get_paths().tools_dir} tidak dapat ditulis, yt-dlp tidak dapat diperbarui"}
+                "message": M("not_writable", folder=get_paths().tools_dir)}
     before = version()
     output = ""
     try:
@@ -174,10 +239,10 @@ def self_update() -> dict:
     if after and after != before:
         note_ytdlp_version(after)
         logger.info("yt-dlp updated %s -> %s", before, after)
-        return {"ok": True, "updated": True, "version": after, "message": f"yt-dlp diperbarui ke {after}"}
+        return {"ok": True, "updated": True, "version": after, "message": M("updated", version=after)}
     if "up to date" in output.lower() or "up-to-date" in output.lower():
-        return {"ok": True, "updated": False, "version": after, "message": f"yt-dlp sudah versi terbaru ({after})"}
+        return {"ok": True, "updated": False, "version": after, "message": M("up_to_date", version=after)}
     tail = " ".join(output.strip().splitlines()[-2:])[:240]
     logger.warning("yt-dlp self-update failed: %s", output.strip()[-1000:])
     return {"ok": False, "updated": False, "version": after,
-            "message": "Update yt-dlp gagal" + (f": {tail}" if tail else ". Periksa koneksi internet lalu coba lagi.")}
+            "message": M("update_failed", tail=tail) if tail else M("update_failed_offline")}

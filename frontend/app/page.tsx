@@ -3,6 +3,7 @@
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Logo, Spinner } from '@/components/ui'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 /**
  * Entry point (app://metisclip/ or http://localhost:3000/).
@@ -11,6 +12,7 @@ import { Logo, Spinner } from '@/components/ui'
  * connects to NEXT_PUBLIC_ENGINE_URL.
  */
 export default function EntryPage() {
+  const t = useT()
   const router = useRouter()
 
   useEffect(() => {
@@ -38,7 +40,7 @@ export default function EntryPage() {
       <Logo />
       <div className="mc-row" role="status">
         <Spinner size="sm" />
-        <p className="mc-muted">Memuat MetisClip…</p>
+        <p className="mc-muted">{t.shell.loadingApp}</p>
       </div>
     </div>
   )

@@ -1,6 +1,7 @@
 import React from 'react'
 import { Check, AlertTriangle } from 'lucide-react'
 import { cx } from '@/lib/cx'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 interface ProgressBarProps {
   /** 0–100; leave undefined for an indeterminate bar (work is running, amount unknown) */
@@ -13,7 +14,9 @@ interface ProgressBarProps {
 }
 
 /** 8 px bar, ink fill; on ink cards the fill turns leaf (DESIGN.md §8.9). Driven by WS events only. */
-export function ProgressBar({ value, label = 'Progres', showValue = false, className }: ProgressBarProps) {
+export function ProgressBar({ value, label, showValue = false, className }: ProgressBarProps) {
+  const t = useT()
+  label = label ?? t.ui.progress
   const known = typeof value === 'number' && isFinite(value)
   const pct = known ? Math.min(100, Math.max(0, value as number)) : 0
   return (
@@ -47,7 +50,7 @@ interface ProgressRowProps {
   className?: string
 }
 
-/** Pill row with the label inside and the value on the right (storage, per-agent usage). */
+/** Pill row with the label inside and the value on the right (storage, per-campaign usage). */
 export function ProgressRow({ label, value, percent, highlight, className }: ProgressRowProps) {
   const pct = Math.min(100, Math.max(0, percent || 0))
   return (
@@ -94,13 +97,14 @@ interface WizardStepsProps {
 
 /** Numbered circles for the Setup Wizard (DESIGN.md §8.21). */
 export function WizardSteps({ steps, current, className }: WizardStepsProps) {
+  const t = useT()
   return (
     <ol className={cx('mc-wizard-steps', className)} style={{ listStyle: 'none' }}>
       {steps.map((label, i) => {
         const state = i < current ? 'done' : i === current ? 'current' : 'todo'
         return (
           <li key={label} className={cx('mc-wizard-step', `mc-wizard-step--${state}`)} aria-current={state === 'current' ? 'step' : undefined}>
-            <span className="mc-wizard-step__dot">{state === 'done' ? <Check size={16} aria-label="Selesai" /> : i + 1}</span>
+            <span className="mc-wizard-step__dot">{state === 'done' ? <Check size={16} aria-label={t.ui.stepDone} /> : i + 1}</span>
             <span className="mc-wizard-step__label">{label}</span>
           </li>
         )

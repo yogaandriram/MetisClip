@@ -5,6 +5,7 @@ import Link from 'next/link'
 import type { LucideIcon } from 'lucide-react'
 import { HardDrive } from 'lucide-react'
 import { cx } from '@/lib/cx'
+import { useT } from '@/lib/i18n/I18nProvider'
 
 export interface RailItem {
   name: string
@@ -44,6 +45,7 @@ const BITE_PATH = 'M66 45.3H64A20 20 0 0 0 40.52 25.6A26 26 0 1 1 40.52 -25.6A20
  * Sistem sits alone at the bottom as a white circle.
  */
 export function NavRail({ items, pathname, systemHint, systemProblem }: NavRailProps) {
+  const t = useT()
   const itemRefs = useRef<Array<HTMLAnchorElement | null>>([])
   const activeIndex = items.findIndex((item) => isActive(pathname, item.href))
   const [biteY, setBiteY] = useState<number | null>(null)
@@ -62,7 +64,7 @@ export function NavRail({ items, pathname, systemHint, systemProblem }: NavRailP
   const shownY = biteY ?? lastBiteY.current
 
   return (
-    <nav className="mc-rail" aria-label="Navigasi utama">
+    <nav className="mc-rail" aria-label={t.shell.nav.label}>
       <svg
         className="mc-rail__bite"
         viewBox="0 -46 66 92"
@@ -86,7 +88,7 @@ export function NavRail({ items, pathname, systemHint, systemProblem }: NavRailP
               itemRefs.current[i] = el
             }}
             href={item.href}
-            aria-label={item.count ? `${item.name}, ${item.count} berjalan` : item.name}
+            aria-label={item.count ? t.shell.nav.withRunning(item.name, item.count) : item.name}
             aria-current={active ? 'page' : undefined}
             data-tip={item.name}
             className="mc-rail__item mc-tip mc-tip--right"
@@ -101,7 +103,7 @@ export function NavRail({ items, pathname, systemHint, systemProblem }: NavRailP
 
       <Link
         href="/system/"
-        aria-label={`Sistem. ${systemHint}`}
+        aria-label={`${t.shell.nav.system}. ${systemHint}`}
         aria-current={systemActive ? 'page' : undefined}
         data-tip={systemHint}
         className={cx('mc-rail__system', 'mc-tip', 'mc-tip--right')}

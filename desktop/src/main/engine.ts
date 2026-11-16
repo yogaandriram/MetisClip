@@ -9,6 +9,7 @@ import { MongodManager } from './mongod'
 import { getPaths } from './paths'
 import { killTree, onLines, sleep, waitExit } from './procs'
 import { ensureStructure } from './data-root'
+import { getLanguage, tr, type Lang } from './i18n'
 
 const log = createLogger('engine')
 
@@ -61,9 +62,7 @@ class EngineProcess {
     if (!fs.existsSync(command)) {
       return Promise.reject(
         new Error(
-          p.isDev
-            ? `Python venv tidak ditemukan di ${command}. Buat venv dan instal backend/requirements.txt.`
-            : `metisclip-engine.exe tidak ditemukan di ${command}. Instal ulang aplikasi.`,
+          p.isDev ? tr().engine.venvMissing(command) : tr().engine.exeMissing(command),
         ),
       )
     }
@@ -95,7 +94,7 @@ class EngineProcess {
         else resolve()
       }
       const timer = setTimeout(
-        () => finish(new Error(`Engine tidak siap dalam ${READY_TIMEOUT_MS / 1000} detik. ${this.tailHint()}`)),
+        () => finish(new Error(tr().engine.readyTimeout(READY_TIMEOUT_MS / 1000, this.tailHint()))),
         READY_TIMEOUT_MS,
       )
       onLines(child.stdout, (line) => {
@@ -117,7 +116,7 @@ class EngineProcess {
           finish()
         } else if (msg.event === 'fatal') {
           log.error(`fatal: ${msg.message}`)
-          finish(new Error(msg.message || 'Engine gagal start'))
+          finish(new Error(msg.message || tr().engine.startFailed))
         }
       })
       child.once('error', (err) => finish(err))
@@ -125,7 +124,7 @@ class EngineProcess {
         log.info(`exit (code ${code}${signal ? `, ${signal}` : ''}, pid ${child.pid})`)
         if (!settled) {
           this.dumpTail('engine berhenti sebelum siap')
-          finish(new Error(`Engine berhenti saat start (exit ${code}). ${this.tailHint()}`))
+          finish(new Error(tr().engine.exitedAtStart(code, this.tailHint())))
           return
         }
         if (!this.stopping) this.onUnexpectedExit(code, [...this.stderrTail])
@@ -135,7 +134,7 @@ class EngineProcess {
 
   private tailHint(): string {
     const last = this.stderrTail.filter((l) => l.trim()).slice(-1)[0]
-    return last ? `Pesan terakhir: ${last.slice(0, 300)}` : ''
+    return last ? tr().engine.lastMessage(last.slice(0, 300)) : ''
   }
 
   dumpTail(reason: string): void {
@@ -206,8 +205,8 @@ export class Backend extends EventEmitter {
   waitReady(): Promise<EngineInfo> {
     const s = this.status
     if (s.state === 'ready' && s.info) return Promise.resolve(s.info)
-    if (s.state === 'error') return Promise.reject(new Error(s.message || 'Engine gagal dijalankan'))
-    if (s.state === 'stopped') return Promise.reject(new Error('Aplikasi sedang ditutup'))
+    if (s.state === 'error') return Promise.reject(new Error(s.message || tr().engine.failed))
+    if (s.state === 'stopped') return Promise.reject(new Error(tr().engine.appClosing))
     return new Promise((resolve, reject) => {
       const onStatus = (st: EngineStatus) => {
         if (st.state === 'ready' && st.info) {
@@ -215,7 +214,7 @@ export class Backend extends EventEmitter {
           resolve(st.info)
         } else if (st.state === 'error' || st.state === 'stopped') {
           this.off('status', onStatus)
-          reject(new Error(st.message || (st.state === 'stopped' ? 'Aplikasi sedang ditutup' : 'Engine gagal dijalankan')))
+          reject(new Error(st.message || (st.state === 'stopped' ? tr().engine.appClosing : tr().engine.failed)))
         }
       }
       this.on('status', onStatus)
@@ -238,7 +237,7 @@ export class Backend extends EventEmitter {
     this.engineCrashes = []
     const p = getPaths()
     try {
-      this.setStatus('starting', 'Menyiapkan database...')
+      this.setStatus('starting', tr().engine.preparingDb)
       ensureStructure(dataRoot)
       this.mongod = new MongodManager({
         exe: p.mongodExe,
@@ -252,11 +251,11 @@ export class Backend extends EventEmitter {
         onRestarted: (port, portChanged) => {
           if (this.stopping) return
           log.warn(`mongod dimulai ulang di port ${port}${portChanged ? ' (port berubah, engine dimulai ulang)' : ''}`)
-          if (portChanged) void this.restartEngine('Port database berubah')
+          if (portChanged) void this.restartEngine(tr().engine.dbPortChanged)
         },
       })
       await this.mongod.start()
-      this.setStatus('starting', 'Menjalankan engine...')
+      this.setStatus('starting', tr().engine.startingEngine)
       const info = await this.spawnEngine()
       this.setStatus('ready', undefined, info)
       return { ok: true }
@@ -282,6 +281,8 @@ export class Backend extends EventEmitter {
       // lets the engine's parent watchdog follow Electron (in dev the direct parent is the venv launcher)
       METISCLIP_PARENT_PID: String(process.pid),
       PYTHONIOENCODING: 'utf-8',
+      // UI language for the engine's own messages (backend/core/i18n.py)
+      METISCLIP_LANG: getLanguage(),
     }
     if (p.browserPath) env.METISCLIP_BROWSER_PATH = p.browserPath
     if (p.isDev) env.PYTHONUNBUFFERED = '1'
@@ -319,35 +320,35 @@ export class Backend extends EventEmitter {
       await sleep(500)
     }
     await proc.kill()
-    throw new Error(`Engine tidak sehat (/health: ${lastErr})`)
+    throw new Error(tr().engine.unhealthy(lastErr))
   }
 
   private async onEngineCrash(proc: EngineProcess, code: number | null, tail: string[]): Promise<void> {
     if (proc !== this.engine || this.stopping) return
     log.error(`engine berhenti tak terduga (exit ${code}); stderr terakhir:\n  ${tail.slice(-40).join('\n  ')}`)
-    await this.restartEngine(`Engine berhenti tak terduga (exit ${code})`)
+    await this.restartEngine(tr().engine.crashed(code))
   }
 
   private async restartEngine(reason: string): Promise<void> {
     const now = Date.now()
     this.engineCrashes = this.engineCrashes.filter((t) => now - t < CRASH_WINDOW_MS)
     if (this.engineCrashes.length >= MAX_CRASH_RESTARTS) {
-      this.setStatus('error', `${reason}. Engine sudah dimulai ulang ${MAX_CRASH_RESTARTS} kali; buka folder log untuk detailnya.`)
+      this.setStatus('error', tr().engine.gaveUp(reason, MAX_CRASH_RESTARTS))
       return
     }
     const attempt = this.engineCrashes.length
     this.engineCrashes.push(now)
-    this.setStatus('restarting', `${reason}. Memulai ulang engine...`)
+    this.setStatus('restarting', tr().engine.restarting(reason))
     if (this.engine) await this.engine.kill()
     await sleep(BACKOFF_MS[Math.min(attempt, BACKOFF_MS.length - 1)])
     if (this.stopping) return
     try {
-      if (!this.mongod?.running) throw new Error('MongoDB tidak berjalan')
+      if (!this.mongod?.running) throw new Error(tr().engine.mongoNotRunning)
       const info = await this.spawnEngine()
       this.setStatus('ready', undefined, info)
     } catch (e) {
       log.error(`restart engine gagal: ${(e as Error).message}`)
-      if (!this.stopping) await this.restartEngine(`Engine gagal dimulai ulang: ${(e as Error).message}`)
+      if (!this.stopping) await this.restartEngine(tr().engine.restartFailed((e as Error).message))
     }
   }
 
@@ -385,6 +386,26 @@ export class Backend extends EventEmitter {
     this.mongod = null
     log.info(`backend berhenti (${reason}, ${Date.now() - t0} ms)`)
     if (reason === 'quit') this.setStatus('stopped')
+  }
+
+  /**
+   * Tells the running engine the new UI language (PUT /api/settings app.language). A later engine
+   * start gets it as METISCLIP_LANG, so a failure here only delays the engine's messages.
+   */
+  async applyLanguage(lang: Lang): Promise<void> {
+    const engine = this.engine
+    if (this.status.state !== 'ready' || !engine?.running || !engine.port) return
+    try {
+      const res = await fetch(`${engine.baseUrl}/api/settings`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${engine.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ app: { language: lang } }),
+        signal: AbortSignal.timeout(5000),
+      })
+      if (!res.ok) log.warn(`bahasa engine tidak diperbarui: HTTP ${res.status}`)
+    } catch (e) {
+      log.warn(`bahasa engine tidak diperbarui: ${(e as Error).message}`)
+    }
   }
 
   /** PIDs of the processes we own (for verification logs). */

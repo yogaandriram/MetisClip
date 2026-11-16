@@ -1,0 +1,42 @@
+// Bahasa Indonesia: the source dictionary. Add every key in en/clips.ts too (tsc checks it).
+// Hasil Clip (app/(dashboard)/clips): the page, its tabs and the Clip tab (gallery). The Antrian tab's texts are in jobs.ts.
+export const clips = {
+  title: 'Hasil Clip',
+  /** One line for both tabs, so switching tabs never moves the page */
+  subtitle: 'Clip buatan AI dan job yang membuatnya.',
+  allCampaigns: 'Semua campaign',
+  /** A link from an archived campaign's page: its clips, outside the active campaign */
+  viewingArchived: (name: string) => `Menampilkan klip campaign arsip ${name}.`,
+  backToActive: 'Kembali ke campaign aktif',
+  /** The two tabs of the page: the gallery and the job queue */
+  tabs: {
+    label: 'Clip atau antrian',
+    clips: 'Clip',
+    queue: 'Antrian',
+  },
+  /** Fills "… untuk mulai menggunakan {what}" in the no-campaign state */
+  galleryName: 'galeri clip',
+  loadFailed: 'Gagal memuat clip',
+  deleted: 'Clip dihapus',
+  desktopOnly: 'Hanya tersedia di aplikasi desktop',
+  noVideoFile: 'File video belum tersedia',
+  exportDialogTitle: 'Ekspor clip ke folder',
+  exported: 'Clip diekspor',
+  cannotExport: 'Clip belum bisa diekspor',
+  emptyTitle: 'Belum ada clip',
+  emptyDescription: 'Clip yang dihasilkan AI akan muncul di sini secara otomatis. Mulai dari menu Cari Video.',
+  newClip: 'Klip baru',
+  filterAria: 'Filter status clip',
+  noneWithStatus: 'Tidak ada clip dengan status ini',
+  noneWithStatusDescription: (status: string) => `Belum ada clip berstatus "${status}".`,
+  showAll: 'Tampilkan semua',
+  openEditor: (hook: string, score: number, status: string, clock: string) => `Buka editor: ${hook} (skor viral ${score}, ${status}, durasi ${clock})`,
+  edit: 'Edit',
+  export: 'Ekspor',
+  delete: 'Hapus clip',
+  deleteModal: {
+    title: 'Hapus clip ini?',
+    message: 'Clip beserta file videonya (mentah & hasil render) akan dihapus permanen dari folder data. Tindakan ini tidak bisa dibatalkan.',
+    confirm: 'Hapus permanen',
+  },
+}

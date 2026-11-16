@@ -17,6 +17,8 @@ const CH = {
   openExternal: 'metis:open-external',
   notify: 'metis:notify',
   relaunch: 'metis:relaunch',
+  getLanguage: 'metis:get-language',
+  setLanguage: 'metis:set-language',
 } as const
 
 function arg(name: string): string | undefined {
@@ -35,6 +37,15 @@ async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
   }
 }
 
+function initialLanguage(): string {
+  try {
+    const lang = ipcRenderer.sendSync(CH.getLanguage)
+    return typeof lang === 'string' ? lang : 'id'
+  } catch {
+    return 'id'
+  }
+}
+
 type EngineInfo = { baseUrl: string; token: string }
 type EngineStatus = { state: string; message?: string; info?: EngineInfo }
 
@@ -43,6 +54,9 @@ const bridge = {
   platform: process.platform,
   appVersion: arg('metis-app-version') || '0.0.0',
   isPackaged: arg('metis-packaged') === '1',
+  /** UI language saved by main; read synchronously so the first paint already uses it */
+  language: initialLanguage(),
+  setLanguage: (lang: string) => invoke<void>(CH.setLanguage, lang),
 
   async getEngineInfo(): Promise<EngineInfo> {
     const r = await invoke<{ ok: boolean; info?: EngineInfo; error?: string }>(CH.getEngineInfo)

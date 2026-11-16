@@ -88,7 +88,7 @@ def enrich_words(
 ) -> tuple[list[dict[str, Any]], int, int]:
     """Mark keywords and/or attach emojis. Replaces earlier marks of the requested kinds only.
 
-    Returns (words, keyword_count, emoji_count). Raises llm.LLMError (Indonesian message) on failure.
+    Returns (words, keyword_count, emoji_count). Raises llm.LLMError (message in the UI language) on failure.
     """
     if not words or not (keywords or emojis):
         return words, sum(1 for w in words if w.get("keyword")), sum(1 for w in words if w.get("emoji"))

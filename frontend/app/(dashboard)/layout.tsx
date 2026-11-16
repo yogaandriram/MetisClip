@@ -2,40 +2,47 @@
 
 import React from 'react'
 import { usePathname } from 'next/navigation'
-import { Clapperboard, Film, LayoutGrid, ListChecks, Palette, Settings } from 'lucide-react'
+import { Clapperboard, Film, LayoutGrid, Megaphone, Palette, Settings } from 'lucide-react'
 import { Providers } from '@/components/Providers'
 import { NavRail, normalizePath, type RailItem } from '@/components/shell/NavRail'
 import { ShellProvider, useShell } from '@/components/shell/ShellContext'
 import { Logo } from '@/components/ui/Logo'
 import { useEngine } from '@/contexts/EngineContext'
+import { useT } from '@/lib/i18n/I18nProvider'
+import type { Messages } from '@/lib/i18n'
 
-const NAV_ITEMS: RailItem[] = [
-  { name: 'Beranda', href: '/dashboard/', icon: LayoutGrid },
-  { name: 'Cari Video', href: '/discover/', icon: Clapperboard },
-  { name: 'Antrian', href: '/jobs/', icon: ListChecks },
-  { name: 'Hasil Clip', href: '/clips/', icon: Film },
-  { name: 'Brand Template', href: '/brand-template/', icon: Palette },
-  { name: 'Pengaturan', href: '/settings/', icon: Settings },
+const NAV_ITEMS: (Omit<RailItem, 'name'> & { key: keyof Messages['shell']['nav'] })[] = [
+  { key: 'dashboard', href: '/dashboard/', icon: LayoutGrid },
+  { key: 'campaigns', href: '/campaigns/', icon: Megaphone },
+  { key: 'discover', href: '/discover/', icon: Clapperboard },
+  // Hasil Clip holds the job queue too (its Antrian tab), so it carries the running-job count
+  { key: 'clips', href: '/clips/', icon: Film },
+  { key: 'brand', href: '/brand-template/', icon: Palette },
+  { key: 'settings', href: '/settings/', icon: Settings },
 ]
 
 function Shell({ children }: { children: React.ReactNode }) {
   const pathname = normalizePath(usePathname())
   const { systemInfo } = useEngine()
   const shell = useShell()
+  const t = useT()
   const activeJobs = shell?.activeJobs ?? 0
 
   const version = typeof window !== 'undefined' && window.metis ? window.metis.appVersion : systemInfo?.version
   const dbProblem = systemInfo?.mongo.ok === false
   const systemHint = [
-    'Sistem',
-    dbProblem ? 'Database bermasalah' : 'Engine lokal aktif',
+    t.shell.nav.system,
+    dbProblem ? t.shell.systemHint.dbProblem : t.shell.systemHint.engineActive,
     version ? `v${version}` : null,
     systemInfo?.env === 'dev' ? 'dev' : null,
   ]
     .filter(Boolean)
     .join(' · ')
 
-  const items = NAV_ITEMS.map((item) => (item.href === '/jobs/' ? { ...item, count: activeJobs } : item))
+  const items: RailItem[] = NAV_ITEMS.map(({ key, ...item }) => {
+    const name = t.shell.nav[key] as string
+    return key === 'clips' ? { ...item, name, count: activeJobs } : { ...item, name }
+  })
 
   return (
     <div className="mc-shell">

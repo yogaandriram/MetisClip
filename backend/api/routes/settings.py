@@ -11,6 +11,34 @@ from backend.api.dto import http_error
 from backend.core import secrets as sec
 from backend.core.llm_providers import PROVIDERS, provider_for_secret
 from backend.core.settings_store import SettingsError, get_settings, update_settings
+from backend.core import i18n
+
+M = i18n.messages({
+    "unknown_secret": {
+        "id": "Nama secret tidak dikenal",
+        "en": "Unknown secret name",
+    },
+    "empty_value": {
+        "id": "Nilai tidak boleh kosong",
+        "en": "The value can't be empty",
+    },
+    "keyring_failed": {
+        "id": "Gagal menyimpan ke Windows Credential Manager: {error}",
+        "en": "Couldn't save to Windows Credential Manager: {error}",
+    },
+    "not_set": {
+        "id": "Belum diisi",
+        "en": "Not set",
+    },
+    "key_not_set": {
+        "id": "API key ini belum diisi",
+        "en": "This API key is not set",
+    },
+    "unknown_provider": {
+        "id": "Penyedia LLM tidak dikenal",
+        "en": "Unknown LLM provider",
+    },
+})
 
 router = APIRouter(tags=["settings"])
 
@@ -30,7 +58,7 @@ def write_settings(patch: dict[str, Any] = Body(default_factory=dict)):
 
 def _check_name(name: str) -> None:
     if name not in sec.PUBLIC_SECRETS:
-        raise http_error(404, "Nama secret tidak dikenal")
+        raise http_error(404, M("unknown_secret"))
 
 
 class SecretValue(BaseModel):
@@ -50,11 +78,11 @@ def secret_status():
 def put_secret(name: str, body: SecretValue):
     _check_name(name)
     if not body.value.strip():
-        raise http_error(400, "Nilai tidak boleh kosong")
+        raise http_error(400, M("empty_value"))
     try:
         sec.set_secret(name, body.value)
     except Exception as exc:
-        raise http_error(500, f"Gagal menyimpan ke Windows Credential Manager: {exc}")
+        raise http_error(500, M("keyring_failed", error=exc))
     if name == "groq_api_key":
         from backend.agents.tools.whisper import resume_groq
 
@@ -72,7 +100,7 @@ def delete_secret(name: str):
 def _test(name: str, value: str | None) -> dict:
     key = (value or "").strip() or sec.get_secret(name)
     if not key:
-        return {"ok": False, "message": "Belum diisi"}
+        return {"ok": False, "message": M("not_set")}
     provider = provider_for_secret(name)
     if provider:
         from backend.core.llm import test_connection
@@ -91,7 +119,7 @@ def reveal_secret(name: str, response: Response):
     _check_name(name)
     value = sec.get_secret(name)
     if not value:
-        raise http_error(404, "API key ini belum diisi")
+        raise http_error(404, M("key_not_set"))
     response.headers["Cache-Control"] = "no-store"
     return {"value": value}
 
@@ -113,7 +141,7 @@ def _list_models(body: ModelListRequest) -> dict:
     from backend.core import llm
 
     if body.provider not in PROVIDERS:
-        raise http_error(400, "Penyedia LLM tidak dikenal")
+        raise http_error(400, M("unknown_provider"))
     try:
         return {"models": llm.list_models(body.provider, key=body.value, base_url=body.base_url or None)}
     except llm.LLMError as exc:

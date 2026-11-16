@@ -235,6 +235,12 @@ export const isCut = (segments: Segment[], duration: number): boolean =>
 
 export const keptDuration = (segments: Segment[]): number => segments.reduce((sum, s) => sum + (s.end - s.start), 0);
 
+/** Output time at source time `t`: the kept time before it (no segments = nothing is cut). */
+export function outputTimeAt(segments: Segment[], t: number): number {
+  if (!segments.length) return t;
+  return segments.reduce((sum, s) => sum + Math.max(0, Math.min(t, s.end) - s.start), 0);
+}
+
 /**
  * Where playback should continue when it reaches source time `t`: `t` itself when it is inside a
  * kept range, else the start of the next kept range, or null after the last one.

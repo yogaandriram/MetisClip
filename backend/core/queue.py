@@ -12,6 +12,14 @@ from concurrent.futures import ThreadPoolExecutor
 from backend.core import events
 from backend.core.db import get_db, utcnow
 from backend.core.procs import CancelToken
+from backend.core import i18n
+
+M = i18n.messages({
+    "closed_while_running": {
+        "id": "Aplikasi ditutup saat job berjalan. Klik Lanjutkan untuk melanjutkan.",
+        "en": "The app was closed while the job was running. Click Resume to continue.",
+    },
+})
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +47,7 @@ class JobRunner:
         res = db.discovery_jobs.update_many(
             {"status": "running"},
             {"$set": {"status": "interrupted", "finished_at": now},
-             "$push": {"errors": {"$each": [{"step": "system", "message": "Aplikasi ditutup saat job berjalan. Klik Lanjutkan untuk melanjutkan.", "at": now}], "$slice": -50}}},
+             "$push": {"errors": {"$each": [{"step": "system", "message": M("closed_while_running"), "at": now}], "$slice": -50}}},
         )
         if res.modified_count:
             logger.info("Marked %s running job(s) as interrupted", res.modified_count)
@@ -50,6 +58,9 @@ class JobRunner:
                 {"$set": {"status": "failed", "error": "Render terhenti karena aplikasi ditutup", "finished_at": now}},
             )
             _restore_clip_status(r["clip_id"])
+        from backend.services import campaigns
+
+        campaigns.recover()
         for job in db.discovery_jobs.find({"status": "pending"}, {"_id": 1}).sort("created_at", 1):
             self.submit_job(job["_id"])
 
@@ -98,8 +109,8 @@ class JobRunner:
             {"$set": {"status": "cancelled", "finished_at": utcnow()}},
         )
         if res.modified_count:
-            job = db.discovery_jobs.find_one({"_id": job_id}, {"agent_id": 1})
-            events.publish({"type": "job.status", "id": job_id, "agent_id": (job or {}).get("agent_id"), "status": "cancelled"})
+            job = db.discovery_jobs.find_one({"_id": job_id}, {"campaign_ids": 1})
+            events.publish({"type": "job.status", "id": job_id, "campaign_ids": (job or {}).get("campaign_ids") or [], "status": "cancelled"})
         with self._lock:
             token = self._tokens.get(job_id)
         if token:

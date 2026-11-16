@@ -17,6 +17,78 @@ from backend.core.config import config, deno_path, mongod_path, node_command
 from backend.core.db import get_db
 from backend.core.paths import get_paths
 from backend.services import backup
+from backend.core import i18n
+
+M = i18n.messages({
+    "ffmpeg_missing": {
+        "id": "FFmpeg tidak ditemukan",
+        "en": "FFmpeg was not found",
+    },
+    "ytdlp_missing": {
+        "id": "yt-dlp tidak ditemukan",
+        "en": "yt-dlp was not found",
+    },
+    "deno_label": {
+        "id": "Deno (JS runtime yt-dlp)",
+        "en": "Deno (yt-dlp's JS runtime)",
+    },
+    "deno_missing": {
+        "id": "Deno tidak ditemukan; sebagian video YouTube mungkin gagal diunduh",
+        "en": "Deno was not found; some YouTube videos may fail to download",
+    },
+    "mongod_missing": {
+        "id": "mongod.exe tidak ditemukan di folder bin",
+        "en": "mongod.exe was not found in the bin folder",
+    },
+    "render_not_built": {
+        "id": "render-engine/dist/render.js belum di-build",
+        "en": "render-engine/dist/render.js is not built yet",
+    },
+    "whisper_label": {
+        "id": "Whisper lokal (whisper.cpp)",
+        "en": "Local Whisper (whisper.cpp)",
+    },
+    "whisper_missing": {
+        "id": "Whisper lokal tidak ditemukan di folder bin; transkripsi hanya lewat Groq",
+        "en": "Local Whisper was not found in the bin folder; transcription only works through Groq",
+    },
+    "and": {
+        "id": " dan ",
+        "en": " and ",
+    },
+    "models_on_first_use": {
+        "id": "Model {names} diunduh saat pertama dipakai, atau dari Pengaturan",
+        "en": "The {names} model is downloaded on first use, or from Settings",
+    },
+    "models_on_first_use_many": {
+        "id": "Model {names} diunduh saat pertama dipakai, atau dari Pengaturan",
+        "en": "The {names} models are downloaded on first use, or from Settings",
+    },
+    "library_label": {
+        "id": "Folder library dapat ditulis",
+        "en": "Library folder is writable",
+    },
+    "disk_label": {
+        "id": "Ruang disk kosong",
+        "en": "Free disk space",
+    },
+    "disk_free": {
+        "id": "{gb} GB kosong",
+        "en": "{gb} GB free",
+    },
+    "disk_low": {
+        "id": "{gb} GB kosong (disarankan ≥ 5 GB)",
+        "en": "{gb} GB free (≥ 5 GB recommended)",
+    },
+    "jobs_running": {
+        "id": "Tunggu job yang sedang berjalan selesai sebelum memperbarui yt-dlp",
+        "en": "Wait for the running jobs to finish before updating yt-dlp",
+    },
+    "backup_failed": {
+        "id": "Backup gagal: {error}",
+        "en": "Backup failed: {error}",
+    },
+})
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
@@ -70,21 +142,21 @@ def _check() -> dict:
     items = []
     ff = ffmpeg_ops.ffmpeg_version()
     items.append({"key": "ffmpeg", "label": "FFmpeg", "ok": bool(ff), "version": ff,
-                  "detail": None if ff else "FFmpeg tidak ditemukan"})
+                  "detail": None if ff else M("ffmpeg_missing")})
     yv = ytdlp.version()
     items.append({"key": "ytdlp", "label": "yt-dlp", "ok": bool(yv), "version": yv,
-                  "detail": None if yv else "yt-dlp tidak ditemukan"})
+                  "detail": None if yv else M("ytdlp_missing")})
     dp = deno_path()
     dv = _tool_version([dp, "--version"]) if dp else None
-    items.append({"key": "deno", "label": "Deno (JS runtime yt-dlp)", "ok": bool(dv), "version": dv,
-                  "detail": None if dv else "Deno tidak ditemukan; sebagian video YouTube mungkin gagal diunduh"})
+    items.append({"key": "deno", "label": M("deno_label"), "ok": bool(dv), "version": dv,
+                  "detail": None if dv else M("deno_missing")})
     items.append({"key": "mongodb", "label": "MongoDB", "ok": dbm.ping(), "version": dbm.server_version(),
-                  "detail": None if mongod_path() or config.mongodb_uri else "mongod.exe tidak ditemukan di folder bin"})
+                  "detail": None if mongod_path() or config.mongodb_uri else M("mongod_missing")})
     try:
         prefix, _env = node_command()
         render_ok = (paths.render_dir / "dist" / "render.js").exists()
         items.append({"key": "render", "label": "Render engine (Remotion)", "ok": render_ok, "version": None,
-                      "detail": None if render_ok else "render-engine/dist/render.js belum di-build"})
+                      "detail": None if render_ok else M("render_not_built")})
     except FileNotFoundError as exc:
         items.append({"key": "render", "label": "Render engine (Remotion)", "ok": False, "version": None, "detail": str(exc)})
     wv = whisper_local.version()
@@ -92,11 +164,11 @@ def _check() -> dict:
     missing = [m for m in needed if not whisper_local.installed(m)]
     w_detail = None
     if not wv:
-        w_detail = "Whisper lokal tidak ditemukan di folder bin; transkripsi hanya lewat Groq"
+        w_detail = M("whisper_missing")
     elif missing:
-        names = " dan ".join(f"{m.label} ({m.size_bytes / 1024**2:.0f} MB)" for m in missing)
-        w_detail = f"Model {names} diunduh saat pertama dipakai, atau dari Pengaturan"
-    items.append({"key": "whisper", "label": "Whisper lokal (whisper.cpp)", "ok": bool(wv), "version": wv, "detail": w_detail})
+        names = M("and").join(f"{m.label} ({m.size_bytes / 1024**2:.0f} MB)" for m in missing)
+        w_detail = M("models_on_first_use_many" if len(missing) > 1 else "models_on_first_use", names=names)
+    items.append({"key": "whisper", "label": M("whisper_label"), "ok": bool(wv), "version": wv, "detail": w_detail})
     try:
         import mediapipe  # noqa: F401
         import cv2
@@ -105,14 +177,14 @@ def _check() -> dict:
     except Exception as exc:
         items.append({"key": "mediapipe", "label": "MediaPipe / OpenCV", "ok": False, "version": None, "detail": str(exc)})
     lib_ok = os.access(paths.library_dir, os.W_OK)
-    items.append({"key": "library", "label": "Folder library dapat ditulis", "ok": lib_ok, "version": None,
+    items.append({"key": "library", "label": M("library_label"), "ok": lib_ok, "version": None,
                   "detail": str(paths.library_dir)})
     try:
         free = shutil.disk_usage(paths.data_root).free
     except OSError:
         free = 0
-    items.append({"key": "disk", "label": "Ruang disk kosong", "ok": free >= 5 * 1024**3, "version": None,
-                  "detail": f"{free / 1024**3:.1f} GB kosong" + ("" if free >= 5 * 1024**3 else " (disarankan ≥ 5 GB)")})
+    items.append({"key": "disk", "label": M("disk_label"), "ok": free >= 5 * 1024**3, "version": None,
+                  "detail": M("disk_free" if free >= 5 * 1024**3 else "disk_low", gb=f"{free / 1024**3:.1f}")})
     return {
         "items": items,
         "encoders": ffmpeg_ops.detect_hw_encoders() + ["libx264"],
@@ -133,11 +205,13 @@ def _storage() -> dict:
         free, total = du.free, du.total
     except OSError:
         free = total = 0
-    per_agent = []
-    for agent in get_db().super_agents.find({}, {"name": 1, "slug": 1}):
-        slug = agent.get("slug")
-        per_agent.append({"agent_id": agent["_id"], "name": agent.get("name", ""),
-                          "bytes": _dir_size(paths.agent_library(slug)) if slug else 0})
+    # Each campaign's library folder (an old workspace folder became the folder of the campaign made from it)
+    from backend.services.campaigns import slug_of
+
+    per_campaign = []
+    for campaign in get_db().campaigns.find({}, {"name": 1, "slug": 1}).sort("created_at", 1):
+        per_campaign.append({"campaign_id": campaign["_id"], "name": campaign.get("name", ""),
+                             "bytes": _dir_size(paths.campaign_library(slug_of(campaign)))})
     return {
         "data_root": str(paths.data_root),
         "drive_free_bytes": free,
@@ -147,7 +221,7 @@ def _storage() -> dict:
         "cache_bytes": _dir_size(paths.cache_dir),
         "backups_bytes": _dir_size(paths.backups_dir),
         "models_bytes": _dir_size(paths.models_dir),
-        "per_agent": per_agent,
+        "per_campaign": per_campaign,
     }
 
 
@@ -156,7 +230,7 @@ async def update_ytdlp():
     from backend.core.queue import runner
 
     if runner.has_active_jobs():
-        raise http_error(409, "Tunggu job yang sedang berjalan selesai sebelum memperbarui yt-dlp")
+        raise http_error(409, M("jobs_running"))
     return await run_in_threadpool(ytdlp.self_update)
 
 
@@ -176,7 +250,7 @@ async def make_backup():
     try:
         return {"backup": await run_in_threadpool(backup.write_backup, "manual")}
     except Exception as exc:
-        raise http_error(500, f"Backup gagal: {exc}")
+        raise http_error(500, M("backup_failed", error=exc))
 
 
 @router.get("/backups")

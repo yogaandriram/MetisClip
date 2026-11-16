@@ -19,6 +19,58 @@ from typing import Any, Callable
 
 from backend.core.procs import CancelToken
 from backend.core.secrets import get_secret
+from backend.core import i18n
+
+M = i18n.messages({
+    "groq_no_key_mode": {
+        "id": "Transkripsi diatur ke Groq, tetapi API key Groq belum diisi. Isi key-nya atau pilih mode Otomatis di Pengaturan.",
+        "en": "Transcription is set to Groq, but no Groq API key is set. Enter the key or choose Automatic mode in Settings.",
+    },
+    "local_missing": {
+        "id": "Whisper lokal tidak ditemukan di folder aplikasi. Pasang ulang MetisClip, atau isi API key Groq di Pengaturan.",
+        "en": "Local Whisper was not found in the app folder. Reinstall MetisClip, or enter a Groq API key in Settings.",
+    },
+    "switching_local": {
+        "id": "{error} Beralih ke Whisper lokal…",
+        "en": "{error} Switching to local Whisper…",
+    },
+    "groq_no_key": {
+        "id": "API key Groq belum diisi di Pengaturan.",
+        "en": "No Groq API key is set in Settings.",
+    },
+    "groq_key_rejected": {
+        "id": "API key Groq ditolak. Periksa kembali di Pengaturan.",
+        "en": "The Groq API key was rejected. Check it in Settings.",
+    },
+    "groq_refused": {
+        "id": "Groq Whisper menolak permintaan (HTTP {status}).",
+        "en": "Groq Whisper refused the request (HTTP {status}).",
+    },
+    "groq_quota": {
+        "id": "Kuota Groq Whisper sedang habis.",
+        "en": "The Groq Whisper quota is used up for now.",
+    },
+    "groq_cannot_connect": {
+        "id": "Tidak dapat terhubung ke Groq",
+        "en": "Can't connect to Groq",
+    },
+    "groq_key_valid": {
+        "id": "API key Groq valid",
+        "en": "The Groq API key is valid",
+    },
+    "groq_key_denied": {
+        "id": "API key Groq ditolak",
+        "en": "The Groq API key was rejected",
+    },
+    "groq_http": {
+        "id": "Groq mengembalikan HTTP {status}",
+        "en": "Groq returned HTTP {status}",
+    },
+    "groq_unreachable": {
+        "id": "Groq Whisper tidak dapat dihubungi.",
+        "en": "Groq Whisper can't be reached.",
+    },
+})
 
 logger = logging.getLogger(__name__)
 
@@ -106,10 +158,10 @@ def local_likely() -> bool:
 
 
 def unavailable_reason() -> str:
-    """Indonesian explanation for when `available()` is False."""
+    """Explanation (in the UI language) for when `available()` is False."""
     if provider() == "groq":
-        return "Transkripsi diatur ke Groq, tetapi API key Groq belum diisi. Isi key-nya atau pilih mode Otomatis di Pengaturan."
-    return "Whisper lokal tidak ditemukan di folder aplikasi. Pasang ulang MetisClip, atau isi API key Groq di Pengaturan."
+        return M("groq_no_key_mode")
+    return M("local_missing")
 
 
 def transcribe(
@@ -137,7 +189,7 @@ def transcribe(
             _pause_groq(exc.pause)
             logger.warning("Groq Whisper unavailable, using local Whisper: %s", exc)
             if on_status:
-                on_status(f"{exc} Beralih ke Whisper lokal…")
+                on_status(M("switching_local", error=exc))
     if cancel is not None:
         cancel.check()
     return whisper_local.transcribe(audio_path, words=words, cancel=cancel, on_status=on_status)
@@ -150,7 +202,7 @@ def _groq_transcribe(audio_path: Path, *, words: bool, retries: int = 3) -> dict
 
     key = get_secret("groq_api_key")
     if not key:
-        raise GroqError("API key Groq belum diisi di Pengaturan.")
+        raise GroqError(M("groq_no_key"))
     client = Groq(api_key=key, max_retries=0, timeout=300.0)
     granularities = ["word", "segment"] if words else ["segment"]
     data = audio_path.read_bytes()
@@ -166,21 +218,21 @@ def _groq_transcribe(audio_path: Path, *, words: bool, retries: int = 3) -> dict
             )
             return res.model_dump() if hasattr(res, "model_dump") else dict(res)
         except groq.AuthenticationError as exc:
-            raise GroqError("API key Groq ditolak. Periksa kembali di Pengaturan.", pause=3600) from exc
+            raise GroqError(M("groq_key_rejected"), pause=3600) from exc
         except groq.RateLimitError as exc:
             last, pause = exc, 900.0  # quota: the hourly audio limit resets slowly
         except (groq.APIConnectionError, groq.APITimeoutError, groq.InternalServerError) as exc:
             last, pause = exc, 120.0
         except groq.APIStatusError as exc:  # e.g. 413 file too large: not worth a retry or a pause
-            raise GroqError(f"Groq Whisper menolak permintaan (HTTP {exc.status_code}).") from exc
+            raise GroqError(M("groq_refused", status=exc.status_code)) from exc
         if attempt >= retries:
             break
         wait = min(30, 3 * 2**attempt)
         logger.warning("Groq Whisper retry in %ss: %s", wait, last)
         time.sleep(wait)
     if pause >= 900:
-        raise GroqError("Kuota Groq Whisper sedang habis.", pause=pause) from last
-    raise GroqError("Groq Whisper tidak dapat dihubungi.", pause=pause) from last
+        raise GroqError(M("groq_quota"), pause=pause) from last
+    raise GroqError(M("groq_unreachable"), pause=pause) from last
 
 
 def words_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -216,9 +268,9 @@ def test_key(api_key: str) -> tuple[bool, str]:
     try:
         r = requests.get("https://api.groq.com/openai/v1/models", headers={"Authorization": f"Bearer {api_key}"}, timeout=20)
     except requests.RequestException:
-        return False, "Tidak dapat terhubung ke Groq"
+        return False, M("groq_cannot_connect")
     if r.status_code == 200:
-        return True, "API key Groq valid"
+        return True, M("groq_key_valid")
     if r.status_code in (401, 403):
-        return False, "API key Groq ditolak"
-    return False, f"Groq mengembalikan HTTP {r.status_code}"
+        return False, M("groq_key_denied")
+    return False, M("groq_http", status=r.status_code)

@@ -4,7 +4,7 @@ import { cx } from '@/lib/cx'
 interface AvatarProps {
   /** Name the initials come from */
   name: string
-  /** Stable value for the color (e.g. the agent ID); defaults to the name */
+  /** Stable value for the color (e.g. the campaign ID); defaults to the name */
   seed?: string
   size?: number
   src?: string

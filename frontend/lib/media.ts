@@ -3,7 +3,7 @@
 // rendering must never crash because of that.
 import { clipMediaUrl, resolveAsset, toAbsolutePath } from './engine'
 
-export function mediaUrl(clipId: string, kind: 'raw' | 'final' | 'thumbnail', version?: string | number): string {
+export function mediaUrl(clipId: string, kind: 'raw' | 'final' | 'thumbnail' | 'source', version?: string | number): string {
   try {
     return clipMediaUrl(clipId, kind, version)
   } catch {
