@@ -1,13 +1,15 @@
 'use client'
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Captions, ChevronDown, Image as ImageIcon, LayoutTemplate, Redo, RefreshCw, RotateCcw, Save, Trash2, Type, Undo } from 'lucide-react'
+import { Captions, ChevronDown, FolderPlus, Image as ImageIcon, LayoutTemplate, Redo, RefreshCw, RotateCcw, Save, Sparkles, Trash2, Type, Undo } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useCampaign } from '@/contexts/CampaignContext'
 import { useEngine } from '@/contexts/EngineContext'
-import { Alert, Badge, Button, Card, ConfirmModal, IconButton, InputField, Modal, PageHeader, Skeleton } from '@/components/ui'
+import { Alert, Badge, Button, ButtonLink, Card, ConfirmModal, EmptyState, IconButton, InputField, Modal, PageHeader, SelectField, Skeleton } from '@/components/ui'
 import { api, type BrandTemplate } from '@/lib/engine'
 import { errorMessage, formatDateTime } from '@/lib/format'
+import { useEngineEvents } from '@/hooks/useEngineEvents'
+import { NEW_CAMPAIGN_HREF } from '@/lib/routes'
 import { tm } from '@/lib/i18n'
 import { useT } from '@/lib/i18n/I18nProvider'
 import { presets } from '@/lib/presets'
@@ -22,10 +24,11 @@ import { AiSettingsPanel } from './components/AiSettingsPanel'
 import { BrandSettingsPanel } from './components/BrandSettingsPanel'
 import { TemplatePreviewCanvas } from './components/TemplatePreviewCanvas'
 import { TemplateLibraryBar, campaignTemplateId } from './components/TemplateLibraryBar'
+import { TemplateDesignCard } from './components/TemplateDesignCard'
 
 type Section = 'layout_settings' | 'caption_settings' | 'ai_settings' | 'brand_settings'
 type PanelId = 'caption' | 'ai' | 'overlay' | 'layout'
-type NameDialog = { mode: 'create' | 'duplicate' | 'rename'; value: string }
+type NameDialog = { mode: 'create' | 'duplicate' | 'rename'; value: string; copyFrom?: string }
 
 const STORAGE_KEY = 'brandTemplateId'
 const NAME_FORM_ID = 'brand-template-name-form'
@@ -118,7 +121,7 @@ function SettingsSection({ id, title, icon, summary, open, onToggle, children }:
 
 export default function BrandTemplatePage() {
   const t = useT()
-  const { activeCampaign, isCampaignLoading, refreshCampaigns } = useCampaign()
+  const { activeCampaign, campaigns, isCampaignLoading, refreshCampaigns } = useCampaign()
   const { epoch } = useEngine()
 
   const [templates, setTemplates] = useState<BrandTemplate[]>([])
@@ -143,8 +146,17 @@ export default function BrandTemplatePage() {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [settingDefault, setSettingDefault] = useState(false)
+  const [creatingAi, setCreatingAi] = useState(false)
+  const [designing, setDesigning] = useState(false)
+  const [confirmDesign, setConfirmDesign] = useState(false)
+  // Every campaign's templates, for "Mulai dari" in the create dialog
+  const [allTemplates, setAllTemplates] = useState<BrandTemplate[]>([])
+  // The campaign whose templates are listed (the active one when they were loaded)
+  const [campaignId, setCampaignId] = useState<string | null>(null)
 
   const selected = templates.find((x) => x.id === selectedId) || null
+  // The campaign whose templates are open (the active one, unless switching was cancelled to keep edits)
+  const listCampaign = campaigns.find((c) => c.id === campaignId) || null
   const hasChanges = !!selected && JSON.stringify(config) !== savedRef.current
 
   const applyTemplate = useCallback((tpl: BrandTemplate) => {
@@ -157,36 +169,46 @@ export default function BrandTemplatePage() {
     writeStoredId(tpl.id)
   }, [])
 
-  /** Reload the library; open `preferId`, else the active campaign's template, else the last one used. */
+  /** Load the active campaign's templates; open `preferId`, else the last one used, else its default. */
   const loadAll = useCallback(
     async (preferId?: string | null) => {
-      setLoaded(false)
       setLoadError(null)
+      if (!activeCampaign) {
+        setTemplates([])
+        setSelectedId(null)
+        setCampaignId(null)
+        setLoaded(true)
+        return
+      }
+      setLoaded(false)
       try {
-        const { brand_templates } = await api.brandTemplates.list()
+        const { brand_templates } = await api.brandTemplates.list(activeCampaign.id)
         setTemplates(brand_templates)
-        const wanted = [preferId, activeCampaign ? campaignTemplateId(activeCampaign, brand_templates) : null, readStoredId()]
+        setCampaignId(activeCampaign.id)
+        const wanted = [preferId, readStoredId(), campaignTemplateId(activeCampaign, brand_templates)]
         const tpl = wanted.map((id) => id && brand_templates.find((x) => x.id === id)).find(Boolean) || brand_templates[0]
         if (tpl) applyTemplate(tpl)
+        else setSelectedId(null)
       } catch (err) {
         setLoadError(errorMessage(err, tm().brand.page.loadFailed))
       } finally {
         setLoaded(true)
       }
     },
-    // The campaign only decides the first template shown; switching campaigns later keeps the open template
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [applyTemplate],
+    [activeCampaign, applyTemplate],
   )
 
-  // First load once the campaigns are known (the active campaign's template is opened first). Later
-  // campaign refreshes (e.g. "Pakai untuk campaign") must not reload the editor and drop unsaved changes.
+  // Load once the campaigns are known, and again when another campaign becomes active (after asking
+  // to drop unsaved changes). Refreshes of the same campaign (e.g. its default changed) keep the editor.
   const initRef = useRef(false)
+  const activeId = activeCampaign?.id ?? null
   useEffect(() => {
-    if (isCampaignLoading || initRef.current) return
+    if (isCampaignLoading) return
+    if (initRef.current && activeId === campaignId) return
     initRef.current = true
-    loadAll(null)
-  }, [isCampaignLoading, loadAll])
+    guard(() => loadAll(null))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCampaignLoading, activeId])
 
   // A link to /brand-template/#layout (e.g. from the clip editor) opens that section and scrolls to it.
   // Read once the library has loaded: by then a client-side navigation has committed the URL.
@@ -207,16 +229,32 @@ export default function BrandTemplatePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [epoch])
 
-  /** Refresh names and usage counts without touching the open editor state. */
+  /** Refresh names, usage and AI status without touching the open editor state. */
   const refreshList = async () => {
+    if (!campaignId) return templates
     try {
-      const { brand_templates } = await api.brandTemplates.list()
+      const { brand_templates } = await api.brandTemplates.list(campaignId)
       setTemplates(brand_templates)
       return brand_templates
     } catch {
       return templates
     }
   }
+
+  // The AI works in the background: refresh the list, and show its result when nothing is unsaved
+  useEngineEvents((e) => {
+    if (e.type === 'campaign.updated' && e.id === campaignId) {
+      refreshList()
+      return
+    }
+    if (e.type !== 'brand_template.updated' || !campaignId || e.campaign_id !== campaignId) return
+    refreshList().then((list) => {
+      const fresh = list.find((x) => x.id === e.id)
+      if (!fresh || fresh.id !== selectedId || e.design !== 'done') return
+      if (!hasChanges) applyTemplate(fresh)
+      toast.success(t.brand.toasts.designDone(fresh.name))
+    })
+  })
 
   /** Run `action` now, or after the user agrees to drop unsaved changes. */
   const guard = (action: () => void) => {
@@ -276,9 +314,9 @@ export default function BrandTemplatePage() {
         const { brand_template } = await api.brandTemplates.update(selected.id, { name })
         setTemplates((list) => list.map((x) => (x.id === brand_template.id ? brand_template : x)))
         toast.success(t.brand.toasts.renamed)
-      } else {
-        const copyFrom = nameDialog.mode === 'duplicate' ? selected?.id : undefined
-        const { brand_template } = await api.brandTemplates.create(name, copyFrom)
+      } else if (campaignId) {
+        const copyFrom = nameDialog.mode === 'duplicate' ? selected?.id : nameDialog.copyFrom || undefined
+        const { brand_template } = await api.brandTemplates.create({ campaign_id: campaignId, name, copy_from: copyFrom || null })
         await refreshList()
         applyTemplate(brand_template)
         toast.success(copyFrom ? t.brand.toasts.duplicated : t.brand.toasts.created)
@@ -298,7 +336,7 @@ export default function BrandTemplatePage() {
       await api.brandTemplates.remove(selected.id)
       const list = await refreshList()
       const fresh = await refreshCampaigns()
-      const campaign = activeCampaign ? fresh.find((c) => c.id === activeCampaign.id) || null : null
+      const campaign = fresh.find((c) => c.id === campaignId) || null
       const wantedId = campaign ? campaignTemplateId(campaign, list) : null
       const next = list.find((x) => x.id === wantedId) || list[0]
       if (next) applyTemplate(next)
@@ -311,18 +349,65 @@ export default function BrandTemplatePage() {
     }
   }
 
-  const useForCampaign = async () => {
-    if (!activeCampaign || !selected) return
+  const makeDefault = async () => {
+    if (!listCampaign || !selected) return
     setSettingDefault(true)
     try {
-      await api.campaigns.update(activeCampaign.id, { brand_template_id: selected.id })
+      await api.brandTemplates.makeDefault(selected.id)
       await Promise.all([refreshCampaigns(), refreshList()])
-      toast.success(t.brand.toasts.usedFor(activeCampaign.name, selected.name))
+      toast.success(t.brand.toasts.madeDefault(listCampaign.name, selected.name))
     } catch (err) {
       toast.error(errorMessage(err))
     } finally {
       setSettingDefault(false)
     }
+  }
+
+  /** A new template in the campaign, designed by the AI from its name, client and brief. */
+  const createWithAi = async () => {
+    if (!campaignId || creatingAi) return
+    setCreatingAi(true)
+    try {
+      const { brand_template } = await api.brandTemplates.create({ campaign_id: campaignId, ai: true })
+      await refreshList()
+      applyTemplate(brand_template)
+      toast.success(t.brand.toasts.designing)
+    } catch (err) {
+      toast.error(errorMessage(err, t.brand.toasts.designFailed))
+    } finally {
+      setCreatingAi(false)
+    }
+  }
+
+  /** Design the open template again with the AI (unsaved changes are dropped first). */
+  const redesign = async () => {
+    if (!selected) return
+    setDesigning(true)
+    try {
+      const { brand_template } = await api.brandTemplates.design(selected.id)
+      applyTemplate(brand_template)
+      setTemplates((list) => list.map((x) => (x.id === brand_template.id ? brand_template : x)))
+      toast.success(t.brand.toasts.designing)
+      setConfirmDesign(false)
+    } catch (err) {
+      toast.error(errorMessage(err, t.brand.toasts.designFailed))
+    } finally {
+      setDesigning(false)
+    }
+  }
+
+  const openCreateDialog = () =>
+    guard(() => {
+      setNameDialog({ mode: 'create', value: t.brand.nameDialog.defaultName(templates.length + 1), copyFrom: '' })
+      api.brandTemplates
+        .list()
+        .then(({ brand_templates }) => setAllTemplates(brand_templates))
+        .catch(() => setAllTemplates(templates))
+    })
+
+  const openLogoSection = () => {
+    setOpenPanels((open) => ({ ...open, overlay: true }))
+    requestAnimationFrame(() => document.getElementById('brand-template-section-overlay-title')?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
   }
 
   const updateConfig = <K extends Section>(section: K, updates: Partial<TemplateConfig[K]>, replace = false) => {
@@ -397,7 +482,18 @@ export default function BrandTemplatePage() {
         }
       />
 
-      {!loaded && !selected ? (
+      {loaded && !activeCampaign && !isCampaignLoading ? (
+        <EmptyState
+          icon={FolderPlus}
+          title={t.brand.page.noCampaignTitle}
+          description={t.brand.page.noCampaignBody}
+          action={
+            <ButtonLink href={NEW_CAMPAIGN_HREF} variant="primary" icon={<FolderPlus size={16} aria-hidden="true" />}>
+              {t.brand.page.newCampaign}
+            </ButtonLink>
+          }
+        />
+      ) : !loaded && !selected ? (
         <div style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr) 348px', gap: 'var(--s-5)', alignItems: 'start' }}>
           <Skeleton height={320} radius="lg" />
           <Skeleton height={610} radius="lg" />
@@ -417,22 +513,28 @@ export default function BrandTemplatePage() {
         </Alert>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr) auto', gap: 'var(--s-5)', alignItems: 'start' }}>
-          <TemplateLibraryBar
-            templates={templates}
-            selected={selected}
-            activeCampaign={activeCampaign}
-            settingDefault={settingDefault}
-            onSelect={selectTemplate}
-            onCreate={() => guard(() => setNameDialog({ mode: 'create', value: t.brand.nameDialog.defaultName(templates.length + 1) }))}
-            onDuplicate={() => selected && guard(() => setNameDialog({ mode: 'duplicate', value: t.brand.nameDialog.copyName(selected.name).slice(0, 80) }))}
-            onRename={() => selected && setNameDialog({ mode: 'rename', value: selected.name })}
-            onDelete={() => setConfirmDelete(true)}
-            onMakeDefault={useForCampaign}
-          />
+          {listCampaign && (
+            <TemplateLibraryBar
+              campaign={listCampaign}
+              templates={templates}
+              selected={selected}
+              settingDefault={settingDefault}
+              creatingAi={creatingAi}
+              onSelect={selectTemplate}
+              onCreate={openCreateDialog}
+              onCreateAi={() => guard(createWithAi)}
+              onDuplicate={() => selected && guard(() => setNameDialog({ mode: 'duplicate', value: t.brand.nameDialog.copyName(selected.name).slice(0, 80) }))}
+              onRename={() => selected && setNameDialog({ mode: 'rename', value: selected.name })}
+              onRedesign={() => setConfirmDesign(true)}
+              onDelete={() => setConfirmDelete(true)}
+              onMakeDefault={makeDefault}
+            />
+          )}
 
           <div className="mc-stack">
             <div className="mc-row mc-row--between mc-row--top">
-              <div className="mc-grow">
+              <div className="mc-grow" style={{ minWidth: 0 }}>
+                {listCampaign && <p className="mc-caption mc-muted mc-truncate">{t.brand.page.ofCampaign(listCampaign.name)}</p>}
                 <h2 className="mc-h2 mc-truncate" title={selected?.name}>
                   {selected?.name || t.brand.page.untitled}
                 </h2>
@@ -450,6 +552,15 @@ export default function BrandTemplatePage() {
                 {t.brand.page.resetDefaults}
               </Button>
             </div>
+
+            {selected?.design && (
+              <TemplateDesignCard
+                template={selected}
+                busy={designing}
+                onDesign={() => (selected.design?.status === 'done' || hasChanges ? setConfirmDesign(true) : redesign())}
+                onOpenLogo={openLogoSection}
+              />
+            )}
 
             <SettingsSection
               id="caption"
@@ -562,6 +673,21 @@ export default function BrandTemplatePage() {
             placeholder={t.brand.nameDialog.placeholder}
             hint={nameDialog?.mode === 'duplicate' ? t.brand.nameDialog.duplicateHint(selected?.name || '') : undefined}
           />
+          {nameDialog?.mode === 'create' && (
+            <SelectField
+              label={t.brand.nameDialog.startFrom}
+              value={nameDialog.copyFrom || ''}
+              onChange={(e) => setNameDialog({ ...nameDialog, copyFrom: e.target.value })}
+              containerStyle={{ marginTop: 'var(--s-4)' }}
+              hint={nameDialog.copyFrom ? t.brand.nameDialog.startHint : undefined}
+              options={[
+                { value: '', label: t.brand.nameDialog.startDefault },
+                ...[...allTemplates]
+                  .sort((a, b) => Number(b.campaign_id === campaignId) - Number(a.campaign_id === campaignId))
+                  .map((tpl) => ({ value: tpl.id, label: t.brand.nameDialog.copyOption(tpl.campaign_name || '-', tpl.name) })),
+              ]}
+            />
+          )}
         </form>
       </Modal>
 
@@ -584,9 +710,7 @@ export default function BrandTemplatePage() {
         title={t.brand.deleteDialog.title(selected?.name || '')}
         message={
           <div className="mc-stack mc-gap-8">
-            {(selected?.used_by_campaigns || []).length > 0 && (
-              <p>{t.brand.deleteDialog.usedBy((selected?.used_by_campaigns || []).map((c) => c.name).join(', '))}</p>
-            )}
+            {selected?.is_default && <p>{t.brand.deleteDialog.defaultNote}</p>}
             <p>{t.brand.deleteDialog.body(selected?.clip_count || 0)}</p>
           </div>
         }
@@ -596,6 +720,22 @@ export default function BrandTemplatePage() {
         loading={deleting}
         onConfirm={deleteSelected}
         onClose={() => setConfirmDelete(false)}
+      />
+
+      <ConfirmModal
+        isOpen={confirmDesign}
+        title={t.brand.design.confirmTitle}
+        message={
+          <div className="mc-stack mc-gap-8">
+            <p>{t.brand.design.confirmBody}</p>
+            {hasChanges && <p>{t.brand.design.confirmUnsaved}</p>}
+          </div>
+        }
+        confirmLabel={t.brand.design.confirm}
+        confirmIcon={<Sparkles size={16} aria-hidden="true" />}
+        loading={designing}
+        onConfirm={redesign}
+        onClose={() => setConfirmDesign(false)}
       />
 
       <ConfirmModal

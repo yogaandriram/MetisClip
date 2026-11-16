@@ -3,7 +3,7 @@
 export const brand = {
   page: {
     title: 'Brand Template',
-    subtitle: 'Simpan beberapa gaya clip dan pakai di campaign mana pun',
+    subtitle: 'Gaya clip campaign aktif. Setiap campaign punya template sendiri, salah satunya default.',
     undo: 'Urungkan',
     redo: 'Ulangi',
     reload: 'Muat ulang dari database',
@@ -14,6 +14,11 @@ export const brand = {
     unsaved: 'Belum disimpan',
     savedAt: (when: string) => `Disimpan ${when}`,
     resetDefaults: 'Kembalikan default',
+    noCampaignTitle: 'Belum ada campaign',
+    noCampaignBody: 'Brand template disimpan per campaign. Buat campaign dulu, lalu AI menyiapkan template pertamanya.',
+    newCampaign: 'Campaign baru',
+    /** Shown above the template name */
+    ofCampaign: (campaign: string) => `Template campaign ${campaign}`,
   },
   sections: {
     caption: 'Caption',
@@ -33,7 +38,10 @@ export const brand = {
     duplicated: 'Template diduplikat',
     created: 'Template baru dibuat',
     deleted: (name: string) => `Template "${name}" dihapus`,
-    usedFor: (campaign: string, name: string) => `Clip campaign ${campaign} memakai "${name}"`,
+    madeDefault: (campaign: string, name: string) => `"${name}" sekarang template default ${campaign}`,
+    designing: 'AI mulai mendesain template ini',
+    designDone: (name: string) => `AI selesai mendesain "${name}"`,
+    designFailed: 'Desain AI gagal',
   },
   nameDialog: {
     renameTitle: 'Ganti nama template',
@@ -48,6 +56,11 @@ export const brand = {
     defaultName: (n: number) => `Template ${n}`,
     /** Suggested name of a duplicate */
     copyName: (name: string) => `${name} (salinan)`,
+    startFrom: 'Mulai dari',
+    startDefault: 'Pengaturan bawaan MetisClip',
+    /** Option label: a template of another campaign */
+    copyOption: (campaign: string, name: string) => `${campaign} · ${name}`,
+    startHint: 'Pengaturan template yang dipilih ikut disalin. Template campaign lain tidak berubah.',
   },
   discard: {
     title: 'Buang perubahan?',
@@ -57,7 +70,7 @@ export const brand = {
   },
   deleteDialog: {
     title: (name: string) => `Hapus template "${name}"?`,
-    usedBy: (campaigns: string) => `Template ini dipakai ${campaigns}. Campaign tersebut akan memakai template bawaan.`,
+    defaultNote: 'Ini template default campaign ini. Setelah dihapus, template tertua yang tersisa jadi default.',
     body: (clips: number) =>
       `${clips} clip yang memilih template ini akan kembali ke template campaign-nya. Logo dan file brand yang hanya dipakai template ini ikut dihapus. Tindakan ini tidak bisa dibatalkan.`,
     confirm: 'Hapus template',
@@ -68,19 +81,22 @@ export const brand = {
     confirm: 'Pakai default',
   },
   library: {
-    heading: 'Template',
+    heading: 'Template campaign',
     create: 'Baru',
+    createMenu: 'Buat template',
+    createAi: 'Desain dengan AI',
+    createBlank: 'Template baru…',
     actions: 'Aksi template',
-    deleteLast: 'Hapus (minimal 1 template)',
+    deleteLast: 'Hapus (campaign butuh minimal 1 template)',
     delete: 'Hapus template',
-    /** Campaigns whose clips use the template */
-    usedBy: (campaigns: string) => `Dipakai ${campaigns}`,
-    /** The template campaigns without their own template use */
-    isDefault: 'Bawaan',
+    isDefault: 'Default',
     clipCount: (n: number) => `${n} clip`,
-    /** The template is the active campaign's template */
-    usedFor: (campaign: string) => `Dipakai ${campaign}`,
-    useFor: (campaign: string) => `Pakai untuk ${campaign}`,
+    aiMade: 'Didesain AI',
+    aiRunning: 'AI sedang mendesain…',
+    /** The template is the campaign's default */
+    defaultFor: (campaign: string) => `Default untuk ${campaign}`,
+    makeDefault: 'Jadikan default',
+    redesign: 'Desain ulang dengan AI',
   },
   /** Screen-reader suffix of the chosen preset tile */
   selected: '(dipilih)',
@@ -377,5 +393,44 @@ export const brand = {
      * word (shows the filler setting), the 6th a keyword mark and the 7th 💡.
      */
     words: ['Rahasia', 'konten', 'viral', 'eh', 'ternyata', 'sederhana', 'banget!'],
+  },
+  /** The AI design card above the settings */
+  design: {
+    runningTitle: 'AI sedang mendesain template ini',
+    runningBody: 'Dari nama, klien dan brief campaign. Biasanya selesai dalam setengah menit. Kalau kamu menyimpan perubahan sebelum itu, hasil AI tidak dipakai.',
+    doneTitle: 'Didesain AI',
+    model: (provider: string, model: string) => `${provider} · ${model}`,
+    followsBrief: 'Mengikuti brief: saat brief campaign berubah, AI mendesain ulang template ini. Begitu kamu mengubah gayanya, template ini tidak diubah otomatis lagi.',
+    edited: 'Kamu sudah mengubah template ini, jadi perubahan brief tidak mengubahnya lagi. Pakai "Desain ulang" kalau ingin AI menyesuaikannya.',
+    why: 'Kenapa begini',
+    parts: {
+      caption: 'Caption',
+      layout: 'Layout',
+      colors: 'Warna',
+      zoom: 'Zoom',
+      subtitles: 'AI subtitle',
+    },
+    quote: (quote: string) => `Brief: "${quote}"`,
+    todo: 'Perlu kamu lengkapi',
+    notes: {
+      logo: 'Brief meminta logo. Unggah logonya di bagian Logo & video contoh.',
+      credit_layout: 'Brief mewajibkan kredit sumber, jadi template memakai bingkai podcast (layout penuh tidak menampilkan kredit).',
+      subtitles_forbidden: 'Brief melarang subtitle, padahal MetisClip selalu memasang subtitle. Tanyakan lagi ke agensinya.',
+      visual_rules: 'Brief punya aturan visual lain. Cek dan centang di tab Campaign pada editor clip.',
+      other: 'Ada catatan lain dari AI.',
+    },
+    openLogo: 'Buka bagian logo',
+    failedTitle: 'Desain AI gagal',
+    retry: 'Coba lagi',
+    basicTitle: 'Template dasar',
+    basicBody: 'Template ini belum didesain AI.',
+    designNow: 'Desain dengan AI',
+    openSettings: 'Buka Pengaturan',
+    skippedTitle: 'Hasil AI tidak dipakai',
+    redesign: 'Desain ulang',
+    confirmTitle: 'Desain ulang dengan AI?',
+    confirmBody: 'AI mengganti caption, layout dan AI subtitle template ini dengan desain baru dari nama dan brief campaign. Logo dan video contoh tetap.',
+    confirmUnsaved: 'Perubahan yang belum disimpan akan dibuang.',
+    confirm: 'Desain ulang',
   },
 }

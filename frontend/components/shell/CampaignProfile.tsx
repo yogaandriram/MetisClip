@@ -10,10 +10,10 @@ import { Avatar } from '@/components/ui/Avatar'
 import { LogoMark } from '@/components/ui/Logo'
 import { campaignHref, isBriefEmpty, shownClient } from '@/lib/brief'
 import { cx } from '@/lib/cx'
+import { NEW_CAMPAIGN_HREF } from '@/lib/routes'
 import { useT } from '@/lib/i18n/I18nProvider'
 
 /** Opens the create dialog on the campaign library (campaigns/page.tsx reads `?new=1`). */
-export const NEW_CAMPAIGN_HREF = '/campaigns/?new=1'
 
 /**
  * The liquid neck that joins the circle to the rail (DESIGN.md §4.2.8), in the circle's coordinates.

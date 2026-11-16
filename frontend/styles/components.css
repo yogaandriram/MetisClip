@@ -2459,3 +2459,28 @@ input[type='color'].mc-input {
 .mc-drag-target:focus-visible {
   outline: 2px solid var(--leaf);
 }
+
+/* ---------------------------------------------------------------- brand template: AI design reasons */
+.mc-design-reasons > summary {
+  list-style: none;
+  cursor: pointer;
+  width: fit-content;
+  border-radius: var(--r-sm);
+}
+
+.mc-design-reasons > summary::-webkit-details-marker {
+  display: none;
+}
+
+.mc-design-reasons > summary:focus-visible {
+  outline: 2px solid var(--leaf);
+  outline-offset: 2px;
+}
+
+.mc-design-reasons__chevron {
+  transition: transform var(--dur-base) var(--ease-out);
+}
+
+.mc-design-reasons[open] .mc-design-reasons__chevron {
+  transform: rotate(180deg);
+}

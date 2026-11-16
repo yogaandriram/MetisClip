@@ -7,6 +7,7 @@ import toast from 'react-hot-toast'
 import { Alert, Badge, Button, ButtonLink, ConfirmModal, EmptyState, PageHeader, Skeleton } from '@/components/ui'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
+import { useCampaign } from '@/contexts/CampaignContext'
 import { api, EngineError, type Brief, type BrandTemplate, type Campaign, type CampaignInput } from '@/lib/engine'
 import { errorMessage, formatDateTime } from '@/lib/format'
 import { tm } from '@/lib/i18n'
@@ -47,6 +48,7 @@ function CampaignDetail() {
   const t = useT()
   const m = t.campaign
   const router = useRouter()
+  const { setActiveCampaign } = useCampaign()
   const params = useSearchParams()
   const id = params.get('id') || ''
   const { epoch } = useEngine()
@@ -150,12 +152,14 @@ function CampaignDetail() {
     refresh()
   }, [epoch, refresh])
 
-  useEffect(() => {
+  const loadTemplates = useCallback(() => {
+    if (!id) return
     api.brandTemplates
-      .list()
+      .list(id)
       .then(({ brand_templates }) => setTemplates(brand_templates))
       .catch(() => setTemplates([]))
-  }, [epoch])
+  }, [id])
+  useEffect(() => loadTemplates(), [epoch, loadTemplates])
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => () => {
@@ -163,6 +167,11 @@ function CampaignDetail() {
   }, [])
 
   useEngineEvents((event) => {
+    // Its templates: names and the AI status change while the AI designs them
+    if ((event.type === 'brand_template.updated' || event.type === 'brand_template.deleted') && event.campaign_id === id) {
+      loadTemplates()
+      return
+    }
     if (!('id' in event) || event.id !== id) return
     if (event.type === 'campaign.deleted') {
       if (deletingRef.current) return
@@ -207,7 +216,7 @@ function CampaignDetail() {
       if (detailsChanged) {
         patch.name = details.name.trim()
         patch.client = details.client.trim()
-        patch.brand_template_id = details.brand_template_id
+        if (details.brand_template_id) patch.brand_template_id = details.brand_template_id
       }
       // Saving a reviewed reading also clears it from the engine
       if (briefChanged || draftInForm) patch.brief = form
@@ -381,6 +390,10 @@ function CampaignDetail() {
             details={details}
             onDetails={setDetails}
             templates={templates}
+            onManageTemplates={() => {
+              setActiveCampaign(campaign.id)
+              router.push('/brand-template/')
+            }}
             nameError={nameError}
             archiving={archiving}
             onToggleArchive={toggleArchive}

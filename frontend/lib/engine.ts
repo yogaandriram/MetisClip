@@ -9,7 +9,29 @@ import { tm, type Lang } from './i18n'
 
 export type ISODate = string
 
-/** A named template in the shared brand template library (used by any campaign). */
+/** How the AI made a template: its status, why it chose what it did, and what is left to the user. */
+export type TemplateDesignStatus = 'running' | 'done' | 'failed' | 'basic' | 'skipped'
+
+/** Something the AI could not do for the template (worded by the frontend, `brand.design.notes`). */
+export interface TemplateDesignNote {
+  kind: 'logo' | 'credit_layout' | 'subtitles_forbidden' | 'visual_rules' | string
+  params: Record<string, string | number>
+}
+
+export interface TemplateDesign {
+  status: TemplateDesignStatus
+  /** Made with the campaign: designed again when its brief changes, until the user edits it */
+  auto: boolean
+  edited: boolean
+  message: string
+  provider: string | null
+  model: string | null
+  reasons: { part: 'caption' | 'layout' | 'colors' | 'zoom' | 'subtitles'; text: string; quote: string }[]
+  notes: TemplateDesignNote[]
+  at: ISODate | null
+}
+
+/** A named brand template of one campaign (every campaign holds one or more, one of them its default). */
 export interface BrandTemplate {
   id: string
   name: string
@@ -17,11 +39,14 @@ export interface BrandTemplate {
   caption_settings: Record<string, any>
   layout_settings: Record<string, any>
   ai_settings: Record<string, any>
+  /** The campaign it belongs to */
+  campaign_id: string | null
+  /** The AI design (null: made by hand or before AI designs) */
+  design: TemplateDesign | null
   created_at: ISODate | null
   updated_at: ISODate | null
-  /** Campaigns whose clips use this template (list / detail responses) */
-  used_by_campaigns?: { id: string; name: string }[]
-  /** The template campaigns without their own template use (the oldest one) */
+  campaign_name?: string
+  /** Its campaign's default template */
   is_default?: boolean
   /** Clips that use this template */
   clip_count?: number
@@ -113,7 +138,7 @@ export interface Campaign {
   name: string
   client: string
   status: 'active' | 'archived'
-  /** Template for this campaign's clips (null = the default template, BrandTemplate.is_default) */
+  /** Its default brand template (one of its own templates) */
   brand_template_id: string | null
   /** Missing in list responses (see source_count) */
   sources?: CampaignSource[]
@@ -135,7 +160,8 @@ export interface CampaignInput {
   name?: string
   client?: string
   status?: 'active' | 'archived'
-  brand_template_id?: string | null
+  /** Make one of its own templates the default */
+  brand_template_id?: string
   /** A reviewed brief: replaces the current one (version + 1) and clears the draft */
   brief?: Brief
 }
@@ -542,8 +568,8 @@ export type EngineEvent =
   | { type: 'clip.created'; id: string; job_id: string | null; campaign_id?: string | null }
   | { type: 'clip.updated'; id: string }
   | { type: 'clip.deleted'; id: string }
-  | { type: 'brand_template.updated'; id: string }
-  | { type: 'brand_template.deleted'; id: string }
+  | { type: 'brand_template.updated'; id: string; campaign_id?: string | null; design?: TemplateDesignStatus | null }
+  | { type: 'brand_template.deleted'; id: string; campaign_id?: string | null }
   | { type: 'campaign.updated'; id: string }
   | { type: 'campaign.deleted'; id: string }
   | { type: 'campaign.parse'; id: string; status: CampaignParseStatus; message: string }
@@ -709,15 +735,23 @@ let socket: WebSocket | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let reconnectDelay = 1000
 
+// Several components subscribe in the same tick: only one of them may open the socket, or every event
+// arrives once per socket (duplicate toasts and refreshes)
+let connecting = false
+
 async function connectSocket() {
-  if (typeof window === 'undefined' || socket || handlers.size === 0) return
+  if (typeof window === 'undefined' || socket || connecting || handlers.size === 0) return
+  connecting = true
   let info: MetisEngineInfo
   try {
     info = await getEngineInfo()
   } catch {
+    connecting = false
     scheduleReconnect()
     return
   }
+  connecting = false
+  if (socket || handlers.size === 0) return
   const wsUrl = `${info.baseUrl.replace(/^http/, 'ws')}/ws/events${qs({ token: info.token })}`
   const ws = new WebSocket(wsUrl)
   socket = ws
@@ -824,14 +858,20 @@ export const api = {
 
 
   brandTemplates: {
-    list: () => request<{ brand_templates: BrandTemplate[] }>('GET', '/api/brand-templates'),
+    /** One campaign's templates (oldest first), or every campaign's */
+    list: (campaignId?: string) =>
+      request<{ brand_templates: BrandTemplate[] }>('GET', '/api/brand-templates', { query: campaignId ? { campaign_id: campaignId } : {} }),
     get: (id: string) => request<{ brand_template: BrandTemplate }>('GET', `/api/brand-templates/${id}`),
-    /** New template with default settings, or a duplicate of `copy_from` */
-    create: (name: string, copyFrom?: string) =>
-      request<{ brand_template: BrandTemplate }>('POST', '/api/brand-templates', { body: { name, copy_from: copyFrom || null } }),
+    /** A new template in a campaign: default settings, a copy of `copy_from` (any campaign's), or designed by the AI (`ai`) */
+    create: (input: { campaign_id: string; name?: string; copy_from?: string | null; ai?: boolean; make_default?: boolean }) =>
+      request<{ brand_template: BrandTemplate }>('POST', '/api/brand-templates', { body: input }),
     update: (id: string, patch: BrandTemplateInput) =>
       request<{ brand_template: BrandTemplate }>('PUT', `/api/brand-templates/${id}`, { body: patch }),
-    /** Its clips and campaigns fall back to the default template; refused for the last template */
+    /** Design it (again) with the AI in the background; replaces its caption, layout and AI subtitle settings */
+    design: (id: string) => request<{ brand_template: BrandTemplate }>('POST', `/api/brand-templates/${id}/design`),
+    /** Make it its campaign's default */
+    makeDefault: (id: string) => request<{ brand_template: BrandTemplate }>('POST', `/api/brand-templates/${id}/default`),
+    /** Its clips follow the campaign's default; refused for a campaign's last template */
     remove: (id: string) => request<{ ok: true }>('DELETE', `/api/brand-templates/${id}`),
     /** Uploads a brand asset; store the returned `value` (asset://…) in brand_settings */
     uploadAsset: (id: string, file: File, kind: string) => {

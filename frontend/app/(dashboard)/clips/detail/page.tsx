@@ -281,17 +281,19 @@ function ClipEditor() {
     api.clips
       .get(clipId)
       .then((d) => {
-        if (!cancelled) applyDetail(d)
+        if (cancelled) return
+        applyDetail(d)
+        // The clip can use any template of its own campaign
+        api.brandTemplates
+          .list(d.clip.campaign_id || undefined)
+          .then(({ brand_templates }) => {
+            if (!cancelled) setTemplates(brand_templates)
+          })
+          .catch(() => undefined)
       })
       .catch((err) => {
         if (!cancelled) setLoadError(errorMessage(err, tm().editor.notFound))
       })
-    api.brandTemplates
-      .list()
-      .then(({ brand_templates }) => {
-        if (!cancelled) setTemplates(brand_templates)
-      })
-      .catch(() => undefined)
     // Re-attach to a render that is still running for this clip
     api.renderJobs
       .list({ clip_id: clipId })
@@ -777,7 +779,7 @@ function ClipEditor() {
   const clip = detail.clip
   const activeTemplate = templateById(present.templateId)
   const brand = activeTemplate?.brand_settings || null
-  // The template the clip's campaign uses (its own choice, else the default template)
+  // The clip's campaign's default template
   const campaignTemplateId =
     (detail.campaign?.brand_template_id && templates.some((tpl) => tpl.id === detail.campaign?.brand_template_id)
       ? detail.campaign.brand_template_id

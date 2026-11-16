@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Archive, ArchiveRestore, Clapperboard, Copy, Film, MessageCircleQuestion, Settings2, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, Clapperboard, Copy, Film, MessageCircleQuestion, Palette, Settings2, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Alert, Button, ButtonLink, Card, CardHeader, Divider, InputField, ProgressRow, SelectField, TagInput } from '@/components/ui'
 import type { BrandTemplate, Campaign } from '@/lib/engine'
@@ -27,7 +27,10 @@ interface DetailsCardProps {
   campaign: Campaign
   details: CampaignDetails
   onDetails: (details: CampaignDetails) => void
+  /** The campaign's own templates (one of them its default) */
   templates: BrandTemplate[]
+  /** Open Brand Template on this campaign's templates */
+  onManageTemplates: () => void
   nameError?: string | null
   archiving: boolean
   onToggleArchive: () => void
@@ -35,15 +38,15 @@ interface DetailsCardProps {
 }
 
 /** Name, client and brand template (saved with the page's Save), plus archive and delete (applied at once). */
-export function DetailsCard({ campaign, details, onDetails, templates, nameError, archiving, onToggleArchive, onDelete }: DetailsCardProps) {
+export function DetailsCard({ campaign, details, onDetails, templates, onManageTemplates, nameError, archiving, onToggleArchive, onDelete }: DetailsCardProps) {
   const t = useT()
   const m = t.campaign.info
   const archived = campaign.status === 'archived'
-  const options = [{ value: '', label: m.templateDefault }, ...templates.map((tpl) => ({ value: tpl.id, label: tpl.name }))]
-  // A template deleted since: keep the value visible until the engine clears it
-  if (details.brand_template_id && !templates.some((tpl) => tpl.id === details.brand_template_id)) {
-    options.push({ value: details.brand_template_id, label: details.brand_template_id.slice(0, 8) })
-  }
+  const options = templates.map((tpl) => ({
+    value: tpl.id,
+    label: tpl.design?.status === 'running' ? `${tpl.name} · ${m.templateDesigning}` : tpl.name,
+  }))
+  const value = details.brand_template_id && templates.some((tpl) => tpl.id === details.brand_template_id) ? details.brand_template_id : templates[0]?.id || ''
 
   return (
     <Card as="section" padding="sm">
@@ -63,13 +66,19 @@ export function DetailsCard({ campaign, details, onDetails, templates, nameError
           placeholder={m.clientPlaceholder}
           onChange={(e) => onDetails({ ...details, client: e.target.value })}
         />
-        <SelectField
-          label={m.template}
-          hint={m.templateHint}
-          options={options}
-          value={details.brand_template_id || ''}
-          onChange={(e) => onDetails({ ...details, brand_template_id: e.target.value || null })}
-        />
+        <div className="mc-stack mc-gap-8">
+          <SelectField
+            label={m.template}
+            hint={m.templateHint}
+            options={options}
+            value={value}
+            disabled={!options.length}
+            onChange={(e) => onDetails({ ...details, brand_template_id: e.target.value || null })}
+          />
+          <Button variant="ghost" size="sm" icon={<Palette size={16} aria-hidden="true" />} onClick={onManageTemplates} style={{ alignSelf: 'flex-start' }}>
+            {m.manageTemplates}
+          </Button>
+        </div>
         {archived && <Alert tone="warning">{m.archivedNote}</Alert>}
         <Divider />
         <div className="mc-row mc-row--wrap mc-gap-8">
