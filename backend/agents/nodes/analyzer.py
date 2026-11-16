@@ -552,11 +552,36 @@ def _pick(cands: list[dict[str, Any]], key: str, limit: int) -> list[dict[str, A
     return kept[:limit] if limit > 0 else kept
 
 
-def _for_campaign(cands: list[dict[str, Any]], units: list[Unit], k: int,
-                  campaign: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
+def clip_length(units: list[Unit], i: int, j: int) -> float:
+    """Length of the clip cut from sentences i..j (with its lead-in and tail)."""
+    return duration(units, i, j) + LEAD_IN + TAIL
+
+
+def fit_brief_length(units: list[Unit], c: dict[str, Any], brief: dict[str, Any], lo: float,
+                     hi: float) -> dict[str, Any] | None:
+    """The candidate with a length the brief accepts: as it is, else moved by whole sentences to the
+    brief's range (the job's range may be wider, and it allows ending a few seconds late), else None."""
+    limits = brief_match.length_range(brief)
+    if brief_match.within(clip_length(units, c["i"], c["j"]), limits):
+        return c
+    blo, bhi = limits
+    edges = LEAD_IN + TAIL
+    top = bhi - brief_match.DURATION_TOLERANCE - edges if bhi is not None else hi
+    bottom = blo + brief_match.DURATION_TOLERANCE - edges if blo is not None else min(lo, top)
+    if top <= 0 or bottom > top:
+        return None
+    i, j = fit_duration(units, c["i"], c["j"], max(0.0, bottom), top, tol=0.0 if bhi is not None else DURATION_TOLERANCE)
+    if not brief_match.within(clip_length(units, i, j), limits):
+        return None
+    return {**c, "i": i, "j": j}
+
+
+def _for_campaign(cands: list[dict[str, Any]], units: list[Unit], k: int, campaign: dict[str, Any],
+                  lo: float = 0.0, hi: float = 0.0) -> tuple[list[dict[str, Any]], int]:
     """The candidates that meet one campaign's brief, each with its fit and ranking score for it, and how
-    many were dropped. A clip must say every required term, no banned word, and break no "must not" point
-    the LLM found. These are hard rules: fewer clips is better than clips the client rejects."""
+    many were dropped. A clip must say every required term, no banned word, break no "must not" point
+    the LLM found, and have a length the brief accepts. These are hard rules: fewer clips is better than
+    clips the client rejects."""
     brief = campaign.get("brief") or {}
     required = brief.get("must_include") or []
     banned = brief.get("banned_words") or []
@@ -564,6 +589,11 @@ def _for_campaign(cands: list[dict[str, Any]], units: list[Unit], k: int,
     dropped = 0
     for c in cands:
         judged = c["fits"][k] if k < len(c.get("fits") or []) else None
+        sized = fit_brief_length(units, c, brief, lo, hi)
+        if sized is None:
+            dropped += 1
+            continue
+        c = sized
         text = brief_match.TextIndex(" ".join(u.text for u in units[c["i"]:c["j"] + 1]))
         if (judged and judged["violations"]) or brief_match.missing_terms(text, required) \
                 or brief_match.banned_found(text, banned):
@@ -633,7 +663,7 @@ def _analyze_video(ctx: JobContext, video: dict[str, Any], lo: float, hi: float,
     out: list[dict[str, Any]] = []
     for k, campaign in enumerate(campaigns):
         limit = campaign_limit(per_video, campaign)
-        ok, dropped = _for_campaign(cands, units, k, campaign)
+        ok, dropped = _for_campaign(cands, units, k, campaign, lo, hi)
         picked = _pick(ok, "rank_score", limit)
         if dropped and (not picked or (limit > 0 and len(picked) < limit)):
             key = "none_on_brief" if not picked else ("one_on_brief" if len(picked) == 1 else "few_on_brief")

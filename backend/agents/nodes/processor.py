@@ -18,7 +18,7 @@ import shutil
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from backend.agents.context import JobContext, PipelineError
 from backend.agents.tools import brief_match, caption_ai, clip_edges, ffmpeg_ops, whisper, ytdlp
@@ -117,7 +117,23 @@ def _fetch(ctx: JobContext, seg: dict[str, Any], start: float, end: float, out: 
     return ytdlp.download_section(seg["youtube_id"], start, end, out, ctx.cancel)
 
 
-def _source(ctx: JobContext, seg: dict[str, Any], work: Path) -> tuple[Path, list[dict[str, Any]] | None, float, float]:
+Limits = tuple[Optional[float], Optional[float]]
+
+
+def length_limits(ctx: JobContext, segs: list[dict[str, Any]]) -> Limits:
+    """The clip length every campaign that chose this moment accepts (the strictest of their briefs)."""
+    los, his = [], []
+    for seg in segs:
+        lo, hi = brief_match.length_range((_campaign(ctx, seg) or {}).get("brief"))
+        if lo is not None:
+            los.append(lo)
+        if hi is not None:
+            his.append(hi)
+    return (max(los) if los else None, min(his) if his else None)
+
+
+def _source(ctx: JobContext, seg: dict[str, Any], work: Path,
+            limits: Limits = (None, None)) -> tuple[Path, list[dict[str, Any]] | None, float, float]:
     """The clip's source video, its Whisper words (None without them) and its final edges in the video.
 
     With Whisper, the clip is fetched with `clip_edges.EDGE_MARGIN` extra seconds on both sides and
@@ -142,7 +158,7 @@ def _source(ctx: JobContext, seg: dict[str, Any], work: Path) -> tuple[Path, lis
         raise
     except Exception as exc:
         ctx.error("processing", M("whisper_failed", start=f"{start:.0f}", error=exc))
-    a, b = clip_edges.snap(words, payload, t0, t1, total) or (t0, t1)
+    a, b = clip_edges.snap(words, payload, t0, t1, total, limits) or (t0, t1)
     ctx.check()
     if seg.get("file_path"):  # cut once more from the original file rather than re-encoding the padded cut
         src = ffmpeg_ops.cut_section(Path(seg["file_path"]), pad_start + a, pad_start + b, work / "src.mp4", ctx.cancel)
@@ -197,7 +213,7 @@ def _ai_marks(ctx: JobContext, words: list[dict[str, Any]], template_id: str | N
         return words
 
 
-def process_segment(ctx: JobContext, seg: dict[str, Any]) -> dict[str, Any]:
+def process_segment(ctx: JobContext, seg: dict[str, Any], limits: Limits = (None, None)) -> dict[str, Any]:
     clip_id = seg["segment_id"]
     paths = get_paths()
     work = ctx.cache_dir / clip_id
@@ -207,7 +223,7 @@ def process_segment(ctx: JobContext, seg: dict[str, Any]) -> dict[str, Any]:
     raw = out_dir / "raw.mp4"
     thumb = out_dir / "thumb.jpg"
     try:
-        return _process(ctx, seg, clip_id, work, raw, thumb)
+        return _process(ctx, seg, clip_id, work, raw, thumb, limits)
     except BaseException:
         # Never leave half-written media behind for a clip that has no document
         if not get_db().clips.find_one({"_id": clip_id}, {"_id": 1}):
@@ -215,10 +231,11 @@ def process_segment(ctx: JobContext, seg: dict[str, Any]) -> dict[str, Any]:
         raise
 
 
-def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw: Path, thumb: Path) -> dict[str, Any]:
+def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw: Path, thumb: Path,
+             limits: Limits = (None, None)) -> dict[str, Any]:
     paths = get_paths()
     try:
-        src, words, start, end = _source(ctx, seg, work)
+        src, words, start, end = _source(ctx, seg, work, limits)
         ctx.check()
         tracked = work / "tracked.mp4"
         faces_tmp = work / "faces.json"
@@ -456,13 +473,14 @@ def run(ctx: JobContext, segments: list[dict[str, Any]]) -> list[dict[str, Any]]
         """One moment: cut and track it once, then one clip per campaign that chose it."""
         out: list[dict[str, Any]] = []
         base = bases.get(key)
+        limits = length_limits(ctx, groups[key])
         for seg in groups[key]:
             ctx.check()
             try:
                 if base is None:
                     with resources.hold("clip", need, label=M("hold_label", start=f"{seg['start_time']:.0f}"),
                                         cancel=ctx.cancel, on_wait=lambda info: ctx.progress(message=info.message())):
-                        clip = process_segment(ctx, seg)
+                        clip = process_segment(ctx, seg, limits)
                     base = clip
                 else:
                     clip = derive_clip(ctx, seg, base)

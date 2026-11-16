@@ -50,8 +50,11 @@ def _nearest(candidates: list[int], strength: list[int], at, target: float) -> i
 
 
 def snap(words: list[dict[str, Any]], payload: dict[str, Any] | None, t0: float, t1: float,
-         total: float) -> tuple[float, float] | None:
-    """Edges (seconds in the fetched clip) at sentence boundaries near [t0, t1], or None to keep them."""
+         total: float, limits: tuple[float | None, float | None] = (None, None)) -> tuple[float, float] | None:
+    """Edges (seconds in the fetched clip) at sentence boundaries near [t0, t1], or None to keep them.
+
+    `limits` (shortest, longest) is the length a campaign brief accepts: edges that would leave it are
+    not used (the Analyzer's edges already fit it)."""
     if len(words) < 2 or t1 <= t0:
         return None
     ends, starts = _boundaries(words, payload)
@@ -79,6 +82,9 @@ def snap(words: list[dict[str, Any]], payload: dict[str, Any] | None, t0: float,
         b = min(b, words[j + 1]["start"] - 0.02)
     b = min(total, max(b, words[j]["end"]))
     if b - a < 0.6 * (t1 - t0):
+        return None
+    lo, hi = limits
+    if (lo is not None and b - a < lo) or (hi is not None and b - a > hi):
         return None
     return round(a, 3), round(b, 3)
 

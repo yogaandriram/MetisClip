@@ -14,7 +14,7 @@ from typing import Any
 from backend.agents.tools import brief_match
 from backend.services import layout as layout_svc
 
-DURATION_TOLERANCE = 0.5
+DURATION_TOLERANCE = brief_match.DURATION_TOLERANCE
 DEADLINE_WARN_DAYS = 2
 
 
@@ -53,7 +53,7 @@ def check(clip: dict[str, Any], campaign: dict[str, Any], template: dict[str, An
     lo, hi = dur.get("min"), dur.get("max")
     if lo or hi:
         seconds = float(clip.get("duration_seconds") or 0)
-        ok = (not lo or seconds >= lo - DURATION_TOLERANCE) and (not hi or seconds <= hi + DURATION_TOLERANCE)
+        ok = brief_match.within(seconds, brief_match.length_range(brief))
         items.append(_item("duration", "ok" if ok else "fail", seconds=round(seconds, 1), min=lo, max=hi))
 
     required = brief.get("must_include") or []

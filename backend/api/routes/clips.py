@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from backend.api.dto import brand_template_dto, campaign_dto, clip_dto, http_error, render_dto
 from backend.api.routes.files import serve_relative
-from backend.agents.tools import caption_ai, speaker_ai
+from backend.agents.tools import caption_ai, post_copy_ai, speaker_ai
 from backend.agents.tools.caption_ai import valid_emoji
 from backend.core import events, llm
 from backend.core.db import get_db, new_id, utcnow
@@ -206,8 +206,6 @@ def _campaign_of(clip: dict) -> dict:
 def save_post_copy(clip_id: str, body: PostCopy):
     """The user's edit of the post text (the brief's required hashtags and mentions are not forced back:
     the checklist shows when they are missing)."""
-    from backend.agents.tools import post_copy_ai
-
     clip = _get(clip_id)
     copy = post_copy_ai.enforce(body.model_dump(), {})
     copy["generated_at"] = ((clip.get("post_copy") or {}).get("generated_at"))
@@ -220,8 +218,6 @@ def save_post_copy(clip_id: str, body: PostCopy):
 @router.post("/api/clips/{clip_id}/post-copy/generate")
 def generate_post_copy(clip_id: str):
     """Write the post text again with the LLM, following the campaign's current brief."""
-    from backend.agents.tools import post_copy_ai
-
     clip = _get(clip_id)
     campaign = _campaign_of(clip)
     sv = get_db().source_videos.find_one({"_id": clip["source_video_id"]}) if clip.get("source_video_id") else None
@@ -263,14 +259,22 @@ class ClipCampaign(BaseModel):
 
 @router.put("/api/clips/{clip_id}/campaign")
 def set_clip_campaign(clip_id: str, body: ClipCampaign):
-    """Put a clip under a campaign (or take it out). The fit score stays from when it was made for one."""
-    _get(clip_id)
+    """Put a clip under a campaign (or take it out). What belonged to the old campaign goes: its fit score
+    and reason, the ticked manual rules, and the post text (a basic one for the new brief takes its place;
+    "Tulis ulang dengan AI" writes a better one)."""
+    clip = _get(clip_id)
+    if body.campaign_id == clip.get("campaign_id"):
+        return {"clip": clip_dto(clip)}
+    stale = {"brief_fit": "", "brief_reason": "", "brief_manual": ""}
     if body.campaign_id:
-        if not campaign_svc.get(body.campaign_id):
+        campaign = campaign_svc.get(body.campaign_id)
+        if not campaign:
             raise http_error(400, M("campaign_not_found"))
-        op: dict[str, Any] = {"$set": {"campaign_id": body.campaign_id, "updated_at": utcnow()}}
+        op: dict[str, Any] = {"$set": {"campaign_id": body.campaign_id, "updated_at": utcnow(),
+                                       "post_copy": post_copy_ai.fallback(clip, campaign.get("brief") or {})},
+                              "$unset": stale}
     else:
-        op = {"$unset": {"campaign_id": ""}, "$set": {"updated_at": utcnow()}}
+        op = {"$unset": {"campaign_id": "", **stale}, "$set": {"updated_at": utcnow()}}
     get_db().clips.update_one({"_id": clip_id}, op)
     events.publish({"type": "clip.updated", "id": clip_id})
     return {"clip": clip_dto(_get(clip_id))}

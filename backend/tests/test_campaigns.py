@@ -440,6 +440,37 @@ def test_without_campaigns_ids_and_prompts_are_unchanged(monkeypatch):
     assert out[0]["segment_id"] == an.segment_id("job-1", "AAAAAAAAAAA", out[0]["start_time"], out[0]["end_time"])
 
 
+def test_a_clip_gets_the_length_its_brief_accepts():
+    from backend.agents.tools.sentences import Unit
+
+    units = [Unit(k, 100 + 6 * k, 105.8 + 6 * k, f"kalimat {k}.", True) for k in range(12)]
+    brief = {"duration": {"min": 30, "max": 45}}
+    # The job allows 45-60 s (+3 s to finish a sentence); the brief wants at most 45 s: whole sentences go
+    c = an.fit_brief_length(units, {"i": 0, "j": 9}, brief, 45, 60)
+    assert c["i"] == 0 and 29.5 <= an.clip_length(units, c["i"], c["j"]) <= 45.5
+    # Already inside the brief's range: unchanged, so a moment shared with another campaign stays shared
+    assert an.fit_brief_length(units, {"i": 0, "j": 5}, brief, 45, 60) == {"i": 0, "j": 5}
+    # Only a maximum: the longest clip under it
+    c = an.fit_brief_length(units, {"i": 0, "j": 9}, {"duration": {"max": 45}}, 45, 60)
+    assert an.clip_length(units, c["i"], c["j"]) <= 45.5
+    # No whole sentence fits 10-12 s: dropped rather than cut mid-sentence
+    long = [Unit(k, 20.0 * k, 20.0 * k + 19.5, f"panjang {k}.", True) for k in range(8)]
+    assert an.fit_brief_length(long, {"i": 2, "j": 4}, {"duration": {"min": 10, "max": 12}}, 45, 60) is None
+
+
+def test_the_strictest_brief_length_limits_a_shared_moment():
+    import types
+
+    from backend.agents.nodes import processor
+
+    ctx = types.SimpleNamespace(job={"campaigns": [{"id": "a", "brief": {"duration": {"min": 30, "max": 60}}},
+                                                   {"id": "b", "brief": {"duration": {"max": 45}}},
+                                                   {"id": "c", "brief": {}}]})
+    assert processor.length_limits(ctx, [{"campaign_id": "a"}, {"campaign_id": "b"}, {"campaign_id": "c"}, {}]) \
+        == (29.5, 45.5)
+    assert processor.length_limits(ctx, [{}]) == (None, None)
+
+
 def test_campaign_limits():
     assert an.campaign_limit(3, {"brief": {"max_per_video": 1}}) == 1
     assert an.campaign_limit(0, {"brief": {"max_per_video": 2}}) == 2
@@ -486,7 +517,7 @@ def test_a_moment_for_two_campaigns_is_cut_once(db, monkeypatch, paths):
 
     cut = []
 
-    def fake_process(c, s):
+    def fake_process(c, s, limits=(None, None)):
         cut.append(s["segment_id"])
         folder = paths.clip_dir("a", s["segment_id"])
         folder.mkdir(parents=True, exist_ok=True)
@@ -686,6 +717,18 @@ def test_campaign_api_flow(client, secrets, monkeypatch, tmp_path, db):
     assert detail["campaign"]["id"] == cid and "sources" not in detail["campaign"]
     kinds = {i["id"]: i["status"] for i in detail["brief_check"]["items"]}
     assert kinds["required_words"] == "ok" and kinds["post_copy"] == "fail"
+
+    # Moving a clip to another campaign drops what belonged to the old one
+    other = client.post("/api/campaigns", json={"name": "Lain", "brief": {"post": {"hashtags": ["#Lain"]}}}).json()["campaign"]
+    db.clips.update_one({"_id": clip_id}, {"$set": {"brief_reason": "cocok", "brief_manual": {"r1": True}}})
+    moved = client.put(f"/api/clips/{clip_id}/campaign", json={"campaign_id": other["id"]}).json()["clip"]
+    stored = db.clips.find_one({"_id": clip_id})
+    assert moved["campaign_id"] == other["id"] and "brief_fit" not in stored and "brief_manual" not in stored
+    assert stored["post_copy"]["hashtags"] == ["#Lain"] and stored["post_copy"]["source"] == "basic"
+    client.put(f"/api/clips/{clip_id}/campaign", json={"campaign_id": None})
+    assert "campaign_id" not in db.clips.find_one({"_id": clip_id})
+    client.put(f"/api/clips/{clip_id}/campaign", json={"campaign_id": cid})
+    client.delete(f"/api/campaigns/{other['id']}")
 
     r = client.put(f"/api/clips/{clip_id}/post-copy", json={"title": "Judul", "caption": "Seru", "hashtags": ["TokopediaRamadan"]})
     assert r.json()["clip"]["post_copy"]["hashtags"] == ["#TokopediaRamadan"]

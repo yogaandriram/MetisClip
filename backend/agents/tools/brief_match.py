@@ -18,6 +18,19 @@ from typing import Any, Iterable
 
 FUZZY_RATIO = 0.85
 MIN_LOOSE_LEN = 5
+DURATION_TOLERANCE = 0.5   # seconds a clip may be off a brief's duration and still meet it
+
+
+def length_range(brief: dict[str, Any] | None) -> tuple[float | None, float | None]:
+    """The clip length a brief accepts, tolerance included: (shortest, longest), None = no limit."""
+    dur = (brief or {}).get("duration") or {}
+    lo, hi = dur.get("min"), dur.get("max")
+    return (float(lo) - DURATION_TOLERANCE if lo else None, float(hi) + DURATION_TOLERANCE if hi else None)
+
+
+def within(seconds: float, limits: tuple[float | None, float | None]) -> bool:
+    lo, hi = limits
+    return (lo is None or seconds >= lo) and (hi is None or seconds <= hi)
 
 
 def norm(text: str) -> str:
