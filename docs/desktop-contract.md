@@ -19,6 +19,7 @@ If anything here conflicts with `CLAUDE.md`, this file wins for Phase 1 (CLAUDE.
 |---|---|---|
 | userData / APPDATA dir | `%APPDATA%\MetisClip` | `%APPDATA%\MetisClip-Dev` (main calls `app.setPath('userData', …)` before `ready`) |
 | bootstrap file | `<APPDATA dir>\bootstrap.json` | same |
+| UI preferences | `<APPDATA dir>\preferences.json`: `{"language": "id"}` or `"en"`, written by main | same |
 | logs | `<APPDATA dir>\logs\` (`main.log`, `engine.log`, `mongod.log`, `render.log`) | same |
 | binaries (`mongod.exe`, `yt-dlp.exe`, `deno.exe`) | `<resources>\bin\` | `<repo>\desktop\resources\bin\` (filled by `scripts\fetch-binaries.ps1`) |
 | engine | `<resources>\engine\metisclip-engine.exe` | `<repo>\venv\Scripts\python.exe -m backend.run` with `cwd = <repo>` |
@@ -76,6 +77,7 @@ Main spawns the engine **after** mongod is reachable, with `windowsHide: true`, 
 | `METISCLIP_BROWSER_PATH` | optional: absolute path to Chrome Headless Shell for Remotion (packaged builds) |
 | `PYTHONUNBUFFERED` | `1` (dev) |
 | `PYTHONIOENCODING` | `utf-8` |
+| `METISCLIP_LANG` | UI language for the engine's own messages, `id` or `en` (from `preferences.json`; `backend/core/i18n.py`) |
 
 Optional dev-only overrides the engine also honours (not set by main):
 `METISCLIP_PORT` (fixed port instead of 0), `MONGODB_URI` (use this connection string instead of port + credentials).
@@ -117,6 +119,7 @@ TypeScript declaration: `frontend/types/metis.d.ts` (single source of truth; the
 Rules:
 - `getEngineInfo()` resolves when the engine is ready (it waits if it is still starting), rejects when `state` becomes `'error'`. When there is no data root yet (first run), it waits until `setDataRoot()` has started the engine.
 - `setDataRoot(path)` validates again, creates the folder structure, writes `bootstrap.json`, starts mongod + engine, and resolves `{ok:true}` once the engine is ready (or `{ok:false,error}`).
+- `language` is the UI language saved in `preferences.json` (`'id'` by default), read synchronously when the window loads. `setLanguage(lang)` saves it, and main forwards it to a running engine with `PUT /api/settings {"app": {"language": lang}}`. Main uses it for its own error page, dialog titles, data-root problems and warnings, and engine status messages.
 - `openPath` refuses executables/scripts (`.exe .bat .cmd .com .ps1 .vbs .js .msi .lnk .scr`); only existing paths.
 - IPC channels are internal to `desktop/`; the UI only uses `window.metis`.
 
