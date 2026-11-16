@@ -15,6 +15,18 @@ from backend.core import db as dbm
 from backend.core.auth import TokenAuthMiddleware
 from backend.core.config import config
 from backend.core.events import bus
+from backend.core import i18n
+
+M = i18n.messages({
+    "invalid_input": {
+        "id": "Input tidak valid — {details}",
+        "en": "Invalid input — {details}",
+    },
+    "internal": {
+        "id": "Terjadi kesalahan internal: {error}",
+        "en": "An internal error occurred: {error}",
+    },
+})
 
 logger = logging.getLogger(__name__)
 
@@ -52,12 +64,12 @@ def create_app(request_shutdown: Callable[[], None] | None = None) -> FastAPI:
         for e in exc.errors():
             loc = ".".join(str(x) for x in e.get("loc", ()) if x not in ("body", "query", "path"))
             msgs.append(f"{loc}: {e.get('msg')}" if loc else str(e.get("msg")))
-        return JSONResponse(status_code=422, content={"detail": "Input tidak valid — " + "; ".join(msgs)})
+        return JSONResponse(status_code=422, content={"detail": M("invalid_input", details="; ".join(msgs))})
 
     @app.exception_handler(Exception)
     async def unhandled(_request: Request, exc: Exception):
         logger.exception("Unhandled error")
-        return JSONResponse(status_code=500, content={"detail": f"Terjadi kesalahan internal: {exc}"})
+        return JSONResponse(status_code=500, content={"detail": M("internal", error=exc)})
 
     @app.get("/health", tags=["system"])
     def health():

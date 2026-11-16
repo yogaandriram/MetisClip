@@ -22,6 +22,46 @@ from backend.agents.tools.transcript import cache_key, get_transcript
 from backend.core import llm
 from backend.core.config import config
 from backend.core.db import get_db
+from backend.core import i18n
+
+M = i18n.messages({
+    "analyzing_part": {
+        "id": "Menganalisis '{title}' bagian {part}/{parts}…",
+        "en": "Analyzing '{title}' part {part}/{parts}…",
+    },
+    "part_failed": {
+        "id": "Bagian {part} gagal dianalisis: {error}",
+        "en": "Part {part} couldn't be analyzed: {error}",
+    },
+    "llm_keeps_failing": {
+        "id": "Analisis LLM gagal berulang kali: {error}",
+        "en": "The LLM analysis failed repeatedly: {error}",
+    },
+    "ranking": {
+        "id": "Membandingkan dan merapikan {n} kandidat klip…",
+        "en": "Comparing and refining {n} clip candidates…",
+    },
+    "rank_skipped": {
+        "id": "Penilaian ulang kandidat dilewati, memakai skor awal: {error}",
+        "en": "Re-scoring the candidates was skipped, keeping the first scores: {error}",
+    },
+    "fetching_transcript": {
+        "id": "Mengambil transkrip '{title}'…",
+        "en": "Getting the transcript of '{title}'…",
+    },
+    "resume_hint": {
+        "id": "Lalu klik Lanjutkan pada job ini.",
+        "en": "Then click Resume on this job.",
+    },
+    "segments_found": {
+        "id": "{n} segmen viral ditemukan",
+        "en": "{n} viral segments found",
+    },
+    "segment_found": {
+        "id": "{n} segmen viral ditemukan",
+        "en": "{n} viral segment found",
+    },
+})
 
 logger = logging.getLogger(__name__)
 
@@ -285,7 +325,7 @@ def _scan(ctx: JobContext, title: str, units: list[Unit], lo: float, hi: float) 
     failures = 0
     for k, chunk in enumerate(chunks):
         ctx.check()
-        ctx.progress(message=f"Menganalisis '{title[:40]}' bagian {k + 1}/{len(chunks)}…")
+        ctx.progress(message=M("analyzing_part", title=title[:40], part=k + 1, parts=len(chunks)))
         try:
             res = llm.chat_json(
                 scan_prompt(lo, hi),
@@ -297,9 +337,9 @@ def _scan(ctx: JobContext, title: str, units: list[Unit], lo: float, hi: float) 
             raise  # the next parts would fail the same way
         except llm.LLMError as exc:
             failures += 1
-            ctx.error("analysis", f"Bagian {k + 1} gagal dianalisis: {exc}")
+            ctx.error("analysis", M("part_failed", part=k + 1, error=exc))
             if failures >= 3 and failures == k + 1:
-                raise PipelineError(f"Analisis LLM gagal berulang kali: {exc}") from exc
+                raise PipelineError(M("llm_keeps_failing", error=exc)) from exc
             continue
         allowed = (chunk[0].id, min(len(units) - 1, chunk[-1].id + 3))  # the end may run a little past the part
         for raw in res.get("clips") or res.get("segments") or []:
@@ -319,7 +359,7 @@ def _rank(ctx: JobContext, title: str, units: list[Unit], cands: list[dict[str, 
     if len(cands) < 2:
         return cands
     ctx.check()
-    ctx.progress(message=f"Membandingkan dan merapikan {len(cands)} kandidat klip…")
+    ctx.progress(message=M("ranking", n=len(cands)))
     windows: list[tuple[int, int]] = []
     blocks: list[str] = []
     for n, c in enumerate(cands, 1):
@@ -335,7 +375,7 @@ def _rank(ctx: JobContext, title: str, units: list[Unit], cands: list[dict[str, 
             on_retry=lambda m: ctx.progress(message=m), should_stop=lambda: ctx.cancel.cancelled,
         )
     except llm.LLMError as exc:  # quota, network, refusal: the scan results stand on their own
-        ctx.error("analysis", f"Penilaian ulang kandidat dilewati, memakai skor awal: {exc}")
+        ctx.error("analysis", M("rank_skipped", error=exc))
         return cands
     ranked = list(cands)
     for raw in res.get("clips") or []:
@@ -427,7 +467,7 @@ def run(ctx: JobContext, videos: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for i, video in enumerate(videos):
         ctx.check()
         base = 15 + 25 * i / max(1, len(videos))
-        ctx.progress(base, step="analysis", message=f"Mengambil transkrip '{(video.get('title') or '')[:40]}'…")
+        ctx.progress(base, step="analysis", message=M("fetching_transcript", title=(video.get("title") or "")[:40]))
         db.source_videos.update_one({"_id": video["_id"]}, {"$set": {"status": "analyzing"}})
         try:
             transcript = get_transcript(video, ctx.cancel, on_status=lambda m: ctx.progress(message=m))
@@ -436,7 +476,7 @@ def run(ctx: JobContext, videos: list[dict[str, Any]]) -> list[dict[str, Any]]:
             db.source_videos.update_one({"_id": video["_id"]}, {"$set": {"status": "failed"}})
             if isinstance(exc, llm.LLMQuotaExhausted):
                 # Stop the job: the other videos would hit the same quota. The transcript is cached.
-                raise PipelineError(exc.message("Lalu klik Lanjutkan pada job ini.")) from exc
+                raise PipelineError(exc.message(M("resume_hint"))) from exc
             if isinstance(exc, llm.LLMNotConfigured) or len(videos) == 1:
                 raise PipelineError(str(exc)) from exc
             ctx.error("analysis", str(exc))
@@ -447,5 +487,6 @@ def run(ctx: JobContext, videos: list[dict[str, Any]]) -> list[dict[str, Any]]:
     segments.sort(key=lambda s: s["viral_score"], reverse=True)
     if max_total > 0:
         segments = segments[:max_total]
-    ctx.progress(40, step="analysis", total_scenes=len(segments), message=f"{len(segments)} segmen viral ditemukan")
+    ctx.progress(40, step="analysis", total_scenes=len(segments),
+                 message=M("segment_found" if len(segments) == 1 else "segments_found", n=len(segments)))
     return segments

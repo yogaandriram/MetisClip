@@ -17,6 +17,50 @@ from backend.agents.tools import ffmpeg_ops, ytdlp
 from backend.core.config import config
 from backend.core.db import get_db
 from backend.models.documents import SourceVideoDoc
+from backend.core import i18n
+
+M = i18n.messages({
+    "choose_file": {
+        "id": "Pilih file video dari komputer Anda",
+        "en": "Choose a video file on your computer",
+    },
+    "file_missing": {
+        "id": "File video tidak ditemukan: {path}",
+        "en": "Video file not found: {path}",
+    },
+    "bad_format": {
+        "id": "Format file tidak didukung. Pakai video {formats}.",
+        "en": "This file format is not supported. Use a {formats} video.",
+    },
+    "unreadable": {
+        "id": "File ini tidak bisa dibaca sebagai video. Coba ekspor ulang ke MP4 (H.264).",
+        "en": "This file can't be read as a video. Try exporting it again as MP4 (H.264).",
+    },
+    "no_audio": {
+        "id": "Video ini tidak punya suara, jadi tidak bisa ditranskripsi untuk mencari momen viral.",
+        "en": "This video has no sound, so it can't be transcribed to find viral moments.",
+    },
+    "bad_url": {
+        "id": "URL YouTube tidak valid",
+        "en": "Invalid YouTube URL",
+    },
+    "fetching_info": {
+        "id": "Mengambil info video…",
+        "en": "Getting the video info…",
+    },
+    "reading_file": {
+        "id": "Membaca file video…",
+        "en": "Reading the video file…",
+    },
+    "unsupported_source": {
+        "id": "Sumber job ini tidak didukung lagi. Buat job baru dari link YouTube atau file video.",
+        "en": "This job's source is no longer supported. Create a new job from a YouTube link or a video file.",
+    },
+    "source_video": {
+        "id": "Video sumber: {title}",
+        "en": "Source video: {title}",
+    },
+})
 
 logger = logging.getLogger(__name__)
 
@@ -25,21 +69,21 @@ VIDEO_EXTENSIONS = (".mp4", ".mkv", ".mov", ".webm", ".m4v", ".avi")
 
 
 def check_local_video(path_str: str) -> tuple[Path, dict[str, Any]]:
-    """Validates an uploaded video file: (absolute path, media info). Raises PipelineError in Indonesian."""
+    """Validates an uploaded video file: (absolute path, media info). Raises PipelineError (message in the UI language)."""
     raw = (path_str or "").strip()
     path = Path(raw)
     if not raw or not path.is_absolute():
-        raise PipelineError("Pilih file video dari komputer Anda")
+        raise PipelineError(M("choose_file"))
     if not path.is_file():
-        raise PipelineError(f"File video tidak ditemukan: {path}")
+        raise PipelineError(M("file_missing", path=path))
     if path.suffix.lower() not in VIDEO_EXTENSIONS:
         names = ", ".join(e[1:].upper() for e in VIDEO_EXTENSIONS)
-        raise PipelineError(f"Format file tidak didukung. Pakai video {names}.")
+        raise PipelineError(M("bad_format", formats=names))
     info = ffmpeg_ops.probe_media(path)
     if not info or not info["has_video"] or info["duration"] <= 0:
-        raise PipelineError("File ini tidak bisa dibaca sebagai video. Coba ekspor ulang ke MP4 (H.264).")
+        raise PipelineError(M("unreadable"))
     if not info["has_audio"]:
-        raise PipelineError("Video ini tidak punya suara, jadi tidak bisa ditranskripsi untuk mencari momen viral.")
+        raise PipelineError(M("no_audio"))
     return path.resolve(), info
 
 
@@ -83,20 +127,20 @@ def run(ctx: JobContext) -> list[dict[str, Any]]:
     if src.get("type") == "url":
         youtube_id = ytdlp.extract_video_id(src.get("youtube_url") or "")
         if not youtube_id:
-            raise PipelineError("URL YouTube tidak valid")
-        ctx.progress(5, step="discovery", message="Mengambil info video…")
+            raise PipelineError(M("bad_url"))
+        ctx.progress(5, step="discovery", message=M("fetching_info"))
         video = _youtube_metadata(ctx, youtube_id)
         identity = youtube_id
     elif src.get("type") == "local_file":
-        ctx.progress(5, step="discovery", message="Membaca file video…")
+        ctx.progress(5, step="discovery", message=M("reading_file"))
         video = _file_metadata(src.get("local_file_path") or "")
         identity = f"file:{video['file_path']}"
     else:
-        raise PipelineError("Sumber job ini tidak didukung lagi. Buat job baru dari link YouTube atau file video.")
+        raise PipelineError(M("unsupported_source"))
 
     # Deterministic id: re-running discovery after a crash never duplicates rows
     vid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"metisclip:{ctx.id}:{identity}"))
     doc = SourceVideoDoc(_id=vid, job_id=ctx.id, agent_id=ctx.agent_id, **video).to_mongo()
     get_db().source_videos.replace_one({"_id": vid}, doc, upsert=True)
-    ctx.progress(15, step="discovery", message=f"Video sumber: {doc['title']}")
+    ctx.progress(15, step="discovery", message=M("source_video", title=doc["title"]))
     return [doc]

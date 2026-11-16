@@ -25,6 +25,38 @@ from backend.core.db import get_db, utcnow
 from backend.core.logging_setup import redactor
 from backend.core.paths import get_paths, slugify
 from backend.services import layout as layout_svc
+from backend.core import i18n
+
+M = i18n.messages({
+    "clip_missing": {
+        "id": "Klip atau file raw tidak ditemukan",
+        "en": "The clip or its raw file was not found",
+    },
+    "needs_source": {
+        "id": "Layout {name} butuh video sumber: {error}",
+        "en": "The {name} layout needs the source video: {error}",
+    },
+    "needs_faces": {
+        "id": "Layout {name} butuh analisis wajah: {error}",
+        "en": "The {name} layout needs a face analysis: {error}",
+    },
+    "no_worker": {
+        "id": "Render worker tidak ditemukan (render-engine/dist/render.js). Jalankan build render-engine.",
+        "en": "The render worker was not found (render-engine/dist/render.js). Build render-engine first.",
+    },
+    "no_message": {
+        "id": "Render gagal tanpa pesan error",
+        "en": "The render failed without an error message",
+    },
+    "failed": {
+        "id": "Render gagal",
+        "en": "The render failed",
+    },
+    "exit_code": {
+        "id": "Render worker keluar dengan kode {code}",
+        "en": "The render worker exited with code {code}",
+    },
+})
 
 logger = logging.getLogger(__name__)
 FPS = 30
@@ -199,8 +231,9 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
     clip_id = rj["clip_id"]
     clip = db.clips.find_one({"_id": clip_id})
     if not clip or not (clip.get("files") or {}).get("raw"):
-        db.render_jobs.update_one({"_id": render_id}, {"$set": {"status": "failed", "error": "Klip atau file raw tidak ditemukan", "finished_at": utcnow()}})
-        _publish(render_id, clip_id, "failed", error="Klip atau file raw tidak ditemukan")
+        missing = M("clip_missing")
+        db.render_jobs.update_one({"_id": render_id}, {"$set": {"status": "failed", "error": missing, "finished_at": utcnow()}})
+        _publish(render_id, clip_id, "failed", error=missing)
         return
     db.clips.update_one({"_id": clip_id}, {"$set": {"status": "rendering", "updated_at": utcnow()}})
     events.publish({"type": "clip.updated", "id": clip_id})
@@ -223,23 +256,23 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
                             "status": "rendering", "progress_pct": 0.0, "message": message})
 
         # Clips made before these layouts did not keep their original-ratio video or their face scan
-        name = layout_svc.MODE_NAMES.get(str(lay.get("mode")), "ini")
+        name = layout_svc.mode_name(str(lay.get("mode")))
         if layout_svc.needs_source(lay) and not layout_svc.source_path(clip):
             try:
                 clip = layout_svc.prepare_source(clip, cancel, on_step=step)
             except layout_svc.SourceError as exc:
-                raise RuntimeError(f"Layout {name} butuh video sumber: {exc}") from exc
+                raise RuntimeError(M("needs_source", name=name, error=exc)) from exc
             cancel.check()
         if layout_svc.needs_faces(lay) and not layout_svc.scene_info(clip):
             try:
                 clip = layout_svc.prepare_faces(clip, cancel, on_step=step)
             except layout_svc.SourceError as exc:
-                raise RuntimeError(f"Layout {name} butuh analisis wajah: {exc}") from exc
+                raise RuntimeError(M("needs_faces", name=name, error=exc)) from exc
             cancel.check()
         props_path.write_text(json.dumps(build_props(clip), ensure_ascii=False), encoding="utf-8")
         script = paths.render_dir / "dist" / "render.js"
         if not script.exists():
-            raise RuntimeError("Render worker tidak ditemukan (render-engine/dist/render.js). Jalankan build render-engine.")
+            raise RuntimeError(M("no_worker"))
         prefix, extra_env = node_command()
         cmd = prefix + [str(script), "--props", str(props_path), "--out", str(tmp_out), "--gl", "angle"]
         bundle = paths.render_dir / "build"
@@ -267,7 +300,7 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
             _finish(render_id, clip, tmp_out)
             status = "completed"
             return
-        error = error or "Render gagal tanpa pesan error"
+        error = error or M("no_message")
     except procs.Cancelled:
         status = "cancelled"
     except Exception as exc:
@@ -329,7 +362,7 @@ def _run_worker(cmd: list[str], extra_env: dict[str, str], render_id: str, clip_
             elif kind == "done":
                 done = True
             elif kind == "error":
-                error = str(msg.get("message") or "Render gagal")
+                error = str(msg.get("message") or M("failed"))
         code = proc.wait()
         t.join(timeout=5)
     finally:
@@ -338,5 +371,5 @@ def _run_worker(cmd: list[str], extra_env: dict[str, str], render_id: str, clip_
     if cancel.cancelled:
         raise procs.Cancelled(cancel.reason)
     if code != 0 and not error:
-        error = "\n".join(list(stderr_tail)[-5:]) or f"Render worker keluar dengan kode {code}"
+        error = "\n".join(list(stderr_tail)[-5:]) or M("exit_code", code=code)
     return error, (code == 0 and (done or error is None))

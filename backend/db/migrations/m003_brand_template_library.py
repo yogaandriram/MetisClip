@@ -86,7 +86,7 @@ def _remove_if_empty(rel_dir: str) -> None:
 
 
 def up(db: Database) -> None:
-    from backend.services.brand_templates import ASSETS_DIRNAME, DEFAULT_NAME
+    from backend.services.brand_templates import ASSETS_DIRNAME, default_name
 
     try:
         db.create_collection("brand_templates", validator=VALIDATOR, validationLevel="moderate")
@@ -107,7 +107,7 @@ def up(db: Database) -> None:
             created = agent.get("created_at") or bt.get("updated_at") or datetime.now(timezone.utc)
             db.brand_templates.insert_one({
                 "_id": tid,
-                "name": (agent.get("name") or DEFAULT_NAME)[:80],
+                "name": (agent.get("name") or default_name())[:80],
                 "brand_settings": brand,
                 "caption_settings": bt.get("caption_settings") or {"mode": "popshadow"},
                 "layout_settings": bt.get("layout_settings") or {},
@@ -122,7 +122,7 @@ def up(db: Database) -> None:
 
     if not db.brand_templates.find_one({}, {"_id": 1}):
         now = datetime.now(timezone.utc)
-        db.brand_templates.insert_one({"_id": str(uuid.uuid4()), "name": DEFAULT_NAME, "brand_settings": {},
+        db.brand_templates.insert_one({"_id": str(uuid.uuid4()), "name": default_name(), "brand_settings": {},
                                        "caption_settings": {"mode": "popshadow"}, "layout_settings": {},
                                        "ai_settings": {}, "created_at": now, "updated_at": now})
     first = db.brand_templates.find_one({}, {"_id": 1}, sort=[("created_at", 1)])

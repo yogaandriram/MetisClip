@@ -67,3 +67,80 @@ def test_settings_switch_the_engine_language(db):
         update_settings({"app": {"language": "fr"}})
     update_settings({"app": {"language": "id"}})
     assert i18n.language() == "id"
+
+
+def _english(db):
+    from backend.core.settings_store import update_settings
+
+    update_settings({"app": {"language": "en"}})
+
+
+def test_api_errors_follow_the_language(db, secrets):
+    from fastapi.testclient import TestClient
+
+    from backend.core.config import config
+    from backend.main import create_app
+
+    with TestClient(create_app()) as c:
+        c.headers.update({"Authorization": f"Bearer {config.token}"})
+        assert c.get("/api/clips/nope").json()["detail"] == "Klip tidak ditemukan"
+        assert c.put("/api/settings", json={"app": {"language": "en"}}).status_code == 200
+        assert c.get("/api/clips/nope").json()["detail"] == "Clip not found"
+        assert c.get("/api/jobs/nope").json()["detail"] == "Job not found"
+        r = c.put("/api/settings", json={"processing": {"max_workers": 99}})
+        assert (r.status_code, r.json()["detail"]) == (400, "The number of workers must be between 1 and 8")
+        assert c.get("/api/clips/nope", headers={"Authorization": "Bearer wrong"}).json()["detail"] == "Invalid token"
+
+
+def test_pipeline_and_settings_errors_follow_the_language(db, tmp_path):
+    from backend.agents.context import PipelineError
+    from backend.agents.nodes.discovery import check_local_video
+    from backend.core.settings_store import SettingsError, update_settings
+
+    _english(db)
+    with pytest.raises(PipelineError, match="^Video file not found: "):
+        check_local_video(str(tmp_path / "missing.mp4"))
+    with pytest.raises(SettingsError, match="^Unknown LLM provider$"):
+        update_settings({"llm": {"provider": "nope"}})
+    i18n.set_language("id")
+    with pytest.raises(PipelineError, match="^File video tidak ditemukan: "):
+        check_local_video(str(tmp_path / "missing.mp4"))
+
+
+def test_waits_and_durations_follow_the_language():
+    from backend.core import llm, resources
+
+    info = resources.WaitInfo(kind="clip", need_mb=1536, available_mb=1024, reserve_mb=2048, busy=0)
+    assert info.message().startswith("Menunggu RAM: tersedia 1,0 GB, butuh 1,5 GB")
+    assert llm._fmt_wait(3 * 3600 + 300) == "3 jam 5 menit"
+    i18n.set_language("en")
+    assert info.message().startswith("Waiting for RAM: 1.0 GB free, 1.5 GB needed")
+    assert llm._fmt_wait(3 * 3600 + 300) == "3 hours 5 minutes"
+    assert llm._fmt_wait(60) == "1 minute"
+    assert llm.LLMQuotaExhausted("Daily quota used up.").message() == (
+        "Daily quota used up. To continue now, choose another model or provider in Settings.")
+
+
+def test_language_lookup_never_connects_to_the_database():
+    from backend.core import db as dbm
+
+    assert not dbm.connected()
+    assert i18n.language() == "id"  # the default, at once, instead of a 30 s connection attempt
+
+
+def test_first_template_of_a_new_database_is_named_in_the_ui_language(mongo, monkeypatch):
+    import os
+    import time
+
+    from backend.core import db as dbm
+
+    monkeypatch.setenv("METISCLIP_LANG", "en")
+    name = f"metisclip_test_en_{os.getpid()}_{time.time_ns()}"
+    database = mongo[name]
+    try:
+        dbm.set_db(database, mongo)
+        dbm.migrate(database)
+        assert [t["name"] for t in database.brand_templates.find()] == ["Default template"]
+    finally:
+        mongo.drop_database(name)
+        dbm.set_db(None, None)  # type: ignore[arg-type]

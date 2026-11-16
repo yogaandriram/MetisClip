@@ -16,6 +16,54 @@ from backend.core.config import config
 from backend.core.db import get_db, new_id, utcnow
 from backend.core.queue import runner
 from backend.models.documents import DURATIONS, JobConfig, JobDoc, JobSource
+from backend.core import i18n
+
+M = i18n.messages({
+    "not_found": {
+        "id": "Job tidak ditemukan",
+        "en": "Job not found",
+    },
+    "disk_full": {
+        "id": "Ruang disk hampir habis ({gb} GB tersisa). Kosongkan ruang atau pindahkan lokasi data.",
+        "en": "The disk is almost full ({gb} GB left). Free up space or move the data location.",
+    },
+    "disk_low": {
+        "id": "Ruang disk tinggal {gb} GB",
+        "en": "Only {gb} GB of disk space left",
+    },
+    "no_workspace": {
+        "id": "Workspace tidak ditemukan. Pilih workspace terlebih dahulu.",
+        "en": "Workspace not found. Choose a workspace first.",
+    },
+    "bad_duration": {
+        "id": "Durasi klip tidak valid",
+        "en": "Invalid clip duration",
+    },
+    "one_source": {
+        "id": "Isi link YouTube atau pilih file video (salah satu)",
+        "en": "Enter a YouTube link or choose a video file (one of them)",
+    },
+    "bad_url": {
+        "id": "URL YouTube tidak valid",
+        "en": "Invalid YouTube URL",
+    },
+    "upload_needs_whisper": {
+        "id": "Video upload ditranskripsi dengan Whisper. {reason}",
+        "en": "Uploaded videos are transcribed with Whisper. {reason}",
+    },
+    "not_running": {
+        "id": "Job ini tidak sedang berjalan",
+        "en": "This job is not running",
+    },
+    "not_resumable": {
+        "id": "Hanya job yang terhenti, gagal, atau dibatalkan yang bisa dilanjutkan",
+        "en": "Only interrupted, failed or cancelled jobs can be resumed",
+    },
+    "cancel_first": {
+        "id": "Batalkan job terlebih dahulu sebelum menghapus",
+        "en": "Cancel the job before deleting it",
+    },
+})
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -32,7 +80,7 @@ class JobCreate(BaseModel):
 def _get(job_id: str) -> dict:
     job = get_db().discovery_jobs.find_one({"_id": job_id})
     if not job:
-        raise http_error(404, "Job tidak ditemukan")
+        raise http_error(404, M("not_found"))
     return job
 
 
@@ -49,9 +97,9 @@ def _check_disk() -> None:
     except OSError:
         return
     if free < MIN_FREE_BYTES:
-        raise http_error(507, f"Ruang disk hampir habis ({free / 1024**3:.1f} GB tersisa). Kosongkan ruang atau pindahkan lokasi data.")
+        raise http_error(507, M("disk_full", gb=f"{free / 1024**3:.1f}"))
     if free < 5 * 1024**3:
-        events.notice(f"Ruang disk tinggal {free / 1024**3:.1f} GB", "warning")
+        events.notice(M("disk_low", gb=f"{free / 1024**3:.1f}"), "warning")
 
 
 @router.post("")
@@ -59,16 +107,16 @@ def create_job(body: JobCreate):
     _check_disk()
     db = get_db()
     if not db.super_agents.find_one({"_id": body.agent_id}, {"_id": 1}):
-        raise http_error(400, "Workspace tidak ditemukan. Pilih workspace terlebih dahulu.")
+        raise http_error(400, M("no_workspace"))
     if body.clip_duration not in DURATIONS:
-        raise http_error(400, "Durasi klip tidak valid")
+        raise http_error(400, M("bad_duration"))
     url = (body.youtube_url or "").strip()
     file_path = (body.local_file_path or "").strip()
     if bool(url) == bool(file_path):
-        raise http_error(400, "Isi link YouTube atau pilih file video (salah satu)")
+        raise http_error(400, M("one_source"))
     if url:
         if not extract_video_id(url):
-            raise http_error(400, "URL YouTube tidak valid")
+            raise http_error(400, M("bad_url"))
         source = JobSource(type="url", youtube_url=url)
     else:
         try:
@@ -77,7 +125,7 @@ def create_job(body: JobCreate):
             raise http_error(400, str(exc)) from exc
         # Uploads have no YouTube subtitles: the transcript always comes from Whisper (Groq or local)
         if not whisper.available() and not config.is_dev:
-            raise http_error(400, f"Video upload ditranskripsi dengan Whisper. {whisper.unavailable_reason()}")
+            raise http_error(400, M("upload_needs_whisper", reason=whisper.unavailable_reason()))
         source = JobSource(type="local_file", local_file_path=str(path))
     doc = JobDoc(
         _id=new_id(),
@@ -115,7 +163,7 @@ def get_job(job_id: str):
 def cancel_job(job_id: str):
     job = _get(job_id)
     if job["status"] not in ("pending", "running"):
-        raise http_error(409, "Job ini tidak sedang berjalan")
+        raise http_error(409, M("not_running"))
     runner.cancel_job(job_id)
     return {"job": job_dto(_get(job_id))}
 
@@ -130,7 +178,7 @@ def resume_job(job_id: str):
     )
     if not job:
         _get(job_id)
-        raise http_error(409, "Hanya job yang terhenti, gagal, atau dibatalkan yang bisa dilanjutkan")
+        raise http_error(409, M("not_resumable"))
     events.publish({"type": "job.status", "id": job_id, "agent_id": job.get("agent_id"), "status": "pending"})
     runner.submit_job(job_id)
     return {"job": job_dto(job)}
@@ -140,7 +188,7 @@ def resume_job(job_id: str):
 def delete_job(job_id: str):
     job = _get(job_id)
     if job["status"] in ("pending", "running"):
-        raise http_error(409, "Batalkan job terlebih dahulu sebelum menghapus")
+        raise http_error(409, M("cancel_first"))
     db = get_db()
     db.source_videos.delete_many({"job_id": job_id})
     db.discovery_jobs.delete_one({"_id": job_id})  # clips are kept

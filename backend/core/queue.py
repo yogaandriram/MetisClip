@@ -12,6 +12,14 @@ from concurrent.futures import ThreadPoolExecutor
 from backend.core import events
 from backend.core.db import get_db, utcnow
 from backend.core.procs import CancelToken
+from backend.core import i18n
+
+M = i18n.messages({
+    "closed_while_running": {
+        "id": "Aplikasi ditutup saat job berjalan. Klik Lanjutkan untuk melanjutkan.",
+        "en": "The app was closed while the job was running. Click Resume to continue.",
+    },
+})
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +47,7 @@ class JobRunner:
         res = db.discovery_jobs.update_many(
             {"status": "running"},
             {"$set": {"status": "interrupted", "finished_at": now},
-             "$push": {"errors": {"$each": [{"step": "system", "message": "Aplikasi ditutup saat job berjalan. Klik Lanjutkan untuk melanjutkan.", "at": now}], "$slice": -50}}},
+             "$push": {"errors": {"$each": [{"step": "system", "message": M("closed_while_running"), "at": now}], "$slice": -50}}},
         )
         if res.modified_count:
             logger.info("Marked %s running job(s) as interrupted", res.modified_count)

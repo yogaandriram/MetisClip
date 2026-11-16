@@ -56,7 +56,7 @@ def _clean(value: Any, limit: int) -> str:
 
 
 def suggest_speakers(title: str, channel: str, words: list[dict[str, Any]], hook: str = "") -> list[dict[str, str]]:
-    """Up to 3 {name, role} suggestions, most likely first. Raises llm.LLMError (Indonesian message)."""
+    """Up to 3 {name, role} suggestions, most likely first. Raises llm.LLMError (message in the UI language)."""
     spoken = " ".join((w.get("word") or "").strip() for w in words[:MAX_WORDS]).strip()
     res = llm.chat_json(
         _PROMPT,

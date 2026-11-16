@@ -16,11 +16,25 @@ from typing import Any
 from backend.core.db import get_db, new_id, utcnow
 from backend.core.paths import get_paths
 from backend.models.documents import BrandTemplateDoc
+from backend.core import i18n
+
+M = i18n.messages({
+    "default_name": {
+        "id": "Template Default",
+        "en": "Default template",
+    },
+})
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_NAME = "Template Default"
 ASSETS_DIRNAME = "_brand"
+
+
+def default_name() -> str:
+    """Name of the first template of a new database (migration 003), in the UI language at that
+    moment. It is stored data from then on: a later language switch does not rename it. Uses
+    offline_language() because migrations run before the settings document exists."""
+    return M.text("default_name", i18n.offline_language())
 
 
 def get(template_id: str | None) -> dict[str, Any] | None:
@@ -39,7 +53,7 @@ def create(name: str, settings: dict[str, Any] | None = None, template_id: str |
 def ensure_default() -> str:
     """Id of the oldest template, creating "Template Default" when the library is empty."""
     first = get_db().brand_templates.find_one({}, {"_id": 1}, sort=[("created_at", 1)])
-    return first["_id"] if first else create(DEFAULT_NAME)["_id"]
+    return first["_id"] if first else create(M("default_name"))["_id"]
 
 
 def for_agent(agent: dict[str, Any] | None) -> dict[str, Any] | None:

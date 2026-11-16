@@ -100,6 +100,17 @@ def db(mongo):
 
 
 @pytest.fixture(autouse=True)
+def _default_language(monkeypatch):
+    """Every test starts in the default language (Indonesian): no cached choice, no METISCLIP_LANG."""
+    from backend.core import i18n
+
+    monkeypatch.delenv("METISCLIP_LANG", raising=False)
+    i18n.reset_language()
+    yield
+    i18n.reset_language()
+
+
+@pytest.fixture(autouse=True)
 def _no_whisper_model_downloads(monkeypatch):
     """Tests never download real Whisper models (190-574 MB); test_whisper fakes the HTTP side."""
     from backend.agents.tools import whisper_local

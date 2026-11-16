@@ -17,6 +17,42 @@ from backend.core.paths import get_paths
 from backend.models.documents import BrandTemplateDoc
 from backend.services import brand_templates as bts
 from backend.services import layout as layout_svc
+from backend.core import i18n
+
+M = i18n.messages({
+    "not_found": {
+        "id": "Brand template tidak ditemukan",
+        "en": "Brand template not found",
+    },
+    "name_required": {
+        "id": "Nama template wajib diisi",
+        "en": "A template name is required",
+    },
+    "name_too_long": {
+        "id": "Nama template maksimal 80 karakter",
+        "en": "A template name can be at most 80 characters",
+    },
+    "keep_one": {
+        "id": "Minimal harus ada satu brand template",
+        "en": "There must be at least one brand template",
+    },
+    "bad_type": {
+        "id": "Jenis file tidak didukung",
+        "en": "This file type is not supported",
+    },
+    "companion_type": {
+        "id": "Video pendamping harus berupa MP4, MOV atau WEBM",
+        "en": "The companion video must be an MP4, MOV or WEBM file",
+    },
+    "too_large": {
+        "id": "File terlalu besar (maks. 500 MB)",
+        "en": "The file is too large (max. 500 MB)",
+    },
+    "companion_failed": {
+        "id": "Video pendamping gagal diproses: {error}",
+        "en": "The companion video couldn't be processed: {error}",
+    },
+})
 
 router = APIRouter(tags=["brand-templates"])
 logger = logging.getLogger(__name__)
@@ -49,16 +85,16 @@ def _dto(doc: dict) -> dict:
 def _get(template_id: str) -> dict:
     doc = bts.get(template_id)
     if not doc:
-        raise http_error(404, "Brand template tidak ditemukan")
+        raise http_error(404, M("not_found"))
     return doc
 
 
 def _name(value: Optional[str]) -> str:
     name = (value or "").strip()
     if not name:
-        raise http_error(400, "Nama template wajib diisi")
+        raise http_error(400, M("name_required"))
     if len(name) > 80:
-        raise http_error(400, "Nama template maksimal 80 karakter")
+        raise http_error(400, M("name_too_long"))
     return name
 
 
@@ -127,7 +163,7 @@ def delete_template(template_id: str):
     doc = _get(template_id)
     db = get_db()
     if db.brand_templates.count_documents({}) <= 1:
-        raise http_error(400, "Minimal harus ada satu brand template")
+        raise http_error(400, M("keep_one"))
     db.brand_templates.delete_one({"_id": template_id})
     # Clips fall back to their agent's default; agents get the oldest remaining template
     db.clips.update_many({"brand_template_id": template_id}, {"$unset": {"brand_template_id": ""}})
@@ -146,10 +182,10 @@ async def upload_asset(template_id: str, file: UploadFile = File(...), kind: str
     _get(template_id)
     ext = "." + (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else ""
     if ext not in ASSET_EXT:
-        raise http_error(400, "Jenis file tidak didukung")
+        raise http_error(400, M("bad_type"))
     companion = kind == "companion"
     if companion and ext not in VIDEO_EXT:
-        raise http_error(400, "Video pendamping harus berupa MP4, MOV atau WEBM")
+        raise http_error(400, M("companion_type"))
     folder = bts.asset_dir(template_id)
     folder.mkdir(parents=True, exist_ok=True)
     kind_clean = _safe_name.sub("-", kind or "asset").strip("-")[:20] or "asset"
@@ -168,7 +204,7 @@ async def upload_asset(template_id: str, file: UploadFile = File(...), kind: str
             if size > MAX_ASSET_BYTES:
                 out.close()
                 dest.unlink(missing_ok=True)
-                raise http_error(400, "File terlalu besar (maks. 500 MB)")
+                raise http_error(400, M("too_large"))
             out.write(chunk)
     if companion:
         from backend.agents.tools import ffmpeg_ops
@@ -180,7 +216,7 @@ async def upload_asset(template_id: str, file: UploadFile = File(...), kind: str
         except Exception as exc:
             logger.exception("Companion video import failed")
             final_path.unlink(missing_ok=True)
-            raise http_error(400, f"Video pendamping gagal diproses: {exc}")
+            raise http_error(400, M("companion_failed", error=exc))
         finally:
             upload_path.unlink(missing_ok=True)
         rel = get_paths().to_relative(final_path)

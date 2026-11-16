@@ -14,6 +14,22 @@ from backend.core.paths import get_paths, slugify
 from backend.core.queue import runner
 from backend.models.documents import AgentDoc
 from backend.services import brand_templates
+from backend.core import i18n
+
+M = i18n.messages({
+    "not_found": {
+        "id": "Workspace tidak ditemukan",
+        "en": "Workspace not found",
+    },
+    "name_required": {
+        "id": "Nama workspace wajib diisi",
+        "en": "A workspace name is required",
+    },
+    "template_not_found": {
+        "id": "Brand template tidak ditemukan",
+        "en": "Brand template not found",
+    },
+})
 
 router = APIRouter(tags=["agents"])
 
@@ -44,7 +60,7 @@ def _template_id(value: str | None) -> str | None:
 def _get_agent(agent_id: str) -> dict:
     agent = get_db().super_agents.find_one({"_id": agent_id})
     if not agent:
-        raise http_error(404, "Workspace tidak ditemukan")
+        raise http_error(404, M("not_found"))
     return agent
 
 
@@ -58,7 +74,7 @@ def list_agents():
 def create_agent(body: AgentIn):
     name = (body.name or "").strip()
     if not name:
-        raise http_error(400, "Nama workspace wajib diisi")
+        raise http_error(400, M("name_required"))
     doc = AgentDoc(
         _id=new_id(),
         name=name,
@@ -81,7 +97,7 @@ def update_agent(agent_id: str, body: AgentIn):
     if "name" in data:
         name = (data["name"] or "").strip()
         if not name:
-            raise http_error(400, "Nama workspace wajib diisi")
+            raise http_error(400, M("name_required"))
         sets["name"] = name  # the slug (library folder) is kept stable
     if "niche" in data:
         sets["niche"] = data["niche"] or None
@@ -92,7 +108,7 @@ def update_agent(agent_id: str, body: AgentIn):
     if data.get("default_brand_template_id"):
         tid = _template_id(data["default_brand_template_id"])
         if not tid:
-            raise http_error(400, "Brand template tidak ditemukan")
+            raise http_error(400, M("template_not_found"))
         sets["default_brand_template_id"] = tid
     if sets:
         get_db().super_agents.update_one({"_id": agent_id}, {"$set": sets})

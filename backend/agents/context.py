@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class PipelineError(RuntimeError):
-    """Expected, user-facing pipeline failure (message in Bahasa Indonesia)."""
+    """Expected, user-facing pipeline failure (message in the UI language)."""
 
 
 class JobContext:

@@ -7,6 +7,14 @@ from starlette.concurrency import run_in_threadpool
 from backend.agents.tools import whisper, whisper_local
 from backend.api.dto import http_error
 from backend.core.secrets import get_secret
+from backend.core import i18n
+
+M = i18n.messages({
+    "unknown_model": {
+        "id": "Model Whisper tidak dikenal",
+        "en": "Unknown Whisper model",
+    },
+})
 
 router = APIRouter(prefix="/api/whisper", tags=["whisper"])
 
@@ -18,7 +26,7 @@ def _status() -> dict:
         models.append({
             "id": m.id,
             "label": m.label,
-            "description": m.description,
+            "description": whisper_local.describe(m),
             "size_bytes": m.size_bytes,
             "installed": whisper_local.installed(m),
             "download": whisper_local.download_state(m.id),
@@ -49,7 +57,7 @@ def _status() -> dict:
 
 def _model_or_404(model_id: str) -> None:
     if model_id not in whisper_local.MODELS:
-        raise http_error(404, "Model Whisper tidak dikenal")
+        raise http_error(404, M("unknown_model"))
 
 
 @router.get("/status")

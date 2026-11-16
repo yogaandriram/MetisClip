@@ -41,6 +41,30 @@ import psutil
 
 from backend.core import events
 from backend.core.procs import CancelToken, Cancelled
+from backend.core import i18n
+
+M = i18n.messages({
+    "wait_busy": {
+        "id": "Menunggu RAM: {busy} proses berat MetisClip lain masih berjalan (butuh {need} GB). Lanjut otomatis setelah RAM cukup.",
+        "en": "Waiting for RAM: {busy} other heavy MetisClip steps are still running (needs {need} GB). Continues automatically once there is enough RAM.",
+    },
+    "wait_busy_one": {
+        "id": "Menunggu RAM: {busy} proses berat MetisClip lain masih berjalan (butuh {need} GB). Lanjut otomatis setelah RAM cukup.",
+        "en": "Waiting for RAM: {busy} other heavy MetisClip step is still running (needs {need} GB). Continues automatically once there is enough RAM.",
+    },
+    "wait_free": {
+        "id": "Menunggu RAM: tersedia {available} GB, butuh {need} GB ditambah cadangan {reserve} GB untuk aplikasi lain. Tutup aplikasi lain agar lebih cepat; proses tetap lanjut otomatis.",
+        "en": "Waiting for RAM: {available} GB free, {need} GB needed plus a {reserve} GB reserve for other apps. Close other apps to speed this up; it continues automatically.",
+    },
+    "ram_full": {
+        "id": "RAM komputer hampir penuh. MetisClip menunda proses berat sampai RAM cukup; tutup aplikasi lain agar lebih cepat.",
+        "en": "The computer's RAM is almost full. MetisClip holds heavy steps back until there is enough RAM; close other apps to speed this up.",
+    },
+    "render_label": {
+        "id": "Ekspor video",
+        "en": "Video export",
+    },
+})
 
 logger = logging.getLogger(__name__)
 
@@ -100,15 +124,15 @@ class WaitInfo:
     busy: int  # MetisClip's heavy steps running now
 
     def message(self) -> str:
+        comma = i18n.language() == "id"  # decimal comma in Indonesian
+
         def gb(mb: int) -> str:
-            return f"{mb / 1024:.1f}".replace(".", ",")
+            text = f"{mb / 1024:.1f}"
+            return text.replace(".", ",") if comma else text
 
         if self.busy:
-            return (f"Menunggu RAM: {self.busy} proses berat MetisClip lain masih berjalan "
-                    f"(butuh {gb(self.need_mb)} GB). Lanjut otomatis setelah RAM cukup.")
-        return (f"Menunggu RAM: tersedia {gb(self.available_mb)} GB, butuh {gb(self.need_mb)} GB "
-                f"ditambah cadangan {gb(self.reserve_mb)} GB untuk aplikasi lain. "
-                "Tutup aplikasi lain agar lebih cepat; proses tetap lanjut otomatis.")
+            return M("wait_busy_one" if self.busy == 1 else "wait_busy", busy=self.busy, need=gb(self.need_mb))
+        return M("wait_free", available=gb(self.available_mb), need=gb(self.need_mb), reserve=gb(self.reserve_mb))
 
 
 _cond = threading.Condition()
@@ -297,8 +321,7 @@ def _notify_full(info: WaitInfo) -> None:
     if info.busy or time.monotonic() - _last_notice < NOTICE_EVERY_S:
         return
     _last_notice = time.monotonic()
-    events.notice("RAM komputer hampir penuh. MetisClip menunda proses berat sampai RAM cukup; "
-                  "tutup aplikasi lain agar lebih cepat.", "warning")
+    events.notice(M("ram_full"), "warning")
 
 
 # -- sizing -------------------------------------------------------------------
@@ -330,7 +353,7 @@ def render_slot(
     many more tabs as the RAM free at that moment allows. Yields the tab count, or None with the
     guard off (the worker then sizes itself). `extra_mb`: what the layout adds whatever the tab count
     (LAYOUT_RENDER_MB for the split, duo and auto layouts)."""
-    with hold("render", render_need_mb(1, extra_mb), label="Ekspor video", cancel=cancel, on_wait=on_wait,
+    with hold("render", render_need_mb(1, extra_mb), label=M("render_label"), cancel=cancel, on_wait=on_wait,
               priority=True) as h:
         if h is None:
             yield None

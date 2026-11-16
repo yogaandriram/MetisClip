@@ -30,6 +30,86 @@ from backend.agents.tools.whisper import WhisperError
 from backend.core import events, procs, resources, workload
 from backend.core.config import ffmpeg_path, whisper_cli_path
 from backend.core.paths import get_paths
+from backend.core import i18n
+
+M = i18n.messages({
+    "desc:small": {
+        "id": "Paling cepat dan ringan (RAM sekitar 0,5 GB). Cocok untuk laptop 8 GB.",
+        "en": "Fastest and lightest (about 0.5 GB of RAM). Good for 8 GB laptops.",
+    },
+    "desc:large-v3-turbo": {
+        "id": "Lebih akurat untuk bahasa Indonesia, tetapi beberapa kali lebih lambat (RAM sekitar 1,5 GB).",
+        "en": "More accurate for Indonesian, but several times slower (about 1.5 GB of RAM).",
+    },
+    "offline": {
+        "id": "Model Whisper lokal belum terunduh dan internet tidak tersedia. Sambungkan internet sekali untuk mengunduhnya ({mb} MB).",
+        "en": "The local Whisper model is not downloaded yet and there is no internet. Connect once to download it ({mb} MB).",
+    },
+    "http_failed": {
+        "id": "Unduhan model Whisper gagal (HTTP {status}). Coba lagi nanti.",
+        "en": "The Whisper model download failed (HTTP {status}). Try again later.",
+    },
+    "connection_lost": {
+        "id": "Koneksi terputus saat mengunduh model Whisper. Unduhan dilanjutkan saat dicoba lagi.",
+        "en": "The connection dropped while downloading the Whisper model. The download continues when you try again.",
+    },
+    "checksum": {
+        "id": "File model Whisper yang terunduh rusak (checksum tidak cocok). Coba unduh lagi.",
+        "en": "The downloaded Whisper model file is damaged (checksum mismatch). Try downloading it again.",
+    },
+    "download_cancelled": {
+        "id": "Unduhan model Whisper dibatalkan. Unduh lagi di Pengaturan, lalu lanjutkan job ini.",
+        "en": "The Whisper model download was cancelled. Download it again in Settings, then resume this job.",
+    },
+    "download_failed": {
+        "id": "Unduhan model Whisper gagal: {error}",
+        "en": "The Whisper model download failed: {error}",
+    },
+    "downloading_busy": {
+        "id": "Model ini sedang diunduh. Batalkan unduhannya dulu.",
+        "en": "This model is downloading. Cancel the download first.",
+    },
+    "in_use": {
+        "id": "Model ini sedang dipakai untuk transkripsi. Coba lagi setelah selesai.",
+        "en": "This model is in use for a transcription. Try again when it is done.",
+    },
+    "delete_failed": {
+        "id": "Model tidak bisa dihapus: {error}",
+        "en": "The model couldn't be deleted: {error}",
+    },
+    "binary_missing": {
+        "id": "Whisper lokal tidak ditemukan di folder aplikasi. Pasang ulang MetisClip.",
+        "en": "Local Whisper was not found in the app folder. Reinstall MetisClip.",
+    },
+    "downloading_model": {
+        "id": "Mengunduh model Whisper lokal {model} ({mb} MB, sekali saja)…",
+        "en": "Downloading the local Whisper model {model} ({mb} MB, only once)…",
+    },
+    "downloading_pct": {
+        "id": "Mengunduh model Whisper lokal: {pct}%",
+        "en": "Downloading the local Whisper model: {pct}%",
+    },
+    "hold_label": {
+        "id": "Whisper lokal {model}",
+        "en": "Local Whisper {model}",
+    },
+    "waiting_other": {
+        "id": "Menunggu Whisper lokal selesai mentranskripsi bagian lain…",
+        "en": "Waiting for local Whisper to finish another part…",
+    },
+    "waiting_render": {
+        "id": "Whisper lokal menunggu export video selesai…",
+        "en": "Local Whisper is waiting for a video export to finish…",
+    },
+    "progress": {
+        "id": "Transkripsi Whisper lokal: {pct}%",
+        "en": "Local Whisper transcription: {pct}%",
+    },
+    "failed": {
+        "id": "Whisper lokal gagal (kode {code}). {detail}",
+        "en": "Local Whisper failed (code {code}). {detail}",
+    },
+})
 
 logger = logging.getLogger(__name__)
 
@@ -51,13 +131,19 @@ class LocalModel:
         return _MODEL_REPO + self.file
 
 
+def describe(model: LocalModel) -> str:
+    """The model's description in the UI language."""
+    key = f"desc:{model.id}"
+    return M(key) if key in M.entries else model.description
+
+
 MODELS: dict[str, LocalModel] = {
     m.id: m
     for m in (
         LocalModel(
             id="small",
             label="Small",
-            description="Paling cepat dan ringan (RAM sekitar 0,5 GB). Cocok untuk laptop 8 GB.",
+            description="",  # describe(): in the UI language
             file="ggml-small-q5_1.bin",
             size_bytes=190_085_487,
             sha256="ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb",
@@ -65,7 +151,7 @@ MODELS: dict[str, LocalModel] = {
         LocalModel(
             id="large-v3-turbo",
             label="Large v3 Turbo",
-            description="Lebih akurat untuk bahasa Indonesia, tetapi beberapa kali lebih lambat (RAM sekitar 1,5 GB).",
+            description="",
             file="ggml-large-v3-turbo-q5_0.bin",
             size_bytes=574_041_195,
             sha256="394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
@@ -216,10 +302,7 @@ def _download(model: LocalModel, check: Callable[[], None],
     try:
         resp = requests.get(model.url, headers=headers, stream=True, timeout=(20, 60))
     except requests.RequestException as exc:
-        raise LocalWhisperError(
-            "Model Whisper lokal belum terunduh dan internet tidak tersedia. "
-            f"Sambungkan internet sekali untuk mengunduhnya ({model.size_bytes / 1024**2:.0f} MB)."
-        ) from exc
+        raise LocalWhisperError(M("offline", mb=f"{model.size_bytes / 1024**2:.0f}")) from exc
     with resp:
         if have and resp.status_code == 206:
             with part.open("rb") as f:
@@ -229,7 +312,7 @@ def _download(model: LocalModel, check: Callable[[], None],
         elif resp.status_code == 200:
             have, mode = 0, "wb"
         else:
-            raise LocalWhisperError(f"Unduhan model Whisper gagal (HTTP {resp.status_code}). Coba lagi nanti.")
+            raise LocalWhisperError(M("http_failed", status=resp.status_code))
         done = have
         last_pct = -1.0
         try:
@@ -249,10 +332,10 @@ def _download(model: LocalModel, check: Callable[[], None],
                         _set_state(model.id, progress=round(pct, 1))
                         _publish(model.id, "downloading", pct)
         except requests.RequestException as exc:
-            raise LocalWhisperError("Koneksi terputus saat mengunduh model Whisper. Unduhan dilanjutkan saat dicoba lagi.") from exc
+            raise LocalWhisperError(M("connection_lost")) from exc
     if done != model.size_bytes or digest.hexdigest() != model.sha256:
         part.unlink(missing_ok=True)
-        raise LocalWhisperError("File model Whisper yang terunduh rusak (checksum tidak cocok). Coba unduh lagi.")
+        raise LocalWhisperError(M("checksum"))
     os.replace(part, dest)
 
 
@@ -288,9 +371,9 @@ def ensure_model(model: LocalModel, cancel: procs.CancelToken | None = None,
             _publish(model.id, "cancelled", 0.0)
             if cancel is not None and cancel.cancelled:
                 raise
-            raise LocalWhisperError("Unduhan model Whisper dibatalkan. Unduh lagi di Pengaturan, lalu lanjutkan job ini.") from None
+            raise LocalWhisperError(M("download_cancelled")) from None
         except Exception as exc:
-            message = str(exc) if isinstance(exc, LocalWhisperError) else f"Unduhan model Whisper gagal: {exc}"
+            message = str(exc) if isinstance(exc, LocalWhisperError) else M("download_failed", error=exc)
             _set_state(model.id, status="failed", error=message)
             _publish(model.id, "failed", 0.0, message)
             if isinstance(exc, LocalWhisperError):
@@ -337,14 +420,14 @@ def delete_model(model_id: str) -> None:
     model = MODELS[model_id]
     st = download_state(model_id)
     if st and st.get("status") == "downloading":
-        raise LocalWhisperError("Model ini sedang diunduh. Batalkan unduhannya dulu.")
+        raise LocalWhisperError(M("downloading_busy"))
     if _run_lock.locked() and _active_model == model_id:
-        raise LocalWhisperError("Model ini sedang dipakai untuk transkripsi. Coba lagi setelah selesai.")
+        raise LocalWhisperError(M("in_use"))
     for p in (model_path(model), model_path(model).with_name(model.file + ".part")):
         try:
             p.unlink(missing_ok=True)
         except OSError as exc:
-            raise LocalWhisperError(f"Model tidak bisa dihapus: {exc}") from exc
+            raise LocalWhisperError(M("delete_failed", error=exc)) from exc
     with _state_lock:
         _downloads.pop(model_id, None)
 
@@ -384,21 +467,21 @@ def transcribe(
     global _active_model
     exe = binary()
     if exe is None:
-        raise LocalWhisperError("Whisper lokal tidak ditemukan di folder aplikasi. Pasang ulang MetisClip.")
+        raise LocalWhisperError(M("binary_missing"))
     model = chosen_model(words)
     if not installed(model):
         if on_status:
-            on_status(f"Mengunduh model Whisper lokal {model.label} ({model.size_bytes / 1024**2:.0f} MB, sekali saja)…")
-        ensure_model(model, cancel, (lambda pct: on_status(f"Mengunduh model Whisper lokal: {pct:.0f}%")) if on_status else None)
+            on_status(M("downloading_model", model=model.label, mb=f"{model.size_bytes / 1024**2:.0f}"))
+        ensure_model(model, cancel, (lambda pct: on_status(M("downloading_pct", pct=f"{pct:.0f}"))) if on_status else None)
 
     # RAM first, then the one-at-a-time lock: a Processor clip takes them in that order too (its clip
     # hold covers this one, holds being re-entrant), so the two can never wait on each other
-    with resources.hold("whisper", resources.WHISPER_MB.get(model.id, 1000), label=f"Whisper lokal {model.label}",
+    with resources.hold("whisper", resources.WHISPER_MB.get(model.id, 1000), label=M("hold_label", model=model.label),
                         cancel=cancel, on_wait=(lambda info: on_status(info.message())) if on_status else None):
         if _run_lock.locked() and on_status:
-            on_status("Menunggu Whisper lokal selesai mentranskripsi bagian lain…")
+            on_status(M("waiting_other"))
         with _run_lock:
-            workload.wait_for_renders(cancel, (lambda: on_status("Whisper lokal menunggu export video selesai…")) if on_status else None)
+            workload.wait_for_renders(cancel, (lambda: on_status(M("waiting_render"))) if on_status else None)
             _active_model = model.id
             try:
                 return _run(exe, model, audio_path, cancel, on_status)
@@ -437,7 +520,7 @@ def _run(exe: Path, model: LocalModel, audio_path: Path, cancel: procs.CancelTok
                 m = _PROGRESS.search(line)
                 if m and on_status and int(m.group(1)) >= last + 10:
                     last = int(m.group(1))
-                    on_status(f"Transkripsi Whisper lokal: {last}%")
+                    on_status(M("progress", pct=last))
             rc = p.wait()
         finally:
             timer.cancel()
@@ -447,7 +530,7 @@ def _run(exe: Path, model: LocalModel, audio_path: Path, cancel: procs.CancelTok
         out = work / "out.json"
         if rc != 0 or not out.exists():
             detail = " ".join(line for line in tail if "error" in line.lower())[-300:]
-            raise LocalWhisperError(f"Whisper lokal gagal (kode {rc}). {detail}".strip())
+            raise LocalWhisperError(M("failed", code=rc, detail=detail).strip())
         data = json.loads(out.read_bytes().decode("utf-8", "replace"), strict=False)
         return parse_output(data)
     finally:

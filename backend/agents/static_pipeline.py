@@ -14,6 +14,26 @@ from backend.agents.nodes import analyzer, discovery, processor
 from backend.core import events, llm
 from backend.core.db import get_db, utcnow
 from backend.core.procs import Cancelled, CancelToken
+from backend.core import i18n
+
+M = i18n.messages({
+    "no_videos": {
+        "id": "Tidak ada video sumber",
+        "en": "No source video",
+    },
+    "no_segments": {
+        "id": "Tidak ditemukan segmen yang cukup menarik untuk dijadikan klip",
+        "en": "No segment was interesting enough to become a clip",
+    },
+    "partial": {
+        "id": "{failed} dari {total} klip gagal diproses",
+        "en": "{failed} of {total} clips failed to process",
+    },
+    "unexpected": {
+        "id": "Terjadi kesalahan tak terduga: {error}",
+        "en": "An unexpected error occurred: {error}",
+    },
+})
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +73,7 @@ def run_job(job_id: str, cancel: CancelToken) -> None:
             videos = discovery.run(ctx)
             ctx.checkpoint(discovery_done=True)
         if not videos:
-            raise PipelineError("Tidak ada video sumber")
+            raise PipelineError(M("no_videos"))
         ctx.check()
 
         step = "analysis"
@@ -63,7 +83,7 @@ def run_job(job_id: str, cancel: CancelToken) -> None:
             segments = analyzer.run(ctx, videos)
             ctx.checkpoint(analysis_done=True, segments=segments)
         if not segments:
-            raise PipelineError("Tidak ditemukan segmen yang cukup menarik untuk dijadikan klip")
+            raise PipelineError(M("no_segments"))
         ctx.check()
 
         step = "processing"
@@ -72,7 +92,7 @@ def run_job(job_id: str, cancel: CancelToken) -> None:
 
         partial = len(clips) < len(segments)
         _finish(job_id, ctx.agent_id, "completed",
-                f"{len(segments) - len(clips)} dari {len(segments)} klip gagal diproses" if partial else None, "processing")
+                M("partial", failed=len(segments) - len(clips), total=len(segments)) if partial else None, "processing")
         logger.info("Job %s completed: %s clip(s)", job_id, len(clips))
     except Cancelled:
         status = "interrupted" if cancel.reason == "shutdown" else "cancelled"
@@ -83,6 +103,6 @@ def run_job(job_id: str, cancel: CancelToken) -> None:
         logger.warning("Job %s failed at %s: %s", job_id, step, exc)
     except Exception as exc:
         logger.exception("Job %s crashed at %s", job_id, step)
-        _finish(job_id, ctx.agent_id, "failed", f"Terjadi kesalahan tak terduga: {exc}", step)
+        _finish(job_id, ctx.agent_id, "failed", M("unexpected", error=exc), step)
     finally:
         shutil.rmtree(ctx.cache_dir, ignore_errors=True)

@@ -20,6 +20,66 @@ from backend.core.procs import Cancelled, CancelToken
 from backend.services import brand_templates, exports
 from backend.services import layout as layout_svc
 from backend.services.render import channel_name, clean_ai, effective_ai, effective_style
+from backend.core import i18n
+
+M = i18n.messages({
+    "not_found": {
+        "id": "Klip tidak ditemukan",
+        "en": "Clip not found",
+    },
+    "template_not_found": {
+        "id": "Brand template tidak ditemukan",
+        "en": "Brand template not found",
+    },
+    "too_many_words": {
+        "id": "Terlalu banyak kata subtitle",
+        "en": "Too many subtitle words",
+    },
+    "no_subtitles": {
+        "id": "Clip ini belum punya subtitle",
+        "en": "This clip has no subtitles yet",
+    },
+    "pick_marks": {
+        "id": "Pilih kata kunci atau emoji",
+        "en": "Choose keywords or emojis",
+    },
+    "ai_failed": {
+        "id": "AI subtitle gagal: {error}",
+        "en": "AI subtitles failed: {error}",
+    },
+    "no_speaker_text": {
+        "id": "Klip ini belum punya judul video atau subtitle",
+        "en": "This clip has no video title or subtitles yet",
+    },
+    "suggest_failed": {
+        "id": "Usulan nama gagal: {error}",
+        "en": "Name suggestions failed: {error}",
+    },
+    "file_not_ready": {
+        "id": "File belum tersedia",
+        "en": "The file is not available yet",
+    },
+    "cancelled": {
+        "id": "Dibatalkan",
+        "en": "Cancelled",
+    },
+    "source_failed": {
+        "id": "Video sumber gagal disiapkan: {error}",
+        "en": "The source video couldn't be prepared: {error}",
+    },
+    "faces_failed": {
+        "id": "Analisis wajah gagal: {error}",
+        "en": "Face analysis failed: {error}",
+    },
+    "no_raw": {
+        "id": "File raw klip tidak ada",
+        "en": "The clip's raw file is missing",
+    },
+    "render_not_found": {
+        "id": "Render job tidak ditemukan",
+        "en": "Render job not found",
+    },
+})
 
 router = APIRouter(tags=["clips"])
 
@@ -27,7 +87,7 @@ router = APIRouter(tags=["clips"])
 def _get(clip_id: str) -> dict:
     clip = get_db().clips.find_one({"_id": clip_id})
     if not clip:
-        raise http_error(404, "Klip tidak ditemukan")
+        raise http_error(404, M("not_found"))
     return clip
 
 
@@ -96,7 +156,7 @@ def update_subtitles(clip_id: str, body: SubtitleUpdate):
         elif brand_templates.get(body.brand_template_id):
             sets["brand_template_id"] = body.brand_template_id
         else:
-            raise http_error(400, "Brand template tidak ditemukan")
+            raise http_error(400, M("template_not_found"))
     if body.words is not None:
         words = []
         for w in body.words:
@@ -110,7 +170,7 @@ def update_subtitles(clip_id: str, body: SubtitleUpdate):
                 item["emoji"] = emoji
             words.append(item)
         if len(words) > 20000:
-            raise http_error(400, "Terlalu banyak kata subtitle")
+            raise http_error(400, M("too_many_words"))
         sets["subtitle.words"] = words
     if body.reset_style:
         sets["subtitle_style"] = {}
@@ -146,15 +206,15 @@ def enrich_subtitles(clip_id: str, body: EnrichBody):
     clip = _get(clip_id)
     words = (clip.get("subtitle") or {}).get("words") or []
     if not words:
-        raise http_error(400, "Clip ini belum punya subtitle")
+        raise http_error(400, M("no_subtitles"))
     if not (body.keywords or body.emojis):
-        raise http_error(400, "Pilih kata kunci atau emoji")
+        raise http_error(400, M("pick_marks"))
     try:
         words, n_kw, n_emoji = caption_ai.enrich_words(words, keywords=body.keywords, emojis=body.emojis)
     except llm.LLMNotConfigured as exc:
         raise http_error(400, str(exc))
     except llm.LLMError as exc:
-        raise http_error(502, f"AI subtitle gagal: {exc}")
+        raise http_error(502, M("ai_failed", error=exc))
     get_db().clips.update_one({"_id": clip_id}, {"$set": {"subtitle.words": words, "updated_at": utcnow()}})
     events.publish({"type": "clip.updated", "id": clip_id})
     return {"clip": clip_dto(_get(clip_id)), "keywords": n_kw, "emojis": n_emoji}
@@ -168,13 +228,13 @@ def suggest_speaker(clip_id: str):
     title = str((sv or {}).get("title") or "")
     words = (clip.get("subtitle") or {}).get("words") or []
     if not title and not words:
-        raise http_error(400, "Klip ini belum punya judul video atau subtitle")
+        raise http_error(400, M("no_speaker_text"))
     try:
         speakers = speaker_ai.suggest_speakers(title, channel_name(clip), words, clip.get("hook_text") or "")
     except llm.LLMNotConfigured as exc:
         raise http_error(400, str(exc))
     except llm.LLMError as exc:
-        raise http_error(502, f"Usulan nama gagal: {exc}")
+        raise http_error(502, M("suggest_failed", error=exc))
     return {"speakers": speakers}
 
 
@@ -184,7 +244,7 @@ def clip_media(clip_id: str, kind: Literal["raw", "final", "thumbnail", "thumb",
     key = "thumbnail" if kind == "thumb" else kind
     rel = (clip.get("files") or {}).get(key)
     if not rel:
-        raise http_error(404, "File belum tersedia")
+        raise http_error(404, M("file_not_ready"))
     return serve_relative(rel)
 
 
@@ -199,9 +259,9 @@ def prepare_clip_source(clip_id: str):
     except layout_svc.SourceError as exc:
         raise http_error(400, str(exc))
     except Cancelled:
-        raise http_error(409, "Dibatalkan")
+        raise http_error(409, M("cancelled"))
     except Exception as exc:
-        raise http_error(502, f"Video sumber gagal disiapkan: {exc}")
+        raise http_error(502, M("source_failed", error=exc))
     events.publish({"type": "clip.updated", "id": clip_id})
     return {"clip": clip_dto(clip)}
 
@@ -215,9 +275,9 @@ def prepare_clip_faces(clip_id: str):
     except layout_svc.SourceError as exc:
         raise http_error(400, str(exc))
     except Cancelled:
-        raise http_error(409, "Dibatalkan")
+        raise http_error(409, M("cancelled"))
     except Exception as exc:
-        raise http_error(502, f"Analisis wajah gagal: {exc}")
+        raise http_error(502, M("faces_failed", error=exc))
     events.publish({"type": "clip.updated", "id": clip_id})
     return {"clip": clip_dto(clip), "scenes": layout_svc.scene_info(clip)}
 
@@ -226,7 +286,7 @@ def prepare_clip_faces(clip_id: str):
 def render_clip(clip_id: str):
     clip = _get(clip_id)
     if not (clip.get("files") or {}).get("raw"):
-        raise http_error(409, "File raw klip tidak ada")
+        raise http_error(409, M("no_raw"))
     db = get_db()
     active = db.render_jobs.find_one({"clip_id": clip_id, "status": {"$in": ["queued", "rendering"]}})
     if active:
@@ -254,7 +314,7 @@ def export_clips(body: ExportBody):
     for cid in body.clip_ids:
         clip = db.clips.find_one({"_id": cid})
         if not clip:
-            skipped.append({"clip_id": cid, "reason": "Klip tidak ditemukan"})
+            skipped.append({"clip_id": cid, "reason": M("not_found")})
             continue
         try:
             exported.append({"clip_id": cid, "path": str(exports.copy_final(clip, dest))})
@@ -298,7 +358,7 @@ def list_render_jobs(clip_id: Optional[str] = None, status: Optional[str] = None
 def _render(render_id: str) -> dict:
     rj = get_db().render_jobs.find_one({"_id": render_id})
     if not rj:
-        raise http_error(404, "Render job tidak ditemukan")
+        raise http_error(404, M("render_not_found"))
     return rj
 
 

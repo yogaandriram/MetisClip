@@ -50,8 +50,11 @@ def language() -> str:
             _lang = env
         return env
     try:
+        from backend.core import db as dbm
         from backend.core.settings_store import get_settings
 
+        if not dbm.connected():  # never start a connection (up to 30 s) just to word a message
+            return DEFAULT_LANG
         stored = get_settings().get("app", {}).get("language")
     except Exception:
         # database not reachable yet: default for now, ask again next time
@@ -59,6 +62,16 @@ def language() -> str:
     with _lock:
         _lang = stored if is_lang(stored) else DEFAULT_LANG
     return _lang
+
+
+def offline_language() -> str:
+    """The UI language without asking the database: the cached one, else METISCLIP_LANG, else the
+    default. For messages about the database itself and for startup errors, where a lookup could
+    hang or fail again."""
+    if _lang is not None:
+        return _lang
+    env = os.environ.get("METISCLIP_LANG", "").strip().lower()
+    return env if is_lang(env) else DEFAULT_LANG
 
 
 def set_language(lang: str) -> None:

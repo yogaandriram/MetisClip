@@ -8,6 +8,22 @@ from pathlib import Path
 
 from backend.core import procs, resources
 from backend.core.config import ffmpeg_path
+from backend.core import i18n
+
+M = i18n.messages({
+    "empty_cut": {
+        "id": "Potongan video kosong",
+        "en": "The video cut is empty",
+    },
+    "unreadable": {
+        "id": "Video tidak bisa dibaca. Pakai file MP4, MOV atau WEBM yang bisa diputar.",
+        "en": "The video can't be read. Use an MP4, MOV or WEBM file that plays.",
+    },
+    "companion_failed": {
+        "id": "Video pendamping gagal diproses",
+        "en": "The companion video couldn't be processed",
+    },
+})
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +205,7 @@ def cut_section(source: Path, start: float, end: float, out_path: Path, cancel: 
         cancel=cancel, timeout=1800, low_priority=resources.enabled(),
     )
     if not out_path.exists() or out_path.stat().st_size == 0:
-        raise RuntimeError("Potongan video kosong")
+        raise RuntimeError(M("empty_cut"))
     return out_path
 
 
@@ -203,7 +219,7 @@ def normalize_companion(source: Path, out_path: Path, cancel: procs.CancelToken 
     COMPANION_MAX_SECONDS long. Returns its duration in seconds."""
     info = probe_media(source)
     if not info or not info.get("has_video") or not info.get("duration"):
-        raise ValueError("Video tidak bisa dibaca. Pakai file MP4, MOV atau WEBM yang bisa diputar.")
+        raise ValueError(M("unreadable"))
     out_path.parent.mkdir(parents=True, exist_ok=True)
     procs.run(
         [ffmpeg_path(), "-y", "-hide_banner", "-loglevel", "error",
@@ -218,7 +234,7 @@ def normalize_companion(source: Path, out_path: Path, cancel: procs.CancelToken 
     duration = probe_duration(out_path)
     if not duration:
         out_path.unlink(missing_ok=True)
-        raise ValueError("Video pendamping gagal diproses")
+        raise ValueError(M("companion_failed"))
     return round(duration, 3)
 
 

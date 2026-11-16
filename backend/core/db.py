@@ -32,6 +32,22 @@ from backend.core import procs
 from backend.core.config import config
 from backend.core.logging_setup import redactor
 from backend.core.paths import get_paths
+from backend.core import i18n
+
+M = i18n.messages({
+    "unreachable": {
+        "id": "Database MongoDB tidak dapat dihubungi",
+        "en": "The MongoDB database can't be reached",
+    },
+    "bad_credentials": {
+        "id": "Kredensial database tidak cocok dengan folder data ini. Pulihkan file .metisclip\\db-credentials.json atau pilih folder data lain.",
+        "en": "The database credentials don't match this data folder. Restore the file .metisclip\\db-credentials.json or choose another data folder.",
+    },
+    "no_credentials": {
+        "id": "Database di folder data ini sudah memiliki pengguna, tetapi file kredensial (.metisclip\\db-credentials.json) tidak ditemukan.",
+        "en": "The database in this data folder already has a user, but the credentials file (.metisclip\\db-credentials.json) was not found.",
+    },
+})
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +59,12 @@ _db: Database | None = None
 
 
 class DatabaseError(RuntimeError):
-    """Fatal database problem (message in Bahasa Indonesia)."""
+    """Fatal database problem (message in the UI language)."""
+
+
+def _msg(key: str) -> str:
+    # The database cannot tell the language here: a settings lookup would reconnect
+    return M.text(key, i18n.offline_language())
 
 
 # ---------------------------------------------------------------------------
@@ -163,7 +184,7 @@ def _wait_ping(client: MongoClient, timeout_s: float = 30.0) -> None:
             return
         except (ServerSelectionTimeoutError, ConnectionFailure) as exc:
             if time.monotonic() > deadline:
-                raise DatabaseError("Database MongoDB tidak dapat dihubungi") from exc
+                raise DatabaseError(_msg("unreachable")) from exc
             time.sleep(0.5)
 
 
@@ -210,10 +231,7 @@ def _connect_bundled() -> MongoClient:
             try:
                 _create_app_user(creds["password"])
             except OperationFailure as exc2:
-                raise DatabaseError(
-                    "Kredensial database tidak cocok dengan folder data ini. "
-                    "Pulihkan file .metisclip\\db-credentials.json atau pilih folder data lain."
-                ) from exc2
+                raise DatabaseError(_msg("bad_credentials")) from exc2
             client = _client_for(username=creds["username"], password=creds["password"], authSource="admin")
             _wait_ping(client)
             return client
@@ -229,10 +247,7 @@ def _connect_bundled() -> MongoClient:
         except OSError:
             pass
         if _is_auth_error(exc):
-            raise DatabaseError(
-                "Database di folder data ini sudah memiliki pengguna, tetapi file kredensial "
-                "(.metisclip\\db-credentials.json) tidak ditemukan."
-            ) from exc
+            raise DatabaseError(_msg("no_credentials")) from exc
         raise
     client = _client_for(username=APP_USER, password=password, authSource="admin")
     _wait_ping(client)

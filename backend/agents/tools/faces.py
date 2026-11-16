@@ -29,6 +29,22 @@ import numpy as np
 
 from backend.core import procs, resources
 from backend.core.config import ffmpeg_path
+from backend.core import i18n
+
+M = i18n.messages({
+    "cannot_open": {
+        "id": "Video tidak bisa dibuka",
+        "en": "The video can't be opened",
+    },
+    "bad_size": {
+        "id": "Ukuran video tidak valid",
+        "en": "Invalid video size",
+    },
+    "no_frames": {
+        "id": "Tidak ada frame yang terbaca dari video ({code}: {stderr})",
+        "en": "No frame could be read from the video ({code}: {stderr})",
+    },
+})
 
 logger = logging.getLogger(__name__)
 
@@ -75,14 +91,14 @@ def _video_info(video: Path) -> tuple[int, int, float]:
     cap = cv2.VideoCapture(str(video))
     try:
         if not cap.isOpened():
-            raise FacesError("Video tidak bisa dibuka")
+            raise FacesError(M("cannot_open"))
         w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     finally:
         cap.release()
     if w <= 0 or h <= 0:
-        raise FacesError("Ukuran video tidak valid")
+        raise FacesError(M("bad_size"))
     if not (1.0 <= fps <= 120.0):
         fps = 30.0
     return w, h, float(fps)
@@ -160,7 +176,7 @@ def scan(video: Path, cancel: procs.CancelToken | None = None) -> dict[str, Any]
     if cancel is not None:
         cancel.check()
     if not samples:
-        raise FacesError(f"Tidak ada frame yang terbaca dari video ({code}: {stderr[-200:]})")
+        raise FacesError(M("no_frames", code=code, stderr=stderr[-200:]))
     return {
         "version": VERSION,
         "width": width,

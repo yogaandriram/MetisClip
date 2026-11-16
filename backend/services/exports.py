@@ -12,10 +12,38 @@ from pathlib import Path
 from typing import Any
 
 from backend.core.paths import get_paths
+from backend.core import i18n
+
+M = i18n.messages({
+    "not_allowed": {
+        "id": "Folder tujuan tidak diizinkan",
+        "en": "This destination folder is not allowed",
+    },
+    "cannot_create": {
+        "id": "Folder tujuan tidak dapat dibuat ({folder}): {error}",
+        "en": "The destination folder can't be created ({folder}): {error}",
+    },
+    "not_rendered": {
+        "id": "Belum dirender",
+        "en": "Not rendered yet",
+    },
+    "final_missing": {
+        "id": "File hasil render hilang",
+        "en": "The rendered file is missing",
+    },
+    "locked": {
+        "id": "Gagal menyalin ke {folder}: file tujuan sedang dibuka aplikasi lain, atau folder itu tidak bisa ditulis",
+        "en": "Couldn't copy to {folder}: the target file is open in another app, or the folder is not writable",
+    },
+    "copy_failed": {
+        "id": "Gagal menyalin ke {folder}: {error}",
+        "en": "Couldn't copy to {folder}: {error}",
+    },
+})
 
 
 class ExportError(Exception):
-    """Indonesian message for the user."""
+    """Message for the user (in the UI language)."""
 
 
 def default_dir() -> Path:
@@ -33,10 +61,10 @@ def check_dest(dest: str | Path | None = None) -> Path:
         # Checked before mkdir, so a refused folder is never created. The cache is purged per job.
         forbidden = (paths.db_dir.resolve(), paths.private_dir.resolve(), paths.cache_dir.resolve())
         if folder == paths.data_root.resolve() or any(f == folder or f in folder.parents for f in forbidden):
-            raise ExportError("Folder tujuan tidak diizinkan")
+            raise ExportError(M("not_allowed"))
         folder.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        raise ExportError(f"Folder tujuan tidak dapat dibuat ({folder}): {exc.strerror or exc}") from exc
+        raise ExportError(M("cannot_create", folder=folder, error=exc.strerror or exc)) from exc
     return folder
 
 
@@ -50,10 +78,10 @@ def copy_final(clip: dict[str, Any], folder: Path) -> Path:
     """Copy the clip's final.mp4 into `folder` (checked with `check_dest`) and return the new file."""
     rel = (clip.get("files") or {}).get("final")
     if not rel:
-        raise ExportError("Belum dirender")
+        raise ExportError(M("not_rendered"))
     src = get_paths().from_relative(rel)
     if not src.exists():
-        raise ExportError("File hasil render hilang")
+        raise ExportError(M("final_missing"))
     target = folder / file_name(clip)
     part = target.with_name(target.name + ".part")
     try:
@@ -64,7 +92,6 @@ def copy_final(clip: dict[str, Any], folder: Path) -> Path:
     except OSError as exc:
         part.unlink(missing_ok=True)
         if isinstance(exc, PermissionError):
-            raise ExportError(f"Gagal menyalin ke {folder}: file tujuan sedang dibuka aplikasi lain, "
-                              "atau folder itu tidak bisa ditulis") from exc
-        raise ExportError(f"Gagal menyalin ke {folder}: {exc.strerror or exc}") from exc
+            raise ExportError(M("locked", folder=folder)) from exc
+        raise ExportError(M("copy_failed", folder=folder, error=exc.strerror or exc)) from exc
     return target

@@ -25,6 +25,50 @@ from backend.core.paths import get_paths
 from backend.core.procs import Cancelled
 from backend.models.documents import ClipDoc
 from backend.services import brand_templates, layout
+from backend.core import i18n
+
+M = i18n.messages({
+    "whisper_failed": {
+        "id": "Whisper gagal untuk klip {start}s, memakai transkrip: {error}",
+        "en": "Whisper failed for the clip at {start}s, using the transcript: {error}",
+    },
+    "ai_marks_skipped": {
+        "id": "Sorot kata kunci/emoji AI dilewati: {error}",
+        "en": "AI keyword/emoji marks were skipped: {error}",
+    },
+    "tracking_failed": {
+        "id": "Face tracking gagal untuk klip {start}s, memakai center crop",
+        "en": "Face tracking failed for the clip at {start}s, using a center crop",
+    },
+    "processing": {
+        "id": "Memproses {n} klip…",
+        "en": "Processing {n} clips…",
+    },
+    "processing_one": {
+        "id": "Memproses {n} klip…",
+        "en": "Processing {n} clip…",
+    },
+    "file_missing": {
+        "id": "File video tidak ditemukan: {path}. Kembalikan file ke lokasi itu, lalu lanjutkan job ini.",
+        "en": "Video file not found: {path}. Put the file back in that place, then resume this job.",
+    },
+    "hold_label": {
+        "id": "Klip {start}s",
+        "en": "Clip {start}s",
+    },
+    "clip_failed": {
+        "id": "Klip {start}–{end}s ({source}) gagal: {error}",
+        "en": "Clip {start}–{end}s ({source}) failed: {error}",
+    },
+    "clip_done": {
+        "id": "Klip {done}/{total} selesai",
+        "en": "Clip {done}/{total} done",
+    },
+    "none_processed": {
+        "id": "Tidak ada klip yang berhasil diproses",
+        "en": "No clip could be processed",
+    },
+})
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +132,7 @@ def _source(ctx: JobContext, seg: dict[str, Any], work: Path) -> tuple[Path, lis
     except Cancelled:
         raise
     except Exception as exc:
-        ctx.error("processing", f"Whisper gagal untuk klip {start:.0f}s, memakai transkrip: {exc}")
+        ctx.error("processing", M("whisper_failed", start=f"{start:.0f}", error=exc))
     a, b = clip_edges.snap(words, payload, t0, t1, total) or (t0, t1)
     ctx.check()
     if seg.get("file_path"):  # cut once more from the original file rather than re-encoding the padded cut
@@ -112,7 +156,7 @@ def _ai_marks(ctx: JobContext, words: list[dict[str, Any]]) -> list[dict[str, An
         )
         return marked
     except llm.LLMError as exc:
-        ctx.error("processing", f"Sorot kata kunci/emoji AI dilewati: {exc}")
+        ctx.error("processing", M("ai_marks_skipped", error=exc))
         return words
 
 
@@ -144,7 +188,7 @@ def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw
         if process_auto_tracking_video(str(src), str(tracked), ctx.cancel, faces_out=faces_tmp):
             ffmpeg_ops.finish_vertical(tracked, src, raw, ctx.cancel)
         else:
-            ctx.error("processing", f"Face tracking gagal untuk klip {seg['start_time']:.0f}s, memakai center crop")
+            ctx.error("processing", M("tracking_failed", start=f"{seg['start_time']:.0f}"))
             ffmpeg_ops.center_crop_vertical(src, raw, ctx.cancel)
         ctx.check()
         duration = ffmpeg_ops.probe_duration(raw) or (end - start)
@@ -233,12 +277,12 @@ def run(ctx: JobContext, segments: list[dict[str, Any]]) -> list[dict[str, Any]]
     completed = len(results)
     lock = threading.Lock()
     ctx.progress(40 + 55 * completed / max(1, total), step="processing",
-                 message=f"Memproses {len(todo)} klip…" if todo else None)
+                 message=M("processing_one" if len(todo) == 1 else "processing", n=len(todo)) if todo else None)
     if not todo:
         return results
     for path in {s["file_path"] for s in todo if s.get("file_path")}:
         if not Path(path).is_file():
-            raise PipelineError(f"File video tidak ditemukan: {path}. Kembalikan file ke lokasi itu, lalu lanjutkan job ini.")
+            raise PipelineError(M("file_missing", path=path))
 
     # At most `max_workers` clips at once; the RAM guard starts each one only when the PC has room
     # for it, so on a busy PC fewer run in parallel
@@ -250,14 +294,14 @@ def run(ctx: JobContext, segments: list[dict[str, Any]]) -> list[dict[str, Any]]
         nonlocal completed
         ctx.check()
         try:
-            with resources.hold("clip", need, label=f"Klip {seg['start_time']:.0f}s", cancel=ctx.cancel,
+            with resources.hold("clip", need, label=M("hold_label", start=f"{seg['start_time']:.0f}"), cancel=ctx.cancel,
                                 on_wait=lambda info: ctx.progress(message=info.message())):
                 clip = process_segment(ctx, seg)
         except Cancelled:
             raise
         except Exception as exc:
             logger.exception("Clip %s failed", seg["segment_id"])
-            msg = f"Klip {seg['start_time']:.0f}–{seg['end_time']:.0f}s ({_source_label(seg)}) gagal: {exc}"
+            msg = M("clip_failed", start=f"{seg['start_time']:.0f}", end=f"{seg['end_time']:.0f}", source=_source_label(seg), error=exc)
             ctx.error("processing", msg)
             with lock:
                 failures.append(msg)
@@ -266,7 +310,7 @@ def run(ctx: JobContext, segments: list[dict[str, Any]]) -> list[dict[str, Any]]
         with lock:
             completed += 1
             pct = 40 + 55 * completed / max(1, total)
-        ctx.progress(pct, inc_processed=1, message=f"Klip {completed}/{total} selesai")
+        ctx.progress(pct, inc_processed=1, message=M("clip_done", done=completed, total=total))
         events.publish({"type": "clip.created", "id": clip["_id"], "job_id": ctx.id, "agent_id": ctx.agent_id})
         return clip
 
@@ -286,5 +330,5 @@ def run(ctx: JobContext, segments: list[dict[str, Any]]) -> list[dict[str, Any]]
 
     ctx.check()
     if not results:
-        raise PipelineError(failures[0] if failures else "Tidak ada klip yang berhasil diproses")
+        raise PipelineError(failures[0] if failures else M("none_processed"))
     return results
