@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Eye, FileVideo, Link as LinkIcon, ListChecks, RotateCcw, Trash2, XCircle } from 'lucide-react'
+import { Eye, FileVideo, Link as LinkIcon, ListChecks, Megaphone, RotateCcw, Trash2, XCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
   Alert,
@@ -16,6 +16,7 @@ import {
   ProgressBar,
   Skeleton,
   StatusBadge,
+  Tag,
   ToggleSwitch,
   type StepState,
 } from '@/components/ui'
@@ -140,6 +141,30 @@ export default function JobsPage() {
     </>
   )
 
+  /** The campaigns the job follows and its note for this video (nothing for a plain job) */
+  const briefInfo = (job: Job) => {
+    const campaigns = job.campaigns || []
+    if (campaigns.length === 0 && !job.note) return null
+    return (
+      <div className="mc-row mc-row--wrap mc-gap-4" style={{ marginTop: 4 }}>
+        {campaigns.length > 0 && <span className="mc-sr-only">{t.brief.jobs.campaigns}: </span>}
+        {campaigns.map((c) => (
+          <Tag key={c.id}>
+            <Megaphone size={12} aria-hidden="true" />
+            <span className="mc-truncate" style={{ maxWidth: 200 }} title={c.name}>
+              {c.name}
+            </span>
+          </Tag>
+        ))}
+        {job.note && (
+          <span className="mc-caption mc-muted mc-truncate" style={{ maxWidth: 420 }} title={job.note}>
+            {t.brief.jobs.note}: {job.note}
+          </span>
+        )}
+      </div>
+    )
+  }
+
   const sourceTitle = (job: Job) => {
     const source = jobSource(job)
     return (
@@ -206,6 +231,7 @@ export default function JobsPage() {
                               <StatusBadge kind="job" status={job.status} size="sm" />
                             </div>
                             <div className="mc-caption mc-muted">{meta(job)}</div>
+                            {briefInfo(job)}
                           </div>
                           <div className="mc-row mc-row--wrap mc-gap-8">
                             <Button variant="primary" size="sm" icon={<RotateCcw size={16} />} onClick={() => resume(job)} loading={busyId === job.id}>
@@ -250,6 +276,7 @@ export default function JobsPage() {
                             <StatusBadge kind="job" status={job.status} size="sm" />
                           </div>
                           <div className="mc-caption mc-muted">{meta(job)}</div>
+                          {briefInfo(job)}
                         </div>
                         <div className="mc-row mc-row--wrap mc-gap-8">
                           <Button variant="secondary" size="sm" icon={<Eye size={16} />} onClick={() => openDetail(job)}>
@@ -301,6 +328,7 @@ export default function JobsPage() {
                               <td>
                                 <div style={{ maxWidth: 360 }}>
                                   {sourceTitle(job)}
+                                  {briefInfo(job)}
                                   {lastError && (
                                     <div className="mc-caption mc-muted mc-truncate" title={lastError.message}>
                                       {lastError.message}

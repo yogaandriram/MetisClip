@@ -20,14 +20,17 @@ import {
   Skeleton,
   StatusBadge,
   Tabs,
+  TextAreaField,
   type StepState,
 } from '@/components/ui'
 import { NoAgentState } from '@/components/NoAgentState'
 import { VideoFilePicker } from '@/components/discover/VideoFilePicker'
+import { CampaignPicker } from '@/components/brief/CampaignPicker'
 import { useAgent } from '@/contexts/AgentContext'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
-import { api, type Job } from '@/lib/engine'
+import { api, type Campaign, type Job } from '@/lib/engine'
+import { CUSTOM_DURATION, briefDurationBounds, parseDuration, suggestDuration, validCustomDuration } from '@/lib/brief'
 import {
   CLIP_DURATION_OPTIONS,
   JOB_STEPS,
@@ -42,6 +45,8 @@ import { tm } from '@/lib/i18n'
 import { useT } from '@/lib/i18n/I18nProvider'
 
 const CONTENT: React.CSSProperties = { maxWidth: 760, margin: '0 auto' }
+const CUSTOM = 'custom'
+const NUMBER_FIELD: React.CSSProperties = { width: 160 }
 
 /** "45 - 60 detik (Shorts/Reels)" -> chip "45–60 detik", kind "Shorts/Reels". Read at render time (current language). */
 function durationChoices() {
@@ -94,7 +99,11 @@ function Discover() {
         {jobId ? (
           <JobProgress key={jobId} jobId={jobId} />
         ) : (
-          <JobForm key={activeAgent.id} onCreated={(id) => router.push(`/discover/?job=${encodeURIComponent(id)}`)} />
+          <JobForm
+            key={activeAgent.id}
+            initialCampaign={params.get('campaign')}
+            onCreated={(id) => router.push(`/discover/?job=${encodeURIComponent(id)}`)}
+          />
         )}
       </div>
     </div>
@@ -103,17 +112,65 @@ function Discover() {
 
 // ---------------------------------------------------------------------------
 
-function JobForm({ onCreated }: { onCreated: (jobId: string) => void }) {
+function JobForm({ onCreated, initialCampaign }: { onCreated: (jobId: string) => void; initialCampaign?: string | null }) {
   const { activeAgent } = useAgent()
+  const { epoch } = useEngine()
   const t = useT()
   const f = t.discover.form
+  const b = t.brief
   const [mode, setMode] = useState<'url' | 'file'>('url')
   const [youtubeUrl, setYoutubeUrl] = useState('')
   const [filePath, setFilePath] = useState<string | null>(null)
   const [duration, setDuration] = useState(activeAgent?.default_duration || '45-60')
+  const [customLo, setCustomLo] = useState('30')
+  const [customHi, setCustomHi] = useState('60')
   const [maxClips, setMaxClips] = useState<number>(3)
+  const [campaigns, setCampaigns] = useState<Campaign[] | null>(null)
+  const [campaignsError, setCampaignsError] = useState<string | null>(null)
+  const [campaignIds, setCampaignIds] = useState<string[]>([])
+  const [note, setNote] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    api.campaigns
+      .list({ status: 'active' })
+      .then(({ campaigns }) => {
+        if (cancelled) return
+        setCampaigns(campaigns)
+        setCampaignsError(null)
+        // Coming from a campaign page: /discover/?campaign=<id>
+        if (initialCampaign && campaigns.some((c) => c.id === initialCampaign)) {
+          setCampaignIds((prev) => (prev.length ? prev : [initialCampaign]))
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setCampaignsError(errorMessage(err, tm().brief.picker.loadFailed))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [epoch, initialCampaign])
+
+  /** The duration sent to the engine: a preset, or the custom range ('' while it is invalid). */
+  const customValid = validCustomDuration(Number(customLo), Number(customHi))
+  const clipDuration = duration === CUSTOM ? (customValid ? `${Number(customLo)}-${Number(customHi)}` : '') : duration
+  const chosen = (campaigns || []).filter((c) => campaignIds.includes(c.id))
+  const bounds = briefDurationBounds(chosen.map((c) => c.brief))
+  const current = parseDuration(clipDuration)
+  const suggestion = bounds && current ? suggestDuration(bounds, current) : null
+
+  const applySuggestion = ([lo, hi]: [number, number]) => {
+    const preset = `${lo}-${hi}`
+    if (CLIP_DURATION_OPTIONS.some((o) => o.value === preset)) {
+      setDuration(preset)
+    } else {
+      setDuration(CUSTOM)
+      setCustomLo(String(lo))
+      setCustomHi(String(hi))
+    }
+  }
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -127,13 +184,19 @@ function JobForm({ onCreated }: { onCreated: (jobId: string) => void }) {
       setFormError(f.fileRequired)
       return
     }
+    if (!clipDuration) {
+      setFormError(f.customHint(CUSTOM_DURATION.min, CUSTOM_DURATION.max, CUSTOM_DURATION.span))
+      return
+    }
     setSubmitting(true)
     try {
       const { job } = await api.jobs.create({
         agent_id: activeAgent.id,
         ...(mode === 'url' ? { youtube_url: youtubeUrl.trim() } : { local_file_path: filePath! }),
-        clip_duration: duration,
+        clip_duration: clipDuration,
         max_clips: maxClips,
+        campaign_ids: chosen.map((c) => c.id),
+        note: note.trim(),
       })
       toast.success(f.started)
       onCreated(job.id)
@@ -180,20 +243,83 @@ function JobForm({ onCreated }: { onCreated: (jobId: string) => void }) {
             <VideoFilePicker value={filePath} onChange={setFilePath} onError={setFormError} />
           )}
 
-          <Field label={f.duration} hint={durationKind ? f.durationHint(durationKind) : undefined}>
-            <ChoiceChips
-              ariaLabel={f.duration}
-              options={choices.map(({ value, label }) => ({ value, label }))}
-              value={duration}
-              onChange={setDuration}
-            />
-          </Field>
+          <CampaignPicker campaigns={campaigns} error={campaignsError} value={campaignIds} onChange={setCampaignIds} />
+
+          <div className="mc-stack mc-gap-12">
+            <Field label={f.duration} hint={duration !== CUSTOM && durationKind ? f.durationHint(durationKind) : undefined}>
+              <ChoiceChips
+                ariaLabel={f.duration}
+                options={[...choices.map(({ value, label }) => ({ value, label })), { value: CUSTOM, label: f.custom }]}
+                value={duration}
+                onChange={setDuration}
+              />
+            </Field>
+            {duration === CUSTOM && (
+              <div className="mc-stack mc-gap-8">
+                <div className="mc-row mc-row--wrap mc-gap-12" style={{ alignItems: 'flex-start' }}>
+                  <InputField
+                    type="number"
+                    label={f.customFrom}
+                    value={customLo}
+                    min={CUSTOM_DURATION.min}
+                    max={CUSTOM_DURATION.max - CUSTOM_DURATION.span}
+                    onChange={(e) => setCustomLo(e.target.value)}
+                    aria-invalid={!customValid || undefined}
+                    mono
+                    containerStyle={NUMBER_FIELD}
+                  />
+                  <InputField
+                    type="number"
+                    label={f.customTo}
+                    value={customHi}
+                    min={CUSTOM_DURATION.min + CUSTOM_DURATION.span}
+                    max={CUSTOM_DURATION.max}
+                    onChange={(e) => setCustomHi(e.target.value)}
+                    aria-invalid={!customValid || undefined}
+                    mono
+                    containerStyle={NUMBER_FIELD}
+                  />
+                </div>
+                <span className={customValid ? 'mc-field__hint' : 'mc-field__error'} role={customValid ? undefined : 'alert'}>
+                  {f.customHint(CUSTOM_DURATION.min, CUSTOM_DURATION.max, CUSTOM_DURATION.span)}
+                </span>
+              </div>
+            )}
+            {bounds?.conflict ? (
+              <Alert tone="warning">{b.picker.durationConflict(bounds.min ?? 0, bounds.max ?? 0)}</Alert>
+            ) : (
+              bounds &&
+              suggestion && (
+                <Alert
+                  tone="info"
+                  action={
+                    <Button variant="secondary" size="sm" onClick={() => applySuggestion(suggestion)}>
+                      {b.picker.durationUse(b.seconds(suggestion[0], suggestion[1]))}
+                    </Button>
+                  }
+                >
+                  {b.picker.durationAsk(b.range(bounds.min, bounds.max))} {b.picker.durationWhy}
+                </Alert>
+              )
+            )}
+          </div>
+
+          <TextAreaField
+            label={f.note}
+            hint={f.noteHint}
+            placeholder={f.notePlaceholder}
+            value={note}
+            maxLength={2000}
+            rows={2}
+            onChange={(e) => setNote(e.target.value)}
+          />
 
           {formError && <Alert tone="error">{formError}</Alert>}
 
           <div className="mc-row mc-row--between mc-row--wrap mc-gap-16" style={{ alignItems: 'flex-end' }}>
             <NumberStepper
               label={f.maxClips}
+              hint={chosen.length > 0 ? b.picker.perCampaign : undefined}
               value={maxClips}
               onChange={setMaxClips}
               min={0}

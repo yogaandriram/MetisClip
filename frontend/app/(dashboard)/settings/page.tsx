@@ -378,6 +378,12 @@ export default function SettingsPage() {
                 }
                 onOpen={desktop ? () => openFolder(settings.export_dir) : undefined}
               />
+              <ToggleSwitch
+                label={m.storage.postText}
+                hint={m.storage.postTextHint}
+                checked={settings.export?.post_text ?? true}
+                onChange={(v) => patch('export', { ...settings.export, post_text: v })}
+              />
               <div className="mc-grid">
                 <InputField
                   containerClassName="mc-col-6"

@@ -46,6 +46,160 @@ export interface BrandTemplate {
 
 export type BrandTemplateInput = Partial<Pick<BrandTemplate, 'name' | 'brand_settings' | 'caption_settings' | 'layout_settings' | 'ai_settings'>>
 
+// ---------------------------------------------------------------------------
+// Campaigns (backend/services/campaigns.py, models/documents.py Brief)
+// ---------------------------------------------------------------------------
+
+export type BriefRuleType = 'must' | 'must_not' | 'prefer'
+/** selection: choosing moments · visual: how the video looks · post: the post text · manual: checked by hand */
+export type BriefRuleStage = 'selection' | 'visual' | 'post' | 'manual'
+export type BriefRequirement = 'required' | 'optional' | 'forbidden'
+
+export interface BriefRule {
+  id: string
+  text: string
+  type: BriefRuleType
+  stage: BriefRuleStage
+  /** Where the brief says so, e.g. "[2] Wajib sebut Tokopedia" */
+  source: string
+}
+
+export interface Brief {
+  summary: string
+  platforms: string[]
+  /** YYYY-MM-DD or null */
+  deadline: string | null
+  allowed_sources: string[]
+  /** Topics / moments to look for (judged by the AI) */
+  focus: string[]
+  /** Words or names that must be heard in the clip (checked in the transcript) */
+  must_include: string[]
+  /** Words that must not be heard (checked in the transcript) */
+  banned_words: string[]
+  /** Topics to stay away from (judged by the AI) */
+  avoid: string[]
+  tone: string
+  audience: string
+  language: string
+  duration: { min: number | null; max: number | null }
+  /** Clips the campaign wants in total (0 = no target) */
+  clips_target: number
+  /** Clips per source video (0 = no limit) */
+  max_per_video: number
+  visual: { subtitles: BriefRequirement; logo: BriefRequirement; credit: BriefRequirement; notes: string[] }
+  post: { hashtags: string[]; mentions: string[]; cta: string; disclosure: string; caption_rules: string[] }
+  rules: BriefRule[]
+  payout: string
+  submission: string
+  /** What the brief leaves unclear */
+  questions: string[]
+}
+
+export type CampaignSourceKind = 'text' | 'file' | 'image'
+
+/** One piece of the brief as the user gave it */
+export interface CampaignSource {
+  id: string
+  kind: CampaignSourceKind
+  name: string
+  /** Relative to the data root (fileUrl) */
+  path: string | null
+  mime: string | null
+  size: number
+  /** Typed text, or the text read from the file */
+  text: string
+  pages: number
+  /** Scanned PDF pages rendered to PNG */
+  images: string[]
+  added_at: ISODate
+}
+
+export type CampaignParseStatus = 'idle' | 'running' | 'done' | 'failed'
+
+export interface CampaignDraft {
+  brief: Brief
+  name: string
+  client: string
+  /** Pieces the AI could not read */
+  unreadable: string[]
+  at: ISODate
+}
+
+export interface Campaign {
+  id: string
+  name: string
+  client: string
+  status: 'active' | 'archived'
+  /** Template for this campaign's clips (null = the workspace's default) */
+  brand_template_id: string | null
+  /** Missing in list responses (see source_count) */
+  sources?: CampaignSource[]
+  source_count?: number
+  brief: Brief
+  /** The last "understand the brief" result, waiting for review (missing in list responses) */
+  draft?: CampaignDraft | null
+  /** List responses only: a draft is waiting for review */
+  has_draft?: boolean
+  parse: { status: CampaignParseStatus; message?: string; provider?: string; model?: string; used_ocr?: boolean; used_vision?: boolean; at?: ISODate }
+  version: number
+  clip_count: number
+  exported_count: number
+  created_at: ISODate
+  updated_at: ISODate
+}
+
+export interface CampaignInput {
+  name?: string
+  client?: string
+  status?: 'active' | 'archived'
+  brand_template_id?: string | null
+  /** A reviewed brief: replaces the current one (version + 1) and clears the draft */
+  brief?: Brief
+}
+
+export type BriefCheckStatus = 'ok' | 'fail' | 'warn' | 'manual' | 'ai' | 'info'
+export type BriefCheckKind =
+  | 'fit' | 'duration' | 'required_words' | 'banned_words' | 'subtitles' | 'logo' | 'credit'
+  | 'post_copy' | 'hashtags' | 'mentions' | 'disclosure' | 'deadline' | 'rule'
+
+/** One line of a clip's brief checklist (backend/services/brief_check.py); worded by the frontend */
+export interface BriefCheckItem {
+  id: string
+  kind: BriefCheckKind
+  status: BriefCheckStatus
+  params: Record<string, any>
+}
+
+export interface BriefCheckSummary {
+  ok: number
+  fail: number
+  warn: number
+  ai: number
+  info: number
+  manual_open: number
+  manual_done: number
+  ready: boolean
+}
+
+export interface BriefCheck {
+  campaign_id: string
+  version: number
+  items: BriefCheckItem[]
+  summary: BriefCheckSummary
+}
+
+/** Text for posting a campaign clip (MetisClip never posts; the user copies it) */
+export interface PostCopy {
+  title: string
+  caption: string
+  hashtags: string[]
+  mentions: string[]
+  disclosure: string
+  generated_at?: ISODate | null
+  /** ai: written by the LLM · basic: from the brief without the LLM · edited: changed by the user */
+  source?: 'ai' | 'basic' | 'edited'
+}
+
 export type JobStatus = 'pending' | 'running' | 'interrupted' | 'cancelled' | 'completed' | 'failed'
 export type JobStep = 'discovery' | 'analysis' | 'processing'
 
@@ -68,6 +222,11 @@ export interface Job {
     clip_duration: string
     max_clips_per_video: number
   }
+  /** Campaigns the clips are made for (the brief snapshot stays in the engine) */
+  campaign_ids: string[]
+  campaigns: { id: string; name: string; version: number }[]
+  /** Extra instructions for this video only */
+  note: string
   status: JobStatus
   current_step: JobStep | null
   progress_pct: number
@@ -85,9 +244,12 @@ export interface JobCreate {
   youtube_url?: string
   /** Absolute path; the engine checks that it is a readable video with sound */
   local_file_path?: string
-  /** '30-45' | '45-60' | '60-75' | '75-90' */
+  /** '30-45' | '45-60' | '60-75' | '75-90', or a custom 'lo-hi' between 10 and 180 seconds (at least 5 apart) */
   clip_duration?: string
   max_clips?: number
+  /** Up to 5 campaigns: each brief guides the choice, and each campaign gets its own clips */
+  campaign_ids?: string[]
+  note?: string
 }
 
 export interface SubtitleWord {
@@ -147,6 +309,16 @@ export interface Clip {
   source_height?: number | null
   /** The clip's brand template (null = its agent's default) */
   brand_template_id: string | null
+  /** The campaign the clip was made for, how well it fits that brief (0-100) and why */
+  campaign_id?: string | null
+  brief_fit?: number | null
+  brief_reason?: string
+  post_copy?: PostCopy | null
+  /** Brief rules the user ticked: {rule id: true} */
+  brief_manual?: Record<string, boolean>
+  /** List responses only, for campaign clips */
+  campaign_name?: string
+  brief_summary?: BriefCheckSummary | null
   created_at: ISODate
   updated_at: ISODate
 }
@@ -177,6 +349,9 @@ export interface ClipDetail {
   scenes?: ClipScenes | null
   /** The template in effect (the clip's own choice, else its agent's default); null = built-in */
   brand_template: BrandTemplate | null
+  /** The clip's campaign (without its brief material) and its checklist; null without one */
+  campaign?: Campaign | null
+  brief_check?: BriefCheck | null
 }
 
 export interface SubtitleUpdate {
@@ -240,6 +415,8 @@ export interface Settings {
   /** RAM guard (backend/core/resources.py): auto = heavy steps wait for free RAM; reserve_gb 0 = automatic */
   resources: { auto: boolean; reserve_gb: number }
   ytdlp: { player_client: string; cookies_file: string | null }
+  /** post_text: a campaign clip's export gets a .txt with its post text next to the video */
+  export: { post_text: boolean }
   db: { wiredtiger_cache_gb: number }
   /** language: the UI language, mirrored for the engine's own messages (lib/i18n) */
   app: { close_to_tray: boolean; auto_update: boolean; language: Lang }
@@ -387,6 +564,9 @@ export type EngineEvent =
   | { type: 'clip.deleted'; id: string }
   | { type: 'brand_template.updated'; id: string }
   | { type: 'brand_template.deleted'; id: string }
+  | { type: 'campaign.updated'; id: string }
+  | { type: 'campaign.deleted'; id: string }
+  | { type: 'campaign.parse'; id: string; status: CampaignParseStatus; message: string }
   | { type: 'render.progress'; id: string; clip_id: string; status: RenderStatus; progress_pct: number; message?: string }
   | {
       type: 'render.status'
@@ -679,6 +859,27 @@ export const api = {
     },
   },
 
+  campaigns: {
+    list: (query: { status?: 'active' | 'archived' } = {}) => request<{ campaigns: Campaign[] }>('GET', '/api/campaigns', { query }),
+    get: (id: string) => request<{ campaign: Campaign }>('GET', `/api/campaigns/${id}`),
+    create: (input: CampaignInput & { name: string }) => request<{ campaign: Campaign }>('POST', '/api/campaigns', { body: input }),
+    update: (id: string, patch: CampaignInput) => request<{ campaign: Campaign }>('PUT', `/api/campaigns/${id}`, { body: patch }),
+    /** Its clips stay (they lose the campaign link) */
+    remove: (id: string) => request<{ ok: true }>('DELETE', `/api/campaigns/${id}`),
+    addText: (id: string, text: string, name = '') =>
+      request<{ campaign: Campaign }>('POST', `/api/campaigns/${id}/sources/text`, { body: { text, name } }),
+    /** A document (PDF, DOCX, TXT, MD) or an image (screenshot, also pasted from the clipboard) */
+    addFile: (id: string, file: File) => {
+      const form = new FormData()
+      form.append('file', file)
+      return request<{ campaign: Campaign }>('POST', `/api/campaigns/${id}/sources/file`, { form })
+    },
+    removeSource: (id: string, sourceId: string) => request<{ campaign: Campaign }>('DELETE', `/api/campaigns/${id}/sources/${sourceId}`),
+    /** Reads every brief piece with the AI in the background; campaign.parse events, result in `draft` */
+    parse: (id: string) => request<{ campaign: Campaign }>('POST', `/api/campaigns/${id}/parse`),
+    discardDraft: (id: string) => request<{ campaign: Campaign }>('POST', `/api/campaigns/${id}/draft/discard`),
+  },
+
   jobs: {
     list: (query: { agent_id?: string; status?: JobStatus; limit?: number } = {}) => request<{ jobs: Job[] }>('GET', '/api/jobs', { query }),
     get: (id: string) => request<{ job: Job }>('GET', `/api/jobs/${id}`),
@@ -689,7 +890,7 @@ export const api = {
   },
 
   clips: {
-    list: (query: { agent_id?: string; job_id?: string; status?: ClipStatus } = {}) => request<{ clips: Clip[] }>('GET', '/api/clips', { query }),
+    list: (query: { agent_id?: string; job_id?: string; status?: ClipStatus; campaign_id?: string } = {}) => request<{ clips: Clip[] }>('GET', '/api/clips', { query }),
     get: (id: string) => request<ClipDetail>('GET', `/api/clips/${id}`),
     updateSubtitles: (id: string, update: SubtitleUpdate) => request<{ clip: Clip }>('PUT', `/api/clips/${id}/subtitles`, { body: update }),
     /** One LLM call: mark keywords and/or pick emojis on the saved words (replaces earlier AI marks). */
@@ -704,6 +905,15 @@ export const api = {
     /** Speaker names for the layout's name tag, from the video title, channel and clip words (not saved). */
     suggestSpeaker: (id: string) => request<{ speakers: { name: string; role: string }[] }>('POST', `/api/clips/${id}/speaker/suggest`),
     export: (clipIds: string[], destDir?: string) => request<ExportResult>('POST', '/api/clips/export', { body: { clip_ids: clipIds, dest_dir: destDir } }),
+    savePostCopy: (id: string, copy: Pick<PostCopy, 'title' | 'caption' | 'hashtags' | 'mentions' | 'disclosure'>) =>
+      request<{ clip: Clip }>('PUT', `/api/clips/${id}/post-copy`, { body: copy }),
+    /** Writes the post text again with the AI, following the campaign's current brief */
+    generatePostCopy: (id: string) => request<{ clip: Clip }>('POST', `/api/clips/${id}/post-copy/generate`),
+    setBriefManual: (id: string, rule: string, checked: boolean) =>
+      request<{ clip: Clip; brief_check: BriefCheck | null }>('PUT', `/api/clips/${id}/brief-manual`, { body: { rule, checked } }),
+    /** Put the clip under a campaign (null = none) */
+    setCampaign: (id: string, campaignId: string | null) =>
+      request<{ clip: Clip }>('PUT', `/api/clips/${id}/campaign`, { body: { campaign_id: campaignId } }),
   },
 
   renderJobs: {

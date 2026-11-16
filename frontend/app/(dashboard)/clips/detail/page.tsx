@@ -12,6 +12,7 @@ import {
   FolderOpen,
   Keyboard,
   Maximize,
+  Megaphone,
   Palette,
   Pause,
   PenLine,
@@ -96,9 +97,11 @@ import {
   Stage,
   ChoiceChips,
   TextAreaField,
+  Tabs,
   ToggleSwitch,
   Tooltip,
 } from '@/components/ui'
+import { CampaignPanel, mergeBriefDetail } from '@/components/brief/CampaignPanel'
 import { cx } from '@/lib/cx'
 import { CaptionPositionControls } from '@/components/captions/CaptionPositionControls'
 import { SUPPORTED_FONTS, FONT_WEIGHTS_MAP } from '@/lib/constants'
@@ -183,7 +186,8 @@ const GRID_STYLE: React.CSSProperties = {
   flex: 1,
   minHeight: 0,
 }
-const COLUMN_STYLE: React.CSSProperties = { display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }
+// clip, not hidden: scrollIntoView inside the body must not scroll the column itself and push its header out
+const COLUMN_STYLE: React.CSSProperties = { display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'clip' }
 const COLUMN_BODY: React.CSSProperties = { flex: 1, minHeight: 0, overflowY: 'auto' }
 
 function EditorSkeleton() {
@@ -240,6 +244,10 @@ function ClipEditor() {
   /** Where to go after the unsaved-changes prompt (null = no prompt) */
   const [leaveTo, setLeaveTo] = useState<string | null>(null)
   const [showShortcuts, setShowShortcuts] = useState(false)
+
+  /** Left column: the subtitle words, or the clip's campaign (checklist and post text) */
+  // `?tab=brief` opens the campaign tab (from the gallery's brief badge)
+  const [leftTab, setLeftTab] = useState<'words' | 'brief'>(params.get('tab') === 'brief' ? 'brief' : 'words')
 
   const [render, setRender] = useState<RenderJob | null>(null)
   const [renderOpen, setRenderOpen] = useState(false)
@@ -524,6 +532,12 @@ function ClipEditor() {
       setDetail((d) => (d ? { ...d, clip } : d))
       setPresent(snap)
       setSavedJson(JSON.stringify(snap))
+      if (clip.campaign_id) {
+        api.clips
+          .get(clipId)
+          .then((fresh) => setDetail((d) => (d ? mergeBriefDetail(d, fresh) : d)))
+          .catch(() => undefined)
+      }
       if (!silent) {
         setJustSaved(true)
         setTimeout(() => setJustSaved(false), 2000)
@@ -895,13 +909,30 @@ function ClipEditor() {
       </div>
 
       <div style={GRID_STYLE}>
-        {/* Word editor */}
-        <Card as="section" padding="none" aria-label={m.captionTitle} style={COLUMN_STYLE}>
-          <div style={{ padding: '20px 20px 0' }}>
-            <CardHeader size="sm" icon={<Type size={18} />} title={m.captionTitle} subtitle={m.captionSubtitle} />
+        {/* Word editor, or the clip's campaign */}
+        <Card as="section" padding="none" aria-label={leftTab === 'brief' ? t.brief.panel.title : m.captionTitle} style={COLUMN_STYLE}>
+          <div className="mc-stack mc-gap-16" style={{ padding: '20px 20px 0' }}>
+            <Tabs
+              ariaLabel={t.brief.panel.tabsAria}
+              size="sm"
+              block
+              tabs={[
+                { id: 'words', label: t.brief.panel.tabWords, icon: <Type size={14} aria-hidden="true" /> },
+                { id: 'brief', label: t.brief.panel.tabBrief, icon: <Megaphone size={14} aria-hidden="true" /> },
+              ]}
+              activeTab={leftTab}
+              onChange={(id) => setLeftTab(id as 'words' | 'brief')}
+            />
+            {leftTab === 'brief' ? (
+              <CardHeader size="sm" icon={<Megaphone size={18} />} title={t.brief.panel.title} subtitle={t.brief.panel.subtitle} />
+            ) : (
+              <CardHeader size="sm" icon={<Type size={18} />} title={m.captionTitle} subtitle={m.captionSubtitle} />
+            )}
           </div>
-          <div style={{ ...COLUMN_BODY, padding: '4px 12px 16px' }}>
-            {words.length === 0 ? (
+          <div style={{ ...COLUMN_BODY, padding: leftTab === 'brief' ? '4px 20px 20px' : '4px 12px 16px' }}>
+            {leftTab === 'brief' ? (
+              <CampaignPanel detail={detail} dirty={dirty} onDetail={(fn) => setDetail((d) => (d ? fn(d) : d))} onNavigate={leave} />
+            ) : words.length === 0 ? (
               <EmptyState
                 icon={Type}
                 title={m.noSubtitles}

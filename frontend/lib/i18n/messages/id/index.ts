@@ -21,6 +21,8 @@ import { editor } from './editor'
 import { captions } from './captions'
 import { brand } from './brand'
 import { presets } from './presets'
+import { campaign } from './campaign'
+import { brief } from './brief'
 
 export const id = {
   common,
@@ -39,6 +41,8 @@ export const id = {
   captions,
   brand,
   presets,
+  campaign,
+  brief,
 }
 
 export type Messages = typeof id

@@ -67,6 +67,8 @@ export const settings = {
     exportFolder: 'Folder ekspor',
     exportFolderHint: 'Setiap hasil render otomatis disalin ke sini. Juga tujuan default saat mengekspor clip.',
     pickExport: 'Pilih folder ekspor',
+    postText: 'Simpan teks posting untuk clip campaign',
+    postTextHint: 'Saat clip campaign diekspor, file .txt berisi judul, caption, mention, hashtag, dan label kerja sama ikut disimpan di sebelah videonya.',
     cacheLimit: 'Batas cache (GB)',
     cacheLimitHint: 'Video sumber sementara dihapus otomatis jika melebihi batas ini.',
     mongoCache: 'Cache MongoDB (GB)',

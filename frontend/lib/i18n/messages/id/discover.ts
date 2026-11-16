@@ -16,6 +16,13 @@ export const discover = {
     duration: 'Durasi klip',
     /** kind: "Shorts/Reels", "Story", … */
     durationHint: (kind: string) => `Format ${kind}`,
+    custom: 'Atur sendiri',
+    customFrom: 'Dari (detik)',
+    customTo: 'Sampai (detik)',
+    customHint: (min: number, max: number, span: number) => `Antara ${min} dan ${max} detik, dengan selisih minimal ${span} detik.`,
+    note: 'Catatan untuk video ini (opsional)',
+    notePlaceholder: 'Misalnya: fokus ke sesi tanya jawab, lewati bagian iklan sponsor.',
+    noteHint: 'Dibaca AI saat memilih momen, hanya untuk job ini.',
     maxClips: 'Jumlah klip (maks.)',
     unlimited: 'Tanpa batas',
     start: 'Mulai proses',

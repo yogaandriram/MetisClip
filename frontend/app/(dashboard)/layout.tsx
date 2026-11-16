@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { usePathname } from 'next/navigation'
-import { Clapperboard, Film, LayoutGrid, ListChecks, Palette, Settings } from 'lucide-react'
+import { Clapperboard, Film, LayoutGrid, ListChecks, Megaphone, Palette, Settings } from 'lucide-react'
 import { Providers } from '@/components/Providers'
 import { NavRail, normalizePath, type RailItem } from '@/components/shell/NavRail'
 import { ShellProvider, useShell } from '@/components/shell/ShellContext'
@@ -13,6 +13,7 @@ import type { Messages } from '@/lib/i18n'
 
 const NAV_ITEMS: (Omit<RailItem, 'name'> & { key: keyof Messages['shell']['nav'] })[] = [
   { key: 'dashboard', href: '/dashboard/', icon: LayoutGrid },
+  { key: 'campaigns', href: '/campaigns/', icon: Megaphone },
   { key: 'discover', href: '/discover/', icon: Clapperboard },
   { key: 'jobs', href: '/jobs/', icon: ListChecks },
   { key: 'clips', href: '/clips/', icon: Film },

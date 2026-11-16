@@ -3,6 +3,7 @@
 export const shell = {
   nav: {
     dashboard: 'Beranda',
+    campaigns: 'Campaign',
     discover: 'Cari Video',
     jobs: 'Antrian',
     clips: 'Hasil Clip',

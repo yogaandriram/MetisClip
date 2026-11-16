@@ -22,4 +22,8 @@ export const ui: Messages['ui'] = {
     empty: 'No workspaces yet. Create one to get started.',
     manage: 'Manage workspaces',
   },
+  tags: {
+    remove: (tag: string) => `Remove ${tag}`,
+    full: (n: number) => `Up to ${n} items`,
+  },
 }

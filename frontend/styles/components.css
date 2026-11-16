@@ -1276,6 +1276,112 @@ input[type='color'].mc-input {
   background: var(--dew);
 }
 
+/* Tag input (TagInput.tsx): a list of short texts inside one input box */
+.mc-tags {
+  min-height: 44px;
+  padding: 7px 8px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line-input);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  cursor: text;
+  transition: box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.mc-tags:hover {
+  box-shadow: inset 0 0 0 1px var(--text-muted);
+}
+
+.mc-tags:focus-within {
+  box-shadow: inset 0 0 0 1.5px var(--ink), 0 0 0 4px var(--leaf);
+}
+
+.mc-tags--invalid,
+.mc-tags--invalid:hover {
+  box-shadow: inset 0 0 0 2px var(--ink);
+}
+
+.mc-tags--disabled {
+  background: var(--mist);
+  cursor: not-allowed;
+}
+
+.mc-tags__item {
+  height: 28px;
+  max-width: 100%;
+  padding: 0 4px 0 12px;
+  border-radius: var(--r-full);
+  background: var(--dew);
+  color: var(--moss);
+  font: 600 12px/16px var(--font-text);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.mc-tags--disabled .mc-tags__item {
+  padding-right: 12px;
+}
+
+.mc-tags__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.mc-tags__remove {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--moss);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.mc-tags__remove:hover {
+  background: var(--sage);
+  color: var(--ink);
+}
+
+.mc-tags__remove:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.mc-tags__input {
+  flex: 1 1 120px;
+  min-width: 120px;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: 400 14px/20px var(--font-text);
+}
+
+/* Behind existing tags there is no placeholder to fit, so the box only wraps when typing needs room */
+.mc-tags__input--after {
+  flex-basis: 64px;
+  min-width: 64px;
+}
+
+.mc-tags__input:focus {
+  outline: none;
+}
+
+.mc-tags__input::placeholder {
+  color: var(--text-subtle);
+}
+
 .mc-goo {
   display: inline-flex;
   align-items: center;
@@ -2173,6 +2279,7 @@ input[type='color'].mc-input {
 /* Windows High Contrast: fills disappear, so give controls a border back (DESIGN.md §12). */
 @media (forced-colors: active) {
   .mc-card,
+  .mc-tags,
   .mc-input,
   .mc-btn,
   .mc-chip,

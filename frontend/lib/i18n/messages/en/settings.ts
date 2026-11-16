@@ -69,6 +69,8 @@ export const settings: Messages['settings'] = {
     exportFolder: 'Export folder',
     exportFolderHint: 'Every render is copied here automatically. Also the default target when you export clips.',
     pickExport: 'Choose the export folder',
+    postText: 'Save the post text for campaign clips',
+    postTextHint: 'When a campaign clip is exported, a .txt file with its title, caption, mentions, hashtags and partnership label is saved next to the video.',
     cacheLimit: 'Cache limit (GB)',
     cacheLimitHint: 'Temporary source videos are deleted automatically when the cache grows past this limit.',
     mongoCache: 'MongoDB cache (GB)',

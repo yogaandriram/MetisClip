@@ -3,6 +3,7 @@ import type { Messages } from '../id'
 export const shell: Messages['shell'] = {
   nav: {
     dashboard: 'Home',
+    campaigns: 'Campaigns',
     discover: 'Find Video',
     jobs: 'Queue',
     clips: 'Clips',

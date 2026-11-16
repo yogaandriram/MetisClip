@@ -1,8 +1,9 @@
 'use client'
 
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { Suspense, useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Download, Film, FolderOpen, Pencil, Plus, Trash2 } from 'lucide-react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { Download, Film, FolderOpen, Megaphone, Pencil, Plus, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
   Alert,
@@ -14,17 +15,20 @@ import {
   IconButton,
   PageHeader,
   ScoreBadge,
+  SelectField,
   Skeleton,
   Spinner,
   StatusBadge,
   Tabs,
   Tag,
+  ToggleSwitch,
 } from '@/components/ui'
+import { BriefBadge } from '@/components/brief/BriefBadge'
 import { NoAgentState } from '@/components/NoAgentState'
 import { useAgent } from '@/contexts/AgentContext'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
-import { api, type Clip, type ClipStatus } from '@/lib/engine'
+import { api, type Campaign, type Clip, type ClipDetail, type ClipStatus } from '@/lib/engine'
 import { isDesktop, mediaUrl, revealInExplorer } from '@/lib/media'
 import { CLIP_STATUS, errorMessage, formatClock, formatDate } from '@/lib/format'
 import { tm } from '@/lib/i18n'
@@ -45,14 +49,42 @@ const FILTERS: { id: Filter; status: ClipStatus | null; match: (s: ClipStatus) =
 
 const filterLabel = (status: ClipStatus | null) => (status ? CLIP_STATUS[status].label : tm().common.all)
 
+/** Campaign filter (?campaign=): '' all clips, NO_CAMPAIGN clips without one, else a campaign id */
+const NO_CAMPAIGN = 'none'
+
+const matchesCampaign = (clip: Clip, filter: string) =>
+  !filter || (filter === NO_CAMPAIGN ? !clip.campaign_id : clip.campaign_id === filter)
+
+/** A clip from GET /api/clips/{id}, with the campaign fields only the list carries. */
+const fromDetail = (d: ClipDetail): Clip => ({
+  ...d.clip,
+  campaign_name: d.campaign?.name ?? d.clip.campaign_name,
+  brief_summary: d.brief_check?.summary ?? null,
+})
+
 const GRID: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 20 }
 const CENTER: React.CSSProperties = { position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }
 
 export default function ClipsPage() {
-  const { activeAgent } = useAgent()
+  return (
+    <Suspense fallback={<Skeleton height={400} radius="lg" />}>
+      <Clips />
+    </Suspense>
+  )
+}
+
+function Clips() {
+  const { activeAgent, agents } = useAgent()
   const { epoch, systemInfo } = useEngine()
+  const router = useRouter()
+  const params = useSearchParams()
   const t = useT()
   const m = t.clips
+  const g = t.brief.gallery
+  const campaignFilter = params.get('campaign') || ''
+  // A campaign's clips can sit in several workspaces: coming from a campaign shows all of them
+  const [allAgents, setAllAgents] = useState(() => !!campaignFilter && campaignFilter !== NO_CAMPAIGN)
+  const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [clips, setClips] = useState<Clip[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
@@ -60,7 +92,9 @@ export default function ClipsPage() {
   const [deleting, setDeleting] = useState(false)
   const [exportingId, setExportingId] = useState<string | null>(null)
 
-  const load = useCallback(async (agentId: string) => {
+  const agentFilter = allAgents ? undefined : activeAgent?.id
+
+  const load = useCallback(async (agentId: string | undefined) => {
     try {
       const { clips } = await api.clips.list({ agent_id: agentId })
       setClips(clips)
@@ -72,12 +106,23 @@ export default function ClipsPage() {
 
   useEffect(() => {
     setClips(null)
-    if (activeAgent) load(activeAgent.id)
-  }, [activeAgent, load, epoch])
+    if (activeAgent) load(agentFilter)
+  }, [activeAgent, agentFilter, load, epoch])
+
+  // Names for the campaign filter (archived ones too: their clips stay)
+  useEffect(() => {
+    api.campaigns
+      .list()
+      .then(({ campaigns }) => setCampaigns(campaigns))
+      .catch(() => setCampaigns([]))
+  }, [epoch])
+
+  const setCampaignFilter = (value: string) =>
+    router.replace(value ? `/clips/?campaign=${encodeURIComponent(value)}` : '/clips/', { scroll: false })
 
   const refreshOne = useCallback(async (id: string) => {
     try {
-      const { clip } = await api.clips.get(id)
+      const clip = fromDetail(await api.clips.get(id))
       setClips((prev) => {
         if (!prev) return prev
         const exists = prev.some((c) => c.id === id)
@@ -91,7 +136,7 @@ export default function ClipsPage() {
 
   useEngineEvents((e) => {
     if (!activeAgent) return
-    if (e.type === 'clip.created' && e.agent_id === activeAgent.id) refreshOne(e.id)
+    if (e.type === 'clip.created' && (!agentFilter || e.agent_id === agentFilter)) refreshOne(e.id)
     else if (e.type === 'clip.updated' && clips?.some((c) => c.id === e.id)) refreshOne(e.id)
     else if (e.type === 'clip.deleted') setClips((prev) => prev?.filter((c) => c.id !== e.id) ?? prev)
   })
@@ -152,18 +197,35 @@ export default function ClipsPage() {
 
   const desktop = isDesktop()
   const activeFilter = FILTERS.find((f) => f.id === filter) || FILTERS[0]
-  const visible = clips?.filter((c) => activeFilter.match(c.status)) ?? []
+  const inCampaign = clips?.filter((c) => matchesCampaign(c, campaignFilter)) ?? []
+  const visible = inCampaign.filter((c) => activeFilter.match(c.status))
+  const agentName = (id: string | null) => agents.find((a) => a.id === id)?.name || t.jobs.deletedWorkspace
+  // The filter shows when there is something to filter by (or the URL names a campaign)
+  const showCampaignFilter = campaigns.length > 0 || !!campaignFilter || !!clips?.some((c) => c.campaign_id)
+  const campaignOptions = [
+    { value: '', label: g.all },
+    { value: NO_CAMPAIGN, label: g.withoutCampaign },
+    ...campaigns.map((c) => ({ value: c.id, label: c.status === 'archived' ? g.archived(c.name) : c.name })),
+    // A campaign id in the URL that is not in the library (deleted meanwhile)
+    ...(campaignFilter && campaignFilter !== NO_CAMPAIGN && !campaigns.some((c) => c.id === campaignFilter)
+      ? [{ value: campaignFilter, label: clips?.find((c) => c.campaign_id === campaignFilter)?.campaign_name || g.filter }]
+      : []),
+  ]
 
   return (
     <div>
-      <PageHeader title={m.title} subtitle={m.subtitle} />
+      <PageHeader
+        title={m.title}
+        subtitle={m.subtitle}
+        actions={<ToggleSwitch checked={allAgents} onChange={setAllAgents} label={g.allWorkspaces} />}
+      />
 
       {error && (
         <Alert
           tone="error"
           style={{ marginBottom: 20 }}
           action={
-            <Button variant="secondary" size="sm" onClick={() => load(activeAgent.id)}>
+            <Button variant="secondary" size="sm" onClick={() => load(agentFilter)}>
               {t.common.retry}
             </Button>
           }
@@ -195,7 +257,7 @@ export default function ClipsPage() {
         />
       ) : (
         <div className="mc-stack mc-gap-20">
-          <div>
+          <div className="mc-row mc-row--between mc-row--wrap mc-gap-12">
             <Tabs
               ariaLabel={m.filterAria}
               onCanvas
@@ -203,16 +265,37 @@ export default function ClipsPage() {
                 id: f.id,
                 label: (
                   <>
-                    {filterLabel(f.status)} <span className="mc-mono">{clips.filter((c) => f.match(c.status)).length}</span>
+                    {filterLabel(f.status)} <span className="mc-mono">{inCampaign.filter((c) => f.match(c.status)).length}</span>
                   </>
                 ),
               }))}
               activeTab={filter}
               onChange={(id) => setFilter(id as Filter)}
             />
+            {showCampaignFilter && (
+              <SelectField
+                aria-label={g.filter}
+                inputSize="sm"
+                value={campaignFilter}
+                options={campaignOptions}
+                onChange={(e) => setCampaignFilter(e.target.value)}
+                containerStyle={{ minWidth: 220, maxWidth: 320 }}
+              />
+            )}
           </div>
 
-          {visible.length === 0 ? (
+          {inCampaign.length === 0 ? (
+            <EmptyState
+              icon={Megaphone}
+              title={g.noneInFilter}
+              description={allAgents ? undefined : g.noneInFilterDescription}
+              action={
+                <Button variant="secondary" size="sm" onClick={() => setCampaignFilter('')}>
+                  {m.showAll}
+                </Button>
+              }
+            />
+          ) : visible.length === 0 ? (
             <EmptyState
               icon={Film}
               title={m.noneWithStatus}
@@ -263,8 +346,27 @@ export default function ClipsPage() {
                       <h2 className="mc-h3 mc-clamp-2" title={hook}>
                         {hook}
                       </h2>
-                      <span className="mc-caption mc-muted">{formatDate(clip.created_at)}</span>
+                      <span className="mc-caption mc-muted">
+                        {allAgents && `${agentName(clip.agent_id)} · `}
+                        {formatDate(clip.created_at)}
+                      </span>
                     </div>
+                    {clip.campaign_id && (
+                      <div className="mc-row mc-row--wrap mc-gap-4">
+                        <Tag>
+                          <Megaphone size={12} aria-hidden="true" />
+                          <span className="mc-sr-only">{t.brief.campaign}: </span>
+                          <span className="mc-truncate" style={{ maxWidth: 160 }} title={clip.campaign_name || undefined}>
+                            {clip.campaign_name || t.brief.campaign}
+                          </span>
+                        </Tag>
+                        {clip.brief_summary && (
+                          <Link href={`${detailHref(clip.id)}&tab=brief`} className="mc-brief-badge-link">
+                            <BriefBadge summary={clip.brief_summary} />
+                          </Link>
+                        )}
+                      </div>
+                    )}
                     {clip.rationale && (
                       <p className="mc-muted mc-clamp-2" title={clip.rationale}>
                         {clip.rationale}

@@ -23,4 +23,8 @@ export const ui = {
     empty: 'Belum ada workspace. Buat satu untuk mulai.',
     manage: 'Kelola workspace',
   },
+  tags: {
+    remove: (tag: string) => `Hapus ${tag}`,
+    full: (n: number) => `Maksimal ${n} item`,
+  },
 }
