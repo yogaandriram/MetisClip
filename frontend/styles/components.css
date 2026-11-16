@@ -69,10 +69,23 @@
 }
 
 .mc-profile__button .mc-avatar {
-  transition: transform var(--dur-base) var(--ease-out);
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+    transform var(--dur-base) var(--ease-out);
 }
 
-.mc-profile__button:hover .mc-avatar,
+/* Inactive (another page, menu closed): the initials sit on the ink like the rail's icons */
+.mc-profile__button:not(.is-active) .mc-avatar {
+  background: transparent;
+  color: var(--on-ink-muted);
+}
+
+.mc-profile__button:not(.is-active):hover .mc-avatar {
+  color: var(--on-ink);
+}
+
+/* Active (a campaign page, or the menu is open): the avatar's green fill with ink initials,
+   like the rail's light active circle */
+.mc-profile__button.is-active:hover .mc-avatar,
 .mc-profile__button[aria-expanded='true'] .mc-avatar {
   transform: scale(1.05);
 }
