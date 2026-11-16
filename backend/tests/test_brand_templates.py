@@ -145,6 +145,24 @@ def test_brief_change_redesigns_until_the_user_edits(client, db, fake_llm):
     assert len(fake_llm.calls) == 4 and tpl["caption_settings"]["mode"] == "kineticbox" and tpl["design"]["edited"] is False
 
 
+def test_redesign_keeps_what_the_user_set_in_the_layout(client, db, fake_llm):
+    camp = client.post("/api/campaigns", json={"name": "Kampanye"}).json()["campaign"]
+    tid = camp["brand_template_id"]
+    companion = "asset://library/_brand/x/companion.mp4"
+    client.put(f"/api/brand-templates/{tid}", json={"layout_settings": {
+        "mode": "full", "smart": {"enabled": True, "screen": "card"},
+        "companion": {"videoUrl": companion, "duration": 12, "split": 0.6},
+        "card": {"name": "Akun Saya", "color": "#FFFFFF"}, "credit": {"text": "Via {channel}", "enabled": False}}})
+    assert client.post(f"/api/brand-templates/{tid}/design").status_code == 200
+    lay = client.get(f"/api/brand-templates/{tid}").json()["brand_template"]["layout_settings"]
+    # The AI's look ...
+    assert lay["mode"] == "podcast" and lay["background"]["color"].lower() == "#0b3d2e"
+    # ... with the switch, uploads and typed text the user set
+    assert lay["smart"] == {"enabled": True, "screen": "card"}
+    assert lay["companion"] == {"videoUrl": companion, "duration": 12}
+    assert lay["card"] == {"name": "Akun Saya"} and lay["credit"]["text"] == "Via {channel}"
+
+
 def test_ai_result_is_dropped_when_the_user_edits_meanwhile(client, db, fake_llm):
     camp = client.post("/api/campaigns", json={"name": "K"}).json()["campaign"]
     tid = camp["brand_template_id"]

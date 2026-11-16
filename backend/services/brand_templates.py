@@ -204,6 +204,32 @@ def _spawn(target: Any, template_id: str, run: str) -> None:
     threading.Thread(target=target, args=(template_id, run), name=f"template-{template_id[:8]}", daemon=True).start()
 
 
+# Layout values the user typed, uploaded or switched on, kept through an AI design like through a gallery
+# preset (applyLayoutPreset in layout.ts): section -> keys (None: the whole section)
+USER_LAYOUT: dict[str, tuple[str, ...] | None] = {
+    "smart": None,
+    "speaker": None,
+    "companion": ("videoUrl", "duration"),
+    "card": ("name", "handle", "avatarUrl"),
+    "background": ("imageUrl",),
+    "header": ("source", "text"),
+    "credit": ("text",),
+}
+
+
+def keep_user_layout(old: dict[str, Any] | None, new: dict[str, Any]) -> dict[str, Any]:
+    """The AI's layout with the user's own values from the template's current one (USER_LAYOUT)."""
+    out = {k: (dict(v) if isinstance(v, dict) else v) for k, v in new.items()}
+    for section, keys in USER_LAYOUT.items():
+        part = (old or {}).get(section)
+        if not isinstance(part, dict):
+            continue
+        vals = dict(part) if keys is None else {k: part[k] for k in keys if k in part}
+        if vals:
+            out[section] = {**(out.get(section) or {}), **vals}
+    return out
+
+
 def _design(template_id: str, run: str) -> None:
     from backend.agents.tools import template_ai
     from backend.core import llm
@@ -222,6 +248,7 @@ def _design(template_id: str, run: str) -> None:
             where = {}
         design = (tpl.get("design") or {})
         sets: dict[str, Any] = {k: res["settings"][k] for k in AI_SECTIONS}
+        sets["layout_settings"] = keep_user_layout(tpl.get("layout_settings"), sets["layout_settings"])
         sets["updated_at"] = utcnow()
         if not design.get("renamed"):
             sets["name"] = res["name"]
