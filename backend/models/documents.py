@@ -343,6 +343,9 @@ class JobConfig(BaseModel):
     # Total number of clips for the job (0 = unlimited); also the per-video early-stop limit
     max_clips: int = 3
     max_clips_per_video: int = 3
+    # The automatic layout by content for this job's clips: True/False sets it on each new clip
+    # (layout_style.smart.enabled), None follows each campaign's brand template
+    smart_layout: Optional[bool] = None
 
 
 class JobCheckpoint(BaseModel):

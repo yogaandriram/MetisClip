@@ -438,6 +438,7 @@ export const brand = {
     notes: {
       logo: 'Brief meminta logo. Unggah logonya di bagian Logo & video contoh.',
       credit_layout: 'Brief mewajibkan kredit sumber, jadi template memakai bingkai podcast (layout penuh tidak menampilkan kredit).',
+      credit_smart: 'Brief mewajibkan kredit sumber, jadi layout otomatis sesuai konten tidak memakai layout penuh (layout penuh tidak menampilkan kredit).',
       subtitles_forbidden: 'Brief melarang subtitle, padahal MetisClip selalu memasang subtitle. Tanyakan lagi ke agensinya.',
       visual_rules: 'Brief punya aturan visual lain. Cek dan centang di tab Campaign pada editor clip.',
       other: 'Ada catatan lain dari AI.',
@@ -452,7 +453,7 @@ export const brand = {
     skippedTitle: 'Hasil AI tidak dipakai',
     redesign: 'Desain ulang',
     confirmTitle: 'Desain ulang dengan AI?',
-    confirmBody: 'AI mengganti caption, layout dan AI subtitle template ini dengan desain baru dari nama dan brief campaign. Logo, video contoh, layout otomatis sesuai konten, video pendamping, nama pembicara, akun kartu dan teks yang Anda ketik tetap.',
+    confirmBody: 'AI mengganti caption, layout dan AI subtitle template ini dengan desain baru dari nama dan brief campaign. AI juga memutuskan layout otomatis sesuai konten. Logo, video contoh, video pendamping, nama pembicara, akun kartu dan teks yang Anda ketik tetap.',
     confirmUnsaved: 'Perubahan yang belum disimpan akan dibuang.',
     confirm: 'Desain ulang',
   },

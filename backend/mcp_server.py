@@ -41,23 +41,28 @@ def list_campaigns() -> list:
 
 
 @mcp.tool()
-def clip_youtube_video(campaign_ids: list[str], youtube_url: str, clip_duration: str = "45-60", max_clips: int = 3) -> dict:
-    """Start a full pipeline job for a YouTube link (analyze -> clip) for 1-5 active campaigns. Returns the job."""
+def clip_youtube_video(campaign_ids: list[str], youtube_url: str, clip_duration: str = "45-60", max_clips: int = 3,
+                       smart_layout: bool | None = None) -> dict:
+    """Start a full pipeline job for a YouTube link (analyze -> clip) for 1-5 active campaigns. smart_layout
+    turns the automatic layout by content on or off for its clips (None: follow the brand templates).
+    Returns the job."""
     body = {
         "campaign_ids": campaign_ids,
         "youtube_url": youtube_url,
         "clip_duration": clip_duration,
         "max_clips": max_clips,
+        "smart_layout": smart_layout,
     }
     return _call("POST", "/api/jobs", json=body)["job"]
 
 
 @mcp.tool()
-def clip_local_video(campaign_ids: list[str], file_path: str, clip_duration: str = "45-60", max_clips: int = 3) -> dict:
+def clip_local_video(campaign_ids: list[str], file_path: str, clip_duration: str = "45-60", max_clips: int = 3,
+                     smart_layout: bool | None = None) -> dict:
     """Start a full pipeline job for a video file on this PC (absolute path; used in place) for 1-5 active
-    campaigns. Returns the job."""
+    campaigns. smart_layout as in clip_youtube_video. Returns the job."""
     body = {"campaign_ids": campaign_ids, "local_file_path": file_path, "clip_duration": clip_duration,
-            "max_clips": max_clips}
+            "max_clips": max_clips, "smart_layout": smart_layout}
     return _call("POST", "/api/jobs", json=body)["job"]
 
 

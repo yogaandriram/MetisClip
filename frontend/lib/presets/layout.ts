@@ -195,7 +195,7 @@ export interface LayoutAuto {
  */
 export interface LayoutSmart {
   enabled: boolean;
-  speaker: 'full' | 'split';
+  speaker: 'full' | 'split' | 'podcast';
   duo: 'duo' | 'full' | 'podcast';
   screen: 'podcast' | 'card' | 'full';
   mixed: 'auto' | 'full' | 'podcast';
@@ -337,7 +337,7 @@ export const MODES: LayoutMode[] = ['full', 'podcast', 'card', 'split', 'duo', '
 /** The layouts each kind of content may get with the smart layout, the first being the default
  * (mirrors SMART_CHOICES in backend/services/layout.py). */
 export const SMART_CHOICES = {
-  speaker: ['full', 'split'],
+  speaker: ['full', 'split', 'podcast'],
   duo: ['duo', 'full', 'podcast'],
   screen: ['podcast', 'card', 'full'],
   mixed: ['auto', 'full', 'podcast'],

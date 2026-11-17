@@ -137,7 +137,7 @@ SAFE_ZONES = ("none", "all", "tiktok", "reels", "shorts")
 # "Layout otomatis sesuai konten" (the `smart` section): the layout each kind of clip content may get,
 # the first one being the default. Mirrors SMART_CHOICES in frontend/lib/presets/layout.ts.
 SMART_CHOICES: dict[str, tuple[str, ...]] = {
-    "speaker": ("full", "split"),
+    "speaker": ("full", "split", "podcast"),
     "duo": ("duo", "full", "podcast"),
     "screen": ("podcast", "card", "full"),
     "mixed": ("auto", "full", "podcast"),

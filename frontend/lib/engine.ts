@@ -14,7 +14,7 @@ export type TemplateDesignStatus = 'running' | 'done' | 'failed' | 'basic' | 'sk
 
 /** Something the AI could not do for the template (worded by the frontend, `brand.design.notes`). */
 export interface TemplateDesignNote {
-  kind: 'logo' | 'credit_layout' | 'subtitles_forbidden' | 'visual_rules' | string
+  kind: 'logo' | 'credit_layout' | 'credit_smart' | 'subtitles_forbidden' | 'visual_rules' | string
   params: Record<string, string | number>
 }
 
@@ -229,6 +229,8 @@ export interface Job {
   config: {
     clip_duration: string
     max_clips_per_video: number
+    /** The automatic layout by content for its clips (null or missing: each campaign's brand template) */
+    smart_layout?: boolean | null
   }
   /** Campaigns the clips are made for (the brief snapshot stays in the engine) */
   campaign_ids: string[]
@@ -257,6 +259,8 @@ export interface JobCreate {
   /** 1 to 5 active campaigns (required): each brief guides the choice, and each campaign gets its own clips */
   campaign_ids: string[]
   note?: string
+  /** Turns the automatic layout by content on or off for the job's clips; null or missing follows the brand templates */
+  smart_layout?: boolean | null
 }
 
 export interface SubtitleWord {

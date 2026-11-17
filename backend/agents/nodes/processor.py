@@ -191,6 +191,12 @@ def _template_id(ctx: JobContext, seg: dict[str, Any]) -> str | None:
     return brand_templates.ensure_for_campaign(campaign["id"]) if live else None
 
 
+def _layout_style(ctx: JobContext) -> dict[str, Any]:
+    """A new clip's layout override: the job's choice of the automatic layout by content, if any."""
+    smart = (ctx.job.get("config") or {}).get("smart_layout")
+    return {"smart": {"enabled": smart}} if isinstance(smart, bool) else {}
+
+
 def _brief_marks(words: list[dict[str, Any]], campaign: dict[str, Any] | None) -> list[dict[str, Any]]:
     """The words the brief requires are highlighted as subtitle keywords."""
     terms = ((campaign or {}).get("brief") or {}).get("must_include") or []
@@ -292,6 +298,7 @@ def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw
         source_height=source_info.get("source_height"),
         subtitle={"words": words},
         subtitle_style={},
+        layout_style=_layout_style(ctx),
         brand_template_id=template_id,
         **_campaign_fields(seg),
         status="ready",
@@ -400,6 +407,7 @@ def derive_clip(ctx: JobContext, seg: dict[str, Any], base: dict[str, Any]) -> d
         source_height=base.get("source_height"),
         subtitle={"words": words},
         subtitle_style={},
+        layout_style=_layout_style(ctx),
         brand_template_id=template_id,
         **_campaign_fields(seg),
         status="ready",

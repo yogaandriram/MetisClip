@@ -205,9 +205,9 @@ def _spawn(target: Any, template_id: str, run: str) -> None:
 
 
 # Layout values the user typed, uploaded or switched on, kept through an AI design like through a gallery
-# preset (applyLayoutPreset in layout.ts): section -> keys (None: the whole section)
+# preset (applyLayoutPreset in layout.ts): section -> keys (None: the whole section). The automatic
+# layout by content is not one of them: the AI designs it.
 USER_LAYOUT: dict[str, tuple[str, ...] | None] = {
-    "smart": None,
     "speaker": None,
     "companion": ("videoUrl", "duration"),
     "card": ("name", "handle", "avatarUrl"),

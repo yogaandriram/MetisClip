@@ -421,6 +421,7 @@ export const brand: Messages['brand'] = {
     notes: {
       logo: 'The brief asks for a logo. Upload it in the Logo & sample video section.',
       credit_layout: 'The brief requires a source credit, so the template uses the podcast frame (the full layout does not show the credit).',
+      credit_smart: 'The brief requires a source credit, so the automatic layout by content never uses the full layout (it does not show the credit).',
       subtitles_forbidden: 'The brief forbids subtitles, but MetisClip always adds subtitles. Check with the agency.',
       visual_rules: 'The brief has other visual rules. Check and tick them in the Campaign tab of the clip editor.',
       other: 'The AI left another note.',
@@ -435,7 +436,7 @@ export const brand: Messages['brand'] = {
     skippedTitle: 'The AI result was not used',
     redesign: 'Redesign',
     confirmTitle: 'Redesign with AI?',
-    confirmBody: 'The AI replaces this template’s caption, layout and AI subtitle settings with a new design from the campaign’s name and brief. The logo, sample video, automatic layout by content, companion video, speaker tag, card account and the text you typed stay.',
+    confirmBody: 'The AI replaces this template’s caption, layout and AI subtitle settings with a new design from the campaign’s name and brief. The AI also decides the automatic layout by content. The logo, sample video, companion video, speaker tag, card account and the text you typed stay.',
     confirmUnsaved: 'Unsaved changes will be discarded.',
     confirm: 'Redesign',
   },

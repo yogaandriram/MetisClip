@@ -593,6 +593,29 @@ def test_content_profile_reads_what_the_shots_show():
     assert cp(clip, None) is None and cp({}, None) is None
 
 
+def test_a_job_can_switch_the_automatic_layout(client, db, monkeypatch):
+    from backend.agents.nodes import processor
+    from backend.api.routes import jobs as jobs_route
+
+    ctx = lambda job: type("C", (), {"job": job})()  # noqa: E731
+    assert processor._layout_style(ctx({"config": {"smart_layout": True}})) == {"smart": {"enabled": True}}
+    assert processor._layout_style(ctx({"config": {"smart_layout": False}})) == {"smart": {"enabled": False}}
+    assert processor._layout_style(ctx({"config": {"smart_layout": None}})) == {}
+    assert processor._layout_style(ctx({})) == {}  # jobs from before the switch follow the template
+    # The clip's switch goes over the template's choices
+    eff = layout.effective_layout({"layout_style": {"smart": {"enabled": True}}},
+                                  {"layout_settings": {"mode": "podcast", "smart": {"enabled": False, "duo": "full"}}})
+    assert eff["smart"]["enabled"] is True and eff["smart"]["duo"] == "full"
+
+    monkeypatch.setattr(jobs_route.runner, "submit_job", lambda job_id: None)
+    camp = client.post("/api/campaigns", json={"name": "Kanal"}).json()["campaign"]
+    body = {"youtube_url": "https://youtu.be/abcdefghijk", "campaign_ids": [camp["id"]]}
+    for value in (True, False, None):
+        job = client.post("/api/jobs", json={**body, "smart_layout": value}).json()["job"]
+        assert db.discovery_jobs.find_one({"_id": job["id"]})["config"]["smart_layout"] is value
+    assert client.post("/api/jobs", json={**body, "smart_layout": "ya"}).status_code == 422
+
+
 def test_smart_mode_follows_the_choices():
     lay = {"smart": {"enabled": True}}
     assert [layout.smart_mode(k, lay) for k in layout.CONTENT_KINDS] == ["full", "full", "duo", "podcast", "auto"]

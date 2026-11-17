@@ -121,6 +121,38 @@ def test_brief_wins_over_the_ai_choice():
     assert template_ai._platform_zone(["Instagram Reels"]) == "reels" and template_ai._platform_zone([]) == "all"
 
 
+def test_ai_can_turn_on_the_automatic_layout():
+    camp = {"_id": "c", "name": "X", "brief": {}}
+    assert template_ai.build({"layout": "duo"}, camp)[0]["layout_settings"]["smart"] == {"enabled": False}
+    settings, notes = template_ai.build({"layout": "podcast-dark", "smart_layout": True, "smart": {
+        "speaker": "split", "duo": "full", "screen": "card", "mixed": "nope"}}, camp)
+    lay = settings["layout_settings"]
+    # Unknown choices take the default; the companion video needs an upload, so the AI never picks it
+    assert lay["smart"] == {"enabled": True, "speaker": "full", "duo": "full", "screen": "card", "mixed": "auto"}
+    assert lay["mode"] == "podcast" and notes == []  # the look stays the layout for when it is turned off
+    # A required source credit: no kind of content gets the full layout, which hides it
+    required = {"_id": "c", "name": "X", "brief": {"visual": {"credit": "required"}}}
+    settings, notes = template_ai.build({"layout": "podcast", "smart_layout": True, "smart": {
+        "speaker": "full", "duo": "full", "screen": "full", "mixed": "full"}}, required)
+    assert settings["layout_settings"]["smart"] == {
+        "enabled": True, "speaker": "podcast", "duo": "duo", "screen": "podcast", "mixed": "auto"}
+    assert {"kind": "credit_smart", "params": {}} in notes
+    assert "smart_layout" in template_ai._prompt("id") and "split" not in str(template_ai.AI_SMART_CHOICES)
+
+
+def test_the_automatic_layout_is_always_explained(monkeypatch):
+    camp = {"_id": "c", "name": "X", "brief": {}}
+    answer = {"layout": "podcast", "smart_layout": True, "reasons": [{"part": "caption", "text": "Huruf tebal."}]}
+    monkeypatch.setattr(template_ai, "design", REAL_DESIGN)
+    monkeypatch.setattr(template_ai.llm, "chat_json", lambda *a, **k: answer)
+    reasons = template_ai.design(camp)["reasons"]
+    assert reasons[-1]["part"] == "layout" and "otomatis sesuai konten" in reasons[-1]["text"]  # the fixed text
+    answer["smart_reason"] = "Video campaign ini campuran podcast dan slide."
+    assert template_ai.design(camp)["reasons"][-1]["text"] == "Video campaign ini campuran podcast dan slide."
+    answer["smart_layout"] = False
+    assert [r["part"] for r in template_ai.design(camp)["reasons"]] == ["caption"]
+
+
 def test_brief_change_redesigns_until_the_user_edits(client, db, fake_llm):
     camp = client.post("/api/campaigns", json={"name": "Kampanye"}).json()["campaign"]
     tid = camp["brand_template_id"]
@@ -157,8 +189,8 @@ def test_redesign_keeps_what_the_user_set_in_the_layout(client, db, fake_llm):
     lay = client.get(f"/api/brand-templates/{tid}").json()["brand_template"]["layout_settings"]
     # The AI's look ...
     assert lay["mode"] == "podcast" and lay["background"]["color"].lower() == "#0b3d2e"
-    # ... with the switch, uploads and typed text the user set
-    assert lay["smart"] == {"enabled": True, "screen": "card"}
+    # ... with the uploads and typed text the user set; the automatic layout is the AI's to decide
+    assert lay["smart"] == {"enabled": False}
     assert lay["companion"] == {"videoUrl": companion, "duration": 12}
     assert lay["card"] == {"name": "Akun Saya"} and lay["credit"]["text"] == "Via {channel}"
 
