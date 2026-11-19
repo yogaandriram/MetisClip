@@ -7,8 +7,10 @@
 3. Rank: one more call shows the best candidates side by side, with context sentences around each. The
    LLM fixes the edges and re-scores them against each other, so scores from different parts compare.
 4. Code keeps every clip inside the duration range at sentence edges (never a hard cut mid-sentence),
-   applies the intro ban, drops overlaps and keeps the best `max_clips_per_video`.
-The Processor then snaps both edges to the clip's own Whisper words (`tools.clip_edges`).
+   drops a bare reaction at either edge ("Gitu ya.", "Iya.") and keeps the question a clip's first
+   sentence answers, applies the intro ban, drops overlaps and keeps the best `max_clips_per_video`.
+The Processor then snaps both edges to the clip's own Whisper words (`tools.clip_edges`), finding the
+transcript's own words at each edge (`edge_text`) in them.
 """
 from __future__ import annotations
 
@@ -17,7 +19,7 @@ import uuid
 from typing import Any
 
 from backend.agents.context import JobContext, PipelineError
-from backend.agents.tools import brief_match
+from backend.agents.tools import brief_match, clip_edges
 from backend.agents.tools.sentences import Unit, build_units
 from backend.agents.tools.transcript import cache_key, get_transcript
 from backend.core import llm
@@ -88,6 +90,18 @@ RANK_CONTEXT = 5                # sentences shown before and after each candidat
 DURATION_TOLERANCE = 3.0        # a clip may run this much over the chosen range to end on a full sentence
 LEAD_IN = 0.15                  # seconds kept before the first sentence (the Processor refines the edges)
 TAIL = 0.25                     # seconds kept after the last sentence
+QUESTION_MAX_SECONDS = 12.0     # a question this short is pulled into a clip that starts with its answer
+# Words of a bare reaction: a sentence made only of these (at most REACTION_WORDS of them) is not a clip edge
+REACTIONS = frozenset(
+    "ya iya iyah iyaa yah yoi oke okay ok okeh sip hm hmm hmmm mm mhm eh oh wah wow ah he heeh ehe haha "
+    "betul bener benar gitu gini tuh kan dong deh sih nah yes yeah yep right exactly true sure".split()
+)
+REACTION_WORDS = 3
+# First words of an answer: a clip starting with one right after a question also takes the question
+REPLIES = frozenset(
+    "ya iya iyah enggak engga nggak ngga gak ga nggih betul bener benar tidak bukan belum sudah udah "
+    "yes no yeah nope sure".split()
+)
 
 # Rubric weights for viral_score (0-100) from the five 1-10 scores
 WEIGHTS = {"hook": 0.25, "value": 0.25, "standalone": 0.20, "payoff": 0.15, "shareability": 0.15}
@@ -295,6 +309,56 @@ def fit_duration(units: list[Unit], i: int, j: int, lo: float, hi: float,
     return i, min(pool, key=lambda k: (abs(k - j), -k))
 
 
+def is_reaction(unit: Unit) -> bool:
+    """A sentence that is only a reaction ("Gitu ya.", "Iya.", "Hm.", "[tertawa]"): no clip starts or ends on it."""
+    toks = clip_edges.anchor_tokens(unit.text)
+    return len(toks) <= REACTION_WORDS and all(t in REACTIONS for t in toks)
+
+
+def _is_question(unit: Unit) -> bool:
+    return unit.text.rstrip().rstrip("\"'”’)]").endswith("?")
+
+
+def tidy_edges(units: list[Unit], i: int, j: int, first_allowed: int = 0) -> tuple[int, int]:
+    """Sentence range without a bare reaction at either edge, and with the question it opens by answering.
+
+    The prompt already asks for this; the LLM still picks "Gitu ya." or "Ya cutting." (the answer to the
+    sentence before it) as a first sentence now and then."""
+    while i < j and is_reaction(units[i]):
+        i += 1
+    while j > i and is_reaction(units[j]):
+        j -= 1
+    toks = clip_edges.anchor_tokens(units[i].text)
+    if i - 1 >= first_allowed and toks and (toks[0] in REPLIES or len(toks) <= REACTION_WORDS):
+        prev = units[i - 1]
+        if (_is_question(prev) and prev.end - prev.start <= QUESTION_MAX_SECONDS
+                and prev.start >= INTRO_BAN_SECONDS):
+            i -= 1
+    return i, j
+
+
+def edge_text(units: list[Unit], i: int, j: int) -> dict[str, str]:
+    """The transcript's first words of the clip (`first`) and of the sentence after it (`next`).
+
+    The Processor looks for them in the clip's Whisper words to cut exactly at these sentences
+    (`clip_edges.snap`). Only sent where the transcript marks a sentence end, so an unpunctuated caption
+    piece never forces a cut in the middle of a real sentence."""
+
+    def lead(k: int) -> str:
+        toks: list[str] = []
+        while k < len(units) and len(toks) < clip_edges.ANCHOR_WORDS:
+            toks += clip_edges.anchor_tokens(units[k].text)
+            k += 1
+        return " ".join(toks[:clip_edges.ANCHOR_WORDS])
+
+    out: dict[str, str] = {}
+    if i == 0 or units[i - 1].complete:
+        out["first"] = lead(i)
+    if j + 1 < len(units) and units[j].complete:
+        out["next"] = lead(j + 1)
+    return {k: v for k, v in out.items() if v}
+
+
 def clip_times(units: list[Unit], i: int, j: int, video_duration: float | None) -> tuple[float, float]:
     start = max(0.0, units[i].start - LEAD_IN)
     end = units[j].end + TAIL
@@ -430,7 +494,10 @@ def _candidate(raw: dict[str, Any], units: list[Unit], lo: float, hi: float,
     i, j = max(i, allowed[0]), min(j, allowed[1])
     if j < i:
         return None
+    i, j = tidy_edges(units, i, j, allowed[0])
     i, j = fit_duration(units, i, j, lo, hi)
+    if j > i and is_reaction(units[j]) and duration(units, i, j - 1) >= lo:  # growing reached a reaction
+        j -= 1
     if units[i].start < INTRO_BAN_SECONDS:
         logger.info("Intro ban: rejected a clip starting at %.0fs", units[i].start)
         return None
@@ -623,6 +690,7 @@ def _segment(ctx: JobContext, video: dict[str, Any], units: list[Unit], c: dict[
         "start_time": start,
         "end_time": end,
         "duration_seconds": round(end - start, 2),
+        "edge_text": edge_text(units, c["i"], c["j"]),
         "viral_score": c["viral_score"],
         "hook_text": c["hook_text"],
         "tags": c["tags"],

@@ -236,13 +236,20 @@ def _groq_transcribe(audio_path: Path, *, words: bool, retries: int = 3) -> dict
 
 
 def words_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """Word timings from verbose_json; splits segments evenly when only segment timing exists."""
+    """Word timings from verbose_json; splits segments evenly when only segment timing exists.
+
+    Groq's word times overlap where a segment starts (the first word begins up to half a second before
+    the previous word ends), so each word starts no earlier than the previous one ends."""
     out: list[dict[str, Any]] = []
+    prev_end = 0.0
     for w in payload.get("words") or []:
         text = str(w.get("word", "")).strip()
         if not text:
             continue
-        out.append({"word": text, "start": round(float(w.get("start", 0)), 3), "end": round(float(w.get("end", 0)), 3)})
+        start = max(round(float(w.get("start", 0)), 3), prev_end)
+        end = max(round(float(w.get("end", 0)), 3), start)
+        out.append({"word": text, "start": start, "end": end})
+        prev_end = end
     if out:
         return out
     for seg in payload.get("segments") or []:

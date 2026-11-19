@@ -159,7 +159,7 @@ def _source(ctx: JobContext, seg: dict[str, Any], work: Path,
         raise
     except Exception as exc:
         ctx.error("processing", M("whisper_failed", start=f"{start:.0f}", error=exc))
-    a, b = clip_edges.snap(words, payload, t0, t1, total, limits) or (t0, t1)
+    a, b = clip_edges.snap(words, payload, t0, t1, total, limits, seg.get("edge_text")) or (t0, t1)
     ctx.check()
     if seg.get("file_path"):  # cut once more from the original file rather than re-encoding the padded cut
         src = ffmpeg_ops.cut_section(Path(seg["file_path"]), pad_start + a, pad_start + b, work / "src.mp4", ctx.cancel)

@@ -422,3 +422,14 @@ def test_real_whisper_cli_in_a_non_ascii_data_folder(paths, monkeypatch, tmp_pat
     out = whisper_local.transcribe(audio, words=True, on_status=notes.append)
     assert set(out) == {"text", "language", "segments", "words"}
     assert not any(p.name.startswith("whisper-") for p in paths.cache_dir.iterdir())  # work dir cleaned up
+
+
+def test_groq_word_times_never_overlap():
+    # Where a segment starts, Groq's first word began before the previous word ended
+    payload = {"words": [{"word": "seperti", "start": 60.30, "end": 60.58},
+                         {"word": "Angkat", "start": 60.16, "end": 61.04},
+                         {"word": "beban", "start": 61.04, "end": 61.40},
+                         {"word": "Ada", "start": 60.92, "end": 60.95}]}
+    words = whisper.words_from_payload(payload)
+    assert [(w["start"], w["end"]) for w in words] == [(60.30, 60.58), (60.58, 61.04), (61.04, 61.40),
+                                                        (61.40, 61.40)]
