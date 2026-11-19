@@ -105,6 +105,14 @@
   height: 48px;
 }
 
+/* The logo image itself (LogoMark): a brand asset, so its own white outline is allowed (§14) */
+.mc-logo-mark {
+  display: block;
+  flex: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
 /* The active campaign as the rail's head (DESIGN.md §4.2.8, §5.2): a circle as wide as the rail in the
    logo's place, joined to the rail by a liquid neck, with the avatar inside and nothing outside it */
 .mc-profile {

@@ -71,7 +71,7 @@ export default function AboutPage() {
           <Card tone="leaf">
             <div className="mc-row mc-gap-16" style={{ alignItems: 'center' }}>
               <span className="mc-logo" aria-hidden="true">
-                <LogoMark size={26} />
+                <LogoMark size={42} />
               </span>
               <div className="mc-stack mc-gap-4" style={{ minWidth: 0 }}>
                 <div className="mc-row mc-row--wrap mc-gap-8" style={{ alignItems: 'center' }}>
