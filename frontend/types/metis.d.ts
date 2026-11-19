@@ -135,7 +135,10 @@ declare global {
     openPath(absPath: string): Promise<{ ok: boolean; error?: string }>
     showItemInFolder(absPath: string): Promise<void>
     openExternal(url: string): Promise<void>
-    notify(title: string, body?: string): void
+    /** Windows notification, shown only while the window is in the background; a click opens the app on opts.route */
+    notify(title: string, body?: string, opts?: { route?: string }): void
+    /** A notification click asks the UI to open a route; returns an unsubscribe function */
+    onNavigate(cb: (route: string) => void): () => void
     relaunch(): void
   }
 

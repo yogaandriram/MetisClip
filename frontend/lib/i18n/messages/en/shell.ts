@@ -59,4 +59,13 @@ export const shell: Messages['shell'] = {
     body: 'Editing and exporting clips still work. Downloading YouTube videos and the AI features need the internet.',
     dismiss: 'Close the offline notice',
   },
+  notify: {
+    jobDone: (n: number) => `Job done: ${n} clip${n === 1 ? '' : 's'} ready`,
+    jobDoneNone: 'Job finished without clips',
+    jobFailed: 'Job failed',
+    renderDone: 'Video export done',
+    renderSavedIn: (folder: string) => `Saved in ${folder}`,
+    renderNotCopied: "The video is done but wasn't copied to the export folder. Open the clip to try again.",
+    renderFailed: 'Video export failed',
+  },
 }

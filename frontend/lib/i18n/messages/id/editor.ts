@@ -71,9 +71,7 @@ export const editor = {
   backToGallery: 'Kembali ke galeri',
   /** Toast before the folder path */
   renderDoneSavedIn: 'Render selesai, tersimpan di',
-  notifyRenderSavedIn: (folder: string) => `Render selesai. Tersimpan di ${folder}`,
   renderDoneNotCopied: (error: string) => `Render selesai, tapi belum tersalin ke folder ekspor. ${error}`,
-  notifyRenderDone: 'Render clip selesai',
   renderDone: 'Render selesai',
   clipDeleted: 'Clip ini dihapus',
 

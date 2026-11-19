@@ -30,6 +30,7 @@ export const CH = {
   showItemInFolder: 'metis:show-item-in-folder',
   openExternal: 'metis:open-external',
   notify: 'metis:notify',
+  navigate: 'metis:navigate',
   relaunch: 'metis:relaunch',
   getLanguage: 'metis:get-language',
   setLanguage: 'metis:set-language',
@@ -63,6 +64,15 @@ function str(v: unknown, max = 4096): string {
   if (typeof v !== 'string') throw new Error(tr().ipc.notText)
   if (v.length > max) throw new Error(tr().ipc.tooLong)
   return v
+}
+
+/** Shown notifications, kept referenced so their click handler survives garbage collection. */
+const liveNotifications = new Set<Notification>()
+
+/** A route inside the app for a notification click (e.g. /clips/detail?id=…): no scheme, no other host. */
+function appRoute(v: unknown): string | null {
+  if (typeof v !== 'string' || v.length > 300) return null
+  return /^\/(?!\/)[\w\-./?=&%]*$/.test(v) ? v : null
 }
 
 function existingAbsPath(v: unknown): string {
@@ -171,10 +181,33 @@ export function registerIpc(backend: Backend, tray: AppTray): void {
     await shell.openExternal(url.toString())
   })
 
-  ipcMain.on(CH.notify, (e, title: unknown, body: unknown) => {
+  // Windows notification (a job or an export finished or failed, §9.3), only while the window is in the
+  // background: in front, the in-app toast says it. A click brings MetisClip back on `route`.
+  ipcMain.on(CH.notify, (e, title: unknown, body: unknown, route: unknown) => {
     if (!trusted(e) || typeof title !== 'string') return
+    const win = BrowserWindow.fromWebContents(e.sender)
+    if (win && win.isVisible() && win.isFocused()) return
     if (!Notification.isSupported()) return
-    new Notification({ title: title.slice(0, 200), body: typeof body === 'string' ? body.slice(0, 1000) : undefined }).show()
+    const target = appRoute(route)
+    const n = new Notification({ title: title.slice(0, 200), body: typeof body === 'string' && body ? body.slice(0, 1000) : undefined })
+    liveNotifications.add(n)
+    if (liveNotifications.size > 20) liveNotifications.delete(liveNotifications.values().next().value!)
+    const drop = () => liveNotifications.delete(n)
+    n.on('click', () => {
+      drop()
+      if (!win || win.isDestroyed()) return
+      if (win.isMinimized()) win.restore()
+      win.show()
+      win.focus()
+      if (target) win.webContents.send(CH.navigate, target)
+    })
+    n.on('close', drop)
+    n.on('failed', (_ev, error) => {
+      drop()
+      log.warn(`notifikasi gagal: ${error}`)
+    })
+    n.on('show', () => log.info(`notifikasi ditampilkan: ${title.slice(0, 80)}`))
+    n.show()
   })
 
   // Read once by the preload when a window loads (sync, so the first paint is in the right language)

@@ -16,6 +16,7 @@ const CH = {
   showItemInFolder: 'metis:show-item-in-folder',
   openExternal: 'metis:open-external',
   notify: 'metis:notify',
+  navigate: 'metis:navigate',
   relaunch: 'metis:relaunch',
   getLanguage: 'metis:get-language',
   setLanguage: 'metis:set-language',
@@ -129,8 +130,17 @@ const bridge = {
   openPath: (absPath: string) => invoke<{ ok: boolean; error?: string }>(CH.openPath, absPath),
   showItemInFolder: (absPath: string) => invoke<void>(CH.showItemInFolder, absPath),
   openExternal: (url: string) => invoke<void>(CH.openExternal, url),
-  notify(title: string, body?: string): void {
-    ipcRenderer.send(CH.notify, title, body)
+  /** Windows notification while the window is in the background; a click opens the app on opts.route */
+  notify(title: string, body?: string, opts?: { route?: string }): void {
+    ipcRenderer.send(CH.notify, title, body, opts?.route)
+  },
+  onNavigate(cb: (route: string) => void): () => void {
+    if (typeof cb !== 'function') return () => undefined
+    const listener = (_e: IpcRendererEvent, route: string) => cb(route)
+    ipcRenderer.on(CH.navigate, listener)
+    return () => {
+      ipcRenderer.removeListener(CH.navigate, listener)
+    }
   },
   relaunch(): void {
     ipcRenderer.send(CH.relaunch)

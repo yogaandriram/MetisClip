@@ -62,4 +62,14 @@ export const shell = {
     body: 'Mengedit dan mengekspor clip tetap bisa. Mengunduh video YouTube dan fitur AI butuh internet.',
     dismiss: 'Tutup pemberitahuan offline',
   },
+  /** Windows notifications while the window is in the background (§9.3, ShellContext.tsx) */
+  notify: {
+    jobDone: (n: number) => `Job selesai: ${n} klip siap`,
+    jobDoneNone: 'Job selesai tanpa klip',
+    jobFailed: 'Job gagal',
+    renderDone: 'Ekspor video selesai',
+    renderSavedIn: (folder: string) => `Tersimpan di ${folder}`,
+    renderNotCopied: 'Videonya selesai, tapi belum tersalin ke folder ekspor. Buka clip-nya untuk mencoba lagi.',
+    renderFailed: 'Ekspor video gagal',
+  },
 }

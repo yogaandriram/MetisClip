@@ -76,10 +76,17 @@ def _make_job(db, campaign):
     return job["_id"]
 
 
-def test_link_job_clips_its_video_and_resume_is_idempotent(db, fake_world):
+def test_link_job_clips_its_video_and_resume_is_idempotent(db, fake_world, monkeypatch):
+    from backend.core import events
+
+    sent: list[dict] = []
+    monkeypatch.setattr(events, "publish", sent.append)
     camp = _campaign("Agen")
     job_id = _make_job(db, camp)
     static_pipeline.run_job(job_id, procs.CancelToken())
+    # The final status names the video and the clip count (the Windows notification, §9.3)
+    [done] = [e for e in sent if e["type"] == "job.status" and e["status"] == "completed"]
+    assert done["title"] == f"Video {VID}" and done["clips"] == 2 and done["campaign_ids"] == [camp["id"]]
 
     job = db.discovery_jobs.find_one({"_id": job_id})
     assert job["status"] == "completed", job.get("errors")
@@ -181,7 +188,11 @@ def test_upload_job_clips_the_local_file(db, secrets, monkeypatch, tmp_path):
     assert db.clips.count_documents({"job_id": job["_id"]}) == 2 and len(calls) == 3
 
 
-def test_upload_job_fails_clearly_when_the_file_is_gone(db, secrets, tmp_path):
+def test_upload_job_fails_clearly_when_the_file_is_gone(db, secrets, tmp_path, monkeypatch):
+    from backend.core import events
+
+    sent: list[dict] = []
+    monkeypatch.setattr(events, "publish", sent.append)
     secrets.set_secret("llm_api_key", "sk-test-0000000000")
     gone = str(tmp_path / "dipindah.mp4")
     job_id = new_id()
@@ -199,6 +210,8 @@ def test_upload_job_fails_clearly_when_the_file_is_gone(db, secrets, tmp_path):
     job = db.discovery_jobs.find_one({"_id": job_id})
     assert job["status"] == "failed"
     assert job["errors"][-1]["message"].startswith("File video tidak ditemukan")
+    [failed] = [e for e in sent if e["type"] == "job.status" and e["status"] == "failed"]
+    assert failed["error"].startswith("File video tidak ditemukan") and "clips" not in failed
 
 
 def test_cancel_marks_job_cancelled(db, fake_world):

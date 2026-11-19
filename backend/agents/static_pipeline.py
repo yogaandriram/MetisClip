@@ -45,7 +45,14 @@ def _finish(job_id: str, campaign_ids: list[str], status: str, error: str | None
     if error:
         update["$push"] = {"errors": {"$each": [{"step": step, "message": error[:1000], "at": utcnow()}], "$slice": -50}}
     db.discovery_jobs.update_one({"_id": job_id}, update)
-    events.publish({"type": "job.status", "id": job_id, "campaign_ids": campaign_ids, "status": status, "error": error})
+    # The video's title and the clip count, for the Windows notification (components/shell/ShellContext.tsx)
+    extra: dict = {}
+    source = db.source_videos.find_one({"job_id": job_id}, {"title": 1})
+    if source and source.get("title"):
+        extra["title"] = source["title"]
+    if status == "completed":
+        extra["clips"] = db.clips.count_documents({"job_id": job_id})
+    events.publish({"type": "job.status", "id": job_id, "campaign_ids": campaign_ids, "status": status, "error": error, **extra})
 
 
 def run_job(job_id: str, cancel: CancelToken) -> None:

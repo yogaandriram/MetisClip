@@ -1,11 +1,14 @@
 'use client'
 
 import React, { createContext, useContext, useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import toast from 'react-hot-toast'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
 import { api, type JobStatus } from '@/lib/engine'
-import { ACTIVE_JOB_STATUSES } from '@/lib/format'
+import { ACTIVE_JOB_STATUSES, splitPath } from '@/lib/format'
+import { tm } from '@/lib/i18n'
+import { QUEUE_HREF } from '@/lib/routes'
 
 type ShellContextValue = {
   /** Pending + running jobs across all campaigns, kept live through engine events */
@@ -58,9 +61,46 @@ function useSystemNotices(): void {
   })
 }
 
+/**
+ * Windows notifications when a job or an export finishes or fails (§9.3), wherever the user is in the app;
+ * main shows them only while the window is in the background. A click opens the result.
+ */
+function useDesktopNotifications(): void {
+  const router = useRouter()
+
+  useEffect(() => window.metis?.onNavigate?.((route) => router.push(route)), [router])
+
+  useEngineEvents((e) => {
+    const metis = window.metis
+    if (!metis) return
+    const m = tm().shell.notify
+    const lines = (...parts: Array<string | null | undefined>) => parts.filter(Boolean).join('\n')
+    if (e.type === 'job.status') {
+      if (e.status === 'completed') {
+        const n = e.clips ?? 0
+        const campaign = e.campaign_ids?.[0]
+        metis.notify(n > 0 ? m.jobDone(n) : m.jobDoneNone, lines(e.title, e.error), {
+          route: n > 0 ? (campaign ? `/clips/?campaign=${campaign}` : '/clips/') : QUEUE_HREF,
+        })
+      } else if (e.status === 'failed') {
+        metis.notify(m.jobFailed, lines(e.title, e.error), { route: QUEUE_HREF })
+      }
+    } else if (e.type === 'render.status') {
+      const route = `/clips/detail/?id=${encodeURIComponent(e.clip_id)}`
+      if (e.status === 'completed') {
+        const body = e.exported_path ? m.renderSavedIn(splitPath(e.exported_path)[0]) : e.export_error ? m.renderNotCopied : undefined
+        metis.notify(m.renderDone, body, { route })
+      } else if (e.status === 'failed') {
+        metis.notify(m.renderFailed, e.error || undefined, { route })
+      }
+    }
+  })
+}
+
 export function ShellProvider({ children }: { children: React.ReactNode }) {
   const activeJobs = useActiveJobCount()
   useSystemNotices()
+  useDesktopNotifications()
   return <ShellContext.Provider value={{ activeJobs }}>{children}</ShellContext.Provider>
 }
 

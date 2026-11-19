@@ -600,7 +600,16 @@ export type EngineEvent =
       processed_scenes: number
       message?: string
     }
-  | { type: 'job.status'; id: string; campaign_ids?: string[]; status: JobStatus; error?: string | null }
+  | {
+      type: 'job.status'
+      id: string
+      campaign_ids?: string[]
+      status: JobStatus
+      error?: string | null
+      /** When it finished: the source video's title, and (completed) how many clips it made */
+      title?: string | null
+      clips?: number
+    }
   | { type: 'clip.created'; id: string; job_id: string | null; campaign_id?: string | null }
   | { type: 'clip.updated'; id: string }
   | { type: 'clip.deleted'; id: string }
