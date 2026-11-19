@@ -1,5 +1,8 @@
 """Brand templates of each campaign: the template made with a campaign (basic, then designed by the AI),
 several templates per campaign and the default, clip template choice, assets, and migrations 003/011."""
+import re
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -107,6 +110,23 @@ def test_ai_designs_the_campaign_template(client, db, fake_llm):
     assert [r["quote"] for r in d["reasons"]] == ["warna hijau Tokopedia", "", ""]
     assert [r["part"] for r in d["reasons"]] == ["colors", "layout", "layout"]
     assert {n["kind"] for n in d["notes"]} == {"logo", "visual_rules"}
+
+
+def test_the_caption_menu_offers_exactly_the_presets_the_app_draws():
+    # The AI designer picks from CAPTION_PRESETS; the editor and the render know frontend/lib/presets/index.ts
+    root = Path(__file__).resolve().parents[2] / "frontend" / "lib" / "presets"
+    modules = re.findall(r"from '\./(\w+)'", (root / "index.ts").read_text(encoding="utf-8"))
+    ids = set()
+    for name in modules:
+        if name == "types":
+            continue
+        found = re.search(r"^\s*id: '([\w-]+)'", (root / f"{name}.tsx").read_text(encoding="utf-8"), re.M)
+        assert found, name
+        ids.add(found.group(1))
+    assert "karaoke" in ids
+    assert set(template_ai.CAPTION_PRESETS) == ids
+    settings, _ = template_ai.build({"caption_preset": "karaoke", "highlight_color": "#FFD43B"}, {"_id": "c", "name": "X", "brief": {}})
+    assert settings["caption_settings"] == {"mode": "karaoke", "highlightColor": "#FFD43B"}
 
 
 def test_brief_wins_over_the_ai_choice():

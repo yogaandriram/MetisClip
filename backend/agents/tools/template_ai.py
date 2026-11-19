@@ -27,6 +27,7 @@ from backend.services import layout as layout_svc
 CAPTION_PRESETS: dict[str, str] = {
     "popshadow": "bold white uppercase words with a hard drop shadow; loud, fun, all-round default",
     "kineticbox": "uppercase condensed words, the spoken word in a colored box; energetic, punchy",
+    "karaoke": "bold outlined uppercase words, the color sweeps through each word as it is spoken; music, podcasts, high-energy talk",
     "auraglow": "rounded heavy uppercase with a soft glow on the spoken word; modern, lifestyle",
     "lumina": "clean sentence-case sans with a gentle highlight; calm, premium, educational, corporate",
     "typewriter": "monospace words typed out one by one; tech, storytelling, mystery",
