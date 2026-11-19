@@ -70,6 +70,10 @@ M = i18n.messages({
         "id": "Klip {done}/{total} selesai",
         "en": "Clip {done}/{total} done",
     },
+    "clip_started": {
+        "id": "RAM cukup, klip {start}s mulai diproses…",
+        "en": "Enough RAM now, clip {start}s is being processed…",
+    },
     "none_processed": {
         "id": "Tidak ada klip yang berhasil diproses",
         "en": "No clip could be processed",
@@ -502,8 +506,17 @@ def run(ctx: JobContext, segments: list[dict[str, Any]]) -> list[dict[str, Any]]
             ctx.check()
             try:
                 if base is None:
-                    with resources.hold("clip", need, label=M("hold_label", start=f"{seg['start_time']:.0f}"),
-                                        cancel=ctx.cancel, on_wait=lambda info: ctx.progress(message=info.message())):
+                    start = f"{seg['start_time']:.0f}"
+                    waited: list[bool] = []
+
+                    def on_wait(info: resources.WaitInfo) -> None:
+                        waited.append(True)
+                        ctx.progress(message=info.message())
+
+                    with resources.hold("clip", need, label=M("hold_label", start=start), cancel=ctx.cancel,
+                                        on_wait=on_wait):
+                        if waited:  # the job's activity would still say it waits for RAM
+                            ctx.progress(message=M("clip_started", start=start))
                         clip = process_segment(ctx, seg, limits)
                     base = clip
                 else:

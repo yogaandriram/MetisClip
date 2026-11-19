@@ -476,12 +476,21 @@ def transcribe(
 
     # RAM first, then the one-at-a-time lock: a Processor clip takes them in that order too (its clip
     # hold covers this one, holds being re-entrant), so the two can never wait on each other
+    waited: list[bool] = []
+
+    def tell_wait(message: str) -> None:
+        waited.append(True)
+        if on_status:
+            on_status(message)
+
     with resources.hold("whisper", resources.WHISPER_MB.get(model.id, 1000), label=M("hold_label", model=model.label),
-                        cancel=cancel, on_wait=(lambda info: on_status(info.message())) if on_status else None):
-        if _run_lock.locked() and on_status:
-            on_status(M("waiting_other"))
+                        cancel=cancel, on_wait=lambda info: tell_wait(info.message())):
+        if _run_lock.locked():
+            tell_wait(M("waiting_other"))
         with _run_lock:
-            workload.wait_for_renders(cancel, (lambda: on_status(M("waiting_render"))) if on_status else None)
+            workload.wait_for_renders(cancel, lambda: tell_wait(M("waiting_render")))
+            if waited and on_status:  # the job's activity would still say it waits
+                on_status(M("progress", pct=0))
             _active_model = model.id
             try:
                 return _run(exe, model, audio_path, cancel, on_status)

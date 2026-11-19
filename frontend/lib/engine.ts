@@ -243,6 +243,8 @@ export interface Job {
   total_scenes: number
   processed_scenes: number
   errors: JobError[]
+  /** What a running job does or waits for now (its last job.progress message, in the UI language); null otherwise */
+  activity: { message: string; at: ISODate } | null
   created_at: ISODate
   started_at: ISODate | null
   finished_at: ISODate | null

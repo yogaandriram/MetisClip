@@ -85,7 +85,17 @@ export function JobQueue({ campaignId }: { campaignId: string | undefined }) {
       }
       setJobs((prev) =>
         prev?.map((j) =>
-          j.id === e.id ? { ...j, status: e.status, current_step: e.current_step, progress_pct: e.progress_pct, total_scenes: e.total_scenes, processed_scenes: e.processed_scenes } : j
+          j.id === e.id
+            ? {
+                ...j,
+                status: e.status,
+                current_step: e.current_step,
+                progress_pct: e.progress_pct,
+                total_scenes: e.total_scenes,
+                processed_scenes: e.processed_scenes,
+                activity: e.message ? { message: e.message, at: new Date().toISOString() } : j.activity,
+              }
+            : j
         ) ?? prev
       )
     } else if (e.type === 'job.status') {
@@ -282,6 +292,11 @@ export function JobQueue({ campaignId }: { campaignId: string | undefined }) {
                         showValue
                         label={`${jobStepLabel(job.current_step)}${job.total_scenes > 0 ? ` · ${m.progressClips(job.processed_scenes, job.total_scenes)}` : ''}`}
                       />
+                      {job.status === 'running' && job.activity && (
+                        <p className="mc-caption mc-mono mc-muted" style={{ wordBreak: 'break-word' }}>
+                          <span className="mc-sr-only">{m.activity}: </span>› {job.activity.message}
+                        </p>
+                      )}
                     </div>
                   </Card>
                 ))}

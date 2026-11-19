@@ -209,7 +209,7 @@ def resume_job(job_id: str):
     db = get_db()
     job = db.discovery_jobs.find_one_and_update(
         {"_id": job_id, "status": {"$in": ["interrupted", "failed", "cancelled"]}},
-        {"$set": {"status": "pending", "finished_at": None}},
+        {"$set": {"status": "pending", "finished_at": None, "activity": None}},
         return_document=True,
     )
     if not job:
