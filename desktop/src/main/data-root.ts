@@ -30,6 +30,8 @@ export interface DataRootCheck {
 interface Bootstrap {
   data_root: string
   created_at: string
+  /** The folder the data was moved away from, until the user deletes or keeps it (data-move.ts) */
+  previous_data_root?: string | null
 }
 
 /** METISCLIP_DATA_ROOT_OVERRIDE: verification hook, use this folder without touching bootstrap.json. */
@@ -53,14 +55,30 @@ export function readBootstrap(): string | null {
   return null
 }
 
-export function writeBootstrap(dataRoot: string): void {
+/** The previous data folder recorded by a move, or null. */
+export function readPreviousDataRoot(): string | null {
+  if (dataRootOverride()) return null
+  try {
+    const raw = fs.readFileSync(getPaths().bootstrapFile, 'utf8').replace(/^﻿/, '')
+    const prev = (JSON.parse(raw) as Partial<Bootstrap>).previous_data_root
+    return typeof prev === 'string' && path.isAbsolute(prev) ? path.normalize(prev) : null
+  } catch {
+    return null
+  }
+}
+
+export function writeBootstrap(dataRoot: string, previousDataRoot: string | null = null): void {
   if (dataRootOverride()) {
     log.info(`METISCLIP_DATA_ROOT_OVERRIDE aktif: bootstrap.json tidak ditulis (${dataRoot})`)
     return
   }
   const file = getPaths().bootstrapFile
   fs.mkdirSync(path.dirname(file), { recursive: true })
-  const body: Bootstrap = { data_root: dataRoot, created_at: new Date().toISOString() }
+  const body: Bootstrap = {
+    data_root: dataRoot,
+    created_at: new Date().toISOString(),
+    ...(previousDataRoot ? { previous_data_root: previousDataRoot } : {}),
+  }
   const tmp = `${file}.${process.pid}.tmp`
   fs.writeFileSync(tmp, JSON.stringify(body, null, 2), 'utf8')
   fs.renameSync(tmp, file)
@@ -69,6 +87,16 @@ export function writeBootstrap(dataRoot: string): void {
 
 export function defaultDataRoot(): string {
   return path.join(os.homedir(), 'MetisClip')
+}
+
+/** a and b are the same folder, or one lies inside the other (case-insensitive, Windows paths) */
+export function pathsOverlap(a: string, b: string): 'same' | 'inside' | 'contains' | null {
+  const x = path.resolve(a).toLowerCase().replace(/[\\/]+$/, '')
+  const y = path.resolve(b).toLowerCase().replace(/[\\/]+$/, '')
+  if (x === y) return 'same'
+  if (x.startsWith(y + path.sep)) return 'inside'
+  if (y.startsWith(x + path.sep)) return 'contains'
+  return null
 }
 
 export function hasExistingData(root: string): boolean {

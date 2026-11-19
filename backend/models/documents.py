@@ -365,6 +365,9 @@ class JobDoc(Doc):
     processed_scenes: int = 0
     checkpoint: JobCheckpoint = Field(default_factory=JobCheckpoint)
     errors: list[dict[str, Any]] = Field(default_factory=list)
+    # What the running job does or waits for now: {message, at}, its last job.progress message
+    # (agents/context.py); reset when the job starts or is resumed
+    activity: Optional[dict[str, Any]] = None
     # Campaigns the clips are made for (at least one), and each one's brief as it was when the job was
     # created: {id, name, slug, version, brief, brand_template_id}. A later brief edit does not change a job.
     campaign_ids: list[str] = Field(default_factory=list)

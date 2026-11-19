@@ -243,6 +243,8 @@ export interface Job {
   total_scenes: number
   processed_scenes: number
   errors: JobError[]
+  /** What a running job does or waits for now (its last job.progress message, in the UI language); null otherwise */
+  activity: { message: string; at: ISODate } | null
   created_at: ISODate
   started_at: ISODate | null
   finished_at: ISODate | null
@@ -539,6 +541,20 @@ export interface BackupInfo {
   path: string
   size_bytes: number
   created_at: ISODate
+}
+
+/** What still runs in the engine; moving the data folder and restoring a backup wait for it */
+export interface ActivityStatus {
+  busy: boolean
+  items: Array<{ kind: 'jobs' | 'renders' | 'parses' | 'designs' | 'downloads'; count: number }>
+  /** One sentence in the UI language naming what still runs, or null */
+  message: string | null
+}
+
+export interface RestoreResult {
+  restored: { name: string; created_at: ISODate | null; collections: number; documents: number; schema_version: number }
+  /** The backup of the state before the restore (a restore can be undone with it) */
+  safety_backup: BackupInfo
 }
 
 /** Same shape as the old Next.js /api/dashboard/stats route */
@@ -838,6 +854,9 @@ export const api = {
     resources: () => request<ResourceStatus>('GET', '/api/system/resources'),
     backup: () => request<{ backup: BackupInfo }>('POST', '/api/system/backup'),
     backups: () => request<{ backups: BackupInfo[] }>('GET', '/api/system/backups'),
+    /** Puts the database back as it was in that backup (writes a backup of the current state first) */
+    restoreBackup: (name: string) => request<RestoreResult>('POST', `/api/system/backups/${encodeURIComponent(name)}/restore`),
+    activity: () => request<ActivityStatus>('GET', '/api/system/activity'),
     updateYtdlp: () => request<YtdlpUpdateResult>('POST', '/api/system/update-ytdlp'),
   },
 

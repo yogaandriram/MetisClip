@@ -71,6 +71,9 @@ def job_dto(doc: dict[str, Any]) -> dict[str, Any]:
     d.setdefault("note", "")
     d.setdefault("started_at", None)
     d.setdefault("finished_at", None)
+    # What a running job does or waits for now (its last job.progress message); only while it runs
+    act = d.get("activity")
+    d["activity"] = act if d.get("status") == "running" and isinstance(act, dict) and act.get("message") else None
     return d
 
 

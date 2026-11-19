@@ -12,6 +12,7 @@ import getpass
 import json
 import logging
 import os
+import re
 import secrets as pysecrets
 import time
 import uuid
@@ -138,6 +139,50 @@ def _restrict_acl(path: Path) -> None:
         logger.warning("Could not restrict ACL on %s: %s", path, exc)
 
 
+# One access entry as icacls prints it: "NAME:(I)(F)" or "NAME:(OI)(CI)(RX)" (the flags are never translated)
+_ACE = re.compile(r":((?:\([A-Z]+(?:,[A-Z]+)*\))+)")
+
+
+def acl_entries(icacls_output: str) -> list[str]:
+    """The flags of every access entry in `icacls <file>` output, e.g. ["(I)(F)", "(F)"]."""
+    block = icacls_output.replace("\r\n", "\n").split("\n\n", 1)[0]
+    return _ACE.findall(block)
+
+
+def acl_is_private(icacls_output: str) -> bool:
+    """One explicit entry (the one _restrict_acl grants), nothing inherited from the folder."""
+    entries = acl_entries(icacls_output)
+    return len(entries) == 1 and "(I)" not in entries[0]
+
+
+def ensure_private(path: Path) -> bool:
+    """
+    Restricts `path` to the current Windows user again when it is not (any more). A data folder copied
+    by hand, or by a backup tool, gives its files the access entries of the new parent folder: QA
+    2026-11-19 found the database password readable by every user of the PC after such a copy.
+    Returns True when the access entries had to be changed.
+    """
+    if os.name != "nt":
+        return False
+    try:
+        out = procs.run(["icacls", str(path)], timeout=20, check=False).stdout
+        text = (out or b"").decode("utf-8", "replace")
+    except Exception as exc:
+        logger.warning("Could not read the ACL of %s: %s", path, exc)
+        return False
+    if acl_is_private(text):
+        return False
+    try:
+        # /reset drops explicit entries of other users; _restrict_acl then removes the inherited ones
+        procs.run(["icacls", str(path), "/reset"], timeout=20)
+    except Exception as exc:
+        logger.warning("Could not reset the ACL of %s: %s", path, exc)
+    _restrict_acl(path)
+    logger.info("Restricted %s to the current Windows user again (it had %d access entries)",
+                path.name, len(acl_entries(text)))
+    return True
+
+
 def _load_creds() -> dict | None:
     p = _creds_path()
     if not p.exists():
@@ -146,6 +191,7 @@ def _load_creds() -> dict | None:
         data = json.loads(p.read_text(encoding="utf-8"))
         if data.get("username") and data.get("password"):
             redactor.add_secret(data["password"])
+            ensure_private(p)
             return data
     except Exception as exc:
         logger.error("Unreadable DB credentials file: %s", exc)
@@ -346,6 +392,7 @@ def _migrations():
         m009_campaigns,
         m010_campaigns_replace_workspaces,
         m011_campaign_brand_templates,
+        m012_caption_speaker_marks,
     )
 
     return [
@@ -360,6 +407,7 @@ def _migrations():
         (9, "campaigns", m009_campaigns.up),
         (10, "campaigns_replace_workspaces", m010_campaigns_replace_workspaces.up),
         (11, "campaign_brand_templates", m011_campaign_brand_templates.up),
+        (12, "caption_speaker_marks", m012_caption_speaker_marks.up),
     ]
 
 
@@ -368,13 +416,18 @@ def schema_version(db: Database) -> int:
     return int(doc.get("version", 0)) if doc else 0
 
 
-def migrate(db: Database | None = None) -> int:
+def latest_schema_version() -> int:
+    return _migrations()[-1][0]
+
+
+def migrate(db: Database | None = None, backup: bool = True) -> int:
+    """Applies the missing migrations. `backup=False` when the caller just wrote one (a restore)."""
     db = db if db is not None else get_db()
     current = schema_version(db)
     pending = [m for m in _migrations() if m[0] > current]
     if not pending:
         return current
-    if current > 0:
+    if current > 0 and backup:
         from backend.services.backup import write_backup
 
         logger.info("Backing up before migrating from schema %s", current)

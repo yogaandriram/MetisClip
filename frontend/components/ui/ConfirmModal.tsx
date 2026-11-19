@@ -15,6 +15,8 @@ interface ConfirmModalProps {
   danger?: boolean
   confirmIcon?: React.ReactNode
   loading?: boolean
+  /** The action can't run now (the body says why) */
+  confirmDisabled?: boolean
   onConfirm: () => void
   onClose: () => void
   children?: React.ReactNode
@@ -30,6 +32,7 @@ export function ConfirmModal({
   danger = false,
   confirmIcon,
   loading = false,
+  confirmDisabled = false,
   onConfirm,
   onClose,
   children,
@@ -46,14 +49,15 @@ export function ConfirmModal({
           <Button variant="ghost" onClick={onClose} disabled={loading}>
             {cancelLabel ?? t.common.cancel}
           </Button>
-          <Button variant="primary" icon={confirmIcon} onClick={onConfirm} loading={loading} data-autofocus={danger ? undefined : true}>
+          <Button variant="primary" icon={confirmIcon} onClick={onConfirm} loading={loading} disabled={confirmDisabled} data-autofocus={danger ? undefined : true}>
             {confirmLabel ?? t.ui.confirm}
           </Button>
         </>
       }
     >
-      <div className="mc-stack">
-        {message && <div className="mc-muted">{message}</div>}
+      {/* Long paths and file names wrap instead of running past the panel */}
+      <div className="mc-stack" style={{ overflowWrap: 'anywhere' }}>
+        {message &&<div className="mc-muted">{message}</div>}
         {children}
       </div>
     </Modal>

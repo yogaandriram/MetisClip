@@ -1,7 +1,28 @@
 import React from 'react';
 import { SubtitlePreset } from './types';
 import { Ease, interpolate, r4 } from './anim';
-import { dropShadow, em, highlight, keywordColor, rowStyle, shadows, stroke, textBase } from './style';
+import {
+  contrastHalo,
+  dropShadow,
+  em,
+  highlight,
+  keywordColor,
+  luminance,
+  readableOnDark,
+  rowStyle,
+  shadows,
+  stroke,
+  textBase,
+  withAlpha,
+} from './style';
+
+// Legible on any video, from a white shirt to a black studio (QA 2026-11-19: the words were 40 %
+// opaque and the spoken word sat on a 15 % white pill, so a bright frame swallowed the caption).
+// Dark glass behind the spoken word: over a white frame it is still dark enough for white text (7:1)
+// and for a highlight color lightened to 3:1 (large text).
+const PILL_ALPHA = 0.66;
+const PILL_LUMINANCE = luminance('#575757') as number; // the pill over a white frame: 255 * (1 - PILL_ALPHA)
+const REST_OPACITY = 0.85; // the other words of the page
 
 export const luminaPreset: SubtitlePreset = {
   id: 'lumina',
@@ -70,11 +91,11 @@ export const luminaPreset: SubtitlePreset = {
   },
   renderPreview: ({ words, activeWordIndex, time, config }) => {
     const fontColor = config.fontColor || '#ffffff';
-    const activeColor = highlight(config, '#FFFFFF');
+    // The spoken word sits on dark glass, so its color is lightened where it would be too dark to read
+    const activeColor = readableOnDark(highlight(config, '#FFFFFF'), PILL_LUMINANCE);
     const kwColor = keywordColor(config, fontColor, '#00FFCC');
     const base = textBase(config);
     const spacing = em(config.letterSpacing, config);
-    const restShadow = shadows(stroke(config), dropShadow(config));
 
     return (
       <span style={rowStyle(0.05)}>
@@ -89,45 +110,45 @@ export const luminaPreset: SubtitlePreset = {
             borderRadius: '1.4em',
           };
           if (i === activeWordIndex) {
-            // etherealFade 0.8s ease-out
+            // The glass pill fades in under a word that was already readable: no dip, no blur. Spoken
+            // words last about 0.3 s, so the word is fully shown within 0.15 s and settles by 0.3 s.
             const t = time - w.start;
-            const opacity = interpolate(t, [0, 0.8], [0, 1], Ease.easeOut);
-            const ty = interpolate(t, [0, 0.8], [0.28, 0], Ease.easeOut);
-            const scale = interpolate(t, [0, 0.8], [0.9, w.keyword ? 1.08 : 1], Ease.easeOut);
-            const extra = interpolate(t, [0, 0.8], [0, 0.08], Ease.easeOut);
-            const blur = interpolate(t, [0, 0.8], [0.11, 0], Ease.easeOut);
+            const shown = interpolate(t, [0, 0.15], [0, 1], Ease.easeOut);
+            const ty = interpolate(t, [0, 0.3], [0.2, 0], Ease.easeOut);
+            const scale = interpolate(t, [0, 0.3], [0.92, w.keyword ? 1.08 : 1], Ease.easeOut);
+            const extra = interpolate(t, [0, 0.3], [0, 0.08], Ease.easeOut);
             return (
               <span
                 key={key}
                 style={{
                   ...pill,
-                  background: 'rgba(255, 255, 255, 0.15)',
+                  background: `rgba(0, 0, 0, ${r4(PILL_ALPHA * shown)})`,
                   backdropFilter: 'blur(0.28em)',
                   WebkitBackdropFilter: 'blur(0.28em)',
-                  borderColor: 'rgba(255, 255, 255, 0.3)',
+                  borderColor: `rgba(255, 255, 255, ${r4(0.22 * shown)})`,
                   color: activeColor,
                   letterSpacing: `${r4(spacing + extra)}em`,
-                  textShadow: shadows(stroke(config), `0 0 0.28em ${activeColor}`, '0 0.055em 0.11em rgba(0,0,0,0.5)'),
-                  boxShadow: '0 0.11em 0.42em rgba(0,0,0,0.2)',
-                  opacity: r4(opacity),
+                  // The halo it had as a waiting word fades out while the pill fades in
+                  textShadow: shadows(stroke(config), contrastHalo(activeColor, 1 - shown), `0 0 0.28em ${withAlpha(activeColor, 0.55)}`, '0 0.055em 0.11em rgba(0,0,0,0.5)'),
+                  boxShadow: `0 0.11em 0.42em rgba(0, 0, 0, ${r4(0.25 * shown)})`,
+                  opacity: r4(REST_OPACITY + (1 - REST_OPACITY) * shown),
                   transform: `translateY(${r4(ty)}em) scale(${r4(scale)})`,
-                  filter: blur > 0.0005 ? `blur(${r4(blur)}em)` : 'none',
                 }}
               >
                 {w.word}
               </span>
             );
           }
+          const color = w.keyword ? kwColor : fontColor;
           return (
             <span
               key={key}
               style={{
                 ...pill,
-                color: w.keyword ? kwColor : fontColor,
-                opacity: w.keyword ? 0.75 : 0.4,
+                color,
+                opacity: w.keyword ? 1 : REST_OPACITY,
                 transform: 'scale(0.95)',
-                filter: 'blur(0.03em)',
-                textShadow: restShadow,
+                textShadow: shadows(stroke(config), contrastHalo(color), dropShadow(config)), // halo above a black drop shadow
               }}
             >
               {w.word}

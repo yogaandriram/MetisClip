@@ -1,7 +1,10 @@
 import React from 'react';
 import { SubtitlePreset } from './types';
 import { Ease, clamp, interpolate, r4 } from './anim';
-import { highlight, keywordColor, rowStyle, shadows, sinceNext, stroke, textBase } from './style';
+import { contrastHalo, highlight, keywordColor, rowStyle, shadows, sinceNext, stroke, textBase } from './style';
+
+// The other words of the page (QA 2026-11-19: at 80 % with a faint shadow they vanished on a white frame)
+const REST_OPACITY = 0.9;
 import { growRoom } from './metrics';
 import { LayeredText } from './parts';
 
@@ -81,7 +84,6 @@ export const auraglowPreset: SubtitlePreset = {
     const kwColor = keywordColor(config, fontColor, '#00F0FF');
     const base = textBase(config);
     const outline = stroke(config);
-    const restShadow = shadows(outline, '0 0.111em 0.277em rgba(0,0,0,0.5)');
 
     return (
       <span style={{ ...rowStyle(0.3), perspective: '22em' }}>
@@ -93,7 +95,8 @@ export const auraglowPreset: SubtitlePreset = {
             const rot = interpolate(t, [0, 0.5], [-60, 0], Ease.backOut);
             const ty = interpolate(t, [0, 0.5], [0.555, 0], Ease.backOut);
             const scale = interpolate(t, [0, 0.5], [0.8, w.keyword ? 1.18 : 1.1], Ease.backOut);
-            const opacity = clamp(interpolate(t, [0, 0.5], [0, 1], Ease.backOut));
+            // The word was already on screen as a waiting word: it brightens, it does not blink out and back
+            const opacity = interpolate(t, [0, 0.12], [REST_OPACITY, 1], Ease.easeOut);
             const bgPos = clamp(interpolate(t, [0, 0.5], [0, 200], Ease.backOut), 0, 200);
             return (
               <LayeredText
@@ -121,6 +124,7 @@ export const auraglowPreset: SubtitlePreset = {
             );
           }
           // Past words tip back over 0.2 s after the next word starts; upcoming words wait tilted.
+          const color = w.keyword ? kwColor : fontColor;
           const t = i < activeWordIndex ? sinceNext(words, i, time) : Infinity;
           const rot = interpolate(t, [0, 0.2], [0, 40], Ease.ease);
           const scale = interpolate(t, [0, 0.2], [1.1, 0.9], Ease.ease);
@@ -129,9 +133,9 @@ export const auraglowPreset: SubtitlePreset = {
               key={key}
               text={w.word}
               base={base}
-              outer={{ marginInline: growRoom(w.word, w.keyword ? 1.18 : 1.1, config), transform: `rotateX(${r4(rot)}deg) scale(${r4(scale)})`, transformStyle: 'preserve-3d', opacity: 0.8 }}
-              back={{ textShadow: restShadow }}
-              front={{ color: w.keyword ? kwColor : fontColor }}
+              outer={{ marginInline: growRoom(w.word, w.keyword ? 1.18 : 1.1, config), transform: `rotateX(${r4(rot)}deg) scale(${r4(scale)})`, transformStyle: 'preserve-3d', opacity: REST_OPACITY }}
+              back={{ textShadow: shadows(outline, contrastHalo(color), '0 0.111em 0.277em rgba(0,0,0,0.5)') }}
+              front={{ color }}
             />
           );
         })}

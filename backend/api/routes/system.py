@@ -16,7 +16,7 @@ from backend.core import procs, resources
 from backend.core.config import config, deno_path, mongod_path, node_command
 from backend.core.db import get_db
 from backend.core.paths import get_paths
-from backend.services import backup
+from backend.services import activity, backup
 from backend.core import i18n
 
 M = i18n.messages({
@@ -87,6 +87,10 @@ M = i18n.messages({
     "backup_failed": {
         "id": "Backup gagal: {error}",
         "en": "Backup failed: {error}",
+    },
+    "restore_failed": {
+        "id": "Pemulihan gagal: {error}. Database bisa kembali ke keadaan sebelumnya lewat backup {safety}.",
+        "en": "The restore failed: {error}. The database can go back to how it was through the backup {safety}.",
     },
 })
 
@@ -256,6 +260,25 @@ async def make_backup():
 @router.get("/backups")
 def backups():
     return {"backups": backup.list_backups()}
+
+
+@router.post("/backups/{name}/restore")
+async def restore_backup(name: str):
+    """Puts the database back as it was in that backup (after writing a backup of the current state)."""
+    try:
+        return await run_in_threadpool(backup.restore_backup, name)
+    except backup.BackupError as exc:
+        raise http_error(exc.status, str(exc))
+    except Exception as exc:
+        newest = (backup.list_backups() or [{}])[0].get("name", "-")
+        raise http_error(500, M("restore_failed", error=exc, safety=newest))
+
+
+@router.get("/activity")
+async def activity_status():
+    """What still runs (jobs, renders, brief readings, AI designs, model downloads), for moving the data
+    folder or restoring a backup: {busy, items: [{kind, count}], message}."""
+    return await run_in_threadpool(activity.status)
 
 
 @router.post("/purge-cache")

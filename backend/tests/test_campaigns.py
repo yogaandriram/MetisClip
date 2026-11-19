@@ -575,10 +575,30 @@ def test_post_text_always_has_the_required_tags():
     assert out["title"] == "Judul bagus"
     assert out["hashtags"] == ["#hemat", "#AD", "#TokopediaRamadan"]  # case-insensitive: #ad is there
     assert out["mentions"] == ["@tokopedia"] and out["disclosure"] == "Paid partnership"
-    text = pc.as_text(out)
-    assert text.startswith("Judul bagus\n\nSeru!\n\n@tokopedia #hemat") and text.rstrip().endswith("Paid partnership")
+    # The disclosure opens the caption, where it is seen before the platform folds the text
+    assert pc.as_text(out) == "Judul bagus\n\nPaid partnership\nSeru!\n\n@tokopedia #hemat #AD #TokopediaRamadan\n"
     basic = pc.fallback({"hook_text": "Hook"}, brief)
     assert basic["caption"] == "Hook Cek link di bio" and basic["source"] == "basic"
+
+
+def test_post_text_never_repeats_what_the_caption_carries():
+    """QA 2026-11-19: the brief asked for the tags and "Ad" inside the caption, the LLM wrote them there,
+    and the .txt repeated the mention, both hashtags and "Ad"."""
+    from backend.agents.tools import post_copy_ai as pc
+
+    copy = {"title": "Tugas Dokter: Mencegah Sakit",
+            "caption": "Ad Dokter jelaskan peran preventif. Simak tipsnya @sehatku.id #SehatKu #ClipperSehatKu",
+            "hashtags": ["#SehatKu", "#ClipperSehatKu", "#Kesehatan", "#TipsSehat"],
+            "mentions": ["@sehatku.id"], "disclosure": "Ad"}
+    assert pc.as_text(copy) == ("Tugas Dokter: Mencegah Sakit\n\n"
+                                "Ad Dokter jelaskan peran preventif. Simak tipsnya @sehatku.id #SehatKu #ClipperSehatKu\n\n"
+                                "#Kesehatan #TipsSehat\n")
+    # Any case, a tag at a sentence end, and "ad" inside a word is not the label
+    copy = {"caption": "Ini adalah tips dari @SehatKu.ID. Mantap #sehatku!", "disclosure": "Ad",
+            "mentions": ["@sehatku.id"], "hashtags": ["#SehatKu", "#Baru"]}
+    assert pc.as_text(copy) == "Ad\nIni adalah tips dari @SehatKu.ID. Mantap #sehatku!\n\n#Baru\n"
+    assert pc.as_text({"caption": "Seru #ad", "disclosure": "Ad", "hashtags": ["#ad"]}) == "Seru #ad\n"
+    assert pc.as_text({}) == "" and pc.as_text({"disclosure": "Ad"}) == "Ad\n"
 
 
 # ---------------------------------------------------------------- the brief checklist

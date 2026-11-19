@@ -84,7 +84,7 @@ export const editor = {
   styleReset: (name: string) => `Gaya dikembalikan ke template "${name}". Klik Simpan untuk menyimpan.`,
   /** Name of the built-in style inside a sentence */
   builtIn: 'bawaan',
-  speakerNoneFound: 'AI tidak menemukan nama pembicara di judul video atau ucapan. Isi namanya sendiri.',
+  speakerNoneFound: 'AI tidak menemukan nama orang di judul video, nama channel, atau ucapan klip ini. Isi namanya sendiri.',
   speakerSuggestFailed: 'Usulan nama gagal',
   preparingSource: 'Menyiapkan video sumber…',
   sourceReady: 'Video sumber siap',

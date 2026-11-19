@@ -25,6 +25,7 @@ export const jobs: Messages['jobs'] = {
   delete: 'Delete job',
   stoppedAt: (step: string) => `Stopped at step: ${step}.`,
   progressClips: (done: number, total: number) => `${done}/${total} ${total === 1 ? 'clip' : 'clips'}`,
+  activity: 'Now',
   columns: {
     status: 'Status',
     source: 'Source',

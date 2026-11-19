@@ -560,9 +560,9 @@ function JobProgress({ jobId }: { jobId: string }) {
         <div className="mc-stack mc-gap-12">
           <PipelineSteps steps={steps} />
           {active && <p className="mc-muted">{jobStepLabel(job.current_step)}</p>}
-          {liveMessage && active && (
+          {(liveMessage || job.activity?.message) && active && (
             <p className="mc-caption mc-mono mc-muted" style={{ wordBreak: 'break-word' }}>
-              › {liveMessage}
+              › {liveMessage || job.activity?.message}
             </p>
           )}
         </div>

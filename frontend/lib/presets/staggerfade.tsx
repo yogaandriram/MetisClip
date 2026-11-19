@@ -1,7 +1,7 @@
 import React from 'react';
 import { SubtitlePreset } from './types';
 import { Ease, interpolate, r4 } from './anim';
-import { dropShadow, keywordColor, shadows, stroke, textBase } from './style';
+import { contrastHalo, dropShadow, keywordColor, shadows, stroke, textBase } from './style';
 
 export const staggerfadePreset: SubtitlePreset = {
   id: 'staggerfade',
@@ -86,10 +86,12 @@ export const staggerfadePreset: SubtitlePreset = {
     const fontColor = config.fontColor || '#00CFFF';
     const color = w.keyword ? keywordColor(config, fontColor, '#FFD400') : fontColor;
     const base = textBase(config, { letterSpacing: 2 });
-    const textShadow = shadows(stroke(config), dropShadow(config));
+    const textShadow = shadows(stroke(config), contrastHalo(color), dropShadow(config));
     const chars = Array.from(w.word);
-    // staggerFadeAnim: each character rises 0.694em and fades in (0.3 s), one after another
-    const step = Math.min(0.06, 0.36 / Math.max(1, chars.length));
+    // Each character rises 0.694em and fades in over 0.12 s, one after another within 0.12 s, so the whole
+    // word shows by 0.24 s: spoken words last about 0.3 s, and the old 0.3 s fades spread over up to 0.36 s
+    // never finished most words (QA 2026-11-19)
+    const step = Math.min(0.03, 0.12 / Math.max(1, chars.length));
     const t = time - w.start;
     return (
       <div style={{ display: 'flex', justifyContent: 'center', width: '100%', padding: '0.55em 0' }}>
@@ -104,8 +106,8 @@ export const staggerfadePreset: SubtitlePreset = {
                   display: 'inline-block',
                   color,
                   textShadow,
-                  opacity: r4(interpolate(local, [0, 0.3], [0, 1], Ease.ease)),
-                  transform: `translateY(${r4(interpolate(local, [0, 0.3], [0.694, 0], Ease.ease))}em)`,
+                  opacity: r4(interpolate(local, [0, 0.12], [0, 1], Ease.easeOut)),
+                  transform: `translateY(${r4(interpolate(local, [0, 0.2], [0.694, 0], Ease.easeOut))}em)`,
                 }}
               >
                 {ch}

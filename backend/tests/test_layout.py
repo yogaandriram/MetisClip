@@ -300,6 +300,31 @@ def test_speaker_names_must_appear_in_the_source():
     assert not grounded("Dr.", hay)  # an honorific alone proves nothing
 
 
+def test_speaker_names_are_tidied_and_asked_steadily(monkeypatch):
+    """QA 2026-11-19: answers changed between clicks ("Sepulang Sekolah (Host)", then nothing) and came
+    in several forms of one name. The call runs at temperature 0, an all-caps title name gets normal
+    case, an informal address is dropped, and one person is listed once."""
+    from backend.agents.tools import speaker_ai
+
+    seen: dict = {}
+
+    def fake_chat(system, user, **kw):
+        seen.update(kw, system=system)
+        return {"speakers": [
+            {"name": "DR. TIRTA", "role": "Dokter"},
+            {"name": "Tirta", "role": "Tamu"},  # the same person
+            {"name": "Mas Fajar", "role": "Tamu"},
+            {"name": "si Fajar", "role": ""},  # the same person again
+        ]}
+
+    monkeypatch.setattr(speaker_ai.llm, "chat_json", fake_chat)
+    words = [{"word": w} for w in "Makasih Mas Fajar udah datang".split()]
+    got = speaker_ai.suggest_speakers("AKHIRNYA DR. TIRTA DATENG JUGA!!", "Risyad and Son", words)
+    assert got == [{"name": "Dr. Tirta", "role": "Dokter"}, {"name": "Fajar", "role": "Tamu"}]
+    assert seen["temperature"] == 0
+    assert "Nama channel, acara" in seen["system"] and "Daftar kosong adalah jawaban yang benar" in seen["system"]
+
+
 def test_speaker_suggest_endpoint(client, db, paths, monkeypatch):
     from backend.agents.tools import speaker_ai
     from backend.core import llm

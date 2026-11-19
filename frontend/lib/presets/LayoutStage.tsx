@@ -7,6 +7,7 @@ import {
   CARD,
   HEADER_LINE_HEIGHT,
   HEADER_PAD,
+  CREDIT_INSET,
   SPEAKER_ROLE_SCALE,
   SPEAKER_SIDE,
   type DuoFace,
@@ -16,6 +17,7 @@ import {
   type SceneData,
   type SpeakerFrame,
   cardGeometry,
+  creditPlacement,
   creditText,
   duoCrop,
   duoFaces,
@@ -154,16 +156,21 @@ const Backdrop: React.FC<BodyProps> = ({ layout, backgroundImageUrl, renderVideo
   );
 };
 
+/** Where a box sits across the canvas (design px): the credit keeps clear of the platform UI from it. */
+type Span = { left: number; width: number };
+const FULL_SPAN: Span = { left: 0, width: W };
+
 /**
  * The source video in its frame: cropped to the frame ratio around focusX, zoomed, with the credit
  * (bottom corner; top corner in a card, whose bottom edge sits next to the default caption).
  */
-const FramedVideo: React.FC<BodyProps & { credit: string; creditTop?: boolean }> = ({
+const FramedVideo: React.FC<BodyProps & { credit: string; creditTop?: boolean; span: Span }> = ({
   layout,
   renderVideo,
   zoomStyle,
   credit,
   creditTop,
+  span,
 }) => (
   <>
     {renderVideo('main', {
@@ -171,34 +178,41 @@ const FramedVideo: React.FC<BodyProps & { credit: string; creditTop?: boolean }>
       objectPosition: `${r4(layout.frame.focusX * 100)}% 50%`,
       ...zoomStyle,
     })}
-    {credit && <CreditBadge layout={layout} text={credit} top={creditTop} />}
+    {credit && <CreditBadge layout={layout} text={credit} top={creditTop} span={span} />}
   </>
 );
 
-/** "Sumber: {channel}" in the right corner of its box (top or bottom). */
-const CreditBadge: React.FC<{ layout: Layout; text: string; top?: boolean }> = ({ layout, text, top }) => (
-  <div
-    style={{
-      position: 'absolute',
-      right: cqw(6),
-      ...(top ? { top: cqw(5) } : { bottom: cqw(5) }),
-      fontFamily: '"Plus Jakarta Sans", sans-serif',
-      fontWeight: 600,
-      fontSize: cqw(layout.credit.fontSize / 2),
-      lineHeight: 1.2,
-      color: layout.credit.color,
-      padding: '0.2em 0.5em',
-      borderRadius: '0.6em',
-      background: 'rgba(0,0,0,0.45)',
-      whiteSpace: 'nowrap',
-      maxWidth: '90%',
-      overflow: 'hidden',
-      textOverflow: 'ellipsis',
-    }}
-  >
-    {text}
-  </div>
-);
+/**
+ * "Sumber: {channel}" in the right corner of its box (top or bottom), moved in from the right edge
+ * where the platforms' buttons would cover it (`creditPlacement`).
+ */
+const CreditBadge: React.FC<{ layout: Layout; text: string; top?: boolean; span: Span }> = ({ layout, text, top, span }) => {
+  const place = creditPlacement(span);
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        right: cqw(place.right),
+        ...(top ? { top: cqw(CREDIT_INSET.y) } : { bottom: cqw(CREDIT_INSET.y) }),
+        fontFamily: '"Plus Jakarta Sans", sans-serif',
+        fontWeight: 600,
+        fontSize: cqw(layout.credit.fontSize / 2),
+        lineHeight: 1.2,
+        color: layout.credit.color,
+        padding: '0.2em 0.5em',
+        borderRadius: '0.6em',
+        background: 'rgba(0,0,0,0.45)',
+        whiteSpace: 'nowrap',
+        maxWidth: cqw(place.maxWidth),
+        boxSizing: 'border-box',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+      }}
+    >
+      {text}
+    </div>
+  );
+};
 
 const PodcastBody: React.FC<BodyProps> = (props) => {
   const { layout, aspect, title, channel } = props;
@@ -223,7 +237,7 @@ const PodcastBody: React.FC<BodyProps> = (props) => {
           background: '#000',
         }}
       >
-        <FramedVideo {...props} credit={g.credit} />
+        <FramedVideo {...props} credit={g.credit} span={g.frame} />
       </div>
 
       {g.header && (
@@ -382,7 +396,7 @@ const CardBody: React.FC<BodyProps> = (props) => {
             background: '#000',
           }}
         >
-          <FramedVideo {...props} credit={g.credit} creditTop />
+          <FramedVideo {...props} credit={g.credit} creditTop span={{ left: g.card.left + g.video.left, width: g.video.width }} />
         </div>
       </div>
     </>
@@ -412,7 +426,7 @@ const SplitBody: React.FC<BodyProps> = (props) => {
     <>
       <div style={part(g.speaker)}>
         {renderVideo('main', { ...COVER, objectPosition: `50% ${r4(layout.companion.focusY * 100)}%`, ...zoomStyle })}
-        {credit && <CreditBadge layout={layout} text={credit} top={!speakerOnTop} />}
+        {credit && <CreditBadge layout={layout} text={credit} top={!speakerOnTop} span={FULL_SPAN} />}
       </div>
       <div style={part(g.companion)}>{renderVideo('companion', COVER)}</div>
       {g.divider && (
@@ -500,7 +514,7 @@ const ScenesBody: React.FC<BodyProps & { frameZoomStyle: React.CSSProperties }> 
       {view === 'duo' && g.divider && <div style={box(g.divider, { background: layout.duo.dividerColor })} />}
       {credit && view !== 'framed' && (
         <div style={box(g.top, { pointerEvents: 'none' })}>
-          <CreditBadge layout={layout} text={credit} />
+          <CreditBadge layout={layout} text={credit} span={FULL_SPAN} />
         </div>
       )}
     </>

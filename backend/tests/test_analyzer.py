@@ -245,3 +245,55 @@ def test_quota_during_the_rank_pass_keeps_the_segments(monkeypatch):
     video = {"_id": "sv1", "youtube_id": "AAAAAAAAAAA", "title": "t", "duration_seconds": 2000}
     out = an._analyze_video(FakeCtx(), video, 45, 60, 0, TRANSCRIPT, use_llm=True)
     assert [s["hook_text"] for s in out] == ["a", "b"]
+
+
+def _talk(texts: list[str], start: float = 200.0, seconds: float = 3.0) -> list[Unit]:
+    out = []
+    for k, text in enumerate(texts):
+        out.append(Unit(k, start + k * seconds, start + (k + 1) * seconds, text,
+                        bool(re.search(r"[.?!…]$", text.strip()))))
+    return out
+
+
+def test_a_bare_reaction_is_never_a_clip_edge():
+    units = _talk(["Hm.", "Gitu ya.", "Satu-satunya yang paling alami adalah latihan fisik.", "Itu kuncinya.",
+                   "Iya, betul.", "Terus ada lagi."])
+    assert an.tidy_edges(units, 1, 4) == (2, 3)           # "Gitu ya." and "Iya, betul." are left out
+    assert an.tidy_edges(units, 2, 3) == (2, 3)
+    assert an.is_reaction(Unit(0, 0, 1, "[tertawa]", False))
+    assert not an.is_reaction(Unit(0, 0, 1, "Ya cutting.", True))
+
+
+def test_a_clip_that_opens_with_an_answer_takes_its_question():
+    units = _talk(["Tadi kita bahas lari.", "Kalau orang bilang terlalu gemuk berarti apa?", "Ya cutting.",
+                   "Defisit kalori, membatasi yang masuk.", "Simpel."])
+    assert an.tidy_edges(units, 2, 4) == (1, 4)
+    assert an.tidy_edges(units, 2, 4, first_allowed=2) == (2, 4)   # the question is outside the window
+    assert an.tidy_edges(units, 3, 4) == (3, 4)                    # "Defisit kalori…" answers nothing
+    early = _talk(["Kenapa?", "Ya karena itu."], start=60.0)
+    assert an.tidy_edges(early, 1, 1) == (1, 1)                    # the question lies in the intro
+
+
+def test_edge_text_gives_the_first_words_only_at_real_sentence_ends():
+    units = _talk(["Harus sakit ya.", "Harus.", "Makanya dokter tugasnya empat.", "yang pertama promotif",
+                   "preventif dan kuratif.", "Nah, kalau misal imunitasnya menolak."])
+    assert an.edge_text(units, 1, 4) == {"first": "harus makanya dokter tugasnya", "next": "nah kalau misal imunitasnya"}
+    assert an.edge_text(units, 3, 3) == {"first": "yang pertama promotif preventif"}   # no "next": unfinished
+    assert an.edge_text(units, 4, 4) == {"next": "nah kalau misal imunitasnya"}        # no "first": mid-sentence
+    assert an.edge_text(units, 0, 5) == {"first": "harus sakit ya harus"}   # nothing after the last sentence
+
+
+def test_segments_carry_the_edge_text(monkeypatch):
+    lines = [{"text": f"Kalimat nomor {k} tentang modal usaha.", "start": 100 + k * 4.0, "duration": 4.0}
+             for k in range(60)]
+
+    def fake_chat(system, user, **kw):
+        if "Candidate 1" in user:
+            return {"clips": []}
+        return {"clips": [{"start_id": 3, "end_id": 15, **_scores(7), "hook_text": "x"}]}
+
+    monkeypatch.setattr(an.llm, "chat_json", fake_chat)
+    video = {"_id": "sv1", "youtube_id": "AAAAAAAAAAA", "title": "t", "duration_seconds": 400}
+    [seg] = an._analyze_video(FakeCtx(), video, 45, 60, 0, lines, use_llm=True)
+    assert seg["edge_text"]["first"] == "kalimat nomor 3 tentang"
+    assert seg["edge_text"]["next"].startswith("kalimat nomor ")

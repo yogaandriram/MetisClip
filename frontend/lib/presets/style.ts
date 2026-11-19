@@ -91,12 +91,67 @@ export const isKeyword = (w: CaptionWord | undefined): boolean => !!w && !!w.key
 
 /** Hex color (#rgb / #rrggbb) with an alpha, for glows. Other formats are returned unchanged. */
 export function withAlpha(color: string, alpha: number): string {
+  const rgb = rgbOf(color);
+  return rgb ? `rgba(${rgb.join(', ')}, ${alpha})` : color;
+}
+
+/** #rgb / #rrggbb to [r, g, b] (0-255), or null for other formats. */
+export function rgbOf(color: string | undefined): [number, number, number] | null {
   const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec((color || '').trim());
-  if (!m) return color;
-  let hex = m[1];
-  if (hex.length === 3) hex = hex.split('').map((ch) => ch + ch).join('');
+  if (!m) return null;
+  const hex = m[1].length === 3 ? m[1].split('').map((ch) => ch + ch).join('') : m[1];
   const n = parseInt(hex, 16);
-  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+const channel = (v: number): number => {
+  const c = v / 255;
+  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+};
+
+const lumOf = ([r, g, b]: [number, number, number]): number => 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+
+/** WCAG relative luminance (0 black, 1 white) of a hex color, or null for other formats. */
+export function luminance(color: string | undefined): number | null {
+  const rgb = rgbOf(color);
+  return rgb ? lumOf(rgb) : null;
+}
+
+/** WCAG contrast ratio of two relative luminances (1 to 21). */
+export const contrastRatio = (a: number, b: number): number => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+
+/**
+ * `color` mixed toward white just enough to reach `min` contrast on a dark backdrop of luminance
+ * `backdrop` (keeps its hue: a dark brand navy becomes a light navy). Other formats are returned unchanged.
+ */
+export function readableOnDark(color: string, backdrop: number, min = 3): string {
+  const rgb = rgbOf(color);
+  if (!rgb) return color;
+  for (let t = 0; t <= 1.0001; t += 0.05) {
+    const mixed = rgb.map((v) => Math.round(v + (255 - v) * t)) as [number, number, number];
+    if (contrastRatio(lumOf(mixed), backdrop) >= min || t > 0.999) {
+      return t === 0 ? color : `#${mixed.map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+    }
+  }
+  return color;
+}
+
+/** "r, g, b" of black or white, whichever contrasts more with `color` (teal and mid tones get black). */
+export function backingTone(color: string): '0, 0, 0' | '255, 255, 255' {
+  const l = luminance(color) ?? 1;
+  return contrastRatio(l, 0) >= contrastRatio(l, 1) ? '0, 0, 0' : '255, 255, 255';
+}
+
+/**
+ * A soft halo in the opposite tone of `color` (dark behind light or mid-tone text, light behind dark
+ * text), so words stay readable on any frame: a preset never sees the video. `k` (0-1) scales it, for
+ * fading it in or out. Goes above a drop shadow and below the user's outline.
+ */
+export function contrastHalo(color: string, k = 1): string | null {
+  if (k <= 0.001) return null;
+  const c = backingTone(color);
+  const a = (x: number) => Math.round(x * k * 1000) / 1000;
+  return `0 0 0.05em rgba(${c}, ${a(0.8)}), 0 0 0.2em rgba(${c}, ${a(0.75)}), 0 0.04em 0.12em rgba(${c}, ${a(0.6)})`;
 }
 
 /** Shared row layout for multi-word presets: wraps, centered, gap in em. */

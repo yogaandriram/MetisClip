@@ -27,6 +27,7 @@ export const jobs = {
   delete: 'Hapus job',
   stoppedAt: (step: string) => `Terhenti di langkah: ${step}.`,
   progressClips: (done: number, total: number) => `${done}/${total} klip`,
+  activity: 'Sedang berjalan',
   columns: {
     status: 'Status',
     source: 'Sumber',

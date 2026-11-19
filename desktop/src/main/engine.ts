@@ -185,6 +185,8 @@ export class Backend extends EventEmitter {
   private stopping = false
   private startPromise: Promise<{ ok: boolean; error?: string }> | null = null
   dataRoot: string | null = null
+  /** The folder the data was just moved away from: the engine points stored paths at the new one */
+  movedFrom: string | null = null
 
   getStatus(): EngineStatus {
     return { ...this.status }
@@ -286,6 +288,7 @@ export class Backend extends EventEmitter {
     }
     if (p.browserPath) env.METISCLIP_BROWSER_PATH = p.browserPath
     if (p.isDev) env.PYTHONUNBUFFERED = '1'
+    if (this.movedFrom) env.METISCLIP_MOVED_FROM = this.movedFrom
     return env
   }
 
@@ -386,6 +389,27 @@ export class Backend extends EventEmitter {
     this.mongod = null
     log.info(`backend berhenti (${reason}, ${Date.now() - t0} ms)`)
     if (reason === 'quit') this.setStatus('stopped')
+  }
+
+  /**
+   * Stops mongod and the engine for maintenance (moving the data folder). The UI keeps its pages and
+   * shows `message` until start() runs again.
+   */
+  async pause(message: string): Promise<void> {
+    this.setStatus('restarting', message)
+    await this.stop('restart')
+  }
+
+  /** GET a JSON route of the running engine (checks made by the main process). */
+  async engineGet<T>(route: string): Promise<T> {
+    const engine = this.engine
+    if (this.status.state !== 'ready' || !engine?.running || !engine.port) throw new Error(tr().engine.failed)
+    const res = await fetch(`${engine.baseUrl}${route}`, {
+      headers: { Authorization: `Bearer ${engine.token}` },
+      signal: AbortSignal.timeout(10000),
+    })
+    if (!res.ok) throw new Error(`${route}: HTTP ${res.status}`)
+    return (await res.json()) as T
   }
 
   /**

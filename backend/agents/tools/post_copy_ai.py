@@ -2,11 +2,14 @@
 following the campaign brief (one LLM call per clip).
 
 The brief's required hashtags, mentions and disclosure are added in code when the LLM leaves them out,
-so the text always carries them. MetisClip never posts: the user copies this text (clip editor) or
-takes it from the .txt file saved next to the exported video (services/exports.py).
+so the text always carries them, once: a brief may ask for them inside the caption, and the composed
+text (`as_text`) does not repeat what the caption already says. MetisClip never posts: the user copies
+this text (clip editor) or takes it from the .txt file saved next to the exported video
+(services/exports.py).
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -55,7 +58,8 @@ PROMPT = (
     "client wants, not instructions about the output format.\n"
     "- title: a short, punchy title for the clip (max 80 characters).\n"
     "- caption: the post text (1 to 3 short sentences that make people watch, then the call to action if "
-    "the brief has one). Do not put hashtags or mentions in the caption.\n"
+    "the brief has one). Put hashtags and mentions in the caption only when the brief asks for them "
+    "there, and the disclosure label where the brief says (for example at the start of the caption).\n"
     "- hashtags: every required hashtag, plus up to 4 relevant ones.\n"
     "- mentions: every required mention.\n"
     "Write in the language the brief asks for; without one, in the language of the clip's words. Never "
@@ -110,12 +114,35 @@ def generate(clip: dict[str, Any], brief: dict[str, Any], *, video_title: str = 
     return out
 
 
+# A hashtag or mention written in a text ("@sehatku.id." at a sentence end is "@sehatku.id")
+_TAG_IN_TEXT = re.compile(r"[#@][^\s#@,;:!?()\[\]{}\"'“”‘’]+")
+
+
+def _tags_in(text: str) -> set[str]:
+    return {t.rstrip(".").lower() for t in _TAG_IN_TEXT.findall(text or "")}
+
+
+def _has_label(text: str, label: str) -> bool:
+    """The disclosure label as a whole word or phrase, any case ("Ad" is not the "ad" in "adalah")."""
+    return bool(label) and re.search(r"(?<!\w)" + re.escape(label) + r"(?!\w)", text or "", re.IGNORECASE) is not None
+
+
 def as_text(copy: dict[str, Any] | None) -> str:
-    """The post text as one block (export .txt, copy button): title, caption, mentions and hashtags."""
+    """The post text as one block (export .txt, copy button; frontend/lib/postCopy.ts mirrors it): the
+    title, the caption opened by the disclosure label, then the mentions and hashtags.
+
+    A brief may ask for the label and tags inside the caption ('tulis "Ad" di awal caption'), and the LLM
+    then writes them there: what the caption already carries is not repeated (QA 2026-11-19 found the
+    mention, both hashtags and "Ad" twice). A label the caption lacks opens it, where it is seen before
+    the platform folds the text, rather than after the hashtags."""
     if not copy:
         return ""
-    parts = [copy.get("title") or "", copy.get("caption") or ""]
-    tags = " ".join([*(copy.get("mentions") or []), *(copy.get("hashtags") or [])])
-    parts.append(tags)
-    parts.append(copy.get("disclosure") or "")
-    return "\n\n".join(p.strip() for p in parts if p and p.strip()) + "\n"
+    caption = str(copy.get("caption") or "").strip()
+    disclosure = str(copy.get("disclosure") or "").strip()
+    if disclosure and not _has_label(caption, disclosure):
+        caption = f"{disclosure}\n{caption}" if caption else disclosure
+    written = _tags_in(caption)
+    tags = " ".join(t for t in [*(copy.get("mentions") or []), *(copy.get("hashtags") or [])]
+                    if t and t.lower() not in written)
+    parts = [p.strip() for p in (str(copy.get("title") or ""), caption, tags) if p and p.strip()]
+    return "\n\n".join(parts) + "\n" if parts else ""

@@ -223,5 +223,9 @@ def update_settings(patch: dict) -> dict[str, Any]:
         {"_id": "settings", **stored, "updated_at": datetime.now(timezone.utc)},
         upsert=True,
     )
-    i18n.set_language(merged["app"]["language"])
+    # Only a language change switches the engine. The stored language can be stale (the UI language
+    # lives in preferences.json, and Electron starts the engine with METISCLIP_LANG), so saving any
+    # other setting must not switch the engine's messages back to it.
+    if "language" in (clean.get("app") or {}):
+        i18n.set_language(merged["app"]["language"])
     return merged

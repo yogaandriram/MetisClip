@@ -54,10 +54,15 @@ class JobContext:
         self.cancel.check()
 
     def _publish_progress(self, message: str | None = None) -> None:
-        doc = get_db().discovery_jobs.find_one(
-            {"_id": self.id},
-            {"status": 1, "current_step": 1, "progress_pct": 1, "total_scenes": 1, "processed_scenes": 1},
-        )
+        """A job.progress event. Its message (what the job does or waits for now) is also kept as the
+        job's `activity`, so a page opened later (Antrian, Cari Video) shows it too."""
+        fields = {"status": 1, "current_step": 1, "progress_pct": 1, "total_scenes": 1, "processed_scenes": 1}
+        if message:
+            doc = get_db().discovery_jobs.find_one_and_update(
+                {"_id": self.id}, {"$set": {"activity": {"message": message[:500], "at": utcnow()}}}, projection=fields,
+            )
+        else:
+            doc = get_db().discovery_jobs.find_one({"_id": self.id}, fields)
         if not doc:
             return
         evt = {

@@ -1,9 +1,10 @@
 'use client'
 
 import React, { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, Archive, Check, Cpu, Database, FolderOpen, HardDrive, Info, MemoryStick, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Archive, Check, Cpu, Database, FolderInput, FolderOpen, HardDrive, Info, MemoryStick, RefreshCw, RotateCcw, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { Alert, Badge, Button, Card, CardHeader, EmptyState, IconButton, KeyValueList, PageHeader, ProgressRow, Skeleton } from '@/components/ui'
+import { Alert, Badge, Button, Card, CardHeader, ConfirmModal, EmptyState, IconButton, KeyValueList, PageHeader, ProgressRow, Skeleton } from '@/components/ui'
+import { MoveDataModal } from '@/components/system/MoveDataModal'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
 import { api, type BackupInfo, type ResourceStatus, type ResourceTask, type StorageInfo, type SystemCheck } from '@/lib/engine'
@@ -103,6 +104,13 @@ export default function SystemPage() {
   const [updatingYtdlp, setUpdatingYtdlp] = useState(false)
   const [ram, setRam] = useState<ResourceStatus | null>(null)
   const [ramError, setRamError] = useState<string | null>(null)
+  const [moveOpen, setMoveOpen] = useState(false)
+  const [previous, setPrevious] = useState<{ path: string; bytes: number } | null>(null)
+  const [deletePreviousOpen, setDeletePreviousOpen] = useState(false)
+  const [deletingPrevious, setDeletingPrevious] = useState(false)
+  const [restoreTarget, setRestoreTarget] = useState<BackupInfo | null>(null)
+  const [restoreBlocked, setRestoreBlocked] = useState<string | null>(null)
+  const [restoring, setRestoring] = useState(false)
 
   useEngineEvents((e) => {
     if (e.type !== 'system.resources') return
@@ -135,16 +143,26 @@ export default function SystemPage() {
       .catch(() => setBackups([]))
   }, [])
 
+  const loadPrevious = useCallback(async () => {
+    if (!window.metis) return
+    try {
+      setPrevious(await window.metis.getPreviousDataRoot())
+    } catch {
+      setPrevious(null)
+    }
+  }, [])
+
   useEffect(() => {
     runCheck()
     loadStorage()
+    loadPrevious()
     refreshSystemInfo()
     setRamError(null)
     api.system
       .resources()
       .then(setRam)
       .catch((err) => setRamError(errorMessage(err)))
-  }, [runCheck, loadStorage, refreshSystemInfo, epoch])
+  }, [runCheck, loadStorage, loadPrevious, refreshSystemInfo, epoch])
 
   const backupNow = async () => {
     setBackingUp(true)
@@ -158,6 +176,53 @@ export default function SystemPage() {
     } finally {
       setBackingUp(false)
     }
+  }
+
+  const askRestore = async (b: BackupInfo) => {
+    setRestoreTarget(b)
+    setRestoreBlocked(null)
+    try {
+      const activity = await api.system.activity()
+      setRestoreBlocked(activity.busy ? activity.message : null)
+    } catch (err) {
+      setRestoreBlocked(errorMessage(err))
+    }
+  }
+
+  const restore = async () => {
+    if (!restoreTarget) return
+    setRestoring(true)
+    try {
+      await api.system.restoreBackup(restoreTarget.name)
+      toast.success(m.backup.restored(formatDateTime(restoreTarget.created_at)))
+      // Every page and context loads its data again from the restored database
+      setTimeout(() => window.location.reload(), 1200)
+    } catch (err) {
+      toast.error(errorMessage(err, m.backup.restoreFailed))
+      setRestoring(false)
+      setRestoreTarget(null)
+    }
+  }
+
+  const deletePrevious = async () => {
+    if (!window.metis) return
+    setDeletingPrevious(true)
+    try {
+      const res = await window.metis.deletePreviousDataRoot()
+      if (res.ok) toast.success(m.move.deleted(formatBytes(res.freedBytes ?? 0)))
+      else toast.error(res.error || m.move.deleteFailed)
+    } catch (err) {
+      toast.error(errorMessage(err, m.move.deleteFailed))
+    } finally {
+      setDeletingPrevious(false)
+      setDeletePreviousOpen(false)
+      loadPrevious()
+    }
+  }
+
+  const keepPrevious = async () => {
+    await window.metis?.forgetPreviousDataRoot()
+    setPrevious(null)
   }
 
   const updateYtdlp = async () => {
@@ -307,11 +372,9 @@ export default function SystemPage() {
                       <th scope="col" className="mc-num">
                         {m.backup.size}
                       </th>
-                      {desktop && (
-                        <th scope="col">
-                          <span className="mc-sr-only">{m.check.actions}</span>
-                        </th>
-                      )}
+                      <th scope="col">
+                        <span className="mc-sr-only">{m.check.actions}</span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -324,8 +387,16 @@ export default function SystemPage() {
                           {formatDateTime(b.created_at)}
                         </td>
                         <td className="mc-num">{formatBytes(b.size_bytes)}</td>
-                        {desktop && (
-                          <td style={{ textAlign: 'right' }}>
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          <IconButton
+                            variant="ghost"
+                            size="sm"
+                            label={m.backup.restore(b.name)}
+                            tooltip="end"
+                            icon={<RotateCcw size={16} />}
+                            onClick={() => askRestore(b)}
+                          />
+                          {desktop && (
                             <IconButton
                               variant="ghost"
                               size="sm"
@@ -334,8 +405,8 @@ export default function SystemPage() {
                               icon={<FolderOpen size={16} />}
                               onClick={() => window.metis!.showItemInFolder(b.path)}
                             />
-                          </td>
-                        )}
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -368,7 +439,30 @@ export default function SystemPage() {
                   </div>
                   <ProgressRow label={m.storage.driveUsed} value={`${formatBytes(driveUsed)} / ${formatBytes(storage.drive_total_bytes)}`} percent={usedPct} highlight />
                   <div className="mc-caption">{m.storage.driveFree(formatBytes(storage.drive_free_bytes))}</div>
+                  {desktop && (
+                    <div>
+                      <Button variant="secondary" size="sm" icon={<FolderInput size={16} aria-hidden="true" />} onClick={() => setMoveOpen(true)}>
+                        {m.move.button}
+                      </Button>
+                    </div>
+                  )}
                 </div>
+
+                {previous && (
+                  <Alert tone="info" title={m.move.previousTitle}>
+                    <div className="mc-stack mc-gap-12">
+                      <span style={{ overflowWrap: 'anywhere' }}>{m.move.previousBody(previous.path, formatBytes(previous.bytes))}</span>
+                      <div className="mc-row mc-row--wrap mc-gap-8">
+                        <Button variant="secondary" size="sm" icon={<Trash2 size={16} aria-hidden="true" />} onClick={() => setDeletePreviousOpen(true)}>
+                          {m.move.deletePrevious}
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={keepPrevious}>
+                          {m.move.keepPrevious}
+                        </Button>
+                      </div>
+                    </div>
+                  </Alert>
+                )}
 
                 <div className="mc-stack mc-gap-8">
                   <div className="mc-row mc-row--between">
@@ -431,6 +525,58 @@ export default function SystemPage() {
           </Card>
         </div>
       </div>
+
+      {desktop && storage && (
+        <MoveDataModal
+          isOpen={moveOpen}
+          current={storage.data_root}
+          onClose={() => setMoveOpen(false)}
+          onMoved={() => {
+            loadStorage()
+            loadPrevious()
+            refreshSystemInfo()
+          }}
+        />
+      )}
+
+      <ConfirmModal
+        isOpen={!!previous && deletePreviousOpen}
+        title={m.move.deleteTitle}
+        message={previous ? m.move.deleteBody(previous.path) : undefined}
+        confirmLabel={m.move.deleteConfirm}
+        confirmIcon={<Trash2 size={16} aria-hidden="true" />}
+        danger
+        loading={deletingPrevious}
+        onConfirm={deletePrevious}
+        onClose={() => setDeletePreviousOpen(false)}
+      />
+
+      <ConfirmModal
+        isOpen={!!restoreTarget}
+        title={m.backup.restoreTitle}
+        confirmLabel={m.backup.restoreConfirm}
+        confirmIcon={<RotateCcw size={16} aria-hidden="true" />}
+        danger
+        loading={restoring}
+        confirmDisabled={!!restoreBlocked}
+        onConfirm={restore}
+        onClose={() => {
+          if (!restoring) setRestoreTarget(null)
+        }}
+      >
+        {restoreTarget && (
+          <div className="mc-stack mc-gap-12">
+            <p>{m.backup.restoreBody(formatDateTime(restoreTarget.created_at))}</p>
+            <p className="mc-muted">{m.backup.restoreFiles}</p>
+            <p className="mc-muted">{m.backup.restoreSafety}</p>
+            {restoreBlocked && (
+              <Alert tone="error" title={m.backup.restoreBusy}>
+                {restoreBlocked}
+              </Alert>
+            )}
+          </div>
+        )}
+      </ConfirmModal>
     </>
   )
 }

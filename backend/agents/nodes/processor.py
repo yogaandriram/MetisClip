@@ -70,6 +70,10 @@ M = i18n.messages({
         "id": "Klip {done}/{total} selesai",
         "en": "Clip {done}/{total} done",
     },
+    "clip_started": {
+        "id": "RAM cukup, klip {start}s mulai diproses…",
+        "en": "Enough RAM now, clip {start}s is being processed…",
+    },
     "none_processed": {
         "id": "Tidak ada klip yang berhasil diproses",
         "en": "No clip could be processed",
@@ -159,7 +163,7 @@ def _source(ctx: JobContext, seg: dict[str, Any], work: Path,
         raise
     except Exception as exc:
         ctx.error("processing", M("whisper_failed", start=f"{start:.0f}", error=exc))
-    a, b = clip_edges.snap(words, payload, t0, t1, total, limits) or (t0, t1)
+    a, b = clip_edges.snap(words, payload, t0, t1, total, limits, seg.get("edge_text")) or (t0, t1)
     ctx.check()
     if seg.get("file_path"):  # cut once more from the original file rather than re-encoding the padded cut
         src = ffmpeg_ops.cut_section(Path(seg["file_path"]), pad_start + a, pad_start + b, work / "src.mp4", ctx.cancel)
@@ -502,8 +506,17 @@ def run(ctx: JobContext, segments: list[dict[str, Any]]) -> list[dict[str, Any]]
             ctx.check()
             try:
                 if base is None:
-                    with resources.hold("clip", need, label=M("hold_label", start=f"{seg['start_time']:.0f}"),
-                                        cancel=ctx.cancel, on_wait=lambda info: ctx.progress(message=info.message())):
+                    start = f"{seg['start_time']:.0f}"
+                    waited: list[bool] = []
+
+                    def on_wait(info: resources.WaitInfo) -> None:
+                        waited.append(True)
+                        ctx.progress(message=info.message())
+
+                    with resources.hold("clip", need, label=M("hold_label", start=start), cancel=ctx.cancel,
+                                        on_wait=on_wait):
+                        if waited:  # the job's activity would still say it waits for RAM
+                            ctx.progress(message=M("clip_started", start=start))
                         clip = process_segment(ctx, seg, limits)
                     base = clip
                 else:

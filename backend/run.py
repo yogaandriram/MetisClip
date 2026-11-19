@@ -158,6 +158,12 @@ def main() -> None:
     try:
         dbm.connect()
         dbm.migrate()
+        from backend.core.paths import moved_from
+
+        if moved_from():
+            from backend.services.data_move import rewrite_paths
+
+            rewrite_paths(moved_from(), paths.data_root)
         from backend.core.settings_store import get_settings
 
         settings = get_settings()
