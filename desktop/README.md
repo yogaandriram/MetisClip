@@ -56,7 +56,13 @@ Packaged layout (`<resources>` = `MetisClip\resources`):
 | `render-engine\browser\chrome-headless-shell.exe` | Chrome Headless Shell (passed as `METISCLIP_BROWSER_PATH`) |
 | `bin\` | `mongod.exe` (+ licenses), `yt-dlp.exe`, `deno.exe`, `ffmpeg.exe`, `whisper\` (whisper.cpp `whisper-cli.exe`, its ggml DLLs, `LICENSE`) |
 
-The NSIS installer is per-user by default (no admin), never deletes `%APPDATA%\MetisClip` or the data folder.
+The NSIS installer is per-user by default (no admin). Its uninstaller (`build-resources/installer.nsh`, with
+`build-resources/uninstall-data.ps1` finding the folders) removes the logs, the updatable tools and the
+data folder's `cache\`, then asks whether the data folder goes too. No is the default and the answer of a
+silent uninstall (`/S`); Yes also removes the folder left from a data move, `%APPDATA%\MetisClip` and the
+saved API keys. An update (`--updated`) touches nothing outside the app folder. For an uninstall test, set
+`METISCLIP_USERDATA_DIR`, `METISCLIP_TOOLS_DIR` and `METISCLIP_KEYRING_SERVICE` before starting it, so
+it never reaches the real data or keys.
 
 ## Environment hooks (verification / tests)
 

@@ -59,8 +59,8 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: MetisClip
   uninstallDisplayName: MetisClip
-  # Never delete user data on uninstall: %APPDATA%\MetisClip (bootstrap.json, logs) is kept, and the
-  # data folder (database + library, chosen by the user, e.g. D:\MetisClip) is never touched.
+  # electron-builder's own app-data removal stays off: build-resources/installer.nsh (customUnInstall) removes
+  # the logs, the updatable tools and the cache, and asks whether the data folder goes too (default: keep).
   deleteAppDataOnUninstall: false
   runAfterFinish: true
 
