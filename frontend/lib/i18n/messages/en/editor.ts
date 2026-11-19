@@ -81,7 +81,7 @@ export const editor: Messages['editor'] = {
   usingTemplate: (name: string) => `Using the "${name}" template. Click Save to keep it.`,
   styleReset: (name: string) => `Style reset to the "${name}" template. Click Save to keep it.`,
   builtIn: 'default',
-  speakerNoneFound: "The AI found no speaker name in the video title or the speech. Enter the name yourself.",
+  speakerNoneFound: "The AI found no person's name in the video title, the channel name or this clip's speech. Enter the name yourself.",
   speakerSuggestFailed: "Couldn't suggest names",
   preparingSource: 'Preparing the source video…',
   sourceReady: 'Source video ready',
