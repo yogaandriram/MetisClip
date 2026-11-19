@@ -102,7 +102,9 @@ def defaults() -> dict[str, Any]:
         "resources": {"auto": True, "reserve_gb": 0},
         "ytdlp": {"player_client": "default", "cookies_file": None},
         "db": {"wiredtiger_cache_gb": 0.25},
-        "app": {"close_to_tray": False, "auto_update": True, "language": "id"},
+        # the engine's copy of the UI language (core/i18n.py); closing to the tray is the shell's own
+        # setting (preferences.json, desktop/src/main/tray.ts)
+        "app": {"language": "id"},
     }
 
 

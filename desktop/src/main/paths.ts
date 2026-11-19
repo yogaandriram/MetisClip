@@ -22,6 +22,8 @@ export interface AppPaths {
   engine: { command: string; args: string[]; cwd: string }
   /** Chrome Headless Shell for Remotion, if found */
   browserPath: string | null
+  /** The app icon (16-256 px .ico): the tray icon, and the window icon in dev */
+  iconFile: string
 }
 
 let cached: AppPaths | null = null
@@ -101,6 +103,8 @@ export function getPaths(): AppPaths {
     devUrl,
     engine,
     browserPath,
+    // packaged: copied next to the other resources by electron-builder.yml (extraResources)
+    iconFile: isDev ? path.join(repoRoot!, 'desktop', 'build-resources', 'icon.ico') : path.join(resources, 'icon.ico'),
   }
   return cached
 }

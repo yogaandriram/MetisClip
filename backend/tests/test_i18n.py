@@ -79,7 +79,7 @@ def test_other_settings_never_switch_the_engine_language(db, monkeypatch):
     monkeypatch.setenv("METISCLIP_LANG", "id")
     assert i18n.language() == "id"
     update_settings({"whisper": {"provider": "local"}})
-    update_settings({"app": {"close_to_tray": True}})
+    update_settings({"processing": {"encoder": "libx264"}})
     assert i18n.language() == "id"
     update_settings({"app": {"language": "en"}})  # the user switches: that one counts
     assert i18n.language() == "en"

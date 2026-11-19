@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, Notification, shell, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
 import type { Backend } from './engine'
+import type { AppTray } from './tray'
 import { dataRootAvailable, defaultDataRoot, ensureStructure, readBootstrap, validateDataRoot, writeBootstrap } from './data-root'
 import { cancelMove, deletePrevious, forgetPrevious, moveDataRoot, planMove, previousRoot } from './data-move'
 import { createLogger } from './logger'
@@ -32,6 +33,8 @@ export const CH = {
   relaunch: 'metis:relaunch',
   getLanguage: 'metis:get-language',
   setLanguage: 'metis:set-language',
+  getCloseToTray: 'metis:get-close-to-tray',
+  setCloseToTray: 'metis:set-close-to-tray',
   planDataMove: 'metis:plan-data-move',
   moveDataRoot: 'metis:move-data-root',
   cancelDataMove: 'metis:cancel-data-move',
@@ -70,7 +73,7 @@ function existingAbsPath(v: unknown): string {
   return resolved
 }
 
-export function registerIpc(backend: Backend): void {
+export function registerIpc(backend: Backend, tray: AppTray): void {
   handle(CH.getEngineInfo, async () => {
     try {
       const info = await backend.waitReady()
@@ -183,7 +186,15 @@ export function registerIpc(backend: Backend): void {
     if (!isLang(lang)) throw new Error(tr().ipc.notText)
     if (!setLanguage(lang)) return
     log.info(`bahasa tampilan: ${lang}`)
+    tray.refresh()
     await backend.applyLanguage(lang)
+  })
+
+  // Pengaturan → Aplikasi: closing the window keeps MetisClip running in the tray (preferences.json)
+  handle(CH.getCloseToTray, () => tray.closeToTray)
+  handle(CH.setCloseToTray, (_e, on: unknown) => {
+    if (typeof on !== 'boolean') throw new Error(tr().ipc.notText)
+    tray.setCloseToTray(on)
   })
 
   ipcMain.on(CH.relaunch, (e) => {

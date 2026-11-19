@@ -71,8 +71,8 @@ export const settings: Messages['settings'] = {
   app: {
     title: 'App',
     tray: 'Keep running in the tray when closed',
-    trayHint: "Running jobs don't stop when the window is closed.",
-    autoUpdate: 'Automatic updates',
+    trayHint: 'Jobs and exports keep running after the window is closed. Click the MetisClip icon in the notification area to open it again, or right-click it to quit.',
+    trayFailed: "The tray setting wasn't saved",
   },
   secret: {
     saved: (label: string) => `${label} saved`,

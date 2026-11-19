@@ -19,6 +19,8 @@ const CH = {
   relaunch: 'metis:relaunch',
   getLanguage: 'metis:get-language',
   setLanguage: 'metis:set-language',
+  getCloseToTray: 'metis:get-close-to-tray',
+  setCloseToTray: 'metis:set-close-to-tray',
   planDataMove: 'metis:plan-data-move',
   moveDataRoot: 'metis:move-data-root',
   cancelDataMove: 'metis:cancel-data-move',
@@ -75,6 +77,9 @@ const bridge = {
   /** UI language saved by main; read synchronously so the first paint already uses it */
   language: initialLanguage(),
   setLanguage: (lang: string) => invoke<void>(CH.setLanguage, lang),
+  /** Closing the window keeps MetisClip running in the tray (saved by main at once) */
+  getCloseToTray: () => invoke<boolean>(CH.getCloseToTray),
+  setCloseToTray: (on: boolean) => invoke<void>(CH.setCloseToTray, on),
 
   async getEngineInfo(): Promise<EngineInfo> {
     const r = await invoke<{ ok: boolean; info?: EngineInfo; error?: string }>(CH.getEngineInfo)

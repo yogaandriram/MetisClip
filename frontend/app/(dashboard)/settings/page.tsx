@@ -75,6 +75,37 @@ function SettingsSkeleton({ rows = 2 }: { rows?: number }) {
 
 const headerIcon = (Icon: React.ElementType) => <Icon size={18} aria-hidden="true" />
 
+/** "Keep running in the tray": a shell setting, saved by the main process at once (preferences.json). */
+function TraySwitch() {
+  const m = useT().settings.app
+  const [on, setOn] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    window.metis
+      ?.getCloseToTray()
+      .then(setOn)
+      .catch(() => setOn(false))
+  }, [])
+
+  if (on === null) return <Skeleton height={48} radius="md" />
+  return (
+    <ToggleSwitch
+      label={m.tray}
+      hint={m.trayHint}
+      checked={on}
+      onChange={async (v) => {
+        setOn(v)
+        try {
+          await window.metis!.setCloseToTray(v)
+        } catch (err) {
+          setOn(!v)
+          toast.error(errorMessage(err, m.trayFailed))
+        }
+      }}
+    />
+  )
+}
+
 export default function SettingsPage() {
   const t = useT()
   const m = t.settings
@@ -377,22 +408,10 @@ export default function SettingsPage() {
 
         <Card>
           <CardHeader size="sm" icon={headerIcon(AppWindow)} title={m.app.title} />
+          {/* Both apply and save at once, outside the Save button below */}
           <div className="mc-stack mc-gap-20">
-            {/* Applies and saves at once, outside the Save button below */}
             <LanguageSwitch withLabel />
-            {!settings ? (
-              <SettingsSkeleton />
-            ) : (
-              <div className="mc-stack mc-gap-20">
-                <ToggleSwitch
-                  label={m.app.tray}
-                  hint={m.app.trayHint}
-                  checked={settings.app.close_to_tray}
-                  onChange={(v) => patch('app', { ...settings.app, close_to_tray: v })}
-                />
-                <ToggleSwitch label={m.app.autoUpdate} checked={settings.app.auto_update} onChange={(v) => patch('app', { ...settings.app, auto_update: v })} />
-              </div>
-            )}
+            {desktop && <TraySwitch />}
           </div>
         </Card>
 

@@ -92,6 +92,9 @@ declare global {
     readonly language: string
     /** Saves the UI language: main uses it for its own screens and dialogs and passes it to the engine */
     setLanguage(lang: string): Promise<void>
+    /** Closing the window keeps MetisClip running in the tray (Pengaturan → Aplikasi; saved by main at once) */
+    getCloseToTray(): Promise<boolean>
+    setCloseToTray(on: boolean): Promise<void>
 
     /** Resolves once the engine is ready (waits while starting / during first-run setup). Rejects on fatal error. */
     getEngineInfo(): Promise<MetisEngineInfo>

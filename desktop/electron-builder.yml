@@ -41,6 +41,9 @@ extraResources:
     to: bin
     # mongod writes *.mdmp crash dumps next to its exe; never ship them
     filter: ["**/*", "!**/*.mdmp"]
+  # The tray icon (src/main/tray.ts); the exe carries the same icon, but a tray needs a file
+  - from: build-resources/icon.ico
+    to: icon.ico
 
 win:
   target:

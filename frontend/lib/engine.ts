@@ -441,7 +441,8 @@ export interface Settings {
   export: { post_text: boolean }
   db: { wiredtiger_cache_gb: number }
   /** language: the UI language, mirrored for the engine's own messages (lib/i18n) */
-  app: { close_to_tray: boolean; auto_update: boolean; language: Lang }
+  /** The engine's copy of the UI language; closing to the tray is a shell setting (window.metis) */
+  app: { language: Lang }
 }
 
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }

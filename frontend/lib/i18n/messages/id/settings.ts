@@ -69,8 +69,8 @@ export const settings = {
   app: {
     title: 'Aplikasi',
     tray: 'Tetap berjalan di tray saat ditutup',
-    trayHint: 'Job yang berjalan tidak terhenti ketika jendela ditutup.',
-    autoUpdate: 'Pembaruan otomatis',
+    trayHint: 'Job dan ekspor tetap berjalan setelah jendela ditutup. Klik ikon MetisClip di area notifikasi untuk membukanya lagi, klik kanan untuk keluar.',
+    trayFailed: 'Pengaturan tray tidak tersimpan',
   },
   /** components/settings/SecretField.tsx */
   secret: {

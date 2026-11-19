@@ -3,9 +3,7 @@
 // %APPDATA%\MetisClip\preferences.json, because main needs it before mongod and the engine run.
 // The engine gets it as METISCLIP_LANG at spawn and through PUT /api/settings on a change.
 // Log lines stay in one language (Indonesian) for support.
-import fs from 'node:fs'
-import path from 'node:path'
-import { getPaths } from './paths'
+import { readPrefs, writePrefs } from './preferences'
 
 export type Lang = 'id' | 'en'
 export const DEFAULT_LANG: Lang = 'id'
@@ -94,6 +92,31 @@ const id = {
     exitedAtStart: (code: number | null, detail: string) => `mongod berhenti saat start (exit ${code}). ${detail}`.trim(),
     noResponse: (s: number) => `mongod tidak merespons dalam ${s} detik`,
     crashLoop: 'MongoDB berhenti berulang kali. Buka folder log untuk detailnya.',
+  },
+  tray: {
+    tooltip: 'MetisClip',
+    open: 'Buka MetisClip',
+    quit: 'Keluar dari MetisClip',
+    noticeTitle: 'MetisClip masih berjalan',
+    noticeBody: 'Job dan ekspor tetap jalan. Klik ikon MetisClip di area notifikasi untuk membukanya lagi, atau klik kanan untuk keluar.',
+  },
+  close: {
+    busyTitle: 'Masih ada pekerjaan yang berjalan',
+    busyDetail: (items: string) =>
+      `Sedang berjalan: ${items}.
+
+Jika MetisClip ditutup sekarang, pekerjaan ini berhenti. Job bisa dilanjutkan dari Antrian saat MetisClip dibuka lagi, ekspor video perlu diulang.`,
+    runInTray: 'Jalankan di latar belakang',
+    quit: 'Tutup sekarang',
+    cancel: 'Batal',
+    remember: 'Selalu jalankan di tray saat jendela ditutup',
+    items: {
+      jobs: (n: number) => `${n} job clip`,
+      renders: (n: number) => `${n} ekspor video`,
+      parses: (n: number) => `${n} pembacaan brief`,
+      designs: (n: number) => `${n} desain template oleh AI`,
+      downloads: (n: number) => `${n} unduhan model Whisper`,
+    } as Record<string, (n: number) => string>,
   },
   ipc: {
     denied: 'Akses ditolak',
@@ -191,6 +214,31 @@ const en: MainMessages = {
     noResponse: (s: number) => `mongod didn't respond within ${s} seconds`,
     crashLoop: 'MongoDB stopped repeatedly. Open the log folder for details.',
   },
+  tray: {
+    tooltip: 'MetisClip',
+    open: 'Open MetisClip',
+    quit: 'Quit MetisClip',
+    noticeTitle: 'MetisClip is still running',
+    noticeBody: 'Jobs and exports keep going. Click the MetisClip icon in the notification area to open it again, or right-click it to quit.',
+  },
+  close: {
+    busyTitle: 'Work is still running',
+    busyDetail: (items: string) =>
+      `Running now: ${items}.
+
+If MetisClip closes now, this work stops. Jobs can be resumed from the Queue when MetisClip opens again; video exports have to be started again.`,
+    runInTray: 'Keep running in the background',
+    quit: 'Close now',
+    cancel: 'Cancel',
+    remember: 'Always keep running in the tray when the window is closed',
+    items: {
+      jobs: (n: number) => `${n} clip job${n === 1 ? '' : 's'}`,
+      renders: (n: number) => `${n} video export${n === 1 ? '' : 's'}`,
+      parses: (n: number) => `${n} brief reading${n === 1 ? '' : 's'}`,
+      designs: (n: number) => `${n} AI template design${n === 1 ? '' : 's'}`,
+      downloads: (n: number) => `${n} Whisper model download${n === 1 ? '' : 's'}`,
+    },
+  },
   ipc: {
     denied: 'Access denied',
     notText: 'The argument must be text',
@@ -208,19 +256,6 @@ const MESSAGES: Record<Lang, MainMessages> = { id, en }
 
 let current: Lang | null = null
 
-function prefsFile(): string {
-  return path.join(getPaths().appDataDir, 'preferences.json')
-}
-
-function readPrefs(): Record<string, unknown> {
-  try {
-    const data = JSON.parse(fs.readFileSync(prefsFile(), 'utf8'))
-    return data && typeof data === 'object' && !Array.isArray(data) ? data : {}
-  } catch {
-    return {}
-  }
-}
-
 export function getLanguage(): Lang {
   if (current) return current
   const saved = readPrefs().language
@@ -232,12 +267,7 @@ export function getLanguage(): Lang {
 export function setLanguage(lang: Lang): boolean {
   if (lang === getLanguage()) return false
   current = lang
-  const file = prefsFile()
-  const prefs = { ...readPrefs(), language: lang }
-  fs.mkdirSync(path.dirname(file), { recursive: true })
-  const tmp = `${file}.tmp`
-  fs.writeFileSync(tmp, JSON.stringify(prefs, null, 2))
-  fs.renameSync(tmp, file)
+  writePrefs({ language: lang })
   return true
 }
 
