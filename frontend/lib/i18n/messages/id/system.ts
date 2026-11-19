@@ -106,6 +106,8 @@ export const system = {
     loadFailed: 'Data penyimpanan tidak dapat dimuat',
     driveUsed: 'Drive terpakai',
     driveFree: (size: string) => `Ruang kosong drive: ${size}`,
+    accessPrivate: 'Hanya akun Windows kamu yang bisa membuka folder ini.',
+    accessShared: 'Akun Windows lain di PC ini juga bisa membuka folder ini. Izinnya diatur manual atau tidak bisa diubah MetisClip.',
     usedByApp: 'Dipakai MetisClip',
     database: 'Database',
     library: 'Library (clip & sumber)',

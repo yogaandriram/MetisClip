@@ -106,6 +106,8 @@ export const system: Messages['system'] = {
     loadFailed: "The storage data couldn't be loaded",
     driveUsed: 'Drive in use',
     driveFree: (size: string) => `Free space on the drive: ${size}`,
+    accessPrivate: 'Only your Windows account can open this folder.',
+    accessShared: "Other Windows accounts on this PC can open this folder too. Its permissions were set by hand, or MetisClip couldn't change them.",
     usedByApp: 'Used by MetisClip',
     database: 'Database',
     library: 'Library (clips & sources)',

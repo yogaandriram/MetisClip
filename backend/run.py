@@ -90,10 +90,17 @@ def _parent_watchdog(request_shutdown) -> None:
 
 
 def _housekeeping(stop: threading.Event) -> None:
-    from backend.core import cache
+    from backend.core import acl, cache
+    from backend.core.paths import get_paths
     from backend.services.backup import maybe_daily_backup
 
     log = logging.getLogger("metisclip.housekeeping")
+    # A data folder outside the user profile (D:\MetisClip) inherits the drive's access list: every account
+    # of the PC could open the clips and the database files
+    try:
+        acl.restrict_data_root(get_paths().data_root)
+    except Exception as exc:
+        log.warning("Restricting the data folder failed: %s", exc)
     # Nothing ran in this session yet: whatever the cache holds was left by the last one (a crash, a hard kill)
     try:
         cache.clear_leftovers()

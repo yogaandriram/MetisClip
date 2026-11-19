@@ -12,7 +12,7 @@ from starlette.concurrency import run_in_threadpool
 from backend.agents.tools import ffmpeg_ops, whisper_local, ytdlp
 from backend.api.dto import http_error
 from backend.core import db as dbm
-from backend.core import cache, procs, resources
+from backend.core import acl, cache, procs, resources
 from backend.core.config import config, deno_path, mongod_path, node_command
 from backend.core.db import get_db
 from backend.core.paths import get_paths
@@ -218,6 +218,7 @@ def _storage() -> dict:
                              "bytes": _dir_size(paths.campaign_library(slug_of(campaign)))})
     return {
         "data_root": str(paths.data_root),
+        "access": acl.status(paths.data_root),
         "drive_free_bytes": free,
         "drive_total_bytes": total,
         "db_bytes": _dir_size(paths.db_dir),

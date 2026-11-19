@@ -486,6 +486,8 @@ export interface YtdlpUpdateResult {
 
 export interface StorageInfo {
   data_root: string
+  /** Who may open the data folder: only this Windows account (plus SYSTEM and Administrators), or more (§6.1) */
+  access?: 'private' | 'shared' | 'unknown'
   drive_free_bytes: number
   drive_total_bytes: number
   db_bytes: number

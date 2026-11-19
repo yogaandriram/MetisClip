@@ -324,3 +324,74 @@ def test_a_copied_credentials_file_is_made_private_again(tmp_path):
     assert dbm.acl_is_private(acl())
     assert dbm.ensure_private(f) is False  # already private: left alone
     assert f.read_text(encoding="utf-8").startswith("{")  # still readable by this user
+
+
+# ---------------------------------------------------------------------------
+# The data folder itself: only this Windows account (§6.1 Permissions)
+# ---------------------------------------------------------------------------
+
+ME = "S-1-5-21-522631399-1311164166-3349481265-1001"
+DRIVE_D = ("D:(A;;FA;;;BA)(A;OICIIO;GA;;;BA)(A;;FA;;;SY)(A;OICIIO;GA;;;SY)(A;;0x1301bf;;;AU)"
+           "(A;OICIIO;SDGXGWGR;;;AU)(A;;0x1200a9;;;BU)(A;OICIIO;GXGR;;;BU)")
+IN_PROFILE = f"MetisClip\r\nD:(A;OICIID;FA;;;SY)(A;OICIID;FA;;;BA)(A;OICIID;FA;;;{ME})\r\n"
+RESTRICTED = f"mc\r\nD:PAI(A;OICI;FA;;;{ME})(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)\r\n"
+
+
+def test_sddl_tells_a_shared_folder_from_a_private_one():
+    from backend.core import acl
+
+    d = acl.parse_sddl(DRIVE_D)
+    assert not d.protected and "S-1-5-18" in d.allowed and "S-1-5-11" in d.allowed  # Authenticated Users
+    assert not acl.is_private(d, ME)
+    profile = acl.parse_sddl(IN_PROFILE)
+    assert not profile.protected and acl.is_private(profile, ME)
+    restricted = acl.parse_sddl(RESTRICTED)
+    assert restricted.protected and acl.is_private(restricted, ME)
+    assert not acl.is_private(restricted, "S-1-5-21-1-2-3-1002")  # another account's folder
+    # A deny entry for someone else does not let them in
+    assert acl.is_private(acl.parse_sddl(RESTRICTED.replace("D:PAI", "D:PAI(D;OICI;FA;;;WD)")), ME)
+    assert acl.parse_sddl("no dacl here") is None
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows access lists")
+def test_a_shared_data_folder_is_restricted_to_this_account(tmp_path):
+    from backend.core import acl
+
+    root = tmp_path / "data root ü"
+    (root / "library" / "c1" / "clip1").mkdir(parents=True)
+    clip = root / "library" / "c1" / "clip1" / "raw.mp4"
+    clip.write_bytes(b"video")
+    # What a folder on another drive inherits: every account of the PC may read it
+    subprocess.run(["icacls", str(root), "/grant", "*S-1-5-32-545:(OI)(CI)RX"], capture_output=True, check=True)
+    assert acl.status(root) == "shared"
+    assert "S-1-5-32-545" in acl.read_dacl(clip).allowed
+
+    assert acl.restrict_data_root(root) is True
+    assert acl.status(root) == "private"
+    dacl = acl.read_dacl(root)
+    assert dacl.protected and sorted(dacl.allowed) == sorted([acl.SYSTEM, acl.ADMINISTRATORS, acl.current_user_sid()])
+    assert "S-1-5-32-545" not in acl.read_dacl(clip).allowed  # the files inside follow
+    assert clip.read_bytes() == b"video"
+    assert acl.restrict_data_root(root) is False  # done once
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows access lists")
+def test_a_folder_in_the_profile_and_one_set_by_hand_are_left_alone(tmp_path):
+    from backend.core import acl
+
+    plain = tmp_path / "in profile"
+    plain.mkdir()  # tmp_path lives under the user profile: private through inheritance
+    assert acl.status(plain) == "private" and acl.restrict_data_root(plain) is False
+    assert not acl.read_dacl(plain).protected  # untouched
+
+    by_hand = tmp_path / "shared on purpose"
+    by_hand.mkdir()
+    subprocess.run(["icacls", str(by_hand), "/inheritance:r", "/grant:r", "*S-1-1-0:(OI)(CI)RX",
+                    f"*{acl.current_user_sid()}:(OI)(CI)F"], capture_output=True, check=True)
+    assert acl.status(by_hand) == "shared" and acl.restrict_data_root(by_hand) is False
+
+
+def test_storage_reports_who_may_open_the_data_folder(client, own_data_root):
+    r = client.get("/api/system/storage")
+    assert r.status_code == 200
+    assert r.json()["access"] in (("private", "shared") if os.name == "nt" else ("unknown",))

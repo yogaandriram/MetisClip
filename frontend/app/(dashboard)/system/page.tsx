@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, Archive, Check, Cpu, Database, FolderInput, FolderOpen, HardDrive, Info, MemoryStick, RefreshCw, RotateCcw, Trash2 } from 'lucide-react'
+import { AlertTriangle, Archive, Check, Cpu, Database, FolderInput, FolderOpen, HardDrive, Info, Lock, MemoryStick, RefreshCw, RotateCcw, Trash2, Users } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Alert, Badge, Button, Card, CardHeader, ConfirmModal, EmptyState, IconButton, KeyValueList, PageHeader, ProgressRow, Skeleton } from '@/components/ui'
 import { MoveDataModal } from '@/components/system/MoveDataModal'
@@ -437,6 +437,16 @@ export default function SystemPage() {
                   <div className="mc-mono mc-caption" style={{ overflowWrap: 'anywhere' }}>
                     {storage.data_root}
                   </div>
+                  {(storage.access === 'private' || storage.access === 'shared') && (
+                    <div className="mc-row mc-gap-8 mc-caption" style={{ alignItems: 'flex-start' }}>
+                      {storage.access === 'private' ? (
+                        <Lock size={14} aria-hidden="true" style={{ flex: 'none', marginTop: 3 }} />
+                      ) : (
+                        <Users size={14} aria-hidden="true" style={{ flex: 'none', marginTop: 3 }} />
+                      )}
+                      <span>{storage.access === 'private' ? m.storage.accessPrivate : m.storage.accessShared}</span>
+                    </div>
+                  )}
                   <ProgressRow label={m.storage.driveUsed} value={`${formatBytes(driveUsed)} / ${formatBytes(storage.drive_total_bytes)}`} percent={usedPct} highlight />
                   <div className="mc-caption">{m.storage.driveFree(formatBytes(storage.drive_free_bytes))}</div>
                   {desktop && (
