@@ -90,17 +90,27 @@ def _parent_watchdog(request_shutdown) -> None:
 
 
 def _housekeeping(stop: threading.Event) -> None:
+    from backend.core import cache
     from backend.services.backup import maybe_daily_backup
 
     log = logging.getLogger("metisclip.housekeeping")
+    # Nothing ran in this session yet: whatever the cache holds was left by the last one (a crash, a hard kill)
+    try:
+        cache.clear_leftovers()
+    except Exception as exc:
+        log.warning("Cache cleanup failed: %s", exc)
     if stop.wait(120):
         return
     while True:
         try:
-            maybe_daily_backup()
+            cache.enforce_limit()
+        except Exception as exc:
+            log.warning("Cache limit check failed: %s", exc)
+        try:
+            maybe_daily_backup()  # once a day, checked by its own clock
         except Exception as exc:
             log.warning("Daily backup failed: %s", exc)
-        if stop.wait(3600):
+        if stop.wait(600):
             return
 
 

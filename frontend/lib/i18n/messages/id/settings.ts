@@ -62,7 +62,7 @@ export const settings = {
     postText: 'Simpan teks posting untuk clip campaign',
     postTextHint: 'Saat clip campaign diekspor, file .txt berisi judul, caption, mention, hashtag, dan label kerja sama ikut disimpan di sebelah videonya.',
     cacheLimit: 'Batas cache (GB)',
-    cacheLimitHint: 'Video sumber sementara dihapus otomatis jika melebihi batas ini.',
+    cacheLimitHint: 'Sisa file sementara dihapus setiap MetisClip dibuka dan saat cache melebihi batas ini. File pekerjaan yang sedang berjalan tidak ikut dihapus.',
     mongoCache: 'Cache MongoDB (GB)',
     mongoCacheHint: 'Memori untuk database. Berlaku setelah aplikasi dimulai ulang.',
   },

@@ -17,7 +17,6 @@ import json
 import logging
 import os
 import re
-import shutil
 import subprocess
 import threading
 import uuid
@@ -27,7 +26,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from backend.agents.tools.whisper import WhisperError
-from backend.core import events, procs, resources, workload
+from backend.core import cache, events, procs, resources, workload
 from backend.core.config import ffmpeg_path, whisper_cli_path
 from backend.core.paths import get_paths
 from backend.core import i18n
@@ -508,8 +507,7 @@ def _run(exe: Path, model: LocalModel, audio_path: Path, cancel: procs.CancelTok
          on_status: Callable[[str], None] | None) -> dict[str, Any]:
     paths = get_paths()
     root = paths.data_root
-    work = paths.cache_dir / f"whisper-{uuid.uuid4().hex[:12]}"
-    work.mkdir(parents=True, exist_ok=True)
+    work = cache.claim(f"whisper-{uuid.uuid4().hex[:12]}")
     try:
         wav = work / "in.wav"
         procs.run(
@@ -549,7 +547,7 @@ def _run(exe: Path, model: LocalModel, audio_path: Path, cancel: procs.CancelTok
         data = json.loads(out.read_bytes().decode("utf-8", "replace"), strict=False)
         return parse_output(data)
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        cache.release(work)
 
 
 def parse_output(data: dict[str, Any]) -> dict[str, Any]:

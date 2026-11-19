@@ -12,7 +12,7 @@ from starlette.concurrency import run_in_threadpool
 from backend.agents.tools import ffmpeg_ops, whisper_local, ytdlp
 from backend.api.dto import http_error
 from backend.core import db as dbm
-from backend.core import procs, resources
+from backend.core import cache, procs, resources
 from backend.core.config import config, deno_path, mongod_path, node_command
 from backend.core.db import get_db
 from backend.core.paths import get_paths
@@ -283,25 +283,6 @@ async def activity_status():
 
 @router.post("/purge-cache")
 def purge_cache():
-    """Deletes cache files of jobs/renders that are not running."""
-    from backend.core.queue import runner
-
-    paths = get_paths()
-    removed = 0
-    if paths.cache_dir.exists():
-        for child in paths.cache_dir.iterdir():
-            name = child.name
-            if name.startswith("job-") and runner.is_running(name[4:]):
-                continue
-            if name.startswith("render-"):
-                continue
-            try:
-                if child.is_dir():
-                    removed += _dir_size(child)
-                    shutil.rmtree(child, ignore_errors=True)
-                else:
-                    removed += child.stat().st_size
-                    child.unlink()
-            except OSError:
-                pass
-    return {"ok": True, "freed_bytes": removed}
+    """Deletes every cache file no running step uses (jobs, renders, transcriptions keep theirs)."""
+    res = cache.sweep(None)
+    return {"ok": True, "freed_bytes": res["freed_bytes"]}

@@ -17,7 +17,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from backend.core import events, i18n
+from backend.core import cache, events, i18n
 from backend.core.db import get_db, new_id, utcnow
 from backend.core.paths import get_paths, slugify
 from backend.models.documents import CampaignDoc, CampaignSourceDoc, clean_brief
@@ -303,11 +303,11 @@ def _parse(campaign_id: str) -> None:
         doc = get(campaign_id)
         if doc is None:
             return
-        work = get_paths().cache_dir / "brief" / campaign_id
+        work = cache.claim(Path("brief") / campaign_id)
         try:
             res = brief_ai.read_brief(doc.get("sources") or [], resolve=resolve_source_path, work_dir=work)
         finally:
-            shutil.rmtree(work, ignore_errors=True)
+            cache.release(work)
         try:
             t = llm.target()
             where = {"provider": t.provider.label, "model": t.model}
