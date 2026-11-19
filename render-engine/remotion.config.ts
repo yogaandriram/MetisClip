@@ -6,7 +6,7 @@ import { Config } from '@remotion/cli/config';
 
 Config.setVideoImageFormat('jpeg');
 Config.setOverwriteOutput(true);
-// Dedicated (empty) public dir: keeps legacy render-engine/public/tmp_videos out of the bundle.
+// Dedicated (empty) public dir, so no stray local files end up in the bundle.
 Config.setPublicDir('./static');
 
 // The presets are imported from ../frontend/lib/presets, whose `react` import would otherwise resolve
