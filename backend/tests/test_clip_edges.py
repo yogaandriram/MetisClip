@@ -134,3 +134,12 @@ def test_an_edge_whisper_left_out_is_not_cut_away():
     a, b = ce.snap(words, None, t0=1.5, t1=47.9, total=47.92)
     assert b == pytest.approx(47.9)
     assert 1.3 <= a <= 1.5
+
+
+def test_hesitations_are_left_out_of_the_anchors():
+    words = _words([("Modal", 0.0, 0.4), ("itu", 0.4, 0.7), ("sangat", 0.7, 1.2), ("penting.", 1.2, 2.0),
+                    ("Eh,", 2.1, 2.3), ("kamu", 2.4, 2.6), ("pernah", 2.6, 2.9), ("dengar", 2.9, 3.2),
+                    ("soal", 3.2, 3.4), ("ini?", 3.4, 3.8)])
+    assert ce._find(words, "ee kamu pernah dengar", 2.2) == 5        # the transcript wrote "ee", Whisper "Eh,"
+    _, b = ce.snap(words, None, t0=0.0, t1=2.2, total=4.0, anchors={"next": "ee kamu pernah dengar"})
+    assert b == pytest.approx(2.0 + 0.08)                            # ends after "penting.", not on "Eh,"

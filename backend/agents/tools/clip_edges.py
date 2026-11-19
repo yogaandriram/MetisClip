@@ -35,11 +35,18 @@ TAIL = 0.3            # kept after the last word (less when the next word follow
 
 _END = re.compile(r"[.?!…]+[\"'”’)\]]*$")
 _NOTE = re.compile(r"\[[^\]]*\]|\([^)]*\)")   # [tertawa], (musik): not spoken words
+# Hesitations that one transcript writes and the other leaves out ("ee kamu pernah dengar" / "Kamu pernah
+# dengar"), so they are left out of both before comparing
+_FILLERS = frozenset("e ee eee eh ehm em emm eum hmm hm mm ah uh um umm".split())
+
+
+def _spoken(tokens: list[str]) -> list[str]:
+    return [t for t in tokens if t not in _FILLERS and not (len(t) == 1 and t.isalpha())]
 
 
 def anchor_tokens(text: str) -> list[str]:
-    """Normalized spoken words of a transcript text (annotations such as [tertawa] left out)."""
-    return norm(_NOTE.sub(" ", str(text or ""))).split()
+    """Normalized spoken words of a transcript text (annotations such as [tertawa] and hesitations left out)."""
+    return _spoken(norm(_NOTE.sub(" ", str(text or ""))).split())
 
 
 def _same(a: str, b: str) -> bool:
@@ -55,7 +62,7 @@ def _same(a: str, b: str) -> bool:
 
 def _tokens(words: list[dict[str, Any]]) -> list[tuple[str, int]]:
     """Normalized tokens of the Whisper words, each with the index of its word ("Satu-satunya" gives two)."""
-    return [(tok, k) for k, w in enumerate(words) for tok in norm(w["word"]).split()]
+    return [(tok, k) for k, w in enumerate(words) for tok in _spoken(norm(w["word"]).split())]
 
 
 def _find(words: list[dict[str, Any]], anchor: str, target: float, first: int = 0) -> int | None:
@@ -160,6 +167,8 @@ def snap(words: list[dict[str, Any]], payload: dict[str, Any] | None, t0: float,
         m = _find(words, anchors["next"], t1, first=i + 1)
         if m is not None:
             j = m - 1
+            while j > i and not _spoken(norm(words[j]["word"]).split()):  # "Eh," opens the next sentence
+                j -= 1
     if j is None:
         j = _nearest(idx[i:], ends, lambda k: words[k]["end"], t1)
     if j is None:
