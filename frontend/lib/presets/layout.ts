@@ -636,6 +636,29 @@ export function creditText(layout: Layout, channel: string | null | undefined): 
   return c.text.trim();
 }
 
+/** Credit badge: space from its box's corner, and from the platform UI line (design px). */
+export const CREDIT_INSET = { x: 6, y: 5, ui: 3 };
+
+/**
+ * Where the credit badge sits across its box (`box` in canvas design px): its right edge stays clear
+ * of the platform UI on the right (the strictest of TikTok, IG Reels and YT Shorts, as for the
+ * caption), and a long credit stops at the UI line on the left (then ends with "…"). In a box that
+ * leaves the UI area free it keeps its corner. QA 2026-11-19: 6 px from a full-width frame put it
+ * under TikTok's and Shorts' buttons on the right.
+ */
+export function creditPlacement(box: { left: number; width: number }): { right: number; maxWidth: number } {
+  const ui = toDesign({
+    top: 0,
+    bottom: 0,
+    left: Math.max(...PLATFORMS.map((p) => PLATFORM_UI[p].left)),
+    right: Math.max(...PLATFORMS.map((p) => PLATFORM_UI[p].right)),
+  });
+  const right = Math.max(CREDIT_INSET.x, ui.right + CREDIT_INSET.ui - (W - box.left - box.width));
+  const left = Math.max(CREDIT_INSET.x, ui.left + CREDIT_INSET.ui - box.left);
+  const round = (v: number) => Math.round(v * 100) / 100;
+  return { right: round(right), maxWidth: round(Math.max(0, box.width - right - left)) };
+}
+
 /** Platforms whose own UI at the top would cover part of the title. */
 export function headerCoveredBy(rect: Rect | null): Platform[] {
   if (!rect) return [];
