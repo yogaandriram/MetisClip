@@ -69,6 +69,22 @@ def test_settings_switch_the_engine_language(db):
     assert i18n.language() == "id"
 
 
+def test_other_settings_never_switch_the_engine_language(db, monkeypatch):
+    """QA 2026-11-19: Electron started the engine in Indonesian (METISCLIP_LANG) while the stored
+    language was still English, and saving the Whisper setting switched every engine message to English."""
+    from backend.core.settings_store import update_settings
+
+    update_settings({"app": {"language": "en"}})  # a stale stored language
+    i18n.reset_language()
+    monkeypatch.setenv("METISCLIP_LANG", "id")
+    assert i18n.language() == "id"
+    update_settings({"whisper": {"provider": "local"}})
+    update_settings({"app": {"close_to_tray": True}})
+    assert i18n.language() == "id"
+    update_settings({"app": {"language": "en"}})  # the user switches: that one counts
+    assert i18n.language() == "en"
+
+
 def _english(db):
     from backend.core.settings_store import update_settings
 
