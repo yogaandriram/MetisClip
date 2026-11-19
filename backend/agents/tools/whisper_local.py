@@ -262,6 +262,12 @@ def download_state(model_id: str) -> dict[str, Any] | None:
         return None if st is None else {k: v for k, v in st.items() if k != "cancel"}
 
 
+def active_downloads() -> int:
+    """Model downloads running right now."""
+    with _state_lock:
+        return sum(1 for st in _downloads.values() if st.get("status") == "downloading")
+
+
 def _set_state(model_id: str, **fields: Any) -> None:
     with _state_lock:
         _downloads.setdefault(model_id, {}).update(fields)

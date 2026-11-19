@@ -19,6 +19,18 @@ M = i18n.messages({
         "id": "Aplikasi ditutup saat job berjalan. Klik Lanjutkan untuk melanjutkan.",
         "en": "The app was closed while the job was running. Click Resume to continue.",
     },
+    "render_closed": {
+        "id": "Render terhenti karena aplikasi ditutup",
+        "en": "The render stopped because the app was closed",
+    },
+    "restored_while_running": {
+        "id": "Job ini sedang berjalan saat backup dibuat. Klik Lanjutkan untuk meneruskannya.",
+        "en": "This job was running when the backup was made. Click Resume to continue it.",
+    },
+    "render_restored": {
+        "id": "Render ini sedang berjalan saat backup dibuat",
+        "en": "This render was running when the backup was made",
+    },
 })
 
 logger = logging.getLogger(__name__)
@@ -42,29 +54,8 @@ class JobRunner:
 
     def _recover(self) -> None:
         """After a restart/crash: running -> interrupted, re-queue pending, fail stale renders."""
-        db = get_db()
-        now = utcnow()
-        res = db.discovery_jobs.update_many(
-            {"status": "running"},
-            {"$set": {"status": "interrupted", "finished_at": now},
-             "$push": {"errors": {"$each": [{"step": "system", "message": M("closed_while_running"), "at": now}], "$slice": -50}}},
-        )
-        if res.modified_count:
-            logger.info("Marked %s running job(s) as interrupted", res.modified_count)
-        stale = list(db.render_jobs.find({"status": {"$in": ["queued", "rendering"]}}, {"clip_id": 1}))
-        for r in stale:
-            db.render_jobs.update_one(
-                {"_id": r["_id"]},
-                {"$set": {"status": "failed", "error": "Render terhenti karena aplikasi ditutup", "finished_at": now}},
-            )
-            _restore_clip_status(r["clip_id"])
-        from backend.services import campaigns
-
-        campaigns.recover()
-        from backend.services import brand_templates
-
-        brand_templates.recover()
-        for job in db.discovery_jobs.find({"status": "pending"}, {"_id": 1}).sort("created_at", 1):
+        settle(M("closed_while_running"), M("render_closed"))
+        for job in get_db().discovery_jobs.find({"status": "pending"}, {"_id": 1}).sort("created_at", 1):
             self.submit_job(job["_id"])
 
     def shutdown(self, timeout: float = 5.0) -> None:
@@ -162,6 +153,42 @@ class JobRunner:
             token = self._render_tokens.get(render_id)
         if token:
             token.cancel("cancelled")
+
+
+def settle(job_message: str, render_message: str, pending: bool = False) -> None:
+    """
+    Nothing of this database runs in this process: running jobs (and pending ones with `pending`)
+    become interrupted (resumable), queued or running renders fail, and a brief reading or template
+    design that was running is marked as failed.
+    """
+    db = get_db()
+    now = utcnow()
+    statuses = ["running", "pending"] if pending else ["running"]
+    res = db.discovery_jobs.update_many(
+        {"status": {"$in": statuses}},
+        {"$set": {"status": "interrupted", "finished_at": now, "activity": None},
+         "$push": {"errors": {"$each": [{"step": "system", "message": job_message, "at": now}], "$slice": -50}}},
+    )
+    if res.modified_count:
+        logger.info("Marked %s job(s) as interrupted", res.modified_count)
+    stale = list(db.render_jobs.find({"status": {"$in": ["queued", "rendering"]}}, {"clip_id": 1}))
+    for r in stale:
+        db.render_jobs.update_one(
+            {"_id": r["_id"]},
+            {"$set": {"status": "failed", "error": render_message, "finished_at": now}},
+        )
+        _restore_clip_status(r["clip_id"])
+    from backend.services import campaigns
+
+    campaigns.recover()
+    from backend.services import brand_templates
+
+    brand_templates.recover()
+
+
+def settle_restored() -> None:
+    """After a backup was restored: its running and pending work did not survive (CLAUDE.md §6.4)."""
+    settle(M("restored_while_running"), M("render_restored"), pending=True)
 
 
 def _restore_clip_status(clip_id: str) -> None:

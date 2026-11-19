@@ -144,6 +144,11 @@ def _env_path(name: str) -> Path | None:
     return Path(value).resolve() if value else None
 
 
+def moved_from() -> Path | None:
+    """The previous data folder, on the first start after the desktop shell moved it (CLAUDE.md §6.1)."""
+    return _env_path("METISCLIP_MOVED_FROM")
+
+
 def resolve_paths() -> Paths:
     """Build the Paths object from the environment, with dev fallbacks."""
     data_root = _env_path("METISCLIP_DATA_ROOT")
