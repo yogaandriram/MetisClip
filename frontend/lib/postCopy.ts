@@ -8,11 +8,32 @@ export const POST_CAPTION_MAX = 2200
 export const POST_TAGS_MAX = 30
 export const POST_DISCLOSURE_MAX = 300
 
-/** Mirrors post_copy_ai.as_text: title, caption, mentions + hashtags, disclosure, separated by blank lines. */
+// A hashtag or mention written in a text ("@sehatku.id." at a sentence end is "@sehatku.id")
+const TAG_IN_TEXT = /[#@][^\s#@,;:!?()[\]{}"'“”‘’]+/g
+
+const tagsIn = (text: string): Set<string> =>
+  new Set((text.match(TAG_IN_TEXT) || []).map((t) => t.replace(/\.+$/, '').toLowerCase()))
+
+/** The disclosure label as a whole word or phrase, any case ("Ad" is not the "ad" in "adalah"). */
+function hasLabel(text: string, label: string): boolean {
+  if (!label) return false
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, 'iu').test(text)
+}
+
+/**
+ * Mirrors post_copy_ai.as_text: the title, the caption opened by the disclosure label, then the mentions
+ * and hashtags, separated by blank lines. What the caption already carries (a brief may ask for the label
+ * and tags inside it) is not repeated; a label the caption lacks opens it.
+ */
 export function postCopyText(copy: Pick<PostCopy, 'title' | 'caption' | 'hashtags' | 'mentions' | 'disclosure'> | null | undefined): string {
   if (!copy) return ''
-  const tags = [...(copy.mentions || []), ...(copy.hashtags || [])].join(' ')
-  const parts = [copy.title || '', copy.caption || '', tags, copy.disclosure || ''].map((p) => p.trim()).filter(Boolean)
+  let caption = (copy.caption || '').trim()
+  const disclosure = (copy.disclosure || '').trim()
+  if (disclosure && !hasLabel(caption, disclosure)) caption = caption ? `${disclosure}\n${caption}` : disclosure
+  const written = tagsIn(caption)
+  const tags = [...(copy.mentions || []), ...(copy.hashtags || [])].filter((t) => t && !written.has(t.toLowerCase())).join(' ')
+  const parts = [copy.title || '', caption, tags].map((p) => p.trim()).filter(Boolean)
   return parts.length ? parts.join('\n\n') + '\n' : ''
 }
 
