@@ -359,7 +359,7 @@ def test_migration_007_turns_groq_into_auto(mongo):
     try:
         old.meta.insert_one({"_id": "schema", "version": 6})
         old.app_settings.insert_one({"_id": "settings", "whisper": {"provider": "groq", "model": "whisper-large-v3"}})
-        assert dbm.migrate(old) == 10
+        assert dbm.migrate(old) == 11
         assert old.app_settings.find_one({"_id": "settings"})["whisper"] == {"provider": "auto", "model": "whisper-large-v3"}
     finally:
         mongo.drop_database(name)

@@ -87,12 +87,20 @@ def slug_of(doc: dict[str, Any] | None) -> str:
     return doc.get("slug") or slugify(doc.get("name") or "") or "campaign"
 
 
-def create(name: str, *, client: str = "", brief: dict[str, Any] | None = None,
-           brand_template_id: str | None = None) -> dict[str, Any]:
+def create(name: str, *, client: str = "", brief: dict[str, Any] | None = None, ai_template: bool = True) -> dict[str, Any]:
+    """A new campaign with its own brand template, its default: the basic look at once, then designed by
+    the AI in the background when an LLM is set up (services/brand_templates.py create_for_campaign).
+    Templates that migration 011 could not place (no campaign existed yet) join the first campaign."""
+    from backend.services import brand_templates as bts
+
     now = utcnow()
     doc = CampaignDoc(_id=new_id(), name=name, client=client, slug=unique_slug(name), brief=clean_brief(brief or {}),
-                      brand_template_id=brand_template_id, created_at=now, updated_at=now).to_mongo()
-    get_db().campaigns.insert_one(doc)
+                      created_at=now, updated_at=now).to_mongo()
+    db = get_db()
+    db.campaigns.insert_one(doc)
+    db.brand_templates.update_many({"campaign_id": None}, {"$set": {"campaign_id": doc["_id"]}})
+    tpl = bts.create_for_campaign(doc, ai=ai_template, auto=True, make_default=True)
+    doc["brand_template_id"] = tpl["_id"]
     events.publish({"type": "campaign.updated", "id": doc["_id"]})
     return doc
 
@@ -113,8 +121,9 @@ def _inside_library(path: Path) -> bool:
 
 
 def delete(campaign_id: str, *, delete_files: bool = False) -> int:
-    """The campaign with everything in it: its clips (and their renders), its brief files, and the jobs
-    that follow only this campaign (with their source videos); other jobs just stop following it.
+    """The campaign with everything in it: its clips (and their renders), its brand templates, its brief
+    files, and the jobs that follow only this campaign (with their source videos); other jobs just stop
+    following it.
     Clip folders are deleted only with `delete_files`. Dependants go first, one collection at a time
     (no transactions), so a crash part-way is safe to repeat. Returns the number of deleted clips."""
     from backend.core.queue import runner
@@ -135,6 +144,9 @@ def delete(campaign_id: str, *, delete_files: bool = False) -> int:
     db.discovery_jobs.update_many({"campaign_ids": campaign_id},
                                   {"$pull": {"campaign_ids": campaign_id, "campaigns": {"id": campaign_id}}})
     db.campaigns.delete_one({"_id": campaign_id})
+    from backend.services import brand_templates as bts
+
+    bts.delete_for_campaign(campaign_id)  # its templates belong to it (with their unused asset copies)
 
     folder = asset_dir(campaign_id)
     root = (get_paths().library_dir / ASSETS_DIRNAME).resolve()

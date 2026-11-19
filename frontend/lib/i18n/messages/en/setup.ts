@@ -66,7 +66,7 @@ export const setup: Messages['setup'] = {
   },
   campaign: {
     title: 'Create your first campaign',
-    subtitle: "A campaign holds everything you make in MetisClip: the videos you process, the clips, the brief and the brand template. For your own channel a name is enough; an agency's brief can be added later.",
+    subtitle: "A campaign holds everything you make in MetisClip: the videos you process, the clips, the brief and the brand template. For your own channel a name is enough; an agency's brief can be added later. Once the campaign exists, the AI prepares its first brand template.",
     created: (name: string) => `Campaign "${name}" created`,
     existing: (n: number) => `You already have ${n} ${n === 1 ? 'campaign' : 'campaigns'} in this data folder.`,
     createStart: 'Create & start',

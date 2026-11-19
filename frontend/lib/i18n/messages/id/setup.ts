@@ -68,7 +68,7 @@ export const setup = {
   campaign: {
     title: 'Buat campaign pertama',
     subtitle:
-      'Campaign menyimpan semua yang Anda buat di MetisClip: video yang diproses, klip, brief, dan brand template. Untuk channel sendiri cukup beri nama; brief dari agency bisa ditambahkan nanti.',
+      'Campaign menyimpan semua yang Anda buat di MetisClip: video yang diproses, klip, brief, dan brand template. Untuk channel sendiri cukup beri nama; brief dari agency bisa ditambahkan nanti. Begitu campaign dibuat, AI menyiapkan brand template pertamanya.',
     created: (name: string) => `Campaign "${name}" dibuat`,
     existing: (n: number) => `Anda sudah punya ${n} campaign di folder data ini.`,
     createStart: 'Buat & mulai',

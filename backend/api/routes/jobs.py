@@ -94,6 +94,8 @@ class JobCreate(BaseModel):
     campaign_ids: list[str] = Field(default_factory=list)
     # Extra instructions for this video only
     note: str = Field(default="", max_length=2000)
+    # The automatic layout by content for this job's clips (None: follow the brand templates)
+    smart_layout: Optional[bool] = None
 
 
 def _get(job_id: str) -> dict:
@@ -165,6 +167,7 @@ def create_job(body: JobCreate):
             clip_duration=format_duration(*lohi),
             max_clips=body.max_clips,
             max_clips_per_video=body.max_clips,
+            smart_layout=body.smart_layout,
         ),
         campaign_ids=[c["id"] for c in chosen],
         campaigns=chosen,

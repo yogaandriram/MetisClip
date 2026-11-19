@@ -21,6 +21,7 @@ import {
   StatusBadge,
   Tabs,
   TextAreaField,
+  ToggleSwitch,
   type StepState,
 } from '@/components/ui'
 import { NoCampaignState } from '@/components/NoCampaignState'
@@ -42,6 +43,7 @@ import {
   jobStepLabel,
 } from '@/lib/format'
 import { tm } from '@/lib/i18n'
+import { resolveLayout } from '@/lib/presets/layout'
 import { QUEUE_HREF } from '@/lib/routes'
 import { useT } from '@/lib/i18n/I18nProvider'
 
@@ -137,6 +139,9 @@ function JobForm({ onCreated, initialCampaign }: { onCreated: (jobId: string) =>
   const [campaignsError, setCampaignsError] = useState<string | null>(null)
   const [campaignIds, setCampaignIds] = useState<string[]>([])
   const [note, setNote] = useState('')
+  // The automatic layout by content for this job: null follows each campaign's default template
+  const [smartChoice, setSmartChoice] = useState<boolean | null>(null)
+  const [templateSmart, setTemplateSmart] = useState<'on' | 'off' | 'mixed' | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
@@ -168,6 +173,40 @@ function JobForm({ onCreated, initialCampaign }: { onCreated: (jobId: string) =>
   const bounds = briefDurationBounds(chosen.map((c) => c.brief))
   const current = parseDuration(clipDuration)
   const suggestion = bounds && current ? suggestDuration(bounds, current) : null
+
+  // What the chosen campaigns' default templates say about the automatic layout
+  const templateKey = chosen.map((c) => c.brand_template_id || '').join(',')
+  useEffect(() => {
+    const ids = templateKey.split(',').filter(Boolean)
+    if (ids.length === 0) {
+      setTemplateSmart(null)
+      return
+    }
+    let cancelled = false
+    Promise.all(ids.map((id) => api.brandTemplates.get(id)))
+      .then((res) => {
+        if (cancelled) return
+        const on = res.map(({ brand_template }) => resolveLayout(brand_template.layout_settings).smart.enabled)
+        setTemplateSmart(on.every(Boolean) ? 'on' : on.some(Boolean) ? 'mixed' : 'off')
+      })
+      .catch(() => {
+        if (!cancelled) setTemplateSmart(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [templateKey, epoch])
+  const smartChecked = smartChoice ?? templateSmart === 'on'
+  const smartHint =
+    smartChoice !== null
+      ? f.smart.override
+      : templateSmart === 'on'
+        ? f.smart.followOn
+        : templateSmart === 'off'
+          ? f.smart.followOff
+          : templateSmart === 'mixed'
+            ? f.smart.followMixed
+            : f.smart.hint
 
   const applySuggestion = ([lo, hi]: [number, number]) => {
     const preset = `${lo}-${hi}`
@@ -207,6 +246,7 @@ function JobForm({ onCreated, initialCampaign }: { onCreated: (jobId: string) =>
         max_clips: maxClips,
         campaign_ids: chosen.map((c) => c.id),
         note: note.trim(),
+        smart_layout: smartChoice,
       })
       toast.success(f.started)
       onCreated(job.id)
@@ -254,6 +294,17 @@ function JobForm({ onCreated, initialCampaign }: { onCreated: (jobId: string) =>
           )}
 
           <CampaignPicker campaigns={campaigns} error={campaignsError} value={campaignIds} onChange={setCampaignIds} />
+
+          <div className="mc-stack mc-gap-8">
+            <ToggleSwitch checked={smartChecked} onChange={setSmartChoice} label={f.smart.label} hint={smartHint} />
+            {smartChoice !== null && (
+              <div>
+                <Button variant="ghost" size="sm" icon={<RotateCcw size={14} aria-hidden="true" />} onClick={() => setSmartChoice(null)}>
+                  {f.smart.follow}
+                </Button>
+              </div>
+            )}
+          </div>
 
           <div className="mc-stack mc-gap-12">
             <Field label={f.duration} hint={duration !== CUSTOM && durationKind ? f.durationHint(durationKind) : undefined}>

@@ -6,7 +6,6 @@ import { usePathname } from 'next/navigation'
 import { ArrowLeft, Plus } from 'lucide-react'
 import { useShell } from '@/components/shell/ShellContext'
 import { normalizePath } from '@/components/shell/NavRail'
-import { CampaignSwitcher } from './CampaignSwitcher'
 import { IconLink } from './IconButton'
 import { useT } from '@/lib/i18n/I18nProvider'
 import { QUEUE_HREF } from '@/lib/routes'
@@ -18,7 +17,7 @@ interface PageHeaderProps {
   actions?: React.ReactNode
   /** Back button before the title */
   back?: { href: string; label: string }
-  /** Campaign switcher, "+ Klip baru" and the jobs pill (default true inside the shell) */
+  /** "+ Klip baru" and the jobs pill (default true inside the shell); the campaign is the profile circle */
   showGlobal?: boolean
 }
 
@@ -52,15 +51,12 @@ export function PageHeader({ title, subtitle, actions, back, showGlobal = true }
               </span>
             </Link>
           )}
-          {global && (
+          {global && pathname !== '/discover' && (
             <div className="mc-pillgroup">
-              <CampaignSwitcher />
-              {pathname !== '/discover' && (
-                <Link href="/discover/" className="mc-pillgroup__item mc-pillgroup__item--soft">
-                  <Plus size={16} aria-hidden="true" />
-                  {t.ui.newClip}
-                </Link>
-              )}
+              <Link href="/discover/" className="mc-pillgroup__item mc-pillgroup__item--soft">
+                <Plus size={16} aria-hidden="true" />
+                {t.ui.newClip}
+              </Link>
             </div>
           )}
         </div>

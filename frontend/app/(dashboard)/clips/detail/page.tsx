@@ -43,6 +43,7 @@ import {
   type LayoutPatch,
   type ZoomStyle,
   LAYOUT_LIMITS,
+  applySmart,
   companionStart,
   companionTime,
   mergeLayout,
@@ -129,6 +130,7 @@ type Snapshot = {
 
 // Option ids; their labels are in the `editor` dictionary (looked up while rendering)
 const LAYOUT_MODES: LayoutMode[] = ['full', 'podcast', 'card', 'split', 'duo', 'auto']
+const percent = (share: number) => `${Math.round(share * 100)}%`
 const VIEWS: SceneView[] = ['duo', 'full', 'framed']
 const FULL_OR_FRAMED: ('full' | 'framed')[] = ['full', 'framed']
 const DUO_TOPS: DuoTop[] = ['left', 'right']
@@ -281,17 +283,19 @@ function ClipEditor() {
     api.clips
       .get(clipId)
       .then((d) => {
-        if (!cancelled) applyDetail(d)
+        if (cancelled) return
+        applyDetail(d)
+        // The clip can use any template of its own campaign
+        api.brandTemplates
+          .list(d.clip.campaign_id || undefined)
+          .then(({ brand_templates }) => {
+            if (!cancelled) setTemplates(brand_templates)
+          })
+          .catch(() => undefined)
       })
       .catch((err) => {
         if (!cancelled) setLoadError(errorMessage(err, tm().editor.notFound))
       })
-    api.brandTemplates
-      .list()
-      .then(({ brand_templates }) => {
-        if (!cancelled) setTemplates(brand_templates)
-      })
-      .catch(() => undefined)
     // Re-attach to a render that is still running for this clip
     api.renderJobs
       .list({ clip_id: clipId })
@@ -618,10 +622,12 @@ function ClipEditor() {
     setAnalyzing(true)
     const id = toast.loading(m.analyzingFaces)
     try {
-      const { clip, scenes } = await api.clips.prepareFaces(clipId)
+      const { clip, scenes, content } = await api.clips.prepareFaces(clipId)
       // Only the scan fields: unsaved edits stay as they are
       setDetail((d) =>
-        d ? { ...d, scenes, clip: { ...d.clip, files: clip.files, source_width: clip.source_width, source_height: clip.source_height } } : d,
+        d
+          ? { ...d, scenes, content, clip: { ...d.clip, files: clip.files, source_width: clip.source_width, source_height: clip.source_height } }
+          : d,
       )
       toast.success(m.facesDone(scenes?.shots.length || 0), { id })
     } catch (err) {
@@ -777,14 +783,18 @@ function ClipEditor() {
   const clip = detail.clip
   const activeTemplate = templateById(present.templateId)
   const brand = activeTemplate?.brand_settings || null
-  // The template the clip's campaign uses (its own choice, else the default template)
+  // The clip's campaign's default template
   const campaignTemplateId =
     (detail.campaign?.brand_template_id && templates.some((tpl) => tpl.id === detail.campaign?.brand_template_id)
       ? detail.campaign.brand_template_id
       : templates.find((tpl) => tpl.is_default)?.id) || null
   const overlaySrc = brand?.overlayUrl ? assetUrl(brand.overlayUrl) : ''
   // Layout: template ⊕ this clip's override. Podcast shows source.mp4; until it exists, the clip stays full
-  const layout = resolveLayout(activeTemplate?.layout_settings, present.layout)
+  const baseLayout = resolveLayout(activeTemplate?.layout_settings, present.layout)
+  // Layout otomatis sesuai konten: the mode picked for what this clip shows (the render picks the same)
+  const content = detail.content || null
+  const smartOn = baseLayout.smart.enabled
+  const layout = applySmart(baseLayout, content)
   const hasSource = !!clip.files.source
   // Podcast and card show source.mp4; until it exists the preview stays full
   const sourceView = usesSource(layout.mode) && hasSource
@@ -1282,15 +1292,48 @@ function ClipEditor() {
                 )
               }
             >
-              <ChoiceChips<LayoutMode>
-                ariaLabel={m.videoView}
-                size="sm"
-                options={LAYOUT_MODES.map((value) => ({ value, label: m.layoutModes[value] }))}
-                value={layout.mode}
-                onChange={(mode) => setLayout({ mode })}
+              <ToggleSwitch
+                label={m.smart.toggle}
+                hint={m.smart.hint}
+                checked={smartOn}
+                onChange={(enabled) => setLayout({ smart: { enabled } })}
               />
+              {smartOn ? (
+                content ? (
+                  <div className="mc-stack mc-gap-4">
+                    <p className="mc-label">{m.smart.picked(m.smart.kinds[content.kind], m.layoutModes[layout.mode])}</p>
+                    {content.kind !== 'vertical' && (
+                      <p className="mc-caption mc-muted">{m.smart.shares(percent(content.solo), percent(content.duo), percent(content.other))}</p>
+                    )}
+                    <button type="button" className="mc-link" style={{ alignSelf: 'flex-start' }} onClick={() => leave('/brand-template/#layout')}>
+                      {m.smart.rules}
+                    </button>
+                  </div>
+                ) : (
+                  <Alert
+                    tone="info"
+                    title={m.smart.missingTitle}
+                    icon={<Film size={18} aria-hidden="true" />}
+                    action={
+                      <Button size="sm" variant="secondary" loading={analyzing} onClick={prepareFaces}>
+                        {m.analyzeNow}
+                      </Button>
+                    }
+                  >
+                    {m.smart.missingBody}
+                  </Alert>
+                )
+              ) : (
+                <ChoiceChips<LayoutMode>
+                  ariaLabel={m.videoView}
+                  size="sm"
+                  options={LAYOUT_MODES.map((value) => ({ value, label: m.layoutModes[value] }))}
+                  value={layout.mode}
+                  onChange={(mode) => setLayout({ mode })}
+                />
+              )}
               <p className="mc-caption mc-muted">{m.layoutHints[layout.mode]}</p>
-              {usesScenes(layout.mode) && (
+              {usesScenes(layout.mode) && !(smartOn && !content) && (
                 <>
                   {!sceneData ? (
                     <Alert

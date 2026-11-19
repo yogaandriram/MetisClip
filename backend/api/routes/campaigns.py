@@ -25,8 +25,8 @@ M = i18n.messages({
         "en": "A campaign name is required",
     },
     "template_missing": {
-        "id": "Brand template tidak ditemukan",
-        "en": "Brand template not found",
+        "id": "Brand template ini bukan milik campaign ini",
+        "en": "This brand template does not belong to this campaign",
     },
     "source_missing": {
         "id": "Bahan brief tidak ditemukan",
@@ -71,10 +71,12 @@ def _name(value: Optional[str]) -> str:
     return name[:80]
 
 
-def _template(template_id: Optional[str]) -> Optional[str]:
-    if template_id and not bts.get(template_id):
+def _template(campaign_id: str, template_id: Optional[str]) -> str:
+    """A campaign's default must be one of its own templates."""
+    tpl = bts.get(template_id)
+    if not tpl or tpl.get("campaign_id") != campaign_id:
         raise http_error(400, M("template_missing"))
-    return template_id or None
+    return tpl["_id"]
 
 
 @router.get("")
@@ -96,14 +98,13 @@ def list_campaigns(status: Optional[str] = None):
 class CampaignCreate(BaseModel):
     name: str = Field(max_length=80)
     client: str = Field(default="", max_length=80)
-    brand_template_id: Optional[str] = None
     brief: Optional[dict[str, Any]] = None
 
 
 @router.post("")
 def create_campaign(body: CampaignCreate):
-    doc = svc.create(_name(body.name), client=" ".join(body.client.split()),
-                     brief=body.brief, brand_template_id=_template(body.brand_template_id))
+    """A new campaign; its brand template is made at once and designed by the AI in the background."""
+    doc = svc.create(_name(body.name), client=" ".join(body.client.split()), brief=body.brief)
     return {"campaign": _dto(doc)}
 
 
@@ -131,17 +132,23 @@ def update_campaign(campaign_id: str, body: CampaignUpdate):
         doc["client"] = " ".join((data["client"] or "").split())
     if data.get("status"):
         doc["status"] = data["status"]
-    if "brand_template_id" in data:
-        doc["brand_template_id"] = _template(data["brand_template_id"])
+    if data.get("brand_template_id"):
+        doc["brand_template_id"] = _template(campaign_id, data["brand_template_id"])
+    brief_changed = False
     if data.get("brief") is not None:
         brief = clean_brief(data["brief"])
         if brief != clean_brief(doc.get("brief") or {}):
             doc["version"] = int(doc.get("version") or 1) + 1
+            brief_changed = True
         doc["brief"] = brief
         doc["draft"] = None
         if (doc.get("parse") or {}).get("status") == "done":
             doc["parse"] = {**doc["parse"], "status": "idle"}
-    return {"campaign": _dto(svc.save(doc))}
+    saved = svc.save(doc)
+    if brief_changed:
+        # The template made with the campaign follows its brief, until the user edits it
+        bts.on_brief_saved(campaign_id)
+    return {"campaign": _dto(saved)}
 
 
 @router.delete("/{campaign_id}")

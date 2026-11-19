@@ -3,7 +3,6 @@ import type { Messages } from '../id'
 export const shell: Messages['shell'] = {
   nav: {
     dashboard: 'Home',
-    campaigns: 'Campaigns',
     discover: 'Find Video',
     clips: 'Clips',
     brand: 'Brand Template',
@@ -17,6 +16,19 @@ export const shell: Messages['shell'] = {
     engineActive: 'Local engine running',
   },
   logoHome: 'MetisClip, go to Home',
+  campaignMenu: {
+    label: 'Campaign menu',
+    button: (name: string) => `Active campaign: ${name}. Open the campaign menu`,
+    buttonEmpty: 'No active campaign. Open the campaign menu',
+    loading: 'Loading campaigns…',
+    empty: 'No active campaigns yet. Create one to get started.',
+    active: 'Active campaign',
+    plain: 'No brief',
+    briefed: 'With a brief',
+    switchTo: 'Switch to',
+    create: 'New campaign',
+    manage: 'Manage campaigns',
+  },
   loadingApp: 'Loading MetisClip…',
   notFound: {
     message: 'Page not found.',

@@ -9,7 +9,29 @@ import { tm, type Lang } from './i18n'
 
 export type ISODate = string
 
-/** A named template in the shared brand template library (used by any campaign). */
+/** How the AI made a template: its status, why it chose what it did, and what is left to the user. */
+export type TemplateDesignStatus = 'running' | 'done' | 'failed' | 'basic' | 'skipped'
+
+/** Something the AI could not do for the template (worded by the frontend, `brand.design.notes`). */
+export interface TemplateDesignNote {
+  kind: 'logo' | 'credit_layout' | 'credit_smart' | 'subtitles_forbidden' | 'visual_rules' | string
+  params: Record<string, string | number>
+}
+
+export interface TemplateDesign {
+  status: TemplateDesignStatus
+  /** Made with the campaign: designed again when its brief changes, until the user edits it */
+  auto: boolean
+  edited: boolean
+  message: string
+  provider: string | null
+  model: string | null
+  reasons: { part: 'caption' | 'layout' | 'colors' | 'zoom' | 'subtitles'; text: string; quote: string }[]
+  notes: TemplateDesignNote[]
+  at: ISODate | null
+}
+
+/** A named brand template of one campaign (every campaign holds one or more, one of them its default). */
 export interface BrandTemplate {
   id: string
   name: string
@@ -17,11 +39,14 @@ export interface BrandTemplate {
   caption_settings: Record<string, any>
   layout_settings: Record<string, any>
   ai_settings: Record<string, any>
+  /** The campaign it belongs to */
+  campaign_id: string | null
+  /** The AI design (null: made by hand or before AI designs) */
+  design: TemplateDesign | null
   created_at: ISODate | null
   updated_at: ISODate | null
-  /** Campaigns whose clips use this template (list / detail responses) */
-  used_by_campaigns?: { id: string; name: string }[]
-  /** The template campaigns without their own template use (the oldest one) */
+  campaign_name?: string
+  /** Its campaign's default template */
   is_default?: boolean
   /** Clips that use this template */
   clip_count?: number
@@ -113,7 +138,7 @@ export interface Campaign {
   name: string
   client: string
   status: 'active' | 'archived'
-  /** Template for this campaign's clips (null = the default template, BrandTemplate.is_default) */
+  /** Its default brand template (one of its own templates) */
   brand_template_id: string | null
   /** Missing in list responses (see source_count) */
   sources?: CampaignSource[]
@@ -135,7 +160,8 @@ export interface CampaignInput {
   name?: string
   client?: string
   status?: 'active' | 'archived'
-  brand_template_id?: string | null
+  /** Make one of its own templates the default */
+  brand_template_id?: string
   /** A reviewed brief: replaces the current one (version + 1) and clears the draft */
   brief?: Brief
 }
@@ -203,6 +229,8 @@ export interface Job {
   config: {
     clip_duration: string
     max_clips_per_video: number
+    /** The automatic layout by content for its clips (null or missing: each campaign's brand template) */
+    smart_layout?: boolean | null
   }
   /** Campaigns the clips are made for (the brief snapshot stays in the engine) */
   campaign_ids: string[]
@@ -231,6 +259,8 @@ export interface JobCreate {
   /** 1 to 5 active campaigns (required): each brief guides the choice, and each campaign gets its own clips */
   campaign_ids: string[]
   note?: string
+  /** Turns the automatic layout by content on or off for the job's clips; null or missing follows the brand templates */
+  smart_layout?: boolean | null
 }
 
 export interface SubtitleWord {
@@ -315,6 +345,14 @@ export interface ClipScenes {
   }>
 }
 
+/** Same shape as ContentProfile in lib/presets/layout.ts: what the clip shows as a whole. */
+export interface ClipContent {
+  kind: 'vertical' | 'speaker' | 'duo' | 'screen' | 'mixed'
+  solo: number
+  duo: number
+  other: number
+}
+
 export interface ClipDetail {
   clip: Clip
   /** brand caption_settings merged with clip.subtitle_style */
@@ -327,6 +365,8 @@ export interface ClipDetail {
   channel?: string
   /** The shots of the clip's face scan (duo and auto layouts); null before the scan */
   scenes?: ClipScenes | null
+  /** What the clip shows, for "Layout otomatis sesuai konten"; null before the face scan */
+  content?: ClipContent | null
   /** The template in effect (the clip's own choice, else its campaign's, else the default); null = built-in */
   brand_template: BrandTemplate | null
   /** The clip's campaign (without its brief material) and its checklist; null without one */
@@ -542,8 +582,8 @@ export type EngineEvent =
   | { type: 'clip.created'; id: string; job_id: string | null; campaign_id?: string | null }
   | { type: 'clip.updated'; id: string }
   | { type: 'clip.deleted'; id: string }
-  | { type: 'brand_template.updated'; id: string }
-  | { type: 'brand_template.deleted'; id: string }
+  | { type: 'brand_template.updated'; id: string; campaign_id?: string | null; design?: TemplateDesignStatus | null }
+  | { type: 'brand_template.deleted'; id: string; campaign_id?: string | null }
   | { type: 'campaign.updated'; id: string }
   | { type: 'campaign.deleted'; id: string }
   | { type: 'campaign.parse'; id: string; status: CampaignParseStatus; message: string }
@@ -709,15 +749,23 @@ let socket: WebSocket | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let reconnectDelay = 1000
 
+// Several components subscribe in the same tick: only one of them may open the socket, or every event
+// arrives once per socket (duplicate toasts and refreshes)
+let connecting = false
+
 async function connectSocket() {
-  if (typeof window === 'undefined' || socket || handlers.size === 0) return
+  if (typeof window === 'undefined' || socket || connecting || handlers.size === 0) return
+  connecting = true
   let info: MetisEngineInfo
   try {
     info = await getEngineInfo()
   } catch {
+    connecting = false
     scheduleReconnect()
     return
   }
+  connecting = false
+  if (socket || handlers.size === 0) return
   const wsUrl = `${info.baseUrl.replace(/^http/, 'ws')}/ws/events${qs({ token: info.token })}`
   const ws = new WebSocket(wsUrl)
   socket = ws
@@ -824,14 +872,20 @@ export const api = {
 
 
   brandTemplates: {
-    list: () => request<{ brand_templates: BrandTemplate[] }>('GET', '/api/brand-templates'),
+    /** One campaign's templates (oldest first), or every campaign's */
+    list: (campaignId?: string) =>
+      request<{ brand_templates: BrandTemplate[] }>('GET', '/api/brand-templates', { query: campaignId ? { campaign_id: campaignId } : {} }),
     get: (id: string) => request<{ brand_template: BrandTemplate }>('GET', `/api/brand-templates/${id}`),
-    /** New template with default settings, or a duplicate of `copy_from` */
-    create: (name: string, copyFrom?: string) =>
-      request<{ brand_template: BrandTemplate }>('POST', '/api/brand-templates', { body: { name, copy_from: copyFrom || null } }),
+    /** A new template in a campaign: default settings, a copy of `copy_from` (any campaign's), or designed by the AI (`ai`) */
+    create: (input: { campaign_id: string; name?: string; copy_from?: string | null; ai?: boolean; make_default?: boolean }) =>
+      request<{ brand_template: BrandTemplate }>('POST', '/api/brand-templates', { body: input }),
     update: (id: string, patch: BrandTemplateInput) =>
       request<{ brand_template: BrandTemplate }>('PUT', `/api/brand-templates/${id}`, { body: patch }),
-    /** Its clips and campaigns fall back to the default template; refused for the last template */
+    /** Design it (again) with the AI in the background; replaces its caption, layout and AI subtitle settings */
+    design: (id: string) => request<{ brand_template: BrandTemplate }>('POST', `/api/brand-templates/${id}/design`),
+    /** Make it its campaign's default */
+    makeDefault: (id: string) => request<{ brand_template: BrandTemplate }>('POST', `/api/brand-templates/${id}/default`),
+    /** Its clips follow the campaign's default; refused for a campaign's last template */
     remove: (id: string) => request<{ ok: true }>('DELETE', `/api/brand-templates/${id}`),
     /** Uploads a brand asset; store the returned `value` (asset://…) in brand_settings */
     uploadAsset: (id: string, file: File, kind: string) => {
@@ -885,7 +939,7 @@ export const api = {
     /** Fetch the clip's original-ratio video again (clips made before the podcast layout). */
     prepareSource: (id: string) => request<{ clip: Clip }>('POST', `/api/clips/${id}/source`),
     /** Face scan for the duo and auto layouts (fetches the source video first when it is missing too) */
-    prepareFaces: (id: string) => request<{ clip: Clip; scenes: ClipScenes | null }>('POST', `/api/clips/${id}/faces`),
+    prepareFaces: (id: string) => request<{ clip: Clip; scenes: ClipScenes | null; content: ClipContent | null }>('POST', `/api/clips/${id}/faces`),
     /** Speaker names for the layout's name tag, from the video title, channel and clip words (not saved). */
     suggestSpeaker: (id: string) => request<{ speakers: { name: string; role: string }[] }>('POST', `/api/clips/${id}/speaker/suggest`),
     export: (clipIds: string[], destDir?: string) => request<ExportResult>('POST', '/api/clips/export', { body: { clip_ids: clipIds, dest_dir: destDir } }),

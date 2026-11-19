@@ -8,6 +8,8 @@ import { SUPPORTED_FONTS, FONT_WEIGHTS_MAP } from '@/lib/constants';
 import { DEFAULT_POSITION_Y, DESIGN_CANVAS, POSITION_LIMITS, captionHeight } from '@/lib/presets/position';
 import {
   LAYOUT_LIMITS,
+  SMART_CHOICES,
+  SMART_KINDS,
   type BackgroundType,
   type CompanionPosition,
   type DuoTop,
@@ -17,6 +19,7 @@ import {
   type LayoutMode,
   type LayoutPatch,
   type SceneView,
+  type LayoutSmart,
   type SpeakerAlign,
   type TextAlign,
   type ZoomStyle,
@@ -161,6 +164,16 @@ function tabsFor(mode: LayoutMode, t: Messages): { id: string; label: string }[]
   }
 }
 
+/**
+ * The settings tabs of every layout in use: the default layout's, or with the smart layout on, those
+ * of each layout its choices can give (the first tab of an id wins).
+ */
+function tabsForModes(modes: LayoutMode[], t: Messages): { id: string; label: string }[] {
+  const out: { id: string; label: string }[] = [];
+  for (const m of modes) for (const tab of tabsFor(m, t)) if (!out.some((x) => x.id === tab.id)) out.push(tab);
+  return out;
+}
+
 const px = (v: number) => `${Math.round(v)}px`;
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 
@@ -168,7 +181,9 @@ export function layoutSummary(layout: LayoutSettings, t: Messages): string {
   const S = t.brand.layout.summary;
   const bg = backgroundOptions(t).find((o) => o.value === layout.background.type)?.label || '';
   const parts = [
-    layout.mode === 'podcast'
+    layout.smart.enabled
+      ? S.smart
+      : layout.mode === 'podcast'
       ? S.podcast(bg)
       : layout.mode === 'card'
         ? S.card(bg)
@@ -207,12 +222,15 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
   const [tab, setTab] = useState(''); // '' = the mode's first tab
   const [uploading, setUploading] = useState<'' | 'background' | 'avatar' | 'companion'>('');
   const mode = layout.mode;
-  const card = mode === 'card';
-  const tabs = tabsFor(mode, t);
+  const smart = layout.smart;
+  // The layouts clips can get: the default one, or every choice of the smart layout (most mixed first)
+  const modesInUse: LayoutMode[] = smart.enabled ? [smart.mixed, smart.duo, smart.screen, smart.speaker] : [mode];
+  const card = modesInUse.includes('card');
+  const tabs = tabsForModes(modesInUse, t);
   const activeTab = tabs.some((x) => x.id === tab) ? tab : tabs[0]?.id || '';
   const frame = frameRect(layout, aspect);
   const { lines, scale } = headerLines(layout, headerText(layout, t.brand.sample.title));
-  const covered = mode === 'podcast' || mode === 'auto' ? headerCoveredBy(headerRect(layout, frame, lines, scale)) : [];
+  const covered = modesInUse.includes('podcast') || modesInUse.includes('auto') ? headerCoveredBy(headerRect(layout, frame, lines, scale)) : [];
   const h = layout.header;
   const z = layout.zoom;
   const sp = layout.speaker;
@@ -280,15 +298,49 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
 
   return (
     <div className="mc-stack mc-gap-20">
-      <Field label={L.presetsLabel} hint={L.presetsHint}>
-        <LayoutPresetGallery layout={layout} onApply={(next: Layout) => updateLayout(next)} />
-      </Field>
+      <ToggleSwitch
+        checked={smart.enabled}
+        onChange={(enabled) => updateLayout({ smart: { enabled } })}
+        label={L.smart.title}
+        hint={L.smart.hint}
+      />
+      {smart.enabled && (
+        <section className="mc-stack mc-gap-16" aria-labelledby="layout-smart-choices">
+          <div>
+            <p id="layout-smart-choices" className="mc-label">
+              {L.smart.choicesLabel}
+            </p>
+            <p className="mc-caption mc-muted">{L.smart.vertical}</p>
+          </div>
+          {SMART_KINDS.map((kind) => (
+            <Field key={kind} label={L.smart.kinds[kind]} hint={L.smart.kindHints[kind]}>
+              <ChoiceChips<LayoutMode>
+                ariaLabel={L.smart.kinds[kind]}
+                size="sm"
+                options={SMART_CHOICES[kind].map((value) => ({ value, label: L.modes[value] }))}
+                value={smart[kind]}
+                onChange={(value) => updateLayout({ smart: { [kind]: value } as Partial<LayoutSmart> })}
+              />
+            </Field>
+          ))}
+          {smart.speaker === 'split' && !m.videoUrl && <Alert tone="info">{L.smart.splitNoVideo}</Alert>}
+        </section>
+      )}
 
       <Divider />
 
-      <Field label={L.modeLabel} hint={L.modeHints[mode]}>
-        <ChoiceChips<LayoutMode> ariaLabel={L.modeLabel} options={modeOptions(t)} value={mode} onChange={(m) => updateLayout({ mode: m })} />
+      <Field label={L.presetsLabel} hint={smart.enabled ? L.presetsHintSmart : L.presetsHint}>
+        <LayoutPresetGallery layout={layout} onApply={(next: Layout) => updateLayout(next)} />
       </Field>
+
+      {!smart.enabled && (
+        <>
+          <Divider />
+          <Field label={L.modeLabel} hint={L.modeHints[mode]}>
+            <ChoiceChips<LayoutMode> ariaLabel={L.modeLabel} options={modeOptions(t)} value={mode} onChange={(m) => updateLayout({ mode: m })} />
+          </Field>
+        </>
+      )}
 
       {tabs.length > 0 && (
         <Tabs
@@ -296,7 +348,9 @@ export const LayoutSettingsPanel: React.FC<LayoutSettingsPanelProps> = ({
           activeTab={activeTab}
           onChange={setTab}
           ariaLabel={
-            card
+            smart.enabled
+              ? L.smart.title
+              : card
               ? L.tabsLabel.card
               : mode === 'split'
                 ? L.tabsLabel.split

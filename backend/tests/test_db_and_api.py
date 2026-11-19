@@ -16,7 +16,7 @@ def client(db, secrets):
 
 
 def test_migration_creates_indexes_and_version(db):
-    assert db.meta.find_one({"_id": "schema"})["version"] == 10
+    assert db.meta.find_one({"_id": "schema"})["version"] == 11
     assert not {"scheduled_posts", "api_cache", "super_agents"} & set(db.list_collection_names())
     names = {ix["name"] for ix in db.clips.list_indexes()}
     assert "campaign_id_1_created_at_-1" in names and "agent_id_1_created_at_-1" not in names
@@ -32,7 +32,7 @@ def test_validator_rejects_bad_status(db):
 def test_migration_is_idempotent(db):
     from backend.core.db import migrate
 
-    assert migrate(db) == 10
+    assert migrate(db) == 11
 
 
 def test_migration_002_removes_publishing_data(mongo):
@@ -56,7 +56,7 @@ def test_migration_002_removes_publishing_data(mongo):
                                        "checkpoint": {"analysis_done": True, "scheduling_done": True}})
         old.meta.insert_one({"_id": "schema", "version": 1})
 
-        assert dbm.migrate(old) == 10
+        assert dbm.migrate(old) == 11
         assert "scheduled_posts" not in old.list_collection_names()
         # The workspace became a campaign (migration 010) without the old field
         assert "social_connections" not in old.campaigns.find_one({"name": "Agen"})
@@ -94,14 +94,14 @@ def test_migration_005_removes_keyword_search(mongo, secrets):
         old.meta.insert_one({"_id": "schema", "version": 4})
         secrets.set_secret("youtube_api_key", "AIza-test-key")
 
-        assert dbm.migrate(old) == 10
+        assert dbm.migrate(old) == 11
         assert "api_cache" not in old.list_collection_names()
         assert "default_keywords" not in old.campaigns.find_one({"name": "Agen"})
         job = old.discovery_jobs.find_one({"_id": "j1"})
         assert job["source"] == {"type": "keyword", "youtube_url": None} and job["config"] == {"clip_duration": "45-60"}
         assert set(old.source_videos.find_one({"_id": "v1"})) == {"_id", "job_id", "youtube_id", "created_at"}
         assert secrets.get_secret("youtube_api_key") is None
-        assert dbm.migrate(old) == 10  # idempotent
+        assert dbm.migrate(old) == 11  # idempotent
     finally:
         mongo.drop_database(name)
         dbm.set_db(None, None)  # type: ignore[arg-type]
@@ -127,7 +127,7 @@ def test_migration_006_accepts_uploaded_source_videos(mongo):
         with pytest.raises(WriteError):
             old.source_videos.insert_one(dict(upload))
         old.meta.insert_one({"_id": "schema", "version": 5})
-        assert dbm.migrate(old) == 10
+        assert dbm.migrate(old) == 11
         old.source_videos.insert_one(upload)
     finally:
         mongo.drop_database(name)
@@ -163,7 +163,7 @@ def test_migration_008_moves_the_old_default_caption_position(mongo):
             {**clip, "_id": "c-none", "subtitle_style": {}},
         ])
         old.meta.insert_one({"_id": "schema", "version": 7})
-        assert dbm.migrate(old) == 10
+        assert dbm.migrate(old) == 11
 
         assert old.brand_templates.find_one({"_id": "t-old"})["caption_settings"] == {"mode": "lumina", "fontSize": 40}
         assert old.brand_templates.find_one({"_id": "t-own"})["caption_settings"]["positionY"] == 260
@@ -197,9 +197,10 @@ def test_campaign_is_the_container(client, db, paths):
     other = client.post("/api/campaigns", json={"name": "Lain"}).json()["campaign"]
     slugs = {c["_id"]: c["slug"] for c in db.campaigns.find({})}
     assert slugs[a["id"]] == "podcast-bisnis" and slugs[b["id"]] == "podcast-bisnis-2"  # one folder each
-    # A fresh database has one library template, used by campaigns without their own
-    [tpl] = client.get("/api/brand-templates").json()["brand_templates"]
-    assert tpl["name"] == "Template Default" and tpl["is_default"] and len(tpl["used_by_campaigns"]) == 3
+    # Each campaign got its own brand template, its default
+    templates = client.get("/api/brand-templates").json()["brand_templates"]
+    assert len(templates) == 3 and all(t["is_default"] for t in templates)
+    assert {t["campaign_id"] for t in templates} == {a["id"], b["id"], other["id"]}
 
     # Clips and jobs: the job that follows only `a` goes with it, the shared one keeps following `other`
     only_a = JobDoc(_id=new_id(), source=JobSource(type="url", youtube_url="https://youtu.be/abcdefghijk"), config=JobConfig(),
@@ -232,7 +233,7 @@ def test_campaign_is_the_container(client, db, paths):
     assert kept["campaign_ids"] == [other["id"]] and kept["campaigns"] == [{"id": other["id"]}]
     assert not paths.campaign_library("podcast-bisnis").exists()  # its clip folders and the emptied folder
     assert paths.clip_dir("lain", clip_ids[2]).exists()
-    assert len(client.get("/api/brand-templates").json()["brand_templates"]) == 1  # templates outlive campaigns
+    assert len(client.get("/api/brand-templates").json()["brand_templates"]) == 2  # its template went with it
 
 
 def test_migration_010_turns_workspaces_into_campaigns(mongo, paths):
@@ -276,7 +277,7 @@ def test_migration_010_turns_workspaces_into_campaigns(mongo, paths):
         ])
         old.source_videos.insert_one({"_id": "sv", "job_id": "j1", "agent_id": "w1", "created_at": now})
         old.meta.insert_one({"_id": "schema", "version": 9})
-        assert dbm.migrate(old) == 10
+        assert dbm.migrate(old) == 11
         m010.up(old)  # a re-run is harmless
 
         camps = {c["name"]: c for c in old.campaigns.find({})}
@@ -285,7 +286,8 @@ def test_migration_010_turns_workspaces_into_campaigns(mongo, paths):
         # The workspace's campaign keeps its folder and template; the older campaign got another folder
         assert ws["slug"] == "podcast-bisnis" and ws["brand_template_id"] == "t-own" and ws["brief"]["focus"] == []
         assert old.campaigns.find_one({"_id": "camp"})["slug"] == "podcast-bisnis-2"
-        assert camps["Kosong"]["brand_template_id"] is None  # its template was gone
+        # Its template was gone: migration 011 gave it the old default template, now its own
+        assert old.brand_templates.find_one({"_id": camps["Kosong"]["brand_template_id"]})["campaign_id"] == camps["Kosong"]["_id"]
         assert old.clips.find_one({"_id": "c1"})["campaign_id"] == ws["_id"]
         assert old.clips.find_one({"_id": "c2"})["campaign_id"] == "camp"
         assert old.clips.find_one({"_id": "c3"})["campaign_id"] == camps["Clip lama"]["_id"]

@@ -3,7 +3,6 @@
 export const shell = {
   nav: {
     dashboard: 'Beranda',
-    campaigns: 'Campaign',
     discover: 'Cari Video',
     clips: 'Hasil Clip',
     brand: 'Brand Template',
@@ -18,6 +17,20 @@ export const shell = {
     engineActive: 'Engine lokal aktif',
   },
   logoHome: 'MetisClip, ke Beranda',
+  /** The profile circle at the top of the shell: the active campaign and its menu */
+  campaignMenu: {
+    label: 'Menu campaign',
+    button: (name: string) => `Campaign aktif: ${name}. Buka menu campaign`,
+    buttonEmpty: 'Belum ada campaign aktif. Buka menu campaign',
+    loading: 'Memuat campaign…',
+    empty: 'Belum ada campaign aktif. Buat satu untuk mulai.',
+    active: 'Campaign aktif',
+    plain: 'Tanpa brief',
+    briefed: 'Dengan brief',
+    switchTo: 'Ganti ke',
+    create: 'Campaign baru',
+    manage: 'Kelola campaign',
+  },
   loadingApp: 'Memuat MetisClip…',
   notFound: {
     message: 'Halaman tidak ditemukan.',

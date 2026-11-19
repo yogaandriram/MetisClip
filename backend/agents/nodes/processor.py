@@ -178,15 +178,23 @@ def _campaign(ctx: JobContext, seg: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _template_id(ctx: JobContext, seg: dict[str, Any]) -> str | None:
-    """The clip's brand template: its campaign's (as set now, else when the job started), else the
-    default template."""
+    """The clip's brand template: its campaign's default (as set now, else when the job started),
+    repaired when it is gone (None: the campaign was deleted, the built-in settings)."""
     campaign = _campaign(ctx, seg)
-    if campaign:
-        live = get_db().campaigns.find_one({"_id": campaign["id"]}, {"brand_template_id": 1})
-        tid = (live or campaign).get("brand_template_id")
-        if tid and brand_templates.get(tid):
-            return tid
-    return brand_templates.ensure_default()
+    if not campaign:
+        return None
+    live = get_db().campaigns.find_one({"_id": campaign["id"]}, {"brand_template_id": 1})
+    tid = (live or campaign).get("brand_template_id")
+    tpl = brand_templates.get(tid)
+    if tpl and tpl.get("campaign_id") == campaign["id"]:
+        return tid
+    return brand_templates.ensure_for_campaign(campaign["id"]) if live else None
+
+
+def _layout_style(ctx: JobContext) -> dict[str, Any]:
+    """A new clip's layout override: the job's choice of the automatic layout by content, if any."""
+    smart = (ctx.job.get("config") or {}).get("smart_layout")
+    return {"smart": {"enabled": smart}} if isinstance(smart, bool) else {}
 
 
 def _brief_marks(words: list[dict[str, Any]], campaign: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -290,6 +298,7 @@ def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw
         source_height=source_info.get("source_height"),
         subtitle={"words": words},
         subtitle_style={},
+        layout_style=_layout_style(ctx),
         brand_template_id=template_id,
         **_campaign_fields(seg),
         status="ready",
@@ -398,6 +407,7 @@ def derive_clip(ctx: JobContext, seg: dict[str, Any], base: dict[str, Any]) -> d
         source_height=base.get("source_height"),
         subtitle={"words": words},
         subtitle_style={},
+        layout_style=_layout_style(ctx),
         brand_template_id=template_id,
         **_campaign_fields(seg),
         status="ready",

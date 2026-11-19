@@ -23,6 +23,16 @@ export const discover = {
     note: 'Catatan untuk video ini (opsional)',
     notePlaceholder: 'Misalnya: fokus ke sesi tanya jawab, lewati bagian iklan sponsor.',
     noteHint: 'Dibaca AI saat memilih momen, hanya untuk job ini.',
+    /** The automatic layout by content for this job's clips */
+    smart: {
+      label: 'Layout otomatis sesuai konten',
+      hint: 'Tiap clip memakai layout yang cocok dengan isinya. Layout per jenis isi diatur di Brand Template.',
+      followOn: 'Mengikuti brand template campaign: nyala. Tiap clip memakai layout yang cocok dengan isinya.',
+      followOff: 'Mengikuti brand template campaign: mati. Semua clip memakai layout default template.',
+      followMixed: 'Brand template campaign yang dipilih berbeda-beda, jadi tiap clip mengikuti template campaign-nya. Nyalakan atau matikan untuk menyamakan.',
+      override: 'Hanya untuk clip dari video ini; brand template tidak berubah. Layout per jenis isi tetap dari template.',
+      follow: 'Ikuti template',
+    },
     maxClips: 'Jumlah klip (maks.)',
     unlimited: 'Tanpa batas',
     start: 'Mulai proses',
