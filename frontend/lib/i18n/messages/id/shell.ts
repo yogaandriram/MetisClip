@@ -56,4 +56,10 @@ export const shell = {
     hint: 'Bahasa menu, tombol dan pesan di aplikasi. Bahasa video dan subtitle tidak berubah.',
     changed: 'Bahasa tampilan diganti ke Bahasa Indonesia',
   },
+  /** Shown while the PC has no network (§9.3) */
+  offline: {
+    title: 'Kamu sedang offline.',
+    body: 'Mengedit dan mengekspor clip tetap bisa. Mengunduh video YouTube dan fitur AI butuh internet.',
+    dismiss: 'Tutup pemberitahuan offline',
+  },
 }

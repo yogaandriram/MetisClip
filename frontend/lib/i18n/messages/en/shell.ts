@@ -54,4 +54,9 @@ export const shell: Messages['shell'] = {
     hint: "Language of the menus, buttons and messages in the app. It doesn't change the language of videos or subtitles.",
     changed: 'Display language changed to English',
   },
+  offline: {
+    title: "You're offline.",
+    body: 'Editing and exporting clips still work. Downloading YouTube videos and the AI features need the internet.',
+    dismiss: 'Close the offline notice',
+  },
 }

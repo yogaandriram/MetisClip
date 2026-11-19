@@ -35,6 +35,30 @@
   max-width: 1600px;
 }
 
+/* No network (§9.3): a warning pill, sage like other warnings (DESIGN.md §2.3), bottom left of the content so
+   it never covers the toasts (bottom right) or the engine banner (top center) */
+.mc-offline {
+  position: fixed;
+  left: 120px;
+  bottom: 24px;
+  z-index: 190;
+  max-width: min(600px, calc(100vw - 520px));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 8px 8px 16px;
+  border-radius: var(--r-full);
+  background: var(--sage);
+  color: var(--ink);
+  box-shadow: var(--shadow-1);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.mc-offline__icon {
+  flex: none;
+}
+
 .mc-logo {
   width: 64px;
   height: 64px;
