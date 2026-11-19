@@ -75,6 +75,9 @@ export const settings: Messages['settings'] = {
     tray: 'Keep running in the tray when closed',
     trayHint: 'Jobs and exports keep running after the window is closed. Click the MetisClip icon in the notification area to open it again, or right-click it to quit.',
     trayFailed: "The tray setting wasn't saved",
+    autoUpdate: 'Update MetisClip automatically',
+    autoUpdateHint: 'Checks GitHub for a new version when MetisClip opens and every 6 hours, and downloads it in the background. The new version installs when MetisClip closes.',
+    autoUpdateFailed: "The update setting wasn't saved",
   },
   secret: {
     saved: (label: string) => `${label} saved`,

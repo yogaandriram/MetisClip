@@ -6,6 +6,26 @@ export {}
 declare global {
   type MetisEngineState = 'idle' | 'starting' | 'ready' | 'restarting' | 'error' | 'stopped'
 
+  /** App updates from GitHub Releases (desktop/src/main/updater.ts) */
+  interface MetisUpdateStatus {
+    /** unsupported: a development build (no feed); ready: a newer version waits to be installed */
+    phase: 'unsupported' | 'idle' | 'checking' | 'latest' | 'downloading' | 'ready' | 'error'
+    /** "Perbarui MetisClip otomatis" is on */
+    auto: boolean
+    /** This app's version */
+    current: string
+    /** The newer version (downloading, ready) */
+    version?: string
+    percent?: number
+    transferred?: number
+    total?: number
+    /** Last check that reached the feed (ISO time) */
+    checkedAt?: string
+    error?: { kind: 'offline' | 'noRelease' | 'corrupt' | 'signature' | 'disk' | 'other'; detail: string }
+    /** The release page of `version` on GitHub */
+    releaseUrl?: string
+  }
+
   interface MetisEngineInfo {
     /** e.g. "http://127.0.0.1:53817" (no trailing slash) */
     baseUrl: string
@@ -95,6 +115,15 @@ declare global {
     /** Closing the window keeps MetisClip running in the tray (Pengaturan → Aplikasi; saved by main at once) */
     getCloseToTray(): Promise<boolean>
     setCloseToTray(on: boolean): Promise<void>
+    /** App updates (Sistem → Tentang, Pengaturan → Aplikasi, the update banner) */
+    getUpdateStatus(): Promise<MetisUpdateStatus>
+    /** Checks GitHub now; a newer version starts downloading */
+    checkForUpdates(): Promise<MetisUpdateStatus>
+    /** "Mulai ulang dan pasang": asks first while work runs, then quits, installs and opens MetisClip again */
+    installUpdate(): Promise<void>
+    /** "Perbarui MetisClip otomatis" (saved by main at once) */
+    setAutoUpdate(on: boolean): Promise<void>
+    onUpdateStatus(cb: (status: MetisUpdateStatus) => void): () => void
 
     /** Resolves once the engine is ready (waits while starting / during first-run setup). Rejects on fatal error. */
     getEngineInfo(): Promise<MetisEngineInfo>

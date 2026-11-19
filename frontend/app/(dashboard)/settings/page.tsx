@@ -12,6 +12,7 @@ import { errorMessage } from '@/lib/format'
 import { isDesktop } from '@/lib/media'
 import { getLang, localeTag, tm } from '@/lib/i18n'
 import { useT } from '@/lib/i18n/I18nProvider'
+import { useUpdateStatus } from '@/lib/updates'
 
 const ENCODERS: EncoderSetting[] = ['auto', 'libx264', 'h264_nvenc', 'h264_qsv', 'h264_amf']
 
@@ -100,6 +101,33 @@ function TraySwitch() {
         } catch (err) {
           setOn(!v)
           toast.error(errorMessage(err, m.trayFailed))
+        }
+      }}
+    />
+  )
+}
+
+/** "Perbarui MetisClip otomatis" (main/updater.ts, preferences.json); hidden in a development build. */
+function AutoUpdateSwitch() {
+  const m = useT().settings.app
+  const status = useUpdateStatus()
+  const [saving, setSaving] = useState<boolean | null>(null)
+
+  if (!status) return <Skeleton height={48} radius="md" />
+  if (status.phase === 'unsupported') return null
+  return (
+    <ToggleSwitch
+      label={m.autoUpdate}
+      hint={m.autoUpdateHint}
+      checked={saving ?? status.auto}
+      onChange={async (v) => {
+        setSaving(v)
+        try {
+          await window.metis!.setAutoUpdate(v)
+        } catch (err) {
+          toast.error(errorMessage(err, m.autoUpdateFailed))
+        } finally {
+          setSaving(null)
         }
       }}
     />
@@ -418,6 +446,7 @@ export default function SettingsPage() {
           <div className="mc-stack mc-gap-20">
             <LanguageSwitch withLabel />
             {desktop && <TraySwitch />}
+            {desktop && <AutoUpdateSwitch />}
           </div>
         </Card>
 

@@ -118,6 +118,16 @@ Jika MetisClip ditutup sekarang, pekerjaan ini berhenti. Job bisa dilanjutkan da
       downloads: (n: number) => `${n} unduhan model Whisper`,
     } as Record<string, (n: number) => string>,
   },
+  /** "Mulai ulang dan pasang" while work runs (updater.ts, index.ts) */
+  update: {
+    busyTitle: (version: string) => `Pasang MetisClip ${version} sekarang?`,
+    busyDetail: (items: string) =>
+      `Sedang berjalan: ${items}.
+
+MetisClip ditutup untuk memasang versi baru, jadi pekerjaan ini berhenti. Job bisa dilanjutkan dari Antrian setelah MetisClip terbuka lagi, ekspor video perlu diulang.`,
+    install: 'Pasang dan mulai ulang',
+    later: 'Nanti',
+  },
   ipc: {
     denied: 'Akses ditolak',
     notText: 'Argumen harus berupa teks',
@@ -238,6 +248,15 @@ If MetisClip closes now, this work stops. Jobs can be resumed from the Queue whe
       designs: (n: number) => `${n} AI template design${n === 1 ? '' : 's'}`,
       downloads: (n: number) => `${n} Whisper model download${n === 1 ? '' : 's'}`,
     },
+  },
+  update: {
+    busyTitle: (version: string) => `Install MetisClip ${version} now?`,
+    busyDetail: (items: string) =>
+      `Running now: ${items}.
+
+MetisClip closes to install the new version, so this work stops. Jobs can be resumed from the Queue once MetisClip is open again; video exports have to be started again.`,
+    install: 'Install and restart',
+    later: 'Later',
   },
   ipc: {
     denied: 'Access denied',

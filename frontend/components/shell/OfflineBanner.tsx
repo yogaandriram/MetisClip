@@ -32,8 +32,8 @@ export function OfflineBanner() {
 
   if (!offline || dismissed) return null
   return (
-    <div role="status" className="mc-offline">
-      <WifiOff size={16} aria-hidden="true" className="mc-offline__icon" />
+    <div role="status" className="mc-notice">
+      <WifiOff size={16} aria-hidden="true" className="mc-notice__icon" />
       <span>
         <strong>{t.shell.offline.title}</strong> {t.shell.offline.body}
       </span>

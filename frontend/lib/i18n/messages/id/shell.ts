@@ -62,6 +62,14 @@ export const shell = {
     body: 'Mengedit dan mengekspor clip tetap bisa. Mengunduh video YouTube dan fitur AI butuh internet.',
     dismiss: 'Tutup pemberitahuan offline',
   },
+  /** A downloaded update waits to be installed (UpdateBanner.tsx, §10.4) */
+  update: {
+    title: (version: string) => `MetisClip ${version} siap dipasang.`,
+    body: 'Dipasang otomatis saat MetisClip ditutup.',
+    restart: 'Mulai ulang sekarang',
+    dismiss: 'Tutup pemberitahuan pembaruan',
+    failed: 'Pembaruan tidak dapat dipasang',
+  },
   /** Windows notifications while the window is in the background (§9.3, ShellContext.tsx) */
   notify: {
     jobDone: (n: number) => `Job selesai: ${n} klip siap`,

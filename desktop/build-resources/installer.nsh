@@ -4,7 +4,8 @@
 ;
 ; During an update (the old version's uninstaller runs with --updated) nothing outside the app folder is
 ; touched. Otherwise:
-;   - always: the logs, the updatable tools (yt-dlp) and <data folder>\cache are removed;
+;   - always: the logs, the updatable tools (yt-dlp), the installer copy and downloaded updates
+;     (%LOCALAPPDATA%\metisclip-desktop-updater) and <data folder>\cache are removed;
 ;   - the user is asked whether the data folder goes too (database, clips, exports, backups, Whisper models).
 ;     No is the default, and the answer of a silent uninstall (/S). Yes also removes the data folder left from
 ;     before a data move, %APPDATA%\MetisClip (so a new install starts with the setup wizard) and the API keys
@@ -60,6 +61,8 @@
     ${if} $mcTools != ""
       RMDir /r "$mcTools"
     ${endif}
+    ; The installer's own copy (for smaller update downloads) and downloaded updates (src/main/updater.ts)
+    RMDir /r "$LOCALAPPDATA\metisclip-desktop-updater"
 
     ${if} $mcRoot != ""
       RMDir /r "$mcRoot\cache"

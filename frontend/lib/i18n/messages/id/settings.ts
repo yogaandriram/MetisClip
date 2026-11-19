@@ -73,6 +73,9 @@ export const settings = {
     tray: 'Tetap berjalan di tray saat ditutup',
     trayHint: 'Job dan ekspor tetap berjalan setelah jendela ditutup. Klik ikon MetisClip di area notifikasi untuk membukanya lagi, klik kanan untuk keluar.',
     trayFailed: 'Pengaturan tray tidak tersimpan',
+    autoUpdate: 'Perbarui MetisClip otomatis',
+    autoUpdateHint: 'Memeriksa versi baru di GitHub saat MetisClip dibuka dan setiap 6 jam, lalu mengunduhnya di latar belakang. Versi baru dipasang saat MetisClip ditutup.',
+    autoUpdateFailed: 'Pengaturan pembaruan tidak tersimpan',
   },
   /** components/settings/SecretField.tsx */
   secret: {

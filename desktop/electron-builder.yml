@@ -72,4 +72,12 @@ nsis:
   deleteAppDataOnUninstall: false
   runAfterFinish: true
 
-publish: null
+# App updates (src/main/updater.ts, CLAUDE.md §10.4): the GitHub Releases of the open-source repository.
+# electron-builder writes this into resources\app-update.yml. Builds never upload on their own
+# (--publish never); scripts\build-desktop.ps1 -Publish (with GH_TOKEN set) uploads the installer, its
+# .blockmap (smaller downloads for the next update) and latest.yml to a DRAFT release, published by hand.
+# A public repository needs no token in the app.
+publish:
+  provider: github
+  owner: yogaandriram
+  repo: MetisClip

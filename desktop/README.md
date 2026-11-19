@@ -82,6 +82,7 @@ All are read by the main process and logged to `main.log` when used.
 | `METISCLIP_ENGINE_CMD`, `METISCLIP_ENGINE_ARGS` (JSON array) | Dev only: run a different engine command (e.g. a stub) |
 | `METISCLIP_DEVTOOLS=1` | Dev only: open DevTools on start |
 | `METISCLIP_DEBUG=1` | Debug lines in `main.log` (e.g. non-JSON engine stdout) |
+| `METISCLIP_UPDATE_FEED=http://127.0.0.1:<port>/` | App updates from a local generic feed (`latest.yml` + installer) instead of GitHub Releases, also in dev; loopback http only. Downloads go to `%LOCALAPPDATA%\metisclip-desktop-updater-qa` |
 
 Example (packaged-like UI, real engine, throwaway data, screenshot, auto quit):
 

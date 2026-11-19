@@ -4,6 +4,7 @@ import path from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, Notification, shell, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
 import type { Backend } from './engine'
 import type { AppTray } from './tray'
+import type { AppUpdater } from './updater'
 import { dataRootAvailable, defaultDataRoot, ensureStructure, readBootstrap, validateDataRoot, writeBootstrap } from './data-root'
 import { cancelMove, deletePrevious, forgetPrevious, moveDataRoot, planMove, previousRoot } from './data-move'
 import { createLogger } from './logger'
@@ -36,6 +37,11 @@ export const CH = {
   setLanguage: 'metis:set-language',
   getCloseToTray: 'metis:get-close-to-tray',
   setCloseToTray: 'metis:set-close-to-tray',
+  getUpdateStatus: 'metis:get-update-status',
+  checkForUpdates: 'metis:check-for-updates',
+  installUpdate: 'metis:install-update',
+  setAutoUpdate: 'metis:set-auto-update',
+  updateStatus: 'metis:update-status',
   planDataMove: 'metis:plan-data-move',
   moveDataRoot: 'metis:move-data-root',
   cancelDataMove: 'metis:cancel-data-move',
@@ -83,7 +89,7 @@ function existingAbsPath(v: unknown): string {
   return resolved
 }
 
-export function registerIpc(backend: Backend, tray: AppTray): void {
+export function registerIpc(backend: Backend, tray: AppTray, updater: AppUpdater, restartToInstall: () => Promise<void>): void {
   handle(CH.getEngineInfo, async () => {
     try {
       const info = await backend.waitReady()
@@ -228,6 +234,20 @@ export function registerIpc(backend: Backend, tray: AppTray): void {
   handle(CH.setCloseToTray, (_e, on: unknown) => {
     if (typeof on !== 'boolean') throw new Error(tr().ipc.notText)
     tray.setCloseToTray(on)
+  })
+
+  // App updates (updater.ts): status, "Periksa sekarang", "Mulai ulang dan pasang", the automatic switch
+  handle(CH.getUpdateStatus, () => updater.getStatus())
+  handle(CH.checkForUpdates, () => updater.check('manual'))
+  handle(CH.installUpdate, () => restartToInstall())
+  handle(CH.setAutoUpdate, (_e, on: unknown) => {
+    if (typeof on !== 'boolean') throw new Error(tr().ipc.notText)
+    updater.setAuto(on)
+  })
+  updater.on('status', (status) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send(CH.updateStatus, status)
+    }
   })
 
   ipcMain.on(CH.relaunch, (e) => {

@@ -35,14 +35,24 @@
   max-width: 1600px;
 }
 
-/* No network (§9.3): a warning pill, sage like other warnings (DESIGN.md §2.3), bottom left of the content so
-   it never covers the toasts (bottom right) or the engine banner (top center) */
-.mc-offline {
+/* Shell notices, bottom left of the content so they never cover the toasts (bottom right) or the engine banner
+   (top center): no network (§9.3) and a downloaded update (§10.4). Pills, sage like other warnings
+   (DESIGN.md §2.3), stacked when both show. */
+.mc-notices {
   position: fixed;
   left: 120px;
   bottom: 24px;
   z-index: 190;
-  max-width: min(600px, calc(100vw - 520px));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.mc-notice {
+  pointer-events: auto;
+  max-width: min(640px, calc(100vw - 520px));
   display: flex;
   align-items: center;
   gap: 12px;
@@ -55,7 +65,11 @@
   line-height: 1.4;
 }
 
-.mc-offline__icon {
+.mc-notice__icon {
+  flex: none;
+}
+
+.mc-notice .mc-btn {
   flex: none;
 }
 

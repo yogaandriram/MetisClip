@@ -59,6 +59,13 @@ export const shell: Messages['shell'] = {
     body: 'Editing and exporting clips still work. Downloading YouTube videos and the AI features need the internet.',
     dismiss: 'Close the offline notice',
   },
+  update: {
+    title: (version: string) => `MetisClip ${version} is ready to install.`,
+    body: 'It installs by itself when MetisClip closes.',
+    restart: 'Restart now',
+    dismiss: 'Close the update notice',
+    failed: "The update couldn't be installed",
+  },
   notify: {
     jobDone: (n: number) => `Job done: ${n} clip${n === 1 ? '' : 's'} ready`,
     jobDoneNone: 'Job finished without clips',

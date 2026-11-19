@@ -1,5 +1,5 @@
 // %APPDATA%\MetisClip\preferences.json: choices the main process needs before mongod and the engine run,
-// or that only the shell acts on (the UI language, closing to the tray). Written atomically.
+// or that only the shell acts on (the UI language, closing to the tray, app updates). Written atomically.
 import fs from 'node:fs'
 import path from 'node:path'
 import { getPaths } from './paths'
@@ -11,6 +11,10 @@ export interface Preferences {
   close_to_tray?: unknown
   /** The one-time "MetisClip is still running" notice was shown */
   tray_notice_shown?: unknown
+  /** Check for and download new MetisClip versions (updater.ts); on unless false */
+  auto_update?: unknown
+  /** Last update check that reached the feed (ISO time) */
+  update_checked_at?: unknown
 }
 
 function prefsFile(): string {

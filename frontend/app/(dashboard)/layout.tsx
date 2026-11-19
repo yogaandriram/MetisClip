@@ -7,6 +7,7 @@ import { Providers } from '@/components/Providers'
 import { CampaignProfile } from '@/components/shell/CampaignProfile'
 import { NavRail, normalizePath, type RailItem } from '@/components/shell/NavRail'
 import { OfflineBanner } from '@/components/shell/OfflineBanner'
+import { UpdateBanner } from '@/components/shell/UpdateBanner'
 import { ShellProvider, useShell } from '@/components/shell/ShellContext'
 import { useEngine } from '@/contexts/EngineContext'
 import { useT } from '@/lib/i18n/I18nProvider'
@@ -56,7 +57,10 @@ function Shell({ children }: { children: React.ReactNode }) {
       <main className="mc-shell__main">
         <div className="mc-shell__content">{children}</div>
       </main>
-      <OfflineBanner />
+      <div className="mc-notices">
+        <UpdateBanner />
+        <OfflineBanner />
+      </div>
     </div>
   )
 }

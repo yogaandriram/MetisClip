@@ -1,18 +1,114 @@
 'use client'
 
 import React, { useCallback, useEffect, useState } from 'react'
-import { Copy, FolderOpen, LifeBuoy, ScrollText, RefreshCw } from 'lucide-react'
+import { Copy, ExternalLink, FolderOpen, LifeBuoy, ScrollText, RefreshCw } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { Alert, Badge, Button, Card, CardHeader, PageHeader, Skeleton } from '@/components/ui'
+import { Alert, Badge, Button, Card, CardHeader, PageHeader, ProgressBar, Skeleton } from '@/components/ui'
 import { LogoMark } from '@/components/ui/Logo'
 import { useEngine } from '@/contexts/EngineContext'
 import { api, type Settings, type StorageInfo, type SystemCheck } from '@/lib/engine'
-import { errorMessage } from '@/lib/format'
+import { errorMessage, formatBytes, formatDateTime } from '@/lib/format'
 import { isDesktop } from '@/lib/media'
 import { useI18n } from '@/lib/i18n/I18nProvider'
 import { supportText } from '@/lib/supportInfo'
+import { useUpdateStatus } from '@/lib/updates'
 
 const headerIcon = (Icon: React.ElementType) => <Icon size={18} aria-hidden="true" />
+
+/** The update card: what the updater does now, "Periksa sekarang", and "Mulai ulang dan pasang" (§10.4). */
+function UpdateCard() {
+  const m = useI18n().t.about.update
+  const status = useUpdateStatus()
+  const [installing, setInstalling] = useState(false)
+
+  if (!window.metis) return null
+  if (!status) return <Skeleton height={120} radius="md" />
+
+  const checked = status.checkedAt ? m.checkedAt(formatDateTime(status.checkedAt)) : m.never
+  const phase = status.phase
+  const busy = phase === 'checking' || phase === 'downloading'
+
+  const check = () => {
+    window.metis!.checkForUpdates().catch((err) => toast.error(errorMessage(err, m.errors.other)))
+  }
+  const install = async () => {
+    setInstalling(true)
+    try {
+      await window.metis!.installUpdate()
+    } catch (err) {
+      toast.error(errorMessage(err, m.failed))
+    } finally {
+      setInstalling(false)
+    }
+  }
+  const openNotes = () => {
+    if (status.releaseUrl) window.metis!.openExternal(status.releaseUrl).catch(() => undefined)
+  }
+
+  return (
+    <Card>
+      <CardHeader size="sm" icon={headerIcon(RefreshCw)} title={m.title} />
+      <div className="mc-stack mc-gap-12">
+        {phase === 'unsupported' && (
+          <p className="mc-muted" style={{ margin: 0 }}>
+            {m.dev}
+          </p>
+        )}
+        {(phase === 'idle' || phase === 'latest') && (
+          <p style={{ margin: 0 }}>
+            {phase === 'latest' ? `${m.latest} ` : ''}
+            <span className="mc-muted">{checked}</span>
+          </p>
+        )}
+        {phase === 'checking' && (
+          <p className="mc-muted" style={{ margin: 0 }}>
+            {m.checking}
+          </p>
+        )}
+        {phase === 'downloading' && status.version && (
+          <div className="mc-stack mc-gap-8">
+            <p style={{ margin: 0 }}>{m.downloading(status.version)}</p>
+            <ProgressBar value={status.percent} showValue label={status.total ? m.downloaded(formatBytes(status.transferred ?? 0), formatBytes(status.total)) : m.title} />
+          </div>
+        )}
+        {phase === 'ready' && status.version && <p style={{ margin: 0 }}>{m.ready(status.version)}</p>}
+        {phase === 'error' && status.error && (
+          <Alert tone="info" title={m.errors[status.error.kind]}>
+            <span className="mc-caption">{status.error.detail}</span>
+          </Alert>
+        )}
+        {phase !== 'unsupported' && !status.auto && (
+          <p className="mc-caption mc-muted" style={{ margin: 0 }}>
+            {m.autoOff}
+          </p>
+        )}
+        {phase !== 'unsupported' && (
+          <p className="mc-caption mc-muted" style={{ margin: 0 }}>
+            {m.keepsData}
+          </p>
+        )}
+        {phase !== 'unsupported' && (
+          <div className="mc-row mc-row--wrap mc-gap-8">
+            {phase === 'ready' ? (
+              <Button variant="primary" size="sm" onClick={install} loading={installing}>
+                {m.restart}
+              </Button>
+            ) : (
+              <Button variant="secondary" size="sm" icon={<RefreshCw size={16} aria-hidden="true" />} onClick={check} loading={busy} disabled={busy}>
+                {phase === 'error' ? m.retry : m.check}
+              </Button>
+            )}
+            {status.releaseUrl && (phase === 'ready' || phase === 'downloading') && (
+              <Button variant="ghost" size="sm" icon={<ExternalLink size={16} aria-hidden="true" />} onClick={openNotes}>
+                {m.notes}
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+    </Card>
+  )
+}
 
 /** Tentang MetisClip (§9.2): version, release notes, update status, and the info to copy for support (§10.5). */
 export default function AboutPage() {
@@ -113,12 +209,7 @@ export default function AboutPage() {
         </div>
 
         <div className="mc-col-5 mc-stack mc-gap-20">
-          <Card>
-            <CardHeader size="sm" icon={headerIcon(RefreshCw)} title={m.update.title} />
-            <p className="mc-muted" style={{ margin: 0 }}>
-              {m.update.body}
-            </p>
-          </Card>
+          {desktop && <UpdateCard />}
 
           <Card>
             <CardHeader size="sm" icon={headerIcon(LifeBuoy)} title={m.support.title} />

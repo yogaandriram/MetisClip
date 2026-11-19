@@ -10,6 +10,8 @@
   3. engine        : scripts\build-engine.ps1 (PyInstaller onedir)     -> backend\dist\metisclip-engine
   4. binaries      : scripts\fetch-binaries.ps1 when a pinned binary is missing -> desktop\resources\bin
   5. desktop       : npm ci + tsc + electron-builder (NSIS, or --dir with -Pack)
+                     -Publish uploads the installer, its .blockmap and latest.yml to a draft GitHub
+                     release (app updates, CLAUDE.md §10.4); it needs $env:GH_TOKEN (repo scope)
 
   Fails fast on the first error.
 
@@ -17,16 +19,20 @@
   .\scripts\build-desktop.ps1                 # full build, NSIS installer
   .\scripts\build-desktop.ps1 -Pack           # unpacked app in desktop\dist\win-unpacked (no installer)
   .\scripts\build-desktop.ps1 -Pack -NoInstall -SkipEngine   # quick re-pack with existing node_modules/engine
+  $env:GH_TOKEN = '<token>'; .\scripts\build-desktop.ps1 -Publish   # installer + draft release for the updater
 #>
 [CmdletBinding()]
 param(
   [switch]$Pack,          # electron-builder --dir instead of the NSIS installer
   [switch]$NoInstall,     # skip `npm ci` (reuse existing node_modules)
   [switch]$SkipFrontend,  # reuse existing frontend\out
-  [switch]$SkipEngine     # reuse existing backend\dist\metisclip-engine
+  [switch]$SkipEngine,    # reuse existing backend\dist\metisclip-engine
+  [switch]$Publish        # upload to a draft GitHub release (needs $env:GH_TOKEN)
 )
 
 $ErrorActionPreference = 'Stop'
+if ($Publish -and $Pack) { throw '-Publish builds the installer; leave out -Pack' }
+if ($Publish -and -not $env:GH_TOKEN) { throw '-Publish needs $env:GH_TOKEN (a GitHub token that may create releases)' }
 $Repo     = Split-Path -Parent $PSScriptRoot
 $Frontend = Join-Path $Repo 'frontend'
 $Render   = Join-Path $Repo 'render-engine'
@@ -135,7 +141,8 @@ Step 'Desktop: Electron main + electron-builder'
 Npm-Install $Desktop
 Invoke-Native $Desktop 'npm.cmd' @('run', 'build:main')
 $target = if ($Pack) { 'dir' } else { 'nsis' }
-Invoke-Native $Desktop 'npx.cmd' @('electron-builder', '--win', $target, '--x64', '--config', 'electron-builder.yml')
+$publishMode = if ($Publish) { 'always' } else { 'never' }
+Invoke-Native $Desktop 'npx.cmd' @('electron-builder', '--win', $target, '--x64', '--config', 'electron-builder.yml', '--publish', $publishMode)
 
 $elapsed = [math]::Round(((Get-Date) - $started).TotalMinutes, 1)
 Write-Host ''
@@ -147,4 +154,5 @@ if ($Pack) {
   $installer = Get-ChildItem -LiteralPath (Join-Path $Desktop 'dist') -Filter 'MetisClip-Setup-*.exe' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
   if (-not $installer) { throw 'Installer not produced in desktop\dist' }
   Write-Host ("Done in {0} min: {1} ({2} MB)" -f $elapsed, $installer.FullName, [math]::Round($installer.Length / 1MB, 1)) -ForegroundColor Green
+  if ($Publish) { Write-Host 'Uploaded to a draft release: review it on GitHub, then publish it so installed apps see the update.' -ForegroundColor Green }
 }

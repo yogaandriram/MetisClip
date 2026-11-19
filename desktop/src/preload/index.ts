@@ -22,6 +22,11 @@ const CH = {
   setLanguage: 'metis:set-language',
   getCloseToTray: 'metis:get-close-to-tray',
   setCloseToTray: 'metis:set-close-to-tray',
+  getUpdateStatus: 'metis:get-update-status',
+  checkForUpdates: 'metis:check-for-updates',
+  installUpdate: 'metis:install-update',
+  setAutoUpdate: 'metis:set-auto-update',
+  updateStatus: 'metis:update-status',
   planDataMove: 'metis:plan-data-move',
   moveDataRoot: 'metis:move-data-root',
   cancelDataMove: 'metis:cancel-data-move',
@@ -81,6 +86,19 @@ const bridge = {
   /** Closing the window keeps MetisClip running in the tray (saved by main at once) */
   getCloseToTray: () => invoke<boolean>(CH.getCloseToTray),
   setCloseToTray: (on: boolean) => invoke<void>(CH.setCloseToTray, on),
+  /** App updates from GitHub Releases (main/updater.ts) */
+  getUpdateStatus: () => invoke(CH.getUpdateStatus),
+  checkForUpdates: () => invoke(CH.checkForUpdates),
+  installUpdate: () => invoke<void>(CH.installUpdate),
+  setAutoUpdate: (on: boolean) => invoke<void>(CH.setAutoUpdate, on),
+  onUpdateStatus(cb: (status: unknown) => void): () => void {
+    if (typeof cb !== 'function') return () => undefined
+    const listener = (_e: IpcRendererEvent, status: unknown) => cb(status)
+    ipcRenderer.on(CH.updateStatus, listener)
+    return () => {
+      ipcRenderer.removeListener(CH.updateStatus, listener)
+    }
+  },
 
   async getEngineInfo(): Promise<EngineInfo> {
     const r = await invoke<{ ok: boolean; info?: EngineInfo; error?: string }>(CH.getEngineInfo)
