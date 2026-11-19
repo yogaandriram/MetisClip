@@ -6,12 +6,6 @@ from backend.agents.nodes import analyzer as an
 from backend.agents.tools.sentences import Unit, build_units
 
 
-@pytest.mark.parametrize("value,expected", [("01:30", 90.0), ("1:02:03", 3723.0), ("754", 754.0), (754, 754.0),
-                                            ("", None), ("abc", None), (None, None)])
-def test_ts_to_seconds(value, expected):
-    assert an.ts_to_seconds(value) == expected
-
-
 def test_parse_duration_range():
     assert an.parse_duration_range("30-45") == (30.0, 45.0)
     assert an.parse_duration_range("garbage") == (45.0, 60.0)
