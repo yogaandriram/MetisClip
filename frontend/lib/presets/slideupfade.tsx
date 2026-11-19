@@ -1,7 +1,7 @@
 import React from 'react';
 import { SubtitlePreset } from './types';
 import { Ease, interpolate, r4 } from './anim';
-import { dropShadow, highlight, shadows, stroke, textBase } from './style';
+import { contrastHalo, dropShadow, highlight, shadows, stroke, textBase } from './style';
 import { LayeredText } from './parts';
 
 export const slideupfadePreset: SubtitlePreset = {
@@ -74,17 +74,18 @@ export const slideupfadePreset: SubtitlePreset = {
     if (!w) return null;
     const activeColor = highlight(config, '#FF6584');
     const base = textBase(config);
-    // slideUpFadeAnim: rises 1.111em and fades in over the first 0.3 s (ease-in-out)
+    // Rises 1.111em over 0.2 s and is readable within 0.12 s: spoken words last about 0.3 s, and the old
+    // 0.3 s ease-in-out fade showed most words half transparent (QA 2026-11-19)
     const t = time - w.start;
-    const ty = interpolate(t, [0, 0.3], [1.111, 0], Ease.easeInOut);
-    const opacity = interpolate(t, [0, 0.3], [0, 1], Ease.easeInOut);
+    const ty = interpolate(t, [0, 0.2], [1.111, 0], Ease.easeOut);
+    const opacity = interpolate(t, [0, 0.12], [0, 1], Ease.easeOut);
     const scale = w.keyword ? 1.12 : 1;
     return (
       <LayeredText
         text={w.word}
         base={base}
         outer={{ transform: `translateY(${r4(ty)}em) scale(${scale})`, opacity: r4(opacity) }}
-        back={{ textShadow: shadows(stroke(config), dropShadow(config)) }}
+        back={{ textShadow: shadows(stroke(config), contrastHalo(activeColor), dropShadow(config)) }}
         front={{
           backgroundImage: `linear-gradient(135deg, ${w.keyword ? activeColor : '#6C63FF'}, ${w.keyword ? '#FFD400' : activeColor})`,
           WebkitBackgroundClip: 'text',

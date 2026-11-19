@@ -2,7 +2,7 @@ import React from 'react';
 import { SubtitlePreset } from './types';
 import { Ease, interpolate, r4 } from './anim';
 import {
-  contrastRatio,
+  contrastHalo,
   dropShadow,
   em,
   highlight,
@@ -23,15 +23,6 @@ import {
 const PILL_ALPHA = 0.66;
 const PILL_LUMINANCE = luminance('#575757') as number; // the pill over a white frame: 255 * (1 - PILL_ALPHA)
 const REST_OPACITY = 0.85; // the other words of the page
-
-/** A soft halo in the opposite tone, so a word without its pill stays readable on any frame (`k` scales it). */
-function halo(color: string, k = 1): string | null {
-  if (k <= 0.001) return null;
-  const l = luminance(color) ?? 1;
-  const c = contrastRatio(l, 0) >= contrastRatio(l, 1) ? '0, 0, 0' : '255, 255, 255'; // teal gets a dark one
-  const a = (x: number) => r4(x * k);
-  return `0 0 0.05em rgba(${c}, ${a(0.8)}), 0 0 0.2em rgba(${c}, ${a(0.75)}), 0 0.04em 0.12em rgba(${c}, ${a(0.6)})`;
-}
 
 export const luminaPreset: SubtitlePreset = {
   id: 'lumina',
@@ -138,7 +129,7 @@ export const luminaPreset: SubtitlePreset = {
                   color: activeColor,
                   letterSpacing: `${r4(spacing + extra)}em`,
                   // The halo it had as a waiting word fades out while the pill fades in
-                  textShadow: shadows(stroke(config), halo(activeColor, 1 - shown), `0 0 0.28em ${withAlpha(activeColor, 0.55)}`, '0 0.055em 0.11em rgba(0,0,0,0.5)'),
+                  textShadow: shadows(stroke(config), contrastHalo(activeColor, 1 - shown), `0 0 0.28em ${withAlpha(activeColor, 0.55)}`, '0 0.055em 0.11em rgba(0,0,0,0.5)'),
                   boxShadow: `0 0.11em 0.42em rgba(0, 0, 0, ${r4(0.25 * shown)})`,
                   opacity: r4(REST_OPACITY + (1 - REST_OPACITY) * shown),
                   transform: `translateY(${r4(ty)}em) scale(${r4(scale)})`,
@@ -157,7 +148,7 @@ export const luminaPreset: SubtitlePreset = {
                 color,
                 opacity: w.keyword ? 1 : REST_OPACITY,
                 transform: 'scale(0.95)',
-                textShadow: shadows(stroke(config), halo(color), dropShadow(config)), // halo above a black drop shadow
+                textShadow: shadows(stroke(config), contrastHalo(color), dropShadow(config)), // halo above a black drop shadow
               }}
             >
               {w.word}

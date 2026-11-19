@@ -136,6 +136,24 @@ export function readableOnDark(color: string, backdrop: number, min = 3): string
   return color;
 }
 
+/** "r, g, b" of black or white, whichever contrasts more with `color` (teal and mid tones get black). */
+export function backingTone(color: string): '0, 0, 0' | '255, 255, 255' {
+  const l = luminance(color) ?? 1;
+  return contrastRatio(l, 0) >= contrastRatio(l, 1) ? '0, 0, 0' : '255, 255, 255';
+}
+
+/**
+ * A soft halo in the opposite tone of `color` (dark behind light or mid-tone text, light behind dark
+ * text), so words stay readable on any frame: a preset never sees the video. `k` (0-1) scales it, for
+ * fading it in or out. Goes above a drop shadow and below the user's outline.
+ */
+export function contrastHalo(color: string, k = 1): string | null {
+  if (k <= 0.001) return null;
+  const c = backingTone(color);
+  const a = (x: number) => Math.round(x * k * 1000) / 1000;
+  return `0 0 0.05em rgba(${c}, ${a(0.8)}), 0 0 0.2em rgba(${c}, ${a(0.75)}), 0 0.04em 0.12em rgba(${c}, ${a(0.6)})`;
+}
+
 /** Shared row layout for multi-word presets: wraps, centered, gap in em. */
 export const rowStyle = (gapEm = 0.28): React.CSSProperties => ({
   display: 'inline-flex',

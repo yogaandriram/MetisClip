@@ -1,7 +1,7 @@
 import React from 'react';
 import { SubtitlePreset } from './types';
 import { Ease, interpolate, r4 } from './anim';
-import { dropShadow, keywordColor, shadows, stroke, textBase } from './style';
+import { backingTone, contrastHalo, dropShadow, keywordColor, shadows, stroke, textBase } from './style';
 
 export const cinematicbarPreset: SubtitlePreset = {
   id: 'cinematicbar',
@@ -82,24 +82,37 @@ export const cinematicbarPreset: SubtitlePreset = {
     const w = words[activeWordIndex];
     if (!w) return null;
     const fontColor = config.fontColor || '#ffffff';
+    const color = w.keyword ? keywordColor(config, fontColor, '#FFD400') : fontColor;
     const base = textBase(config, { letterSpacing: 8 });
-    // cinematicInAnim: slides up 0.83em and fades in over 0.2 s (ease-in-out)
+    // Rises 0.83em over 0.2 s and is readable within 0.1 s: spoken words last about 0.3 s, and the old
+    // 0.2 s fade from nothing left a word fully shown for under 0.1 s (QA 2026-11-19).
     const t = time - w.start;
-    const ty = interpolate(t, [0, 0.2], [0.83, 0], Ease.easeInOut);
-    const opacity = interpolate(t, [0, 0.2], [0, 1], Ease.easeInOut);
+    const ty = interpolate(t, [0, 0.2], [0.83, 0], Ease.easeOut);
+    const opacity = interpolate(t, [0, 0.1], [0, 1], Ease.easeOut);
+    // Band and hairlines follow the text: dark band and light lines behind light text, the reverse for dark
+    const band = backingTone(fontColor);
+    const line = band === '0, 0, 0' ? '255, 255, 255' : '0, 0, 0';
     const bar: React.CSSProperties = {
       width: '100%',
       height: 'max(1px, 0.03em)',
-      background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent)',
+      background: `linear-gradient(90deg, transparent, rgba(${line}, 0.6), transparent)`,
     };
     return (
-      <div style={{ width: '100%', textAlign: 'center' }}>
+      // The bar: a dark band that fades out to both sides, between two hairlines. It stays put while the
+      // words change, so it does not flicker, and it keeps light text readable on a white frame.
+      <div
+        style={{
+          width: '100%',
+          textAlign: 'center',
+          background: `linear-gradient(90deg, transparent, rgba(${band}, 0.55) 22%, rgba(${band}, 0.55) 78%, transparent)`,
+        }}
+      >
         <div style={bar} />
         <div
           style={{
             ...base,
-            color: w.keyword ? keywordColor(config, fontColor, '#FFD400') : fontColor,
-            textShadow: shadows(stroke(config), dropShadow(config)),
+            color,
+            textShadow: shadows(stroke(config), contrastHalo(color), dropShadow(config)),
             padding: '0.22em 0',
             opacity: r4(opacity),
             transform: `translateY(${r4(ty)}em)`,

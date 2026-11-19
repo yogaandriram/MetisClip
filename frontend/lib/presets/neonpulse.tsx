@@ -1,7 +1,10 @@
 import React from 'react';
 import { SubtitlePreset } from './types';
 import { Ease, cycle, interpolate, lerp, r4 } from './anim';
-import { em, highlight, keywordColor, rowStyle, shadows, sinceNext, stroke, textBase, withAlpha } from './style';
+import { contrastHalo, em, highlight, keywordColor, rowStyle, shadows, sinceNext, stroke, textBase, withAlpha } from './style';
+
+// The other words of the page (QA 2026-11-19: at 50 % with only a colored glow they vanished on a white frame)
+const REST_OPACITY = 0.85;
 import { growRoom } from './metrics';
 
 export const neonpulsePreset: SubtitlePreset = {
@@ -103,7 +106,7 @@ export const neonpulsePreset: SubtitlePreset = {
             return (
               <span
                 key={key}
-                style={{ ...base, display: 'inline-block', marginInline: growRoom(w.word, w.keyword ? 1.2 : 1.15, config), position: 'relative', zIndex: 1, color: fontColor, transform: `scale(${r4(scale)})`, textShadow: shadows(outline, ...glow) }}
+                style={{ ...base, display: 'inline-block', marginInline: growRoom(w.word, w.keyword ? 1.2 : 1.15, config), position: 'relative', zIndex: 1, color: fontColor, transform: `scale(${r4(scale)})`, textShadow: shadows(outline, ...glow, contrastHalo(fontColor, 0.6)) }}
               >
                 {w.word}
               </span>
@@ -112,7 +115,8 @@ export const neonpulsePreset: SubtitlePreset = {
           // Past words shrink back over 0.3 s after the next word starts.
           const t = i < activeWordIndex ? sinceNext(words, i, time) : Infinity;
           const scale = interpolate(t, [0, 0.3], [1.15, 0.9], Ease.ease);
-          const opacity = interpolate(t, [0, 0.3], [1, w.keyword ? 0.8 : 0.5], Ease.ease);
+          const opacity = interpolate(t, [0, 0.3], [1, w.keyword ? 1 : REST_OPACITY], Ease.ease);
+          const color = w.keyword ? kwColor : fontColor;
           return (
             <span
               key={key}
@@ -120,10 +124,11 @@ export const neonpulsePreset: SubtitlePreset = {
                 ...base,
                 display: 'inline-block',
                 marginInline: growRoom(w.word, w.keyword ? 1.2 : 1.15, config),
-                color: w.keyword ? kwColor : fontColor,
+                color,
                 opacity: r4(opacity),
                 transform: `scale(${r4(scale)})`,
-                textShadow: shadows(outline, restGlow > 0 && `0 0 ${r4(restGlow)}em ${restColor}`),
+                // The halo outlines the letters and the neon glow spreads beyond it (under it, the glow hid it)
+                textShadow: shadows(outline, contrastHalo(color), restGlow > 0 && `0 0 ${r4(restGlow)}em ${restColor}`),
               }}
             >
               {w.word}
