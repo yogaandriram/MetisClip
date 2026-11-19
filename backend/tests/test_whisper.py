@@ -359,7 +359,7 @@ def test_migration_007_turns_groq_into_auto(mongo):
     try:
         old.meta.insert_one({"_id": "schema", "version": 6})
         old.app_settings.insert_one({"_id": "settings", "whisper": {"provider": "groq", "model": "whisper-large-v3"}})
-        assert dbm.migrate(old) == 11
+        assert dbm.migrate(old) == 12
         assert old.app_settings.find_one({"_id": "settings"})["whisper"] == {"provider": "auto", "model": "whisper-large-v3"}
     finally:
         mongo.drop_database(name)
@@ -433,3 +433,69 @@ def test_groq_word_times_never_overlap():
     words = whisper.words_from_payload(payload)
     assert [(w["start"], w["end"]) for w in words] == [(60.30, 60.58), (60.58, 61.04), (61.04, 61.40),
                                                         (61.40, 61.40)]
+
+
+# ---------------------------------------------------------------------------
+# Marks nobody says never become caption words (QA 2026-11-19)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("text,expected", [
+    ("-", None), ("–", None), ("—", None), ("--", None), (">>", None), ("...", None),
+    ("…", None), ("♪", None), ("  ", None), ("", None),
+    ("-Itu", "Itu"), (">>Iya", "Iya"), ("—Betul", "Betul"),
+    ("-5", "-5"), ("sa-", "sa-"), ("Satu-satunya", "Satu-satunya"), ("tuh.", "tuh."), ("%", "%"), ("&", "&"),
+])
+def test_caption_word_drops_marks_nobody_says(text, expected):
+    assert whisper.caption_word(text) == expected
+
+
+def test_speaker_dashes_never_become_caption_words():
+    # whisper.cpp starts every speaker turn with a " -" token
+    data = {"transcription": [
+        {"offsets": {"from": 0, "to": 1800}, "text": " - Itu si Cair banget tuh.",
+         "tokens": [_tok(" -", 0, 110), _tok(" Itu", 110, 310), _tok(" si", 310, 470), _tok(" Cair", 470, 790),
+                    _tok(" banget", 790, 1280), _tok(" tuh", 1280, 1700), _tok(".", 1700, 1770)]},
+        {"offsets": {"from": 1800, "to": 2600}, "text": " -Iya.",
+         "tokens": [_tok(" -", 1800, 1850), _tok("Iya", 1850, 2400), _tok(".", 2400, 2450)]},
+    ]}
+    words = whisper.words_from_payload(whisper_local.parse_output(data))
+    assert [w["word"] for w in words] == ["Itu", "si", "Cair", "banget", "tuh.", "Iya."]
+    assert words[0]["start"] == 0.11  # the dash's time is not given to the next word
+    # Groq-style words and the even split of segment text (also used for YouTube's ">>")
+    groq = {"words": [{"word": "-", "start": 0, "end": 0.1}, {"word": "Oke", "start": 0.1, "end": 0.4}]}
+    assert [w["word"] for w in whisper.words_from_payload(groq)] == ["Oke"]
+    split = whisper.words_from_payload({"segments": [{"text": ">> Iya, - betul", "start": 0, "end": 1}]})
+    assert [w["word"] for w in split] == ["Iya,", "betul"] and split[-1]["end"] == 1.0
+
+
+def test_migration_012_removes_speaker_marks_from_clips(mongo):
+    import time
+
+    from backend.core import db as dbm
+    from backend.db.migrations import m012_caption_speaker_marks as m012
+
+    name = f"metisclip_v11_{os.getpid()}_{time.time_ns()}"
+    old = mongo[name]
+    dbm.set_db(old, mongo)
+    try:
+        old.meta.insert_one({"_id": "schema", "version": 11})
+        marked = [{"word": "-", "start": 0.0, "end": 0.11}, {"word": "Itu", "start": 0.11, "end": 0.31, "keyword": True},
+                  {"word": "-Iya.", "start": 0.4, "end": 0.9, "emoji": "x"}, {"word": "-5", "start": 1, "end": 1.2},
+                  {"word": "…", "start": 1.2, "end": 1.3}, {"word": "sa-", "start": 1.3, "end": 1.5}]
+        clean = [{"word": "Halo", "start": 0.0, "end": 0.3}, {"word": "semua.", "start": 0.3, "end": 0.6}]
+        old.clips.insert_many([{"_id": "c-marked", "subtitle": {"words": marked}, "updated_at": "keep"},
+                               {"_id": "c-clean", "subtitle": {"words": clean}},
+                               {"_id": "c-none"}])
+        assert dbm.migrate(old) == 12
+        assert old.clips.find_one({"_id": "c-marked"})["subtitle"]["words"] == [
+            {"word": "Itu", "start": 0.11, "end": 0.31, "keyword": True},
+            {"word": "Iya.", "start": 0.4, "end": 0.9, "emoji": "x"},
+            {"word": "-5", "start": 1, "end": 1.2},
+            {"word": "sa-", "start": 1.3, "end": 1.5},
+        ]
+        assert old.clips.find_one({"_id": "c-clean"})["subtitle"]["words"] == clean
+        m012.up(old)  # a re-run changes nothing
+        assert len(old.clips.find_one({"_id": "c-marked"})["subtitle"]["words"]) == 4
+    finally:
+        mongo.drop_database(name)
+        dbm.set_db(None, None)  # type: ignore[arg-type]

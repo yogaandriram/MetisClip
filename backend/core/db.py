@@ -346,6 +346,7 @@ def _migrations():
         m009_campaigns,
         m010_campaigns_replace_workspaces,
         m011_campaign_brand_templates,
+        m012_caption_speaker_marks,
     )
 
     return [
@@ -360,6 +361,7 @@ def _migrations():
         (9, "campaigns", m009_campaigns.up),
         (10, "campaigns_replace_workspaces", m010_campaigns_replace_workspaces.up),
         (11, "campaign_brand_templates", m011_campaign_brand_templates.up),
+        (12, "caption_speaker_marks", m012_caption_speaker_marks.up),
     ]
 
 

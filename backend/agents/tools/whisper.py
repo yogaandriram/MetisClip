@@ -12,6 +12,7 @@ Both engines return the same verbose_json-like dict: {text, language?, segments,
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from pathlib import Path
@@ -235,15 +236,32 @@ def _groq_transcribe(audio_path: Path, *, words: bool, retries: int = 3) -> dict
     raise GroqError(M("groq_unreachable"), pause=pause) from last
 
 
+# Marks a transcript writes that nobody says: whisper's "-" where the speaker changes ("- Itu si Cair
+# banget tuh."), YouTube's ">>" for the same, an ellipsis for a pause, music notes. As caption words they
+# showed as a lone "-" (QA 2026-11-19: 20 of 112 words of a clip transcribed by whisper.cpp).
+_NOT_SPOKEN = re.compile(r"^(?:[-–—]+|>{2,}|\.{2,}|…+|[♪♫]+)$")
+# The same mark glued to the next word ("-Itu", ">>Iya"); a minus before a number ("-5") stays
+_TURN_MARK = re.compile(r"^(?:[-–—]+|>{2,})(?=[^\W\d_])")
+
+
+def caption_word(text: Any) -> str | None:
+    """A transcript word as the captions show it, or None for a mark that is not spoken."""
+    t = str(text or "").strip()
+    if not t or _NOT_SPOKEN.match(t):
+        return None
+    return _TURN_MARK.sub("", t) or None
+
+
 def words_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """Word timings from verbose_json; splits segments evenly when only segment timing exists.
 
     Groq's word times overlap where a segment starts (the first word begins up to half a second before
-    the previous word ends), so each word starts no earlier than the previous one ends."""
+    the previous word ends), so each word starts no earlier than the previous one ends. Marks that are
+    not spoken (`caption_word`) are left out."""
     out: list[dict[str, Any]] = []
     prev_end = 0.0
     for w in payload.get("words") or []:
-        text = str(w.get("word", "")).strip()
+        text = caption_word(w.get("word"))
         if not text:
             continue
         start = max(round(float(w.get("start", 0)), 3), prev_end)
@@ -258,7 +276,7 @@ def words_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def split_evenly(text: str, start: float, end: float) -> list[dict[str, Any]]:
-    tokens = text.split()
+    tokens = [t for t in (caption_word(x) for x in text.split()) if t]
     if not tokens:
         return []
     end = max(end, start + 0.2 * len(tokens))
