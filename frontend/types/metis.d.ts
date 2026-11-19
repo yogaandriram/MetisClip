@@ -82,6 +82,12 @@ declare global {
     readonly platform: string
     readonly appVersion: string
     readonly isPackaged: boolean
+    /** Runtime versions of the desktop shell */
+    readonly versions?: { electron: string; chrome: string; node: string }
+    /** 'x64' */
+    readonly arch?: string
+    /** Windows build, e.g. "10.0.26200" */
+    readonly osVersion?: string
     /** UI language saved by the main process ('id' | 'en'), read when the window loaded */
     readonly language: string
     /** Saves the UI language: main uses it for its own screens and dialogs and passes it to the engine */

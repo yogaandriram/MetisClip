@@ -62,6 +62,16 @@ const bridge = {
   platform: process.platform,
   appVersion: arg('metis-app-version') || '0.0.0',
   isPackaged: arg('metis-packaged') === '1',
+  /** For "Salin info sistem": the shell's runtime and the Windows build (available to a sandboxed preload) */
+  versions: { electron: process.versions.electron, chrome: process.versions.chrome, node: process.versions.node },
+  arch: process.arch,
+  osVersion: (() => {
+    try {
+      return process.getSystemVersion()
+    } catch {
+      return ''
+    }
+  })(),
   /** UI language saved by main; read synchronously so the first paint already uses it */
   language: initialLanguage(),
   setLanguage: (lang: string) => invoke<void>(CH.setLanguage, lang),

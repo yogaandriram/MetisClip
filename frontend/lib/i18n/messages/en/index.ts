@@ -18,6 +18,7 @@ import { brand } from './brand'
 import { presets } from './presets'
 import { campaign } from './campaign'
 import { brief } from './brief'
+import { about } from './about'
 
 export const en: Messages = {
   common,
@@ -37,4 +38,5 @@ export const en: Messages = {
   presets,
   campaign,
   brief,
+  about,
 }

@@ -1,9 +1,9 @@
 'use client'
 
 import React, { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, Archive, Check, Cpu, Database, FolderInput, FolderOpen, HardDrive, Info, Lock, MemoryStick, RefreshCw, RotateCcw, Trash2, Users } from 'lucide-react'
+import { AlertTriangle, Archive, Check, ChevronRight, Copy, Cpu, Database, FolderInput, FolderOpen, HardDrive, Info, Lock, MemoryStick, RefreshCw, RotateCcw, Trash2, Users } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { Alert, Badge, Button, Card, CardHeader, ConfirmModal, EmptyState, IconButton, KeyValueList, PageHeader, ProgressRow, Skeleton } from '@/components/ui'
+import { Alert, Badge, Button, ButtonLink, Card, CardHeader, ConfirmModal, EmptyState, IconButton, KeyValueList, PageHeader, ProgressRow, Skeleton } from '@/components/ui'
 import { MoveDataModal } from '@/components/system/MoveDataModal'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
@@ -11,7 +11,8 @@ import { api, type BackupInfo, type ResourceStatus, type ResourceTask, type Stor
 import { errorMessage, formatBytes, formatDateTime } from '@/lib/format'
 import { isDesktop } from '@/lib/media'
 import { localeTag } from '@/lib/i18n'
-import { useT } from '@/lib/i18n/I18nProvider'
+import { useI18n, useT } from '@/lib/i18n/I18nProvider'
+import { copyWhenReady, supportText } from '@/lib/supportInfo'
 
 const headerIcon = (Icon: React.ElementType) => <Icon size={18} aria-hidden="true" />
 
@@ -90,7 +91,7 @@ function HealthBadge({ ok }: { ok: boolean }) {
 const pct = (part: number, whole: number) => (whole > 0 ? (part / whole) * 100 : 0)
 
 export default function SystemPage() {
-  const t = useT()
+  const { t, lang } = useI18n()
   const m = t.system
   const { epoch, systemInfo, refreshSystemInfo } = useEngine()
   const desktop = isDesktop()
@@ -245,6 +246,20 @@ export default function SystemPage() {
     if (!res.ok) toast.error(res.error || m.folderOpenFailed)
   }
 
+  // §10.5: what this page already loaded, plus the AI and transcription settings (never a key)
+  const copySupportInfo = async () => {
+    const text = Promise.all([
+      api.settings.get().then((r) => r.settings, () => null),
+      check ? Promise.resolve(check) : api.system.check().catch(() => null), // still running: wait for it
+    ]).then(([settings, checked]) => supportText({ t, lang, systemInfo, check: checked, storage, settings }))
+    try {
+      await copyWhenReady(text)
+      toast.success(t.about.support.copied)
+    } catch (err) {
+      toast.error(`${t.about.support.copyFailed}: ${errorMessage(err)}`)
+    }
+  }
+
   const driveUsed = storage ? storage.drive_total_bytes - storage.drive_free_bytes : 0
   const usedPct = storage && storage.drive_total_bytes > 0 ? (driveUsed / storage.drive_total_bytes) * 100 : 0
   const appTotal = storage ? storage.db_bytes + storage.library_bytes + storage.cache_bytes + storage.backups_bytes + (storage.models_bytes || 0) : 0
@@ -257,6 +272,9 @@ export default function SystemPage() {
         actions={
           desktop && systemInfo ? (
             <>
+              <Button variant="secondary" size="sm" icon={<Copy size={16} aria-hidden="true" />} onClick={copySupportInfo}>
+                {t.about.support.copy}
+              </Button>
               <Button variant="secondary" size="sm" icon={<FolderOpen size={16} aria-hidden="true" />} onClick={() => open(systemInfo.logs_dir)}>
                 {m.openLogs}
               </Button>
@@ -501,7 +519,16 @@ export default function SystemPage() {
           </Card>
 
           <Card>
-            <CardHeader size="sm" icon={headerIcon(Info)} title={m.info.title} />
+            <CardHeader
+              size="sm"
+              icon={headerIcon(Info)}
+              title={m.info.title}
+              action={
+                <ButtonLink href="/system/about/" variant="ghost" size="sm" iconRight={<ChevronRight size={16} aria-hidden="true" />}>
+                  {t.about.open}
+                </ButtonLink>
+              }
+            />
             {!systemInfo ? (
               <Skeleton height={160} radius="md" />
             ) : (
