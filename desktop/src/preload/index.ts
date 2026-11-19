@@ -19,6 +19,13 @@ const CH = {
   relaunch: 'metis:relaunch',
   getLanguage: 'metis:get-language',
   setLanguage: 'metis:set-language',
+  planDataMove: 'metis:plan-data-move',
+  moveDataRoot: 'metis:move-data-root',
+  cancelDataMove: 'metis:cancel-data-move',
+  dataMoveProgress: 'metis:data-move-progress',
+  getPreviousDataRoot: 'metis:get-previous-data-root',
+  deletePreviousDataRoot: 'metis:delete-previous-data-root',
+  forgetPreviousDataRoot: 'metis:forget-previous-data-root',
 } as const
 
 function arg(name: string): string | undefined {
@@ -47,6 +54,7 @@ function initialLanguage(): string {
 }
 
 type EngineInfo = { baseUrl: string; token: string }
+type MoveProgress = { phase: string; doneBytes: number; totalBytes: number; doneFiles: number; totalFiles: number }
 type EngineStatus = { state: string; message?: string; info?: EngineInfo }
 
 const bridge = {
@@ -77,6 +85,20 @@ const bridge = {
   getDefaultDataRoot: () => invoke<string>(CH.getDefaultDataRoot),
   validateDataRoot: (path: string) => invoke(CH.validateDataRoot, path),
   setDataRoot: (path: string) => invoke<{ ok: boolean; error?: string }>(CH.setDataRoot, path),
+  planDataMove: (path: string) => invoke(CH.planDataMove, path),
+  moveDataRoot: (path: string) => invoke(CH.moveDataRoot, path),
+  cancelDataMove: () => invoke<void>(CH.cancelDataMove),
+  onDataMoveProgress(cb: (progress: MoveProgress) => void): () => void {
+    if (typeof cb !== 'function') return () => undefined
+    const listener = (_e: IpcRendererEvent, progress: MoveProgress) => cb(progress)
+    ipcRenderer.on(CH.dataMoveProgress, listener)
+    return () => {
+      ipcRenderer.removeListener(CH.dataMoveProgress, listener)
+    }
+  },
+  getPreviousDataRoot: () => invoke(CH.getPreviousDataRoot),
+  deletePreviousDataRoot: () => invoke(CH.deletePreviousDataRoot),
+  forgetPreviousDataRoot: () => invoke<void>(CH.forgetPreviousDataRoot),
 
   selectFolder: (opts?: { title?: string; defaultPath?: string }) => invoke<string | null>(CH.selectFolder, opts ?? {}),
   selectFile: (opts?: { title?: string; defaultPath?: string; filters?: Array<{ name: string; extensions: string[] }> }) =>

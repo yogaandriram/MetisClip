@@ -7,6 +7,7 @@ import { createLogger, initLogger } from './logger'
 import { registerAppProtocol, registerSchemePrivileges } from './protocol'
 import { Backend } from './engine'
 import { registerIpc } from './ipc'
+import { settleMoveForQuit } from './data-move'
 import { dataRootAvailable, dataRootOverride, ensureStructure, readBootstrap } from './data-root'
 import { loadWindowState, MIN_HEIGHT, MIN_WIDTH, trackWindowState } from './window-state'
 import { getLanguage, tr } from './i18n'
@@ -282,8 +283,9 @@ if (!app.requestSingleInstanceLock()) {
     quitting = true
     log.info(`quit: menghentikan engine dan MongoDB (pids ${JSON.stringify(backend.pids())})`)
     for (const w of BrowserWindow.getAllWindows()) w.hide()
-    backend
-      .stop('quit')
+    // A data folder move in progress stops and removes its copy first (the old folder stays in use)
+    settleMoveForQuit()
+      .then(() => backend.stop('quit'))
       .catch((err) => log.error('stop gagal:', err))
       .finally(() => {
         cleanedUp = true

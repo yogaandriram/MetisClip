@@ -36,6 +36,42 @@ declare global {
     existingData: boolean
   }
 
+  /** Checking a destination for the data folder (nothing is changed) */
+  interface MetisDataMovePlan {
+    ok: boolean
+    /** The data folder in use now */
+    source: string
+    /** Normalised destination */
+    target: string
+    /** Blocking problems and warnings, in the UI language (also what still runs in the engine) */
+    problems: string[]
+    warnings: string[]
+    /** Bytes and files to copy (the cache is not copied) */
+    bytes: number
+    files: number
+    /** Free space on the destination drive */
+    freeBytes: number
+  }
+
+  type MetisDataMovePhase = 'stopping' | 'copying' | 'verifying' | 'starting' | 'reverting' | 'done'
+
+  interface MetisDataMoveProgress {
+    phase: MetisDataMovePhase
+    doneBytes: number
+    totalBytes: number
+    doneFiles: number
+    totalFiles: number
+  }
+
+  interface MetisDataMoveResult {
+    ok: boolean
+    /** Why it failed, in the UI language; MetisClip then keeps using the old folder */
+    error?: string
+    cancelled?: boolean
+    newRoot?: string
+    oldRoot?: string
+  }
+
   interface MetisFileFilter {
     name: string
     extensions: string[]
@@ -64,6 +100,23 @@ declare global {
     validateDataRoot(path: string): Promise<MetisDataRootCheck>
     /** First run (or after recovery): writes bootstrap.json, starts mongod + engine, resolves when ready */
     setDataRoot(path: string): Promise<{ ok: boolean; error?: string }>
+    /** Checks a destination for moving the data folder ("Pindahkan Lokasi Data") */
+    planDataMove(path: string): Promise<MetisDataMovePlan>
+    /**
+     * Moves the data folder: stops the engine and MongoDB, copies, verifies, starts on the copy and saves
+     * the new location. Resolves when done; the old folder stays until deletePreviousDataRoot().
+     */
+    moveDataRoot(path: string): Promise<MetisDataMoveResult>
+    /** Stops a running move while it copies (the copy is removed, the old folder stays in use) */
+    cancelDataMove(): Promise<void>
+    /** Returns an unsubscribe function */
+    onDataMoveProgress(cb: (progress: MetisDataMoveProgress) => void): () => void
+    /** The folder the data was moved away from, while it still exists */
+    getPreviousDataRoot(): Promise<{ path: string; bytes: number } | null>
+    /** Deletes that folder (after the user confirmed) */
+    deletePreviousDataRoot(): Promise<{ ok: boolean; error?: string; freedBytes?: number }>
+    /** Keeps that folder and stops offering to delete it */
+    forgetPreviousDataRoot(): Promise<void>
 
     selectFolder(opts?: { title?: string; defaultPath?: string }): Promise<string | null>
     selectFile(opts?: { title?: string; defaultPath?: string; filters?: MetisFileFilter[] }): Promise<string | null>

@@ -4,6 +4,7 @@ import path from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, Notification, shell, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
 import type { Backend } from './engine'
 import { dataRootAvailable, defaultDataRoot, ensureStructure, readBootstrap, validateDataRoot, writeBootstrap } from './data-root'
+import { cancelMove, deletePrevious, forgetPrevious, moveDataRoot, planMove, previousRoot } from './data-move'
 import { createLogger } from './logger'
 import { isTrustedUrl } from './paths'
 import { getLanguage, isLang, setLanguage, tr } from './i18n'
@@ -31,6 +32,13 @@ export const CH = {
   relaunch: 'metis:relaunch',
   getLanguage: 'metis:get-language',
   setLanguage: 'metis:set-language',
+  planDataMove: 'metis:plan-data-move',
+  moveDataRoot: 'metis:move-data-root',
+  cancelDataMove: 'metis:cancel-data-move',
+  dataMoveProgress: 'metis:data-move-progress',
+  getPreviousDataRoot: 'metis:get-previous-data-root',
+  deletePreviousDataRoot: 'metis:delete-previous-data-root',
+  forgetPreviousDataRoot: 'metis:forget-previous-data-root',
 } as const
 
 function trusted(e: IpcMainInvokeEvent | IpcMainEvent): boolean {
@@ -93,6 +101,14 @@ export function registerIpc(backend: Backend): void {
     log.info(`setDataRoot: ${check.path} (data lama: ${check.existingData})`)
     return backend.start(check.path)
   })
+
+  // Moving the data folder (data-move.ts); progress goes out on CH.dataMoveProgress
+  handle(CH.planDataMove, (_e, p: unknown) => planMove(backend, str(p)))
+  handle(CH.moveDataRoot, (_e, p: unknown) => moveDataRoot(backend, str(p)))
+  handle(CH.cancelDataMove, () => cancelMove())
+  handle(CH.getPreviousDataRoot, () => previousRoot(backend))
+  handle(CH.deletePreviousDataRoot, () => deletePrevious(backend))
+  handle(CH.forgetPreviousDataRoot, () => forgetPrevious(backend))
 
   handle(CH.selectFolder, async (e, opts?: { title?: string; defaultPath?: string }) => {
     const win = BrowserWindow.fromWebContents(e.sender)
