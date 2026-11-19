@@ -47,6 +47,8 @@ win:
     - target: nsis
       arch: [x64]
   executableName: MetisClip
+  # The owner's logo (ink "m" with a white outline), 16-256 px; also the installer's and uninstaller's icon below
+  icon: build-resources/icon.ico
   requestedExecutionLevel: asInvoker
   # Code signing (Phase 2): configure certificateFile/certificatePassword or Azure Trusted Signing here.
 
@@ -59,6 +61,9 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: MetisClip
   uninstallDisplayName: MetisClip
+  installerIcon: build-resources/icon.ico
+  uninstallerIcon: build-resources/icon.ico
+  installerHeaderIcon: build-resources/icon.ico
   # electron-builder's own app-data removal stays off: build-resources/installer.nsh (customUnInstall) removes
   # the logs, the updatable tools and the cache, and asks whether the data folder goes too (default: keep).
   deleteAppDataOnUninstall: false

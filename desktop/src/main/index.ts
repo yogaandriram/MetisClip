@@ -86,6 +86,8 @@ function createWindow(): BrowserWindow {
     show: false,
     title: 'MetisClip',
     backgroundColor: '#ECFAE5', // --mist, the UI canvas (frontend/styles/tokens.css)
+    // Packaged builds take the window and taskbar icon from MetisClip.exe; dev runs electron.exe, so set it.
+    icon: p.isDev ? path.join(app.getAppPath(), 'build-resources', 'icon.ico') : undefined,
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'index.js'),
