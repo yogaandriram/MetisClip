@@ -436,7 +436,8 @@ export interface Settings {
   render: { concurrency: number }
   /** RAM guard (backend/core/resources.py): auto = heavy steps wait for free RAM; reserve_gb 0 = automatic */
   resources: { auto: boolean; reserve_gb: number }
-  ytdlp: { player_client: string; cookies_file: string | null }
+  /** auto_update: check for a new yt-dlp once a day */
+  ytdlp: { player_client: string; cookies_file: string | null; auto_update: boolean }
   /** post_text: a campaign clip's export gets a .txt with its post text next to the video */
   export: { post_text: boolean }
   db: { wiredtiger_cache_gb: number }
@@ -472,6 +473,8 @@ export interface SystemCheckItem {
 
 export interface SystemCheck {
   items: SystemCheckItem[]
+  /** The daily yt-dlp update check: its switch, the last successful check and the last attempt (ISO, UTC) */
+  ytdlp_update?: { auto: boolean; checked_at?: string | null; attempted_at?: string | null; ok?: boolean; message?: string | null }
   encoders: string[]
   cpu_count: number
   ram_gb: number

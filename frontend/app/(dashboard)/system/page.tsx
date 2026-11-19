@@ -10,7 +10,7 @@ import { useEngineEvents } from '@/hooks/useEngineEvents'
 import { api, type BackupInfo, type ResourceStatus, type ResourceTask, type StorageInfo, type SystemCheck } from '@/lib/engine'
 import { errorMessage, formatBytes, formatDateTime } from '@/lib/format'
 import { isDesktop } from '@/lib/media'
-import { localeTag } from '@/lib/i18n'
+import { localeTag, tm } from '@/lib/i18n'
 import { useI18n, useT } from '@/lib/i18n/I18nProvider'
 import { copyWhenReady, supportText } from '@/lib/supportInfo'
 
@@ -89,6 +89,14 @@ function HealthBadge({ ok }: { ok: boolean }) {
 }
 
 const pct = (part: number, whole: number) => (whole > 0 ? (part / whole) * 100 : 0)
+
+/** Under yt-dlp in the component check: the daily update check (backend/agents/tools/ytdlp.py). */
+function ytdlpAutoText(u: NonNullable<SystemCheck['ytdlp_update']>): string {
+  const m = tm().system.check
+  if (!u.auto) return m.ytdlpAutoOff
+  if (u.attempted_at && u.ok === false) return m.ytdlpAutoFailed(formatDateTime(u.attempted_at))
+  return u.checked_at ? m.ytdlpAuto(formatDateTime(u.checked_at)) : m.ytdlpAutoPending
+}
 
 export default function SystemPage() {
   const { t, lang } = useI18n()
@@ -232,7 +240,8 @@ export default function SystemPage() {
       const res = await api.system.updateYtdlp()
       if (res.ok) toast.success(res.message)
       else toast.error(res.message)
-      if (res.updated) runCheck()
+      runCheck() // the version, and the time of the last check
+
     } catch (err) {
       toast.error(errorMessage(err, m.check.updateYtdlpFailed))
     } finally {
@@ -333,6 +342,7 @@ export default function SystemPage() {
                                 {item.detail}
                               </div>
                             )}
+                            {item.key === 'ytdlp' && check.ytdlp_update && <div className="mc-caption mc-muted">{ytdlpAutoText(check.ytdlp_update)}</div>}
                           </td>
                           <td className="mc-mono mc-caption">{item.version || '-'}</td>
                           <td>

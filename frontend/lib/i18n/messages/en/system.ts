@@ -23,6 +23,10 @@ export const system: Messages['system'] = {
     encoders: (list: string) => `Encoder: ${list}`,
     updateYtdlp: 'Update yt-dlp',
     updateYtdlpFailed: 'The yt-dlp update failed',
+    ytdlpAuto: (date: string) => `Checked automatically every day. Last check: ${date}.`,
+    ytdlpAutoPending: 'Checked automatically every day, a few minutes after MetisClip opens.',
+    ytdlpAutoFailed: (date: string) => `The automatic check on ${date} failed. It is tried again in 3 hours.`,
+    ytdlpAutoOff: 'Automatic updates are off (Settings → YouTube downloads).',
   },
   backup: {
     title: 'Database backup',

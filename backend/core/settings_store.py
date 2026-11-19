@@ -58,6 +58,10 @@ M = i18n.messages({
         "id": "Cadangan RAM harus antara 0 (otomatis) dan 16 GB",
         "en": "The RAM reserve must be between 0 (automatic) and 16 GB",
     },
+    "ytdlp_auto_bool": {
+        "id": "Update yt-dlp otomatis harus aktif atau nonaktif",
+        "en": "Automatic yt-dlp updates must be on or off",
+    },
     "unknown_language": {
         "id": "Bahasa tampilan tidak dikenal",
         "en": "Unknown display language",
@@ -100,7 +104,8 @@ def defaults() -> dict[str, Any]:
         # RAM guard (core/resources.py): auto = heavy steps wait for free RAM and run at below-normal
         # priority; reserve_gb = RAM kept free for Windows and other apps, 0 = automatic
         "resources": {"auto": True, "reserve_gb": 0},
-        "ytdlp": {"player_client": "default", "cookies_file": None},
+        # auto_update: check for a new yt-dlp once a day (agents/tools/ytdlp.maybe_auto_update)
+        "ytdlp": {"player_client": "default", "cookies_file": None, "auto_update": True},
         "db": {"wiredtiger_cache_gb": 0.25},
         # the engine's copy of the UI language (core/i18n.py); closing to the tray is the shell's own
         # setting (preferences.json, desktop/src/main/tray.ts)
@@ -182,6 +187,8 @@ def _validate(s: dict) -> None:
     res["reserve_gb"] = round(reserve, 2)
     if not isinstance(s["export"].get("post_text"), bool):
         raise SettingsError(M("auto_bool"))
+    if not isinstance(s["ytdlp"].get("auto_update"), bool):
+        raise SettingsError(M("ytdlp_auto_bool"))
     if not i18n.is_lang(s["app"].get("language")):
         raise SettingsError(M("unknown_language"))
     try:

@@ -46,6 +46,8 @@ export const settings = {
   },
   ytdlp: {
     title: 'Unduhan YouTube (yt-dlp)',
+    autoUpdate: 'Perbarui yt-dlp otomatis',
+    autoUpdateHint: 'Diperiksa sekali sehari saat tidak ada job atau ekspor yang berjalan. YouTube sering membuat versi lama gagal mengunduh, jadi sebaiknya tetap aktif.',
     cookies: 'File cookies YouTube (opsional)',
     cookiesHint: 'Dipakai yt-dlp jika YouTube meminta verifikasi. Format cookies.txt (Netscape).',
     notUsed: 'Tidak dipakai',

@@ -90,6 +90,7 @@ def _parent_watchdog(request_shutdown) -> None:
 
 
 def _housekeeping(stop: threading.Event) -> None:
+    from backend.agents.tools import ytdlp
     from backend.core import acl, cache
     from backend.core.paths import get_paths
     from backend.services.backup import maybe_daily_backup
@@ -117,6 +118,10 @@ def _housekeeping(stop: threading.Event) -> None:
             maybe_daily_backup()  # once a day, checked by its own clock
         except Exception as exc:
             log.warning("Daily backup failed: %s", exc)
+        try:
+            ytdlp.maybe_auto_update()  # once a day, while no job or export runs
+        except Exception as exc:
+            log.warning("yt-dlp update check failed: %s", exc)
         if stop.wait(600):
             return
 

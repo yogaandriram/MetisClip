@@ -23,6 +23,10 @@ export const system = {
     encoders: (list: string) => `Encoder: ${list}`,
     updateYtdlp: 'Update yt-dlp',
     updateYtdlpFailed: 'Update yt-dlp gagal',
+    ytdlpAuto: (date: string) => `Diperiksa otomatis setiap hari. Terakhir: ${date}.`,
+    ytdlpAutoPending: 'Diperiksa otomatis setiap hari, beberapa menit setelah MetisClip dibuka.',
+    ytdlpAutoFailed: (date: string) => `Pemeriksaan otomatis ${date} gagal. Dicoba lagi dalam 3 jam.`,
+    ytdlpAutoOff: 'Update otomatis mati (Pengaturan → Unduhan YouTube).',
   },
   backup: {
     title: 'Backup database',

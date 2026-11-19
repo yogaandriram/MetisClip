@@ -320,6 +320,12 @@ export default function SettingsPage() {
             <SettingsSkeleton rows={1} />
           ) : (
             <div className="mc-stack mc-gap-12">
+              <ToggleSwitch
+                label={m.ytdlp.autoUpdate}
+                hint={m.ytdlp.autoUpdateHint}
+                checked={settings.ytdlp.auto_update ?? true}
+                onChange={(v) => patch('ytdlp', { ...settings.ytdlp, auto_update: v })}
+              />
               <PathField
                 label={m.ytdlp.cookies}
                 hint={m.ytdlp.cookiesHint}

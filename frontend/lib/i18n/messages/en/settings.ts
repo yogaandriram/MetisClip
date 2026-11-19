@@ -48,6 +48,8 @@ export const settings: Messages['settings'] = {
   },
   ytdlp: {
     title: 'YouTube downloads (yt-dlp)',
+    autoUpdate: 'Update yt-dlp automatically',
+    autoUpdateHint: 'Checked once a day while no job or export runs. YouTube often breaks older versions, so keep this on.',
     cookies: 'YouTube cookies file (optional)',
     cookiesHint: 'Used by yt-dlp when YouTube asks for verification. cookies.txt (Netscape) format.',
     notUsed: 'Not used',

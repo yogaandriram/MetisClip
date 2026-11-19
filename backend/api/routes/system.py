@@ -189,8 +189,12 @@ def _check() -> dict:
         free = 0
     items.append({"key": "disk", "label": M("disk_label"), "ok": free >= 5 * 1024**3, "version": None,
                   "detail": M("disk_free" if free >= 5 * 1024**3 else "disk_low", gb=f"{free / 1024**3:.1f}")})
+    from backend.core.settings_store import get_settings
+
     return {
         "items": items,
+        # the daily yt-dlp update check: its switch and the last check (ytdlp.update_state)
+        "ytdlp_update": {**ytdlp.update_state(), "auto": bool(get_settings()["ytdlp"].get("auto_update", True))},
         "encoders": ffmpeg_ops.detect_hw_encoders() + ["libx264"],
         "cpu_count": psutil.cpu_count(logical=False) or os.cpu_count() or 1,
         "ram_gb": round(psutil.virtual_memory().total / 1024**3, 1),
