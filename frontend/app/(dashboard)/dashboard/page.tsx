@@ -213,7 +213,7 @@ export default function DashboardOverview() {
                       <img src={mediaUrl(clip.id, 'thumbnail', clip.updated_at)} alt="" loading="lazy" />
                     )}
                     <span className="mc-thumb__corner mc-thumb__corner--tl">
-                      <ScoreBadge score={clip.viral_score} size="sm" />
+                      <ScoreBadge score={clip.viral_score} size="sm" manual={clip.origin === 'manual'} />
                     </span>
                     <span className="mc-thumb__corner mc-thumb__corner--br">
                       <Badge tone="ink" size="sm">

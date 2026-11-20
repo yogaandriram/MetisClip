@@ -138,11 +138,25 @@ export function JobQueue({ campaignId }: { campaignId: string | undefined }) {
     }
   }
 
-  const openDetail = (job: Job) => router.push(`/discover/?job=${encodeURIComponent(job.id)}`)
+  // A recut belongs to its clip: its editor shows the progress
+  const openDetail = (job: Job) =>
+    router.push(
+      job.kind === 'recut' && job.recut_clip_id
+        ? `/clips/detail/?id=${encodeURIComponent(job.recut_clip_id)}`
+        : `/discover/?job=${encodeURIComponent(job.id)}`,
+    )
+
+  /** What the job was asked to do: the Analyzer's settings, the user's moments, or a recut */
+  const settings = (job: Job) =>
+    job.kind === 'recut'
+      ? m.configRecut
+      : job.kind === 'manual'
+        ? m.configManual(job.config.manual_ranges?.length ?? 0)
+        : m.config(job.config.clip_duration, job.config.max_clips_per_video)
 
   const meta = (job: Job) => (
     <>
-      {m.config(job.config.clip_duration, job.config.max_clips_per_video)} · {m.createdAt(formatDateTime(job.created_at))}
+      {settings(job)} · {m.createdAt(formatDateTime(job.created_at))}
     </>
   )
 
@@ -237,7 +251,7 @@ export function JobQueue({ campaignId }: { campaignId: string | undefined }) {
                               {m.resume}
                             </Button>
                             <Button variant="secondary" size="sm" icon={<Eye size={16} />} onClick={() => openDetail(job)}>
-                              {m.detail}
+                              {job.kind === 'recut' ? m.openClip : m.detail}
                             </Button>
                             <Button variant="danger" size="sm" icon={<Trash2 size={16} />} onClick={() => setPending({ kind: 'delete', job })} disabled={busyId === job.id}>
                               {m.delete}
@@ -279,7 +293,7 @@ export function JobQueue({ campaignId }: { campaignId: string | undefined }) {
                         </div>
                         <div className="mc-row mc-row--wrap mc-gap-8">
                           <Button variant="secondary" size="sm" icon={<Eye size={16} />} onClick={() => openDetail(job)}>
-                            {m.detail}
+                            {job.kind === 'recut' ? m.openClip : m.detail}
                           </Button>
                           <Button variant="danger" size="sm" icon={<XCircle size={16} />} onClick={() => setPending({ kind: 'cancel', job })} disabled={busyId === job.id}>
                             {m.cancel}
@@ -340,7 +354,7 @@ export function JobQueue({ campaignId }: { campaignId: string | undefined }) {
                                 </div>
                               </td>
                               <td className="mc-muted" style={{ whiteSpace: 'nowrap' }}>
-                                {m.config(job.config.clip_duration, job.config.max_clips_per_video)}
+                                {settings(job)}
                               </td>
                               <td className="mc-muted" style={{ whiteSpace: 'nowrap' }}>
                                 {formatDateTime(job.created_at)}

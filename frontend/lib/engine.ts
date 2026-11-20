@@ -231,7 +231,13 @@ export interface Job {
     max_clips_per_video: number
     /** The automatic layout by content for its clips (null or missing: each campaign's brand template) */
     smart_layout?: boolean | null
+    /** Moments the user chose (seconds of the video), for a manual job */
+    manual_ranges?: ClipRange[]
   }
+  /** 'ai': the Analyzer chose the moments; 'manual': the user did; 'recut': an existing clip cut again */
+  kind: JobKind
+  /** A recut's clip */
+  recut_clip_id: string | null
   /** Campaigns the clips are made for (the brief snapshot stays in the engine) */
   campaign_ids: string[]
   campaigns: { id: string; name: string; version: number }[]
@@ -252,6 +258,14 @@ export interface Job {
   finished_at: ISODate | null
 }
 
+export type JobKind = 'ai' | 'manual' | 'recut'
+
+/** A moment in seconds of the source video */
+export interface ClipRange {
+  start: number
+  end: number
+}
+
 /** Exactly one source: a YouTube link, or a video file on this PC (used in place, never copied). */
 export interface JobCreate {
   youtube_url?: string
@@ -265,6 +279,10 @@ export interface JobCreate {
   note?: string
   /** Turns the automatic layout by content on or off for the job's clips; null or missing follows the brand templates */
   smart_layout?: boolean | null
+  /** Moments the user chose (5 to 180 s each, at most 20): the Analyzer is skipped, each becomes a clip per campaign */
+  manual_ranges?: ClipRange[]
+  /** Move those edges to the nearest sentence boundary (default true) */
+  snap_edges?: boolean
 }
 
 export interface SubtitleWord {
@@ -310,6 +328,8 @@ export interface Clip {
   viral_score: number
   hook_text: string
   tags: string[]
+  /** 'ai': chosen and scored by the Analyzer; 'manual': a moment the user chose (no score) */
+  origin: 'ai' | 'manual'
   rationale: string
   status: ClipStatus
   files: ClipFiles
@@ -376,6 +396,19 @@ export interface ClipDetail {
   /** The clip's campaign (without its brief material) and its checklist; null without one */
   campaign?: Campaign | null
   brief_check?: BriefCheck | null
+  /** A recut of this clip that is pending or running; null otherwise */
+  recut_job?: Job | null
+  /** The video the clip was cut from (null when unknown) */
+  source_video?: SourceVideoInfo | null
+}
+
+export interface SourceVideoInfo {
+  title: string
+  channel: string
+  /** The YouTube watch link, or null for an uploaded file */
+  youtube_url: string | null
+  file_path: string | null
+  duration_seconds: number | null
 }
 
 export interface SubtitleUpdate {
@@ -611,6 +644,9 @@ export type EngineEvent =
       /** When it finished: the source video's title, and (completed) how many clips it made */
       title?: string | null
       clips?: number
+      /** A recut: the clip it cut again */
+      kind?: 'recut'
+      clip_id?: string
     }
   | { type: 'clip.created'; id: string; job_id: string | null; campaign_id?: string | null }
   | { type: 'clip.updated'; id: string }
@@ -971,6 +1007,8 @@ export const api = {
     enrichSubtitles: (id: string, opts: { keywords: boolean; emojis: boolean }) =>
       request<{ clip: Clip; keywords: number; emojis: number }>('POST', `/api/clips/${id}/subtitles/enrich`, { body: opts }),
     remove: (id: string, deleteFiles = true) => request<{ ok: true }>('DELETE', `/api/clips/${id}`, { query: { delete_files: deleteFiles } }),
+    /** Cut the clip again at new edges (seconds of its source video): a one-moment job; style, title and edited words stay */
+    recut: (id: string, range: ClipRange & { snap_edges?: boolean }) => request<{ job: Job }>('POST', `/api/clips/${id}/recut`, { body: range }),
     render: (id: string) => request<{ render_job: RenderJob }>('POST', `/api/clips/${id}/render`),
     /** Fetch the clip's original-ratio video again (clips made before the podcast layout). */
     prepareSource: (id: string) => request<{ clip: Clip }>('POST', `/api/clips/${id}/source`),

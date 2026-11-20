@@ -10,6 +10,8 @@ export const ui: Messages['ui'] = {
   progress: 'Progress',
   viralScore: 'Viral score',
   viralScoreValue: (n: number) => `Viral score ${n}`,
+  manualClip: 'Manual',
+  manualClipTip: 'A moment you chose, without a viral score',
   recentColors: 'Recently used',
   stepDone: 'Done',
   runningJobs: (n: number) => (n === 1 ? 'job running' : 'jobs running'),

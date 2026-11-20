@@ -2,6 +2,10 @@ import type { Messages } from '../id'
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 
+const secEn = (n: number) => `${n.toLocaleString('en-GB', { maximumFractionDigits: 1 })} s`
+const edgeEn = (name: string, d: number) =>
+  Math.abs(d) < 0.05 ? '' : `${name} ${d > 0 ? 'extended' : 'shortened'} by ${secEn(Math.abs(d))}`
+
 export const editor: Messages['editor'] = {
   title: 'Clip editor',
   back: 'Back to Clips',
@@ -52,6 +56,43 @@ export const editor: Messages['editor'] = {
     sentences: 'Every sentence',
   },
   ratioSource: 'Original',
+
+  recut: {
+    button: 'Change cut',
+    buttonTip: "Set the clip's start and end in the source video again",
+    title: 'Change the clip cut',
+    intro:
+      "Set the clip's start and end in the source video. MetisClip takes that part from the source video again, tracks the faces and transcribes what changed.",
+    startLabel: 'Start',
+    endLabel: 'End',
+    badTime: 'Write a time like 12:34.5 or 754.5',
+    nudgeGroup: (label: string) => `Move the ${label.toLowerCase()} time`,
+    nudge: (d: number) => `${d > 0 ? '+' : '−'}${secEn(Math.abs(d))}`,
+    newLength: (now: string, before: string) => `New length ${now} (was ${before})`,
+    change: (dStart: number, dEnd: number) => [edgeEn('Start', dStart), edgeEn('End', dEnd)].filter(Boolean).join(' · '),
+    sourceLength: (d: string) => `The source video lasts ${d}`,
+    endBeforeStart: 'The end must come after the start.',
+    lengthRange: (lo: number, hi: number) => `A clip must last between ${lo} and ${hi} seconds.`,
+    pastEnd: (d: string) => `The start is past the end of the video (${d}).`,
+    snap: 'Tidy up to sentence boundaries',
+    snapHint: 'The start and end move at most 1.75 seconds to the nearest sentence boundary, so no word is cut.',
+    keeps:
+      "The style, template, title and the words you edited stay. Words in the new parts come from Whisper. The old export in the clip's folder is removed; its copy in the export folder stays.",
+    start: 'Cut again',
+    saveAndStart: 'Save & cut again',
+    started: 'Cutting the clip again. You can follow it in the Queue too.',
+    failed: 'Could not start cutting the clip again',
+    running: 'The clip is being cut again',
+    waiting: 'Waiting for its turn in the queue…',
+    locked: 'Exporting is paused until the new cut is done. Words you save now are kept in the new cut.',
+    saveLocked: 'Reload the clip first: the words in the editor still follow the old cut.',
+    cancel: 'Cancel',
+    cancelled: 'Cutting again was cancelled. The clip stays as it was.',
+    done: 'The new cut is ready',
+    readyDirty: 'The new cut is ready. Reload the clip to see it; unsaved changes will be lost.',
+    reload: 'Reload clip',
+    failedRun: 'Cutting the clip again failed. The clip stays as it was.',
+  },
 
   shortcuts: {
     title: 'Keyboard shortcuts',

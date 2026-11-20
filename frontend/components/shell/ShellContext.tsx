@@ -75,7 +75,11 @@ function useDesktopNotifications(): void {
     if (!metis) return
     const m = tm().shell.notify
     const lines = (...parts: Array<string | null | undefined>) => parts.filter(Boolean).join('\n')
-    if (e.type === 'job.status') {
+    if (e.type === 'job.status' && e.kind === 'recut' && e.clip_id) {
+      const route = `/clips/detail/?id=${encodeURIComponent(e.clip_id)}`
+      if (e.status === 'completed') metis.notify(m.recutDone, e.title || undefined, { route })
+      else if (e.status === 'failed') metis.notify(m.recutFailed, lines(e.title, e.error), { route })
+    } else if (e.type === 'job.status') {
       if (e.status === 'completed') {
         const n = e.clips ?? 0
         const campaign = e.campaign_ids?.[0]

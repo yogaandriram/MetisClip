@@ -7,7 +7,7 @@ from typing import Any, Literal, Optional
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from backend.api.dto import brand_template_dto, campaign_dto, clip_dto, http_error, render_dto
+from backend.api.dto import brand_template_dto, campaign_dto, clip_dto, http_error, job_dto, render_dto
 from backend.api.routes.files import serve_relative
 from backend.agents.tools import caption_ai, post_copy_ai, speaker_ai
 from backend.agents.tools.caption_ai import valid_emoji
@@ -24,6 +24,30 @@ from backend.services.render import channel_name, clean_ai, effective_ai, effect
 from backend.core import i18n
 
 M = i18n.messages({
+    "recut_running": {
+        "id": "Klip ini sedang dipotong ulang. Tunggu sampai selesai.",
+        "en": "This clip is being cut again. Wait until it is done.",
+    },
+    "recut_while_render": {
+        "id": "Tunggu ekspor klip ini selesai (atau batalkan) sebelum memotong ulang.",
+        "en": "Wait for this clip's export to finish (or cancel it) before cutting it again.",
+    },
+    "render_while_recut": {
+        "id": "Klip ini sedang dipotong ulang. Ekspor setelah selesai.",
+        "en": "This clip is being cut again. Export it once that is done.",
+    },
+    "recut_no_campaign": {
+        "id": "Klip ini tidak punya campaign. Pindahkan dulu ke sebuah campaign.",
+        "en": "This clip has no campaign. Move it to a campaign first.",
+    },
+    "recut_no_source": {
+        "id": "Video sumber klip ini tidak diketahui, jadi tidak bisa dipotong ulang.",
+        "en": "This clip's source video is unknown, so it cannot be cut again.",
+    },
+    "recut_needs_whisper": {
+        "id": "Video upload dipotong ulang dengan Whisper. {reason}",
+        "en": "Uploaded videos are cut again with Whisper. {reason}",
+    },
     "not_found": {
         "id": "Klip tidak ditemukan",
         "en": "Clip not found",
@@ -172,7 +196,28 @@ def get_clip(clip_id: str):
         "content": layout_svc.content_profile(clip, scenes),
         # The template in effect (the clip's own choice, else its campaign's, else the default template)
         "brand_template": brand_template_dto(tpl),
+        # A recut of this clip that is pending or running (the editor waits for it)
+        "recut_job": job_dto(recut) if (recut := active_recut(clip_id)) else None,
+        "source_video": _source_video(clip),
         **_campaign_info(clip, tpl),
+    }
+
+
+def _source_video(clip: dict) -> dict[str, Any] | None:
+    """The video the clip was cut from: title, channel, link or file, and length (for the editor)."""
+    from backend.agents.tools.ytdlp import watch_url
+
+    video = get_db().source_videos.find_one({"_id": clip.get("source_video_id")}) if clip.get("source_video_id") else None
+    if not video and not clip.get("youtube_id"):
+        return None
+    video = video or {}
+    youtube_id = clip.get("youtube_id") or video.get("youtube_id")
+    return {
+        "title": video.get("title") or "",
+        "channel": video.get("channel_name") or "",
+        "youtube_url": watch_url(youtube_id) if youtube_id else None,
+        "file_path": video.get("file_path"),
+        "duration_seconds": video.get("duration_seconds"),
     }
 
 
@@ -187,6 +232,68 @@ def _campaign_info(clip: dict, tpl: dict | None) -> dict[str, Any]:
     dto.pop("draft", None)
     check = brief_check.check(clip, campaign, tpl, channel_name(clip)) if campaign_svc.has_brief(campaign.get("brief")) else None
     return {"campaign": dto, "brief_check": check}
+
+
+class RecutBody(BaseModel):
+    start: float
+    end: float
+    snap_edges: bool = True
+
+
+def active_recut(clip_id: str) -> dict | None:
+    """The pending or running job that cuts this clip again, if any."""
+    return get_db().discovery_jobs.find_one(
+        {"config.recut.clip_id": clip_id, "status": {"$in": ["pending", "running"]}}, sort=[("created_at", -1)])
+
+
+def _active_render(clip_id: str) -> dict | None:
+    return get_db().render_jobs.find_one({"clip_id": clip_id, "status": {"$in": ["queued", "rendering"]}})
+
+
+@router.post("/api/clips/{clip_id}/recut")
+def recut_clip(clip_id: str, body: RecutBody):
+    """Cut the clip again at new edges (seconds of its source video): a one-moment job that replaces the
+    clip's files and keeps its style, template, title and edited words (agents/nodes/manual.py)."""
+    from backend.agents.context import PipelineError
+    from backend.agents.nodes import manual
+    from backend.agents.nodes.discovery import check_local_video
+    from backend.agents.tools import whisper
+    from backend.agents.tools.ytdlp import watch_url
+    from backend.api.routes.jobs import _check_disk, insert_job
+    from backend.core.config import config
+    from backend.models.documents import JobConfig, JobSource
+
+    clip = _get(clip_id)
+    if active_recut(clip_id):
+        raise http_error(409, M("recut_running"))
+    if _active_render(clip_id):
+        raise http_error(409, M("recut_while_render"))
+    campaign = campaign_svc.get(clip.get("campaign_id")) if clip.get("campaign_id") else None
+    if not campaign:
+        raise http_error(400, M("recut_no_campaign"))
+    db = get_db()
+    video = db.source_videos.find_one({"_id": clip.get("source_video_id")}) if clip.get("source_video_id") else None
+    if clip.get("youtube_id"):
+        source = JobSource(type="url", youtube_url=watch_url(clip["youtube_id"]))
+    elif video and video.get("file_path"):
+        try:
+            path, _ = check_local_video(video["file_path"])
+        except PipelineError as exc:
+            raise http_error(400, str(exc)) from exc
+        if not whisper.available() and not config.is_dev:
+            raise http_error(400, M("recut_needs_whisper", reason=whisper.unavailable_reason()))
+        source = JobSource(type="local_file", local_file_path=str(path))
+    else:
+        raise http_error(400, M("recut_no_source"))
+    try:
+        [edges] = manual.clean_ranges([{"start": body.start, "end": body.end}], (video or {}).get("duration_seconds"))
+    except manual.RangeError as exc:
+        raise http_error(400, str(exc)) from exc
+    _check_disk()
+    cfg = JobConfig(recut={"clip_id": clip_id, **edges}, snap_edges=body.snap_edges,
+                    max_clips=1, max_clips_per_video=1)
+    doc = insert_job(source, cfg, [campaign_svc.snapshot(campaign)])
+    return {"job": job_dto(doc)}
 
 
 class PostCopy(BaseModel):
@@ -458,6 +565,8 @@ def render_clip(clip_id: str):
     active = db.render_jobs.find_one({"clip_id": clip_id, "status": {"$in": ["queued", "rendering"]}})
     if active:
         return {"render_job": render_dto(active)}
+    if active_recut(clip_id):
+        raise http_error(409, M("render_while_recut"))
     try:
         disk.check(RENDER_NEED_BYTES)
     except disk.DiskFull as exc:

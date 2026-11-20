@@ -249,7 +249,7 @@ export function ClipGallery({ campaignId }: { campaignId: string | undefined }) 
                         </span>
                       )}
                       <span className="mc-thumb__corner mc-thumb__corner--tl">
-                        <ScoreBadge score={clip.viral_score} size="sm" />
+                        <ScoreBadge score={clip.viral_score} size="sm" manual={clip.origin === 'manual'} />
                       </span>
                       <span className="mc-thumb__corner mc-thumb__corner--tr">
                         <StatusBadge kind="clip" status={clip.status} size="sm" />

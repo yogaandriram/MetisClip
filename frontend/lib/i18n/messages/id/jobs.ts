@@ -18,6 +18,9 @@ export const jobs = {
   /** "45-60 detik · maks. 3 klip"; max 0 = unlimited */
   config: (duration: string, max: number) => `${duration} detik · maks. ${max || '∞'} klip`,
   createdAt: (date: string) => `dibuat ${date}`,
+  configManual: (n: number) => `${n} momen pilihan sendiri`,
+  configRecut: 'Potong ulang klip',
+  openClip: 'Buka klip',
   emptyTitle: 'Antrian kosong',
   emptyDescription: 'Belum ada job. Tempel link YouTube atau upload video di menu Cari Video.',
   needsAction: 'Perlu tindakan',

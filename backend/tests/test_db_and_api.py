@@ -339,6 +339,31 @@ def test_job_sources_are_validated(client, tmp_path):
     # Without a transcription engine outside dev: see test_whisper.test_upload_jobs_need_a_transcription_engine
 
 
+def test_a_job_can_take_the_moments_the_user_chose(client, monkeypatch):
+    from backend.api.routes import jobs as jobs_route
+
+    monkeypatch.setattr(jobs_route.runner, "submit_job", lambda job_id: None)
+    camp = client.post("/api/campaigns", json={"name": "Momen"}).json()["campaign"]
+
+    def post(ranges, **extra):
+        return client.post("/api/jobs", json={"campaign_ids": [camp["id"]], "youtube_url": "https://youtu.be/abcdefghijk",
+                                              "manual_ranges": ranges, **extra})
+
+    r = post([{"start": 10, "end": 8}])
+    assert r.status_code == 400 and r.json()["detail"] == "Momen 1: waktu selesai harus setelah waktu mulai"
+    r = post([{"start": 0, "end": 30}, {"start": 40, "end": 42}])
+    assert r.status_code == 400 and "Momen 2: panjang klip harus antara 5 dan 180 detik" == r.json()["detail"]
+    assert post([{"start": 0, "end": 30}] * 21).status_code == 422  # more than the 20 the engine takes
+    r = post([{"start": 75.5, "end": 120}], snap_edges=False)
+    assert r.status_code == 200, r.text
+    job = r.json()["job"]
+    assert job["kind"] == "manual" and job["recut_clip_id"] is None
+    assert job["config"]["manual_ranges"] == [{"start": 75.5, "end": 120.0}] and job["config"]["snap_edges"] is False
+    # Without ranges it is the usual Analyzer job
+    r = client.post("/api/jobs", json={"campaign_ids": [camp["id"]], "youtube_url": "https://youtu.be/abcdefghijk"})
+    assert r.json()["job"]["kind"] == "ai"
+
+
 def test_files_route_blocks_private_dirs(client, paths):
     (paths.private_dir / "db-credentials.json").write_text("{}")
     (paths.library_dir / "ok.txt").write_text("hi")

@@ -346,6 +346,14 @@ class JobConfig(BaseModel):
     # The automatic layout by content for this job's clips: True/False sets it on each new clip
     # (layout_style.smart.enabled), None follows each campaign's brand template
     smart_layout: Optional[bool] = None
+    # Moments the user chose ({start, end} in seconds of the video): the Analyzer is skipped and each
+    # range becomes a clip for every campaign of the job (agents/nodes/manual.py)
+    manual_ranges: list[dict[str, float]] = Field(default_factory=list)
+    # Move user-chosen edges to the nearest sentence boundary in the clip's Whisper words
+    snap_edges: bool = True
+    # Cut an existing clip again at new edges: {clip_id, start, end}. Its files are replaced, its
+    # style, template, title and edited words stay (agents/nodes/manual.py)
+    recut: Optional[dict[str, Any]] = None
 
 
 class JobCheckpoint(BaseModel):
@@ -423,6 +431,8 @@ class ClipDoc(Doc):
     hook_text: str = ""
     tags: list[str] = Field(default_factory=list)
     rationale: str = ""
+    # "ai": chosen and scored by the Analyzer; "manual": a moment the user chose (no score)
+    origin: Literal["ai", "manual"] = "ai"
     files: ClipFiles = Field(default_factory=ClipFiles)
     subtitle: dict[str, Any] = Field(default_factory=lambda: {"words": []})
     subtitle_style: dict[str, Any] = Field(default_factory=dict)

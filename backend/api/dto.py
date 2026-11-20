@@ -53,12 +53,23 @@ def brand_template_dto(
     return out
 
 
+def recut_event(job: dict) -> dict:
+    """The fields a recut's job.status events carry, so the clip's editor follows it (also when it started
+    elsewhere): {kind: "recut", clip_id}; empty for other jobs."""
+    recut = (job.get("config") or {}).get("recut")
+    return {"kind": "recut", "clip_id": recut.get("clip_id")} if recut else {}
+
+
 def job_dto(doc: dict[str, Any]) -> dict[str, Any]:
     from backend.agents.context import failed_segments
 
     d = to_api(doc) or {}
     # A completed job whose clips partly failed can retry them (POST /api/jobs/{id}/resume)
     d["failed_clips"] = failed_segments(doc) if doc.get("status") == "completed" else 0
+    # "ai" (the Analyzer chose), "manual" (the user's moments) or "recut" (an existing clip cut again)
+    cfg = doc.get("config") or {}
+    d["kind"] = "recut" if cfg.get("recut") else "manual" if cfg.get("manual_ranges") else "ai"
+    d["recut_clip_id"] = (cfg.get("recut") or {}).get("clip_id")
     d.pop("checkpoint", None)
     src = d.get("source") or {}
     d["source"] = {
@@ -95,6 +106,7 @@ def clip_dto(doc: dict[str, Any]) -> dict[str, Any]:
         "hook_text": doc.get("hook_text", ""),
         "tags": doc.get("tags") or [],
         "rationale": doc.get("rationale", ""),
+        "origin": doc.get("origin") or "ai",
         "status": doc.get("status", "ready"),
         "files": {"raw": files.get("raw"), "final": files.get("final"), "thumbnail": files.get("thumbnail"),
                   "source": files.get("source"), "faces": files.get("faces")},

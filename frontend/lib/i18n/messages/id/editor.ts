@@ -1,5 +1,9 @@
 // Bahasa Indonesia: the source dictionary. Add every key in en/editor.ts too (tsc checks it).
 // Clip editor (app/(dashboard)/clips/detail).
+const secId = (n: number) => `${n.toLocaleString('id-ID', { maximumFractionDigits: 1 })} dtk`
+const edgeId = (name: string, d: number) =>
+  Math.abs(d) < 0.05 ? '' : `${name} ${d > 0 ? 'diperpanjang' : 'dipendekkan'} ${secId(Math.abs(d))}`
+
 export const editor = {
   title: 'Editor klip',
   back: 'Kembali ke Hasil Clip',
@@ -51,6 +55,43 @@ export const editor = {
     sentences: 'Tiap kalimat',
   },
   ratioSource: 'Asli',
+
+  recut: {
+    button: 'Ubah potongan',
+    buttonTip: 'Atur ulang awal dan akhir klip di video sumber',
+    title: 'Ubah potongan klip',
+    intro:
+      'Atur awal dan akhir klip di video sumber. MetisClip mengambil bagian itu lagi dari video sumber, melacak wajah, dan mentranskripsi bagian yang berubah.',
+    startLabel: 'Mulai',
+    endLabel: 'Selesai',
+    badTime: 'Tulis waktu seperti 12:34.5 atau 754.5',
+    nudgeGroup: (label: string) => `Geser waktu ${label.toLowerCase()}`,
+    nudge: (d: number) => `${d > 0 ? '+' : '−'}${secId(Math.abs(d))}`,
+    newLength: (now: string, before: string) => `Durasi baru ${now} (sebelumnya ${before})`,
+    change: (dStart: number, dEnd: number) => [edgeId('Awal', dStart), edgeId('Akhir', dEnd)].filter(Boolean).join(' · '),
+    sourceLength: (d: string) => `Panjang video sumber ${d}`,
+    endBeforeStart: 'Waktu selesai harus setelah waktu mulai.',
+    lengthRange: (lo: number, hi: number) => `Panjang klip harus antara ${lo} dan ${hi} detik.`,
+    pastEnd: (d: string) => `Waktu mulai melewati akhir video (${d}).`,
+    snap: 'Rapikan ke batas kalimat',
+    snapHint: 'Awal dan akhir digeser paling jauh 1,75 detik ke batas kalimat terdekat, supaya tidak memotong kata.',
+    keeps:
+      'Gaya, template, judul, dan kata yang sudah kamu edit tetap dipakai. Kata di bagian yang baru diambil dari Whisper. Ekspor lama di folder klip dihapus; salinannya di folder ekspor tetap ada.',
+    start: 'Potong ulang',
+    saveAndStart: 'Simpan & potong ulang',
+    started: 'Potong ulang dimulai. Progresnya juga ada di Antrian.',
+    failed: 'Potong ulang tidak bisa dimulai',
+    running: 'Klip sedang dipotong ulang',
+    waiting: 'Menunggu giliran di antrian…',
+    locked: 'Ekspor dijeda sampai potong ulang selesai. Kata yang kamu simpan sekarang tetap dipakai di potongan baru.',
+    saveLocked: 'Muat ulang klip dulu: kata di editor masih mengikuti potongan lama.',
+    cancel: 'Batalkan',
+    cancelled: 'Potong ulang dibatalkan. Klip tetap seperti semula.',
+    done: 'Potongan baru siap',
+    readyDirty: 'Potongan baru siap. Muat ulang klip untuk melihatnya; perubahan yang belum disimpan akan hilang.',
+    reload: 'Muat ulang klip',
+    failedRun: 'Potong ulang gagal. Klip tetap seperti semula.',
+  },
 
   shortcuts: {
     title: 'Pintasan keyboard',

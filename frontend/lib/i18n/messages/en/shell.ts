@@ -81,5 +81,7 @@ export const shell: Messages['shell'] = {
     renderSavedIn: (folder: string) => `Saved in ${folder}`,
     renderNotCopied: "The video is done but wasn't copied to the export folder. Open the clip to try again.",
     renderFailed: 'Video export failed',
+    recutDone: 'Clip cut again',
+    recutFailed: 'Cutting the clip again failed',
   },
 }

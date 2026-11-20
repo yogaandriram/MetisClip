@@ -87,5 +87,7 @@ export const shell = {
     renderSavedIn: (folder: string) => `Tersimpan di ${folder}`,
     renderNotCopied: 'Videonya selesai, tapi belum tersalin ke folder ekspor. Buka clip-nya untuk mencoba lagi.',
     renderFailed: 'Ekspor video gagal',
+    recutDone: 'Potong ulang selesai',
+    recutFailed: 'Potong ulang gagal',
   },
 }

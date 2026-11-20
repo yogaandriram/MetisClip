@@ -36,6 +36,32 @@ export const discover = {
     maxClips: 'Jumlah klip (maks.)',
     unlimited: 'Tanpa batas',
     start: 'Mulai proses',
+    /** Who chooses the moments: the Analyzer, or the user (a manual job) */
+    choose: {
+      label: 'Pemilihan momen',
+      ai: 'AI pilih momen terbaik',
+      manual: 'Pilih momen sendiri',
+      aiHint: 'AI membaca seluruh transkrip lalu memilih dan menilai momen yang paling layak viral.',
+      manualHint:
+        'Tulis awal dan akhir tiap momen di video sumber. Tiap momen jadi satu klip untuk setiap campaign yang dipilih, tanpa skor viral dan tanpa memakai kuota AI untuk memilih.',
+    },
+    moments: {
+      listAria: 'Momen pilihan',
+      row: (n: number) => `Momen ${n}`,
+      start: 'Mulai',
+      end: 'Selesai',
+      length: (s: number) => `${s.toLocaleString('id-ID')} dtk`,
+      remove: (n: number) => `Hapus momen ${n}`,
+      add: 'Tambah momen',
+      count: (n: number, max: number) => `${n} dari maks. ${max} momen`,
+      badTime: 'Tulis waktu seperti 12:34, 1:02:03 atau 754 (detik).',
+      badOrder: 'Waktu selesai harus setelah waktu mulai.',
+      badLength: (lo: number, hi: number) => `Panjang momen harus antara ${lo} dan ${hi} detik.`,
+      invalid: 'Periksa lagi waktu momen yang ditandai.',
+      snap: 'Rapikan ke batas kalimat',
+      snapHint: 'Awal dan akhir digeser paling jauh 1,75 detik ke batas kalimat terdekat, supaya tidak memotong kata. Matikan untuk memotong tepat di waktu yang kamu tulis.',
+      submit: 'Buat klip',
+    },
   },
   progress: {
     notFound: 'Job tidak ditemukan',

@@ -9,7 +9,8 @@ from __future__ import annotations
 import logging
 
 from backend.agents.context import JobContext, PipelineError, failed_segments
-from backend.agents.nodes import analyzer, discovery, processor
+from backend.agents.nodes import analyzer, discovery, manual, processor
+from backend.api.dto import recut_event
 from backend.core import cache, events, llm
 from backend.core.db import get_db, utcnow
 from backend.core.procs import Cancelled, CancelToken
@@ -50,8 +51,10 @@ def _finish(job_id: str, campaign_ids: list[str], status: str, error: str | None
     source = db.source_videos.find_one({"job_id": job_id}, {"title": 1})
     if source and source.get("title"):
         extra["title"] = source["title"]
+    # A recut: the clip that was cut again keeps its own job, so the notification opens that clip
+    extra.update(recut_event(db.discovery_jobs.find_one({"_id": job_id}, {"config.recut": 1}) or {}))
     if status == "completed":
-        extra["clips"] = db.clips.count_documents({"job_id": job_id})
+        extra["clips"] = 1 if extra.get("kind") == "recut" else db.clips.count_documents({"job_id": job_id})
     events.publish({"type": "job.status", "id": job_id, "campaign_ids": campaign_ids, "status": status, "error": error, **extra})
 
 
@@ -67,7 +70,8 @@ def run_job(job_id: str, cancel: CancelToken) -> None:
         return
     ctx = JobContext(job, cancel)
     cache.claim(ctx.cache_dir)
-    events.publish({"type": "job.status", "id": job_id, "campaign_ids": ctx.campaign_ids, "status": "running"})
+    events.publish({"type": "job.status", "id": job_id, "campaign_ids": ctx.campaign_ids, "status": "running",
+                    **recut_event(job)})
     logger.info("Job %s started (%s)", job_id, job["source"].get("type"))
     step = job.get("current_step") or "discovery"
     try:
@@ -87,7 +91,8 @@ def run_job(job_id: str, cancel: CancelToken) -> None:
         if ck.get("analysis_done"):
             segments = ck.get("segments") or []
         else:
-            segments = analyzer.run(ctx, videos)
+            # Moments the user chose (a manual job, a recut) skip the Analyzer
+            segments = manual.run(ctx, videos) if manual.is_manual(ctx.config) else analyzer.run(ctx, videos)
             ctx.checkpoint(analysis_done=True, segments=segments)
         if not segments:
             raise PipelineError(M("no_segments"))

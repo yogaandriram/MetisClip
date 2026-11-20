@@ -103,13 +103,14 @@ import {
   Tooltip,
 } from '@/components/ui'
 import { CampaignPanel, mergeBriefDetail } from '@/components/brief/CampaignPanel'
+import { RecutDialog } from '@/components/clips/RecutDialog'
 import { useUnsavedGuard } from '@/components/shell/UnsavedGuard'
 import { cx } from '@/lib/cx'
 import { CaptionPositionControls } from '@/components/captions/CaptionPositionControls'
 import { SUPPORTED_FONTS, FONT_WEIGHTS_MAP } from '@/lib/constants'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
-import { api, type BrandTemplate, type ClipDetail, type RenderJob, type SubtitleWord } from '@/lib/engine'
+import { api, type BrandTemplate, type ClipDetail, type Job, type RenderJob, type SubtitleWord } from '@/lib/engine'
 import { assetUrl, isDesktop, mediaUrl } from '@/lib/media'
 import { RENDER_STATUS, errorMessage, formatClock, splitPath } from '@/lib/format'
 import { useI18n, useT } from '@/lib/i18n/I18nProvider'
@@ -261,6 +262,11 @@ function ClipEditor() {
   const [renderOpen, setRenderOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportedPath, setExportedPath] = useState<string | null>(null)
+  // "Ubah potongan": the recut job of this clip while it runs; ready = it finished while the editor had
+  // unsaved edits on the old timeline (they must not be saved over the new words)
+  const [recutOpen, setRecutOpen] = useState(false)
+  const [recutJob, setRecutJob] = useState<Job | null>(null)
+  const [recutReady, setRecutReady] = useState(false)
 
   // ---- loading ------------------------------------------------------------
 
@@ -276,6 +282,8 @@ function ClipEditor() {
     setDetail(d)
     setPresent(snap)
     setSavedJson(JSON.stringify(snap))
+    setRecutJob(d.recut_job ?? null)
+    setRecutReady(false)
     history.current = { past: [], future: [], lastKey: null, lastAt: 0 }
   }, [])
 
@@ -323,6 +331,47 @@ function ClipEditor() {
   }, [epoch])
 
   useEngineEvents((e) => {
+    // A recut of this clip: the one started here, or one the editor learns about from its events
+    const ownRecut = (e.type === 'job.progress' || e.type === 'job.status') && !!recutJob && e.id === recutJob.id
+    const otherRecut = e.type === 'job.status' && e.kind === 'recut' && e.clip_id === clipId && !ownRecut
+    if (otherRecut && (e.status === 'pending' || e.status === 'running')) {
+      api.jobs
+        .get(e.id)
+        .then(({ job }) => setRecutJob(job))
+        .catch(() => undefined)
+      return
+    }
+    if (ownRecut || otherRecut) {
+      const mr = tm().editor.recut
+      if (e.type === 'job.progress') {
+        setRecutJob((j) =>
+          j && j.id === e.id
+            ? {
+                ...j,
+                status: e.status,
+                progress_pct: e.progress_pct,
+                current_step: e.current_step,
+                activity: e.message ? { message: e.message, at: new Date().toISOString() } : j.activity,
+              }
+            : j,
+        )
+      } else if (e.status === 'completed') {
+        setRecutJob(null)
+        if (dirty) {
+          setRecutReady(true)
+        } else {
+          toast.success(mr.done)
+          api.clips.get(clipId).then(applyDetail).catch(() => undefined)
+        }
+      } else if (e.status === 'failed' || e.status === 'cancelled' || e.status === 'interrupted') {
+        setRecutJob(null)
+        if (e.status === 'cancelled') toast(mr.cancelled)
+        else toast.error(e.error ? `${mr.failedRun} ${e.error}` : mr.failedRun, { duration: 8000 })
+      } else {
+        setRecutJob((j) => (j && j.id === e.id ? { ...j, status: e.status } : j))
+      }
+      return
+    }
     if (e.type === 'render.progress' && e.clip_id === clipId) {
       setRender((prev) =>
         prev && prev.id === e.id ? { ...prev, status: e.status, progress_pct: e.progress_pct, message: e.message ?? null } : prev || null,
@@ -519,6 +568,10 @@ function ClipEditor() {
 
   const save = async (silent = false): Promise<boolean> => {
     if (!present || !clipId) return false
+    if (recutReady) {
+      toast.error(m.recut.saveLocked)
+      return false
+    }
     setSaving(true)
     try {
       const cleanWords = present.words
@@ -666,6 +719,10 @@ function ClipEditor() {
 
   const startRender = async () => {
     if (!clipId) return
+    if (recutJob || recutReady) {
+      toast(recutJob ? m.recut.locked : m.recut.saveLocked)
+      return
+    }
     if (render && (render.status === 'queued' || render.status === 'rendering')) {
       setRenderOpen(true)
       return
@@ -679,6 +736,19 @@ function ClipEditor() {
     } catch (err) {
       toast.error(errorMessage(err, m.renderStartFailed))
     }
+  }
+
+  const cancelRecut = async () => {
+    if (!recutJob) return
+    try {
+      await api.jobs.cancel(recutJob.id)
+    } catch (err) {
+      toast.error(errorMessage(err))
+    }
+  }
+
+  const reloadClip = () => {
+    if (clipId) api.clips.get(clipId).then(applyDetail).catch((err) => toast.error(errorMessage(err)))
   }
 
   const cancelRender = async () => {
@@ -813,6 +883,8 @@ function ClipEditor() {
   const companionSrc = split ? assetUrl(layout.companion.videoUrl) : ''
   compLoop.current = { start: companionStart(clip.id, layout.companion.duration), duration: layout.companion.duration }
   const aspect = sourceAspect(clip.source_width, clip.source_height)
+  /** Changes when the clip is cut again (its media files are replaced) */
+  const cutVersion = `${clip.start_time}-${clip.end_time}`
   const layoutOverridden = Object.keys(present.layout).length > 0
   const keywordCount = words.filter((w) => w.keyword).length
   const emojiCount = words.filter((w) => w.emoji).length
@@ -899,7 +971,7 @@ function ClipEditor() {
           }
           subtitle={
             <span className="mc-row mc-row--wrap mc-gap-8">
-              <ScoreBadge score={clip.viral_score} size="sm" />
+              <ScoreBadge score={clip.viral_score} size="sm" manual={clip.origin === 'manual'} />
               <span>
                 <span className="mc-mono">{formatClock(clip.duration_seconds)}</span> · {m.wordCount(words.length)}
               </span>
@@ -908,15 +980,70 @@ function ClipEditor() {
           }
           actions={
             <>
-              <Button variant="secondary" onClick={() => save()} loading={saving} icon={justSaved ? <Check size={16} /> : <Save size={16} />}>
+              <Tooltip label={m.recut.buttonTip}>
+                <Button
+                  variant="secondary"
+                  onClick={() => setRecutOpen(true)}
+                  disabled={!!recutJob || recutReady || renderActive}
+                  icon={recutJob ? <Spinner size="sm" /> : <Scissors size={16} />}
+                >
+                  {m.recut.button}
+                </Button>
+              </Tooltip>
+              <Button
+                variant="secondary"
+                onClick={() => save()}
+                loading={saving}
+                disabled={recutReady}
+                icon={justSaved ? <Check size={16} /> : <Save size={16} />}
+              >
                 {justSaved ? t.common.saved : t.common.save}
               </Button>
-              <Button variant="primary" onClick={startRender} icon={renderActive ? <Spinner size="sm" /> : <Download size={16} />}>
+              <Button
+                variant="primary"
+                onClick={startRender}
+                disabled={!!recutJob || recutReady}
+                icon={renderActive ? <Spinner size="sm" /> : <Download size={16} />}
+              >
                 {renderActive ? m.renderProgress(Math.round(render?.progress_pct || 0)) : m.export}
               </Button>
             </>
           }
         />
+        {recutJob && (
+          <Alert
+            tone="info"
+            title={m.recut.running}
+            style={{ marginBottom: 16 }}
+            action={
+              <Button variant="secondary" size="sm" icon={<X size={16} aria-hidden="true" />} onClick={cancelRecut}>
+                {m.recut.cancel}
+              </Button>
+            }
+          >
+            <div className="mc-stack mc-gap-8" aria-live="polite">
+              <ProgressBar value={recutJob.status === 'pending' ? null : recutJob.progress_pct} label={m.recut.running} />
+              <span className="mc-caption">
+                {recutJob.status === 'pending' ? m.recut.waiting : recutJob.activity?.message || m.recut.waiting}
+              </span>
+              <span className="mc-caption mc-muted">{m.recut.locked}</span>
+            </div>
+          </Alert>
+        )}
+        {recutReady && (
+          <Alert
+            tone="success"
+            title={m.recut.done}
+            style={{ marginBottom: 16 }}
+            action={
+              <Button variant="primary" size="sm" icon={<RotateCcw size={16} aria-hidden="true" />} onClick={reloadClip}>
+                {m.recut.reload}
+              </Button>
+            }
+          >
+            {m.recut.readyDirty}
+          </Alert>
+        )}
       </div>
 
       <div style={GRID_STYLE}>
@@ -1117,7 +1244,7 @@ function ClipEditor() {
                     role === 'duoTop' || role === 'duoBottom' || role === 'framed' ? (
                       <video
                         ref={role === 'duoTop' ? duoTopRef : role === 'duoBottom' ? duoBottomRef : framedRef}
-                        src={mediaUrl(clip.id, 'source')}
+                        src={mediaUrl(clip.id, 'source', cutVersion)}
                         muted
                         playsInline
                         preload="auto"
@@ -1157,7 +1284,7 @@ function ClipEditor() {
                       <video
                         key={sourceView ? 'source' : 'raw'}
                         ref={videoRef}
-                        src={sourceView ? mediaUrl(clip.id, 'source') : mediaUrl(clip.id, 'raw', clip.updated_at)}
+                        src={sourceView ? mediaUrl(clip.id, 'source', cutVersion) : mediaUrl(clip.id, 'raw', clip.updated_at)}
                         poster={!sourceView && clip.files.thumbnail ? mediaUrl(clip.id, 'thumbnail', clip.updated_at) : undefined}
                         onLoadedMetadata={(e) => {
                           const v = e.currentTarget
@@ -1195,7 +1322,7 @@ function ClipEditor() {
                     ) : (
                       <video
                         ref={bgRef}
-                        src={mediaUrl(clip.id, 'source')}
+                        src={mediaUrl(clip.id, 'source', cutVersion)}
                         muted
                         playsInline
                         preload="auto"
@@ -1808,6 +1935,15 @@ function ClipEditor() {
           <Skeleton height={60} radius="md" />
         )}
       </Modal>
+
+      <RecutDialog
+        isOpen={recutOpen}
+        clip={clip}
+        sourceDuration={detail.source_video?.duration_seconds}
+        saveFirst={dirty ? () => save(true) : undefined}
+        onClose={() => setRecutOpen(false)}
+        onStarted={(job) => setRecutJob(job)}
+      />
 
       <Modal isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} title={m.shortcuts.title}>
         <KeyValueList items={shortcuts.map(([k, v]) => ({ id: k, key: v, value: <Kbd>{k}</Kbd> }))} />

@@ -27,6 +27,7 @@ import {
 import { NoCampaignState } from '@/components/NoCampaignState'
 import { VideoFilePicker } from '@/components/discover/VideoFilePicker'
 import { CampaignPicker } from '@/components/brief/CampaignPicker'
+import { MomentsEditor, momentRanges, newMomentRow, type MomentRow } from '@/components/clips/MomentsEditor'
 import { useCampaign } from '@/contexts/CampaignContext'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
@@ -144,6 +145,11 @@ function JobForm({ onCreated, initialCampaign }: { onCreated: (jobId: string) =>
   const [templateSmart, setTemplateSmart] = useState<'on' | 'off' | 'mixed' | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+  // 'manual': the user writes the moments (the Analyzer is skipped)
+  const [pick, setPick] = useState<'ai' | 'manual'>('ai')
+  const [moments, setMoments] = useState<MomentRow[]>(() => [newMomentRow()])
+  const [snapEdges, setSnapEdges] = useState(true)
+  const [showMomentErrors, setShowMomentErrors] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -234,7 +240,13 @@ function JobForm({ onCreated, initialCampaign }: { onCreated: (jobId: string) =>
       setFormError(f.fileRequired)
       return
     }
-    if (!clipDuration) {
+    const ranges = pick === 'manual' ? momentRanges(moments) : null
+    if (pick === 'manual' && !ranges) {
+      setShowMomentErrors(true)
+      setFormError(f.moments.invalid)
+      return
+    }
+    if (pick === 'ai' && !clipDuration) {
       setFormError(f.customHint(CUSTOM_DURATION.min, CUSTOM_DURATION.max, CUSTOM_DURATION.span))
       return
     }
@@ -242,11 +254,11 @@ function JobForm({ onCreated, initialCampaign }: { onCreated: (jobId: string) =>
     try {
       const { job } = await api.jobs.create({
         ...(mode === 'url' ? { youtube_url: youtubeUrl.trim() } : { local_file_path: filePath! }),
-        clip_duration: clipDuration,
-        max_clips: maxClips,
         campaign_ids: chosen.map((c) => c.id),
-        note: note.trim(),
         smart_layout: smartChoice,
+        ...(ranges
+          ? { manual_ranges: ranges, snap_edges: snapEdges }
+          : { clip_duration: clipDuration, max_clips: maxClips, note: note.trim() }),
       })
       toast.success(f.started)
       onCreated(job.id)
@@ -306,89 +318,119 @@ function JobForm({ onCreated, initialCampaign }: { onCreated: (jobId: string) =>
             )}
           </div>
 
-          <div className="mc-stack mc-gap-12">
-            <Field label={f.duration} hint={duration !== CUSTOM && durationKind ? f.durationHint(durationKind) : undefined}>
-              <ChoiceChips
-                ariaLabel={f.duration}
-                options={[...choices.map(({ value, label }) => ({ value, label })), { value: CUSTOM, label: f.custom }]}
-                value={duration}
-                onChange={setDuration}
-              />
-            </Field>
-            {duration === CUSTOM && (
-              <div className="mc-stack mc-gap-8">
-                <div className="mc-row mc-row--wrap mc-gap-12" style={{ alignItems: 'flex-start' }}>
-                  <InputField
-                    type="number"
-                    label={f.customFrom}
-                    value={customLo}
-                    min={CUSTOM_DURATION.min}
-                    max={CUSTOM_DURATION.max - CUSTOM_DURATION.span}
-                    onChange={(e) => setCustomLo(e.target.value)}
-                    aria-invalid={!customValid || undefined}
-                    mono
-                    containerStyle={NUMBER_FIELD}
-                  />
-                  <InputField
-                    type="number"
-                    label={f.customTo}
-                    value={customHi}
-                    min={CUSTOM_DURATION.min + CUSTOM_DURATION.span}
-                    max={CUSTOM_DURATION.max}
-                    onChange={(e) => setCustomHi(e.target.value)}
-                    aria-invalid={!customValid || undefined}
-                    mono
-                    containerStyle={NUMBER_FIELD}
-                  />
-                </div>
-                <span className={customValid ? 'mc-field__hint' : 'mc-field__error'} role={customValid ? undefined : 'alert'}>
-                  {f.customHint(CUSTOM_DURATION.min, CUSTOM_DURATION.max, CUSTOM_DURATION.span)}
-                </span>
-              </div>
-            )}
-            {bounds?.conflict ? (
-              <Alert tone="warning">{b.picker.durationConflict(bounds.min ?? 0, bounds.max ?? 0)}</Alert>
-            ) : (
-              bounds &&
-              suggestion && (
-                <Alert
-                  tone="info"
-                  action={
-                    <Button variant="secondary" size="sm" onClick={() => applySuggestion(suggestion)}>
-                      {b.picker.durationUse(b.seconds(suggestion[0], suggestion[1]))}
-                    </Button>
-                  }
-                >
-                  {b.picker.durationAsk(b.range(bounds.min, bounds.max))} {b.picker.durationWhy}
-                </Alert>
-              )
-            )}
-          </div>
+          <Field label={f.choose.label} hint={pick === 'manual' ? f.choose.manualHint : f.choose.aiHint}>
+            <ChoiceChips
+              ariaLabel={f.choose.label}
+              options={[
+                { value: 'ai', label: f.choose.ai },
+                { value: 'manual', label: f.choose.manual },
+              ]}
+              value={pick}
+              onChange={(v) => {
+                setPick(v as 'ai' | 'manual')
+                setFormError(null)
+              }}
+            />
+          </Field>
 
-          <TextAreaField
-            label={f.note}
-            hint={f.noteHint}
-            placeholder={f.notePlaceholder}
-            value={note}
-            maxLength={2000}
-            rows={2}
-            onChange={(e) => setNote(e.target.value)}
-          />
+          {pick === 'manual' && (
+            <div className="mc-stack mc-gap-16">
+              <MomentsEditor rows={moments} onChange={setMoments} showErrors={showMomentErrors} />
+              <ToggleSwitch checked={snapEdges} onChange={setSnapEdges} label={f.moments.snap} hint={f.moments.snapHint} />
+            </div>
+          )}
+
+          {pick === 'ai' && (
+            <div className="mc-stack mc-gap-12">
+              <Field label={f.duration} hint={duration !== CUSTOM && durationKind ? f.durationHint(durationKind) : undefined}>
+                <ChoiceChips
+                  ariaLabel={f.duration}
+                  options={[...choices.map(({ value, label }) => ({ value, label })), { value: CUSTOM, label: f.custom }]}
+                  value={duration}
+                  onChange={setDuration}
+                />
+              </Field>
+              {duration === CUSTOM && (
+                <div className="mc-stack mc-gap-8">
+                  <div className="mc-row mc-row--wrap mc-gap-12" style={{ alignItems: 'flex-start' }}>
+                    <InputField
+                      type="number"
+                      label={f.customFrom}
+                      value={customLo}
+                      min={CUSTOM_DURATION.min}
+                      max={CUSTOM_DURATION.max - CUSTOM_DURATION.span}
+                      onChange={(e) => setCustomLo(e.target.value)}
+                      aria-invalid={!customValid || undefined}
+                      mono
+                      containerStyle={NUMBER_FIELD}
+                    />
+                    <InputField
+                      type="number"
+                      label={f.customTo}
+                      value={customHi}
+                      min={CUSTOM_DURATION.min + CUSTOM_DURATION.span}
+                      max={CUSTOM_DURATION.max}
+                      onChange={(e) => setCustomHi(e.target.value)}
+                      aria-invalid={!customValid || undefined}
+                      mono
+                      containerStyle={NUMBER_FIELD}
+                    />
+                  </div>
+                  <span className={customValid ? 'mc-field__hint' : 'mc-field__error'} role={customValid ? undefined : 'alert'}>
+                    {f.customHint(CUSTOM_DURATION.min, CUSTOM_DURATION.max, CUSTOM_DURATION.span)}
+                  </span>
+                </div>
+              )}
+              {bounds?.conflict ? (
+                <Alert tone="warning">{b.picker.durationConflict(bounds.min ?? 0, bounds.max ?? 0)}</Alert>
+              ) : (
+                bounds &&
+                suggestion && (
+                  <Alert
+                    tone="info"
+                    action={
+                      <Button variant="secondary" size="sm" onClick={() => applySuggestion(suggestion)}>
+                        {b.picker.durationUse(b.seconds(suggestion[0], suggestion[1]))}
+                      </Button>
+                    }
+                  >
+                    {b.picker.durationAsk(b.range(bounds.min, bounds.max))} {b.picker.durationWhy}
+                  </Alert>
+                )
+              )}
+            </div>
+          )}
+
+          {pick === 'ai' && (
+            <TextAreaField
+              label={f.note}
+              hint={f.noteHint}
+              placeholder={f.notePlaceholder}
+              value={note}
+              maxLength={2000}
+              rows={2}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          )}
 
           {formError && <Alert tone="error">{formError}</Alert>}
 
           <div className="mc-row mc-row--between mc-row--wrap mc-gap-16" style={{ alignItems: 'flex-end' }}>
-            <NumberStepper
-              label={f.maxClips}
-              hint={chosen.length > 1 ? b.picker.perCampaign : undefined}
-              value={maxClips}
-              onChange={setMaxClips}
-              min={0}
-              max={100}
-              format={(n) => (n === 0 ? f.unlimited : String(n))}
-            />
+            {pick === 'ai' ? (
+              <NumberStepper
+                label={f.maxClips}
+                hint={chosen.length > 1 ? b.picker.perCampaign : undefined}
+                value={maxClips}
+                onChange={setMaxClips}
+                min={0}
+                max={100}
+                format={(n) => (n === 0 ? f.unlimited : String(n))}
+              />
+            ) : (
+              <span />
+            )}
             <Button type="submit" variant="primary" size="lg" loading={submitting} icon={<Clapperboard size={18} aria-hidden="true" />}>
-              {f.start}
+              {pick === 'manual' ? f.moments.submit : f.start}
             </Button>
           </div>
         </div>

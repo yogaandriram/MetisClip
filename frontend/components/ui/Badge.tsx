@@ -73,11 +73,22 @@ interface ScoreBadgeProps {
   score: number | null | undefined
   size?: 'sm' | 'md'
   className?: string
+  /** A moment the user chose: no score, a "Manual" mark instead */
+  manual?: boolean
 }
 
 /** Viral score: ≥ 80 leaf, 60–79 dew, below 60 outlined (DESIGN.md §8.5). */
-export function ScoreBadge({ score, size = 'md', className }: ScoreBadgeProps) {
+export function ScoreBadge({ score, size = 'md', className, manual = false }: ScoreBadgeProps) {
   const t = useT()
+  if (manual) {
+    return (
+      <span className={cx('mc-tip', className)} data-tip={t.ui.manualClipTip}>
+        <Badge tone="neutral" size={size}>
+          {t.ui.manualClip}
+        </Badge>
+      </span>
+    )
+  }
   const value = Math.round(score ?? 0)
   const level = value >= 80 ? 'high' : value >= 60 ? 'mid' : 'low'
   return (

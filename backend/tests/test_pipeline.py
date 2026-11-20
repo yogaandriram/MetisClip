@@ -348,3 +348,116 @@ def test_disk_check_counts_what_the_work_needs(monkeypatch):
     disk.check(warn=False)  # 2.5 GB left: fine without a need
     with pytest.raises(disk.DiskFull, match="butuh sekitar 0.1 GB lagi"):
         disk.check(int(0.6 * disk.GB), warn=False)  # a 0.6 GB model would leave 1.9 GB
+
+
+# -- moments the user chose (agents/nodes/manual.py) -------------------------------------------------
+
+
+def _manual_job(db, campaign, ranges, snap=True):
+    job = JobDoc(_id=new_id(), campaign_ids=[campaign["id"]], campaigns=[campaign],
+                 source=JobSource(type="url", youtube_url=URL),
+                 config=JobConfig(manual_ranges=ranges, snap_edges=snap)).to_mongo()
+    db.discovery_jobs.insert_one(job)
+    return job["_id"]
+
+
+def test_a_manual_job_clips_the_chosen_moments_without_the_analyzer(db, fake_world, monkeypatch):
+    from backend.agents.nodes import manual
+
+    monkeypatch.setattr(manual, "get_transcript", analyzer.get_transcript)  # the fake (no Whisper here)
+    monkeypatch.setattr(analyzer, "run", lambda *a, **k: pytest.fail("the Analyzer must not run"))
+    camp = _campaign("Manual")
+    job_id = _manual_job(db, camp, [{"start": 120.0, "end": 140.0}, {"start": 300.0, "end": 330.0}])
+    static_pipeline.run_job(job_id, procs.CancelToken())
+    job = db.discovery_jobs.find_one({"_id": job_id})
+    assert job["status"] == "completed", job.get("errors")
+    clips = sorted(db.clips.find({"job_id": job_id}), key=lambda c: c["start_time"])
+    assert [(c["start_time"], c["end_time"]) for c in clips] == [(120.0, 140.0), (300.0, 330.0)]
+    assert all(c["origin"] == "manual" and c["viral_score"] == 0 and c["campaign_id"] == camp["id"] for c in clips)
+    # Titled from the first sentence of their words
+    assert [c["hook_text"] for c in clips] == ["Ini kalimat nomor 24.", "Ini kalimat nomor 60."]
+
+    from backend.api.dto import job_dto
+
+    assert job_dto(job)["kind"] == "manual"
+
+
+def test_a_recut_replaces_the_files_and_keeps_the_users_edits(db, fake_world, monkeypatch):
+    from backend.agents.nodes import manual
+    from backend.api.dto import job_dto
+    from backend.api.routes import clips as clips_route
+    from backend.api.routes import jobs as jobs_route
+    from backend.core import events
+
+    monkeypatch.setattr(manual, "get_transcript", analyzer.get_transcript)
+    camp = _campaign("Recut")
+    job_id = _manual_job(db, camp, [{"start": 120.0, "end": 140.0}])
+    static_pipeline.run_job(job_id, procs.CancelToken())
+    [clip] = list(db.clips.find({"job_id": job_id}))
+    folder = get_paths().from_relative(clip["files"]["raw"]).parent
+    (folder / "final.mp4").write_bytes(b"old export")
+    db.clips.update_one({"_id": clip["_id"]}, {"$set": {
+        "subtitle.words": [{"word": "DIEDIT", "start": 0.0, "end": 0.5}],
+        "subtitle_style": {"fontSize": 40}, "hook_text": "Judul saya",
+        "files.final": clip["files"]["raw"].replace("raw.mp4", "final.mp4"), "status": "exported"}})
+
+    submitted: list[str] = []
+    monkeypatch.setattr(jobs_route.runner, "submit_job", submitted.append)
+    res = clips_route.recut_clip(clip["_id"], clips_route.RecutBody(start=115, end=140))
+    recut_id = res["job"]["id"]
+    assert submitted == [recut_id] and res["job"]["kind"] == "recut" and res["job"]["recut_clip_id"] == clip["_id"]
+    assert clips_route.get_clip(clip["_id"])["recut_job"]["id"] == recut_id
+    with pytest.raises(Exception) as err:  # one recut at a time, and no export meanwhile
+        clips_route.recut_clip(clip["_id"], clips_route.RecutBody(start=110, end=140))
+    assert err.value.status_code == 409
+    with pytest.raises(Exception) as err:
+        clips_route.render_clip(clip["_id"])
+    assert err.value.status_code == 409
+
+    sent: list[dict] = []
+    monkeypatch.setattr(events, "publish", sent.append)
+    static_pipeline.run_job(recut_id, procs.CancelToken())
+    assert db.discovery_jobs.find_one({"_id": recut_id})["status"] == "completed"
+    after = db.clips.find_one({"_id": clip["_id"]})
+    assert (after["start_time"], after["end_time"]) == (115.0, 140.0)
+    assert after["job_id"] == job_id and db.clips.count_documents({}) == 1  # the same clip, not a new one
+    assert after["hook_text"] == "Judul saya" and after["subtitle_style"] == {"fontSize": 40}
+    assert after["status"] == "ready" and after["files"]["final"] is None and not (folder / "final.mp4").exists()
+    words = after["subtitle"]["words"]
+    # The added 5 s at the start come from the transcript; the edited word moved with its moment
+    assert [w["word"] for w in words] == ["Ini", "kalimat", "nomor", "23.", "DIEDIT"]
+    assert words[-1]["start"] == 5.0 and words[-1]["end"] == 5.5
+    assert get_paths().from_relative(after["files"]["raw"]).parent == folder
+    # Every status event names the clip, so its editor follows a recut it did not start itself
+    [running, done] = [e for e in sent if e["type"] == "job.status" and e["status"] in ("running", "completed")]
+    assert running["kind"] == "recut" and running["clip_id"] == clip["_id"]
+    assert done["kind"] == "recut" and done["clip_id"] == clip["_id"] and done["clips"] == 1
+    assert job_dto(db.discovery_jobs.find_one({"_id": recut_id}))["kind"] == "recut"
+    assert clips_route.get_clip(clip["_id"])["recut_job"] is None
+
+
+def test_user_ranges_are_validated(db):
+    from backend.agents.nodes import manual
+
+    assert manual.clean_ranges([{"start": -3, "end": 20.004}]) == [{"start": 0.0, "end": 20.0}]
+    for bad in ([], [{"start": 10, "end": 5}], [{"start": 0, "end": 2}], [{"start": 0, "end": 200}],
+                [{"start": 0, "end": 30}] * 21, [{"start": "x", "end": 9}]):
+        with pytest.raises(manual.RangeError):
+            manual.clean_ranges(bad)
+    with pytest.raises(manual.RangeError, match="setelah video berakhir"):
+        manual.clean_ranges([{"start": 400, "end": 420}], duration=300)
+
+
+def test_recut_words_keep_the_overlap_and_add_only_new_parts():
+    old = [{"word": w, "start": t, "end": t + 1} for w, t in (("a", 0), ("b", 2), ("c", 4), ("d", 6), ("e", 8))]
+    new = [{"word": w.upper(), "start": t, "end": t + 1} for w, t in (("x", 0), ("b", 1), ("c", 3))]
+    # Trimmed 3 s at the start and 2 s at the end: old words inside [3, 8] stay, shifted; nothing is added
+    words, added = processor.merge_recut_words(old, 100, 110, new, 103, 108)
+    assert [(w["word"], w["start"]) for w in words] == [("c", 1.0), ("d", 3.0)] and added == []
+    # Extended 2 s at the start: the new words there (source 98-100) are added, the old words move by 2 s
+    words, added = processor.merge_recut_words(old, 100, 110, new, 98, 110)
+    assert [w["word"] for w in words] == ["X", "B", "a", "b", "c", "d", "e"] and added == [0, 1]
+    assert words[2]["start"] == 2.0
+    # No words before (e.g. Whisper had failed): all new words
+    words, added = processor.merge_recut_words([], 100, 110, new, 98, 110)
+    assert [w["word"] for w in words] == ["X", "B", "C"] and added == [0, 1, 2]

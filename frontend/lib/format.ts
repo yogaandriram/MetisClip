@@ -34,6 +34,28 @@ export function formatClock(seconds: number | null | undefined): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
+/** Seconds as m:ss.d or h:mm:ss.d (tenths), for the edges of a clip in its source video. */
+export function formatClockTenths(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined || !isFinite(seconds) || seconds < 0) return '0:00.0'
+  const total = Math.round(seconds * 10) / 10
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = (total % 60).toFixed(1).padStart(4, '0')
+  return h ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`
+}
+
+/**
+ * A time typed by the user: "1:02:03.5", "62:03", "75" or "75,5" (seconds) → seconds; null when it is not
+ * a time. Minutes and seconds after the first part stay below 60; only the last part may have decimals.
+ */
+export function parseClock(text: string): number | null {
+  const parts = text.trim().replace(',', '.').split(':')
+  if (!parts[0] || parts.length > 3) return null
+  if (!parts.every((p, i) => (i === parts.length - 1 ? /^\d+(\.\d+)?$/ : /^\d+$/).test(p))) return null
+  if (parts.slice(1).some((p) => parseFloat(p) >= 60)) return null
+  return parts.reduce((acc, p) => acc * 60 + parseFloat(p), 0)
+}
+
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return '-'
   const d = new Date(iso)

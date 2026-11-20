@@ -7,10 +7,11 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from backend.agents.context import PipelineError, failed_segments
+from backend.agents.nodes import manual
 from backend.agents.nodes.discovery import check_local_video
 from backend.agents.tools import whisper
 from backend.agents.tools.ytdlp import extract_video_id
-from backend.api.dto import http_error, job_dto
+from backend.api.dto import http_error, job_dto, recut_event
 from backend.core import disk, events
 from backend.core.config import config
 from backend.core.db import get_db, new_id, utcnow
@@ -75,6 +76,11 @@ MAX_CAMPAIGNS_PER_JOB = 5
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 
+class RangeIn(BaseModel):
+    start: float
+    end: float
+
+
 class JobCreate(BaseModel):
     # Exactly one source: a YouTube link, or a video file on this PC (used in place, never copied)
     youtube_url: Optional[str] = None
@@ -88,6 +94,27 @@ class JobCreate(BaseModel):
     note: str = Field(default="", max_length=2000)
     # The automatic layout by content for this job's clips (None: follow the brand templates)
     smart_layout: Optional[bool] = None
+    # Moments the user chose (seconds of the video): the Analyzer is skipped (agents/nodes/manual.py)
+    manual_ranges: list[RangeIn] = Field(default_factory=list, max_length=manual.MAX_RANGES)
+    # Move those edges to the nearest sentence boundary
+    snap_edges: bool = True
+
+
+def insert_job(source: JobSource, cfg: JobConfig, chosen: list[dict], note: str = "") -> dict:
+    """Store a pending job and queue it (also used by a clip's recut, routes/clips.py)."""
+    doc = JobDoc(
+        _id=new_id(),
+        source=source,
+        config=cfg,
+        campaign_ids=[c["id"] for c in chosen],
+        campaigns=chosen,
+        note=note,
+    ).to_mongo()
+    get_db().discovery_jobs.insert_one(doc)
+    events.publish({"type": "job.status", "id": doc["_id"], "campaign_ids": doc["campaign_ids"], "status": "pending",
+                    **recut_event(doc)})
+    runner.submit_job(doc["_id"])
+    return doc
 
 
 def _get(job_id: str) -> dict:
@@ -142,22 +169,21 @@ def create_job(body: JobCreate):
         if not whisper.available() and not config.is_dev:
             raise http_error(400, M("upload_needs_whisper", reason=whisper.unavailable_reason()))
         source = JobSource(type="local_file", local_file_path=str(path))
-    doc = JobDoc(
-        _id=new_id(),
-        source=source,
-        config=JobConfig(
-            clip_duration=format_duration(*lohi),
-            max_clips=body.max_clips,
-            max_clips_per_video=body.max_clips,
-            smart_layout=body.smart_layout,
-        ),
-        campaign_ids=[c["id"] for c in chosen],
-        campaigns=chosen,
-        note=body.note.strip(),
-    ).to_mongo()
-    db.discovery_jobs.insert_one(doc)
-    events.publish({"type": "job.status", "id": doc["_id"], "campaign_ids": doc["campaign_ids"], "status": "pending"})
-    runner.submit_job(doc["_id"])
+    ranges: list[dict[str, float]] = []
+    if body.manual_ranges:
+        try:
+            ranges = manual.clean_ranges([r.model_dump() for r in body.manual_ranges])
+        except manual.RangeError as exc:
+            raise http_error(400, str(exc)) from exc
+    cfg = JobConfig(
+        clip_duration=format_duration(*lohi),
+        max_clips=body.max_clips,
+        max_clips_per_video=body.max_clips,
+        smart_layout=body.smart_layout,
+        manual_ranges=ranges,
+        snap_edges=body.snap_edges,
+    )
+    doc = insert_job(source, cfg, chosen, body.note.strip())
     return {"job": job_dto(doc)}
 
 
@@ -203,7 +229,8 @@ def resume_job(job_id: str):
     if not job:
         _get(job_id)
         raise http_error(409, M("not_resumable"))
-    events.publish({"type": "job.status", "id": job_id, "campaign_ids": job.get("campaign_ids") or [], "status": "pending"})
+    events.publish({"type": "job.status", "id": job_id, "campaign_ids": job.get("campaign_ids") or [], "status": "pending",
+                    **recut_event(job)})
     runner.submit_job(job_id)
     return {"job": job_dto(job)}
 
