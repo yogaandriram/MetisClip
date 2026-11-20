@@ -24,7 +24,7 @@ from backend.agents.context import JobContext, PipelineError
 from backend.agents.tools import brief_match, caption_ai, clip_edges, ffmpeg_ops, whisper, ytdlp
 from backend.agents.tools.smart_crop import process_auto_tracking_video
 from backend.agents.tools.transcript import cached as cached_transcript
-from backend.core import events, llm, resources
+from backend.core import disk, events, llm, resources
 from backend.core.config import config
 from backend.core.db import get_db, utcnow
 from backend.core.paths import get_paths
@@ -521,6 +521,8 @@ def run(ctx: JobContext, segments: list[dict[str, Any]]) -> list[dict[str, Any]]
             ctx.check()
             try:
                 if base is None:
+                    # Every new cut writes several files; below 2 GB free the job stops here (resumable)
+                    disk.check(warn=False)
                     start = f"{seg['start_time']:.0f}"
                     waited: list[bool] = []
 
@@ -538,6 +540,8 @@ def run(ctx: JobContext, segments: list[dict[str, Any]]) -> list[dict[str, Any]]
                     clip = derive_clip(ctx, seg, base)
             except Cancelled:
                 raise
+            except disk.DiskFull as exc:
+                raise PipelineError(str(exc)) from exc
             except Exception as exc:
                 failed(seg, exc)
                 continue

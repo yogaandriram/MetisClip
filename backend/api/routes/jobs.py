@@ -11,7 +11,7 @@ from backend.agents.nodes.discovery import check_local_video
 from backend.agents.tools import whisper
 from backend.agents.tools.ytdlp import extract_video_id
 from backend.api.dto import http_error, job_dto
-from backend.core import events
+from backend.core import disk, events
 from backend.core.config import config
 from backend.core.db import get_db, new_id, utcnow
 from backend.core.queue import runner
@@ -23,14 +23,6 @@ M = i18n.messages({
     "not_found": {
         "id": "Job tidak ditemukan",
         "en": "Job not found",
-    },
-    "disk_full": {
-        "id": "Ruang disk hampir habis ({gb} GB tersisa). Kosongkan ruang atau pindahkan lokasi data.",
-        "en": "The disk is almost full ({gb} GB left). Free up space or move the data location.",
-    },
-    "disk_low": {
-        "id": "Ruang disk tinggal {gb} GB",
-        "en": "Only {gb} GB of disk space left",
     },
     "no_campaign": {
         "id": "Pilih minimal satu campaign untuk job ini",
@@ -105,22 +97,12 @@ def _get(job_id: str) -> dict:
     return job
 
 
-MIN_FREE_BYTES = 2 * 1024**3
-
-
 def _check_disk() -> None:
-    import shutil
-
-    from backend.core.paths import get_paths
-
+    """No new job (or resume) below 2 GB free; a warning below 5 GB (core/disk.py)."""
     try:
-        free = shutil.disk_usage(get_paths().data_root).free
-    except OSError:
-        return
-    if free < MIN_FREE_BYTES:
-        raise http_error(507, M("disk_full", gb=f"{free / 1024**3:.1f}"))
-    if free < 5 * 1024**3:
-        events.notice(M("disk_low", gb=f"{free / 1024**3:.1f}"), "warning")
+        disk.check()
+    except disk.DiskFull as exc:
+        raise http_error(507, str(exc))
 
 
 @router.post("")
@@ -206,6 +188,7 @@ def cancel_job(job_id: str):
 
 @router.post("/{job_id}/resume")
 def resume_job(job_id: str):
+    _check_disk()
     db = get_db()
     query: dict = {"_id": job_id, "status": {"$in": ["interrupted", "failed", "cancelled"]}}
     current = db.discovery_jobs.find_one({"_id": job_id}, {"status": 1, "checkpoint": 1})

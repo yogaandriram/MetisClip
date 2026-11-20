@@ -11,7 +11,7 @@ from backend.api.dto import brand_template_dto, campaign_dto, clip_dto, http_err
 from backend.api.routes.files import serve_relative
 from backend.agents.tools import caption_ai, post_copy_ai, speaker_ai
 from backend.agents.tools.caption_ai import valid_emoji
-from backend.core import events, llm
+from backend.core import disk, events, llm
 from backend.core.db import get_db, new_id, utcnow
 from backend.core.paths import get_paths
 from backend.core.queue import runner
@@ -445,6 +445,10 @@ def prepare_clip_faces(clip_id: str):
     return {"clip": clip_dto(clip), "scenes": scenes, "content": layout_svc.content_profile(clip, scenes)}
 
 
+# final.mp4 plus its export copy and the render props: a 90 s 1080x1920 export is well under this
+RENDER_NEED_BYTES = 512 * 1024**2
+
+
 @router.post("/api/clips/{clip_id}/render")
 def render_clip(clip_id: str):
     clip = _get(clip_id)
@@ -454,6 +458,10 @@ def render_clip(clip_id: str):
     active = db.render_jobs.find_one({"clip_id": clip_id, "status": {"$in": ["queued", "rendering"]}})
     if active:
         return {"render_job": render_dto(active)}
+    try:
+        disk.check(RENDER_NEED_BYTES)
+    except disk.DiskFull as exc:
+        raise http_error(507, str(exc))
     doc = RenderJobDoc(_id=new_id(), clip_id=clip_id).to_mongo()
     db.render_jobs.insert_one(doc)
     events.publish({"type": "render.status", "id": doc["_id"], "clip_id": clip_id, "status": "queued"})

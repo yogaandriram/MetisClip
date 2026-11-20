@@ -91,7 +91,7 @@ def _parent_watchdog(request_shutdown) -> None:
 
 def _housekeeping(stop: threading.Event) -> None:
     from backend.agents.tools import ytdlp
-    from backend.core import acl, cache
+    from backend.core import acl, cache, disk
     from backend.core.paths import get_paths
     from backend.services.backup import maybe_daily_backup
 
@@ -122,6 +122,10 @@ def _housekeeping(stop: threading.Event) -> None:
             ytdlp.maybe_auto_update()  # once a day, while no job or export runs
         except Exception as exc:
             log.warning("yt-dlp update check failed: %s", exc)
+        try:
+            disk.warn_if_low()  # under 5 GB: a notice at most every few hours
+        except Exception as exc:
+            log.warning("Disk space check failed: %s", exc)
         if stop.wait(600):
             return
 

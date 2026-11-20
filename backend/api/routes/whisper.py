@@ -6,6 +6,7 @@ from starlette.concurrency import run_in_threadpool
 
 from backend.agents.tools import whisper, whisper_local
 from backend.api.dto import http_error
+from backend.core import disk
 from backend.core.secrets import get_secret
 from backend.core import i18n
 
@@ -68,6 +69,11 @@ async def status():
 @router.post("/models/{model_id}/download", status_code=202)
 def download_model(model_id: str):
     _model_or_404(model_id)
+    if not whisper_local.installed(whisper_local.MODELS[model_id]):
+        try:
+            disk.check(whisper_local.MODELS[model_id].size_bytes)
+        except disk.DiskFull as exc:
+            raise http_error(507, str(exc))
     started = whisper_local.start_download(model_id)
     return {"ok": True, "started": started}
 

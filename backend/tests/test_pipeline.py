@@ -287,3 +287,64 @@ def test_failed_clips_of_a_completed_job_can_be_retried(db, fake_world, monkeypa
     # Nothing left to retry: a completed job without failed clips is not resumable
     with pytest.raises(Exception):
         jobs_route.resume_job(job_id)
+
+
+def test_a_full_disk_stops_the_job_before_its_next_clip_and_refuses_new_work(db, fake_world, monkeypatch):
+    """Below 2 GB free (CLAUDE.md §6.1) a running job fails before its next cut (resumable), and creating,
+    resuming or exporting is refused with 507."""
+    from collections import namedtuple
+
+    from fastapi import HTTPException
+
+    from backend.api.routes import clips as clips_route
+    from backend.api.routes import jobs as jobs_route
+    from backend.core import disk
+    from backend.core.settings_store import update_settings
+
+    usage = namedtuple("usage", "total used free")
+    free = {"bytes": 50 * disk.GB}
+    monkeypatch.setattr(disk.shutil, "disk_usage", lambda p: usage(100 * disk.GB, 0, free["bytes"]))
+    update_settings({"processing": {"max_workers": 1}})  # one clip at a time: the second sees the full disk
+    real = processor.process_segment
+    done: list[str] = []
+
+    def fills_the_disk(ctx, seg, limits=(None, None)):
+        clip = real(ctx, seg, limits)
+        done.append(seg["hook_text"])
+        free["bytes"] = int(1.5 * disk.GB)  # the first clip left the drive nearly full
+        return clip
+
+    monkeypatch.setattr(processor, "process_segment", fills_the_disk)
+    job_id = _make_job(db, _campaign("Agen"))
+    static_pipeline.run_job(job_id, procs.CancelToken())
+    job = db.discovery_jobs.find_one({"_id": job_id})
+    assert job["status"] == "failed" and "Ruang disk hampir habis (1.5 GB tersisa)" in job["errors"][-1]["message"]
+    assert len(done) == 1 and db.clips.count_documents({"job_id": job_id}) == 1
+
+    with pytest.raises(HTTPException) as err:
+        jobs_route.resume_job(job_id)
+    assert err.value.status_code == 507
+    clip = db.clips.find_one({"job_id": job_id})
+    with pytest.raises(HTTPException) as err:
+        clips_route.render_clip(clip["_id"])
+    assert err.value.status_code == 507
+
+    free["bytes"] = 40 * disk.GB  # space freed: the job resumes and makes the other clip
+    submitted: list[str] = []
+    monkeypatch.setattr(jobs_route.runner, "submit_job", submitted.append)
+    assert jobs_route.resume_job(job_id)["job"]["status"] == "pending"
+    static_pipeline.run_job(job_id, procs.CancelToken())
+    assert db.discovery_jobs.find_one({"_id": job_id})["status"] == "completed"
+    assert db.clips.count_documents({"job_id": job_id}) == 2
+
+
+def test_disk_check_counts_what_the_work_needs(monkeypatch):
+    from collections import namedtuple
+
+    from backend.core import disk
+
+    usage = namedtuple("usage", "total used free")
+    monkeypatch.setattr(disk.shutil, "disk_usage", lambda p: usage(100 * disk.GB, 0, 2.5 * disk.GB))
+    disk.check(warn=False)  # 2.5 GB left: fine without a need
+    with pytest.raises(disk.DiskFull, match="butuh sekitar 0.1 GB lagi"):
+        disk.check(int(0.6 * disk.GB), warn=False)  # a 0.6 GB model would leave 1.9 GB
