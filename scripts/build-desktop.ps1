@@ -160,11 +160,19 @@ Assert-Path $EngineExe 'Engine executable'
 # ---- 4. binaries ----------------------------------------------------------------------------------------
 Step 'Binaries'
 $Bins = 'mongod.exe', 'yt-dlp.exe', 'deno.exe', 'whisper\whisper-cli.exe'
-if (@($Bins | Where-Object { -not (Test-Path (Join-Path $Desktop "resources\bin\$_")) }).Count -gt 0) {
-  & (Join-Path $PSScriptRoot 'fetch-binaries.ps1')
-}
+# Always run: it skips the binaries already at their pinned version, and fetches missing license texts
+& (Join-Path $PSScriptRoot 'fetch-binaries.ps1')
 foreach ($b in $Bins) { Assert-Path (Join-Path $Desktop "resources\bin\$b") $b }
 Write-Host ('   {0} present' -f ($Bins -join ', '))
+
+# ---- 4b. third-party licenses ---------------------------------------------------------------------------
+# The list behind Sistem -> Tentang -> Lisensi pihak ketiga, from what this build ships (the binaries above,
+# the Chrome Headless Shell extracted in step 2, the engine's Python packages and the production npm packages)
+Step 'Third-party licenses (scripts\gen-licenses.py)'
+$Python = Join-Path $Repo 'venv\Scripts\python.exe'
+Assert-Path $Python 'venv python'
+Invoke-Native $Repo $Python @((Join-Path $PSScriptRoot 'gen-licenses.py'), '--out', (Join-Path $Frontend 'out'))
+Assert-Path (Join-Path $Frontend 'out\third-party\licenses.json') 'Third-party license list'
 
 # ---- 5. desktop -------------------------------------------------------------------------------------------
 Step 'Desktop: Electron main + electron-builder'

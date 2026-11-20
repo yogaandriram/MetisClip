@@ -1,9 +1,9 @@
 'use client'
 
 import React, { useCallback, useEffect, useState } from 'react'
-import { Copy, ExternalLink, FolderOpen, LifeBuoy, ScrollText, RefreshCw } from 'lucide-react'
+import { ArrowRight, Copy, ExternalLink, FolderOpen, LifeBuoy, RefreshCw, Scale, ScrollText } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { Alert, Badge, Button, Card, CardHeader, PageHeader, ProgressBar, Skeleton } from '@/components/ui'
+import { Alert, Badge, Button, ButtonLink, Card, CardHeader, PageHeader, ProgressBar, Skeleton } from '@/components/ui'
 import { LogoMark } from '@/components/ui/Logo'
 import { useEngine } from '@/contexts/EngineContext'
 import { api, type Settings, type StorageInfo, type SystemCheck } from '@/lib/engine'
@@ -232,6 +232,20 @@ export default function AboutPage() {
                     {m.support.openLogs}
                   </Button>
                 )}
+              </div>
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader size="sm" icon={headerIcon(Scale)} title={m.licenses.cardTitle} />
+            <div className="mc-stack mc-gap-12">
+              <p className="mc-muted" style={{ margin: 0 }}>
+                {m.licenses.cardText}
+              </p>
+              <div>
+                <ButtonLink href="/system/licenses/" variant="secondary" size="sm" iconRight={<ArrowRight size={16} aria-hidden="true" />}>
+                  {m.licenses.open}
+                </ButtonLink>
               </div>
             </div>
           </Card>

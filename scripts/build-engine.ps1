@@ -33,6 +33,8 @@ if (-not (Test-Path $Ffmpeg) -or (Get-Sha256 $Ffmpeg) -ne $FfmpegSha256) {
   Write-Host "ffmpeg.exe copied from imageio-ffmpeg ($src)"
 }
 Write-Host 'ffmpeg.exe: sha256 verified'
+# GPLv3 travels with the binary (THIRD_PARTY_NOTICES.md says where its source is)
+Copy-Item (Join-Path $Repo 'licenses\GPL-3.0.txt') (Join-Path $Bin 'ffmpeg-GPL-3.0.txt') -Force
 
 Push-Location (Join-Path $Repo 'backend')
 try {

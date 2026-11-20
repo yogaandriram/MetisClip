@@ -44,6 +44,11 @@ extraResources:
   # The tray icon (src/main/tray.ts); the exe carries the same icon, but a tray needs a file
   - from: build-resources/icon.ico
     to: icon.ico
+  # MetisClip's MIT license and the third-party summary (the full texts are in ui/third-party/licenses.json)
+  - from: ../LICENSE
+    to: LICENSE.txt
+  - from: ../THIRD_PARTY_NOTICES.md
+    to: THIRD_PARTY_NOTICES.md
 
 win:
   target:

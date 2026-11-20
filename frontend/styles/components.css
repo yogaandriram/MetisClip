@@ -89,6 +89,12 @@
   overflow: auto;
 }
 
+/* A license text inside an opened row of Lisensi pihak ketiga: as wide as the row */
+.mc-license-text {
+  align-self: stretch;
+  max-height: 320px;
+}
+
 /* Release notes: a plain bulleted list in body text */
 .mc-notes {
   margin: 0;

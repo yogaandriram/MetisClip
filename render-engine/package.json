@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "MetisClip render worker: prebuilt Remotion bundle + programmatic renderMedia worker",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "main": "dist/render.js",
   "scripts": {
     "start": "remotion studio src/index.ts",

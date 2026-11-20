@@ -67,6 +67,45 @@ export const about = {
     loadFailed: 'Sebagian info sistem tidak dapat dimuat',
     openLogs: 'Buka folder log',
   },
+  /** Sistem -> Tentang -> Lisensi pihak ketiga (scripts/gen-licenses.py writes the list) */
+  licenses: {
+    cardTitle: 'Lisensi',
+    cardText: 'MetisClip dirilis dengan lisensi MIT dan membawa perangkat lunak pihak ketiga, masing-masing dengan lisensinya sendiri.',
+    open: 'Lihat lisensi pihak ketiga',
+    title: 'Lisensi pihak ketiga',
+    subtitle: 'Perangkat lunak lain yang ikut terpasang bersama MetisClip, beserta lisensinya.',
+    back: 'Kembali ke Tentang MetisClip',
+    appText: 'MetisClip sendiri dirilis dengan lisensi MIT: boleh dipakai, diubah, dan dibagikan, selama teks lisensinya ikut.',
+    appLicense: 'Teks lisensi MIT',
+    notesTitle: 'Yang perlu kamu tahu',
+    remotion:
+      'Render video memakai Remotion. Lisensinya gratis untuk perorangan, perusahaan dengan paling banyak 3 karyawan, dan organisasi nirlaba. Perusahaan yang lebih besar memerlukan Company License dari remotion.pro.',
+    ffmpeg:
+      'FFmpeg dilisensikan dengan GNU GPL versi 3, dan MetisClip menjalankannya sebagai program terpisah. Kode sumbernya adalah FFmpeg 7.1 dari ffmpeg.org (ffmpeg-7.1.tar.xz). Pustaka yang ikut di build ini beserta versinya tercantum di gyan.dev/ffmpeg/builds dan di keluaran "ffmpeg -version".',
+    searchLabel: 'Cari komponen',
+    searchPlaceholder: 'Cari nama atau lisensi, misalnya MIT',
+    clearSearch: 'Hapus pencarian',
+    count: (shown: number, total: number) => `${shown} dari ${total} komponen`,
+    empty: (query: string) => `Tidak ada komponen yang cocok dengan "${query}".`,
+    groups: {
+      programs: 'Program yang ikut terpasang',
+      engine: 'Engine (Python)',
+      ui: 'Tampilan aplikasi (npm)',
+      render: 'Render video (npm)',
+      desktop: 'Aplikasi desktop (npm)',
+    } as Record<'programs' | 'engine' | 'ui' | 'render' | 'desktop', string>,
+    components: (n: number) => `${n} komponen`,
+    noLicenseName: 'lihat teks lisensinya',
+    website: 'Buka situs proyek',
+    notes: {
+      ffmpeg: 'Lisensi GPL versi 3. Kode sumber dan daftar pustakanya: lihat catatan di atas.',
+      electron: 'Electron membawa Chromium. Lisensi komponen Chromium ada di LICENSES.chromium.html di folder instalasi MetisClip.',
+      remotion_ffmpeg: 'Berisi build FFmpeg milik Remotion (dengan libx264 dan libfdk-aac), yang dipakai Remotion untuk menyusun frame hasil render menjadi video.',
+    } as Record<'ffmpeg' | 'electron' | 'remotion_ffmpeg', string>,
+    loadFailed: 'Daftar lisensi tidak dapat dimuat',
+    loadFailedHint: 'Ringkasan yang sama ada di THIRD_PARTY_NOTICES.md di folder instalasi MetisClip.',
+    retry: 'Coba lagi',
+  },
   /** Labels inside the copied text */
   info: {
     engine: 'Engine',
