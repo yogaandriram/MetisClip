@@ -252,7 +252,8 @@ export function ClipGallery({ campaignId, jobId, onJobChange }: ClipGalleryProps
   // Selection: only clips that still exist count
   const picked = all.filter((c) => selected.has(c.id))
   const renderable = picked.filter((c) => c.files.raw && c.status !== 'processing' && c.status !== 'rendering')
-  const toRender = renderAgain ? renderable : renderable.filter((c) => !c.files.final)
+  // Clips with a final video render again only when edited since; the others are copied again (reuse)
+  const toRender = renderable
   const withFinal = picked.filter((c) => c.files.final)
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -265,8 +266,14 @@ export function ClipGallery({ campaignId, jobId, onJobChange }: ClipGalleryProps
   const startBulkRender = async () => {
     setBulkBusy('render')
     try {
-      const res = await api.clips.renderMany(toRender.map((c) => c.id))
-      if (res.render_jobs.length) toast.success(m.bulkRender.started(res.render_jobs.length))
+      const res = await api.clips.renderMany(
+        toRender.map((c) => c.id),
+        { reuse: !renderAgain },
+      )
+      const copied = res.render_jobs.filter((j) => j.reused).length
+      const queued = res.render_jobs.length - copied
+      if (queued) toast.success(m.bulkRender.started(queued))
+      if (copied) toast.success(m.bulkRender.copied(copied))
       if (res.skipped.length) toast.error(m.bulkRender.skipped(res.skipped.length, res.skipped[0].reason))
       setBulk(null)
       // Nothing queued: keep the selection, so the user can fix the reason and try again

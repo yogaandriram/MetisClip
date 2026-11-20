@@ -22,6 +22,7 @@ from backend.core.procs import Cancelled, CancelToken
 from backend.services import brand_templates, brief_check, exports
 from backend.services import campaigns as campaign_svc
 from backend.services import layout as layout_svc
+from backend.services import render as render_svc
 from backend.services.render import channel_name, clean_ai, effective_ai, effective_style
 from backend.core import i18n
 
@@ -554,9 +555,9 @@ class CoverBody(BaseModel):
 
 @router.put("/api/clips/{clip_id}/cover")
 def set_cover(clip_id: str, body: CoverBody):
-    """The clip's cover: its thumbnail becomes the frame of raw.mp4 at `time`, and the next render takes the
-    same moment from final.mp4 as the exported cover (`<video name>.jpg`). A cover from an earlier render
-    no longer matches and is removed."""
+    """The clip's cover: its thumbnail becomes the frame of raw.mp4 at `time`, and the same moment of
+    final.mp4 becomes the exported cover (`<video name>.jpg`): at once when final.mp4 still matches the
+    clip (no render needed), else at the next render. A cover from an earlier choice is removed."""
     clip = _get(clip_id)
     files = clip.get("files") or {}
     paths = get_paths()
@@ -583,12 +584,18 @@ def set_cover(clip_id: str, body: CoverBody):
         raise http_error(502, M("cover_failed", error=exc))
     if files.get("cover"):
         paths.from_relative(files["cover"]).unlink(missing_ok=True)
-    get_db().clips.update_one({"_id": clip_id}, {"$set": {
+    changes: dict[str, Any] = {
         "cover_time": None if at is None else round(frame_at, 3),
         "files.thumbnail": paths.to_relative(thumb),
         "files.cover": None,
         "updated_at": utcnow(),
-    }})
+    }
+    if clip.get("final_render"):  # null before the first render: no field inside it can be set
+        changes["final_render.cover_time"] = None
+    get_db().clips.update_one({"_id": clip_id}, {"$set": changes})
+    clip = _get(clip_id)
+    if at is not None and render_svc.final_current(clip):
+        render_svc.cover_from_final(clip)
     events.publish({"type": "clip.updated", "id": clip_id})
     return {"clip": clip_dto(_get(clip_id))}
 
@@ -632,13 +639,20 @@ def prepare_clip_faces(clip_id: str):
 RENDER_NEED_BYTES = 512 * 1024**2
 
 
+class RenderBody(BaseModel):
+    # Copy final.mp4 again instead of rendering when nothing changed since it was rendered (gap analysis B7)
+    reuse: bool = False
+
+
 @router.post("/api/clips/{clip_id}/render")
-def render_clip(clip_id: str):
-    return {"render_job": render_dto(_queue_render(_get(clip_id)))}
+def render_clip(clip_id: str, body: Optional[RenderBody] = None):
+    return {"render_job": render_dto(_queue_render(_get(clip_id), reuse=bool(body and body.reuse)))}
 
 
-def _queue_render(clip: dict) -> dict:
-    """The clip's render job: the queued or running one, else a new one (raises the HTTP refusals)."""
+def _queue_render(clip: dict, reuse: bool = False) -> dict:
+    """The clip's render job: the queued or running one, else a new one (raises the HTTP refusals). With
+    `reuse`, a clip whose final.mp4 still matches gets a completed job at once: the file is copied to the
+    export folder again, not rendered."""
     clip_id = clip["_id"]
     raw = (clip.get("files") or {}).get("raw")
     # Checked here, so a file deleted by hand fails at once instead of after Chrome started
@@ -654,6 +668,8 @@ def _queue_render(clip: dict) -> dict:
         disk.check(RENDER_NEED_BYTES)
     except disk.DiskFull as exc:
         raise http_error(507, str(exc))
+    if reuse and render_svc.final_current(clip):
+        return render_svc.reuse_final(clip)
     doc = RenderJobDoc(_id=new_id(), clip_id=clip_id).to_mongo()
     db.render_jobs.insert_one(doc)
     events.publish({"type": "render.status", "id": doc["_id"], "clip_id": clip_id, "status": "queued"})
@@ -665,10 +681,15 @@ class ClipIdsBody(BaseModel):
     clip_ids: list[str] = Field(min_length=1, max_length=LIST_MAX)
 
 
+class RenderClipsBody(ClipIdsBody):
+    reuse: bool = False
+
+
 @router.post("/api/clips/render")
-def render_clips(body: ClipIdsBody):
+def render_clips(body: RenderClipsBody):
     """Queue the renders of several clips (they run one after another, in this order). A clip that cannot
-    be rendered now is skipped with the reason; the others still go."""
+    be rendered now is skipped with the reason; the others still go. With `reuse`, a clip whose final.mp4
+    still matches is copied to the export folder again instead (its job is `reused`)."""
     db = get_db()
     queued, skipped = [], []
     for cid in dict.fromkeys(body.clip_ids):
@@ -677,7 +698,7 @@ def render_clips(body: ClipIdsBody):
             skipped.append({"clip_id": cid, "reason": M("not_found")})
             continue
         try:
-            queued.append(render_dto(_queue_render(clip)))
+            queued.append(render_dto(_queue_render(clip, reuse=body.reuse)))
         except HTTPException as exc:
             skipped.append({"clip_id": cid, "reason": str(exc.detail)})
             if exc.status_code == 507:  # the disk is full: the rest would be refused the same way

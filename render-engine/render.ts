@@ -260,9 +260,16 @@ async function main(): Promise<void> {
 
   if (!fs.existsSync(args.out) || fs.statSync(args.out).size === 0) throw new Error('File hasil render tidak terbentuk');
   progress('encoding', 1, true);
-  // The output frame of the chosen cover (calculateMetadata), so the engine can take it from the video
-  const coverFrame = (composition.props as { coverFrame?: unknown }).coverFrame;
-  emit({ type: 'done', output: args.out, cover_frame: typeof coverFrame === 'number' ? coverFrame : null });
+  // The output frame of the chosen cover and the kept frames (calculateMetadata): the engine takes the
+  // cover from the video, now or for a cover chosen later without another render
+  const { coverFrame, keptFrames } = composition.props as { coverFrame?: unknown; keptFrames?: unknown };
+  emit({
+    type: 'done',
+    output: args.out,
+    cover_frame: typeof coverFrame === 'number' ? coverFrame : null,
+    frames: Array.isArray(keptFrames) ? keptFrames : null,
+    total_frames: composition.durationInFrames,
+  });
 }
 
 main().then(

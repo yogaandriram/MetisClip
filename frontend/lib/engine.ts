@@ -464,6 +464,8 @@ export interface RenderJob {
   export_dir?: string | null
   /** Why the copy failed (the render itself still completed) */
   export_error?: string | null
+  /** Nothing changed since the last render: final.mp4 was copied again instead of rendered */
+  reused?: boolean
   error: string | null
   created_at: ISODate
   finished_at: ISODate | null
@@ -693,6 +695,8 @@ export type EngineEvent =
       exported_path?: string | null
       export_dir?: string | null
       export_error?: string | null
+      /** Copied again without a render (nothing changed since the last one) */
+      reused?: boolean
       error?: string | null
     }
   | { type: 'system.notice'; level: 'info' | 'warning' | 'error'; message: string }
@@ -1044,10 +1048,14 @@ export const api = {
     remove: (id: string, deleteFiles = true) => request<{ ok: true }>('DELETE', `/api/clips/${id}`, { query: { delete_files: deleteFiles } }),
     /** Cut the clip again at new edges (seconds of its source video): a one-moment job; style, title and edited words stay */
     recut: (id: string, range: ClipRange & { snap_edges?: boolean }) => request<{ job: Job }>('POST', `/api/clips/${id}/recut`, { body: range }),
-    render: (id: string) => request<{ render_job: RenderJob }>('POST', `/api/clips/${id}/render`),
+    /** reuse: copy final.mp4 again when nothing changed since it was rendered (the job comes back completed, `reused`) */
+    render: (id: string, opts: { reuse?: boolean } = {}) =>
+      request<{ render_job: RenderJob }>('POST', `/api/clips/${id}/render`, { body: { reuse: !!opts.reuse } }),
     /** Queue several renders (run one after another); a clip that cannot render now is skipped with the reason */
-    renderMany: (clipIds: string[]) =>
-      request<{ render_jobs: RenderJob[]; skipped: { clip_id: string; reason: string }[] }>('POST', '/api/clips/render', { body: { clip_ids: clipIds } }),
+    renderMany: (clipIds: string[], opts: { reuse?: boolean } = {}) =>
+      request<{ render_jobs: RenderJob[]; skipped: { clip_id: string; reason: string }[] }>('POST', '/api/clips/render', {
+        body: { clip_ids: clipIds, reuse: !!opts.reuse },
+      }),
     removeMany: (clipIds: string[], deleteFiles = true) =>
       request<{ deleted: string[]; missing: string[] }>('POST', '/api/clips/delete', { body: { clip_ids: clipIds, delete_files: deleteFiles } }),
     /** Fetch the clip's original-ratio video again (clips made before the podcast layout). */

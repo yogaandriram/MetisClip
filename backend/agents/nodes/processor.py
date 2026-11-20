@@ -573,6 +573,7 @@ def recut_segment(ctx: JobContext, seg: dict[str, Any], limits: Limits = (None, 
             "source_height": info.get("source_height"),
             "subtitle.words": words,
             "cover_time": None,
+            "final_render": None,
             "status": "ready",
             "updated_at": utcnow(),
         }})

@@ -113,6 +113,7 @@ export const editor = {
   backToGallery: 'Kembali ke galeri',
   /** Toast before the folder path */
   renderDoneSavedIn: 'Render selesai, tersimpan di',
+  copiedAgainIn: 'Video final disalin lagi ke',
   renderDoneNotCopied: (error: string) => `Render selesai, tapi belum tersalin ke folder ekspor. ${error}`,
   renderDone: 'Render selesai',
   clipDeleted: 'Clip ini dihapus',
@@ -158,6 +159,10 @@ export const editor = {
   copyToExportFolder: 'Salin ke folder ekspor',
   exportTo: 'Ekspor ke…',
   retryRender: 'Coba render lagi',
+  /** Export without a render (nothing changed since the last one) */
+  reusedStatus: 'Video final disalin lagi',
+  reusedNote: 'Tidak dirender ulang: tidak ada yang berubah sejak render terakhir, jadi video final yang ada disalin lagi.',
+  renderAgain: 'Render ulang',
 
   // Word list
   captionTitle: 'Caption',
@@ -268,7 +273,7 @@ export const editor = {
     reset: 'Otomatis lagi',
     hint: 'Sampul tampil di galeri. Saat clip diekspor, frame yang sama (lengkap dengan subtitle dan layout) ikut disimpan sebagai .jpg di samping videonya, untuk diunggah sebagai sampul.',
     saved: 'Sampul disimpan',
-    savedExportAgain: 'Sampul disimpan. Ekspor lagi agar file .jpg-nya ikut dibuat.',
+    savedExportAgain: 'Sampul disimpan. Ekspor lagi agar file .jpg-nya ikut tersimpan di samping video.',
     failed: 'Sampul gagal disimpan',
   },
   templateSelect: 'Brand Template clip ini',

@@ -57,7 +57,9 @@ export type OverlayProps = {
   /** The chosen cover in seconds of raw.mp4; calculateMetadata adds the output frame that shows it. */
   coverTime?: number;
   /** Set by calculateMetadata from coverTime; the render worker reports it so the engine can take the cover. */
-  coverFrame?: number | null;
+  coverFrame?: number | null
+  /** Set by calculateMetadata: the kept segments as [output from, start frame, end frame] */
+  keptFrames?: number[][];
 };
 
 export const FPS = 30;

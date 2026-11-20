@@ -438,6 +438,9 @@ class ClipDoc(Doc):
     files: ClipFiles = Field(default_factory=ClipFiles)
     # The cover the user chose, in seconds of raw.mp4 (None: the middle frame, and no cover is exported)
     cover_time: Optional[float] = None
+    # What final.mp4 was rendered from (services/render.py): the fingerprint of its props, the kept
+    # frames (to map a later cover to an output frame) and the cover it made. None: not rendered yet.
+    final_render: Optional[dict[str, Any]] = None
     subtitle: dict[str, Any] = Field(default_factory=lambda: {"words": []})
     subtitle_style: dict[str, Any] = Field(default_factory=dict)
     # Per-clip override of the template's layout_settings (only changed keys; services/layout.py)
@@ -469,6 +472,8 @@ class RenderJobDoc(Doc):
     exported_path: Optional[str] = None
     export_dir: Optional[str] = None
     export_error: Optional[str] = None
+    # True when nothing changed since the last render: final.mp4 was copied again, not rendered
+    reused: bool = False
     error: Optional[str] = None
     created_at: datetime = Field(default_factory=_now)
     started_at: Optional[datetime] = None

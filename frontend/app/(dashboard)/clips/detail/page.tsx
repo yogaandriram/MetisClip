@@ -390,6 +390,7 @@ function ClipEditor() {
               exported_path: e.exported_path ?? prev.exported_path,
               export_dir: e.export_dir ?? prev.export_dir,
               export_error: e.export_error ?? prev.export_error,
+              reused: e.reused ?? prev.reused,
               error: e.error ?? prev.error,
             }
           : prev,
@@ -399,7 +400,7 @@ function ClipEditor() {
           const [folder] = splitPath(e.exported_path)
           toast.success(
             <span>
-              {m.renderDoneSavedIn}{' '}
+              {e.reused ? m.copiedAgainIn : m.renderDoneSavedIn}{' '}
               <span className="mc-mono" style={{ wordBreak: 'break-all' }}>
                 {folder}
               </span>
@@ -752,7 +753,8 @@ function ClipEditor() {
     }
   }
 
-  const startRender = async () => {
+  /** Export: renders, or copies final.mp4 again when nothing changed since its render (force: always render). */
+  const startRender = async (force = false) => {
     if (!clipId) return
     if (recutJob || recutReady) {
       toast(recutJob ? m.recut.locked : m.recut.saveLocked)
@@ -765,7 +767,7 @@ function ClipEditor() {
     if (dirty && !(await save(true))) return
     setExportedPath(null)
     try {
-      const { render_job } = await api.clips.render(clipId)
+      const { render_job } = await api.clips.render(clipId, { reuse: !force })
       setRender(render_job)
       setRenderOpen(true)
     } catch (err) {
@@ -974,6 +976,11 @@ function ClipEditor() {
   ) : render.status === 'completed' ? (
     isDesktop() ? (
       <>
+        {render.reused && (
+          <Button variant="ghost" icon={<RotateCcw size={16} />} onClick={() => startRender(true)}>
+            {m.renderAgain}
+          </Button>
+        )}
         <Button
           variant="secondary"
           icon={<FolderOpen size={16} />}
@@ -1046,7 +1053,7 @@ function ClipEditor() {
               </Button>
               <Button
                 variant="primary"
-                onClick={startRender}
+                onClick={() => startRender()}
                 disabled={!!recutJob || recutReady}
                 icon={renderActive ? <Spinner size="sm" /> : <Download size={16} />}
               >
@@ -1879,8 +1886,9 @@ function ClipEditor() {
               ) : (
                 <Spinner />
               )}
-              <span className="mc-label">{RENDER_STATUS[render.status]}</span>
+              <span className="mc-label">{render.reused && render.status === 'completed' ? m.reusedStatus : RENDER_STATUS[render.status]}</span>
             </div>
+            {render.reused && render.status === 'completed' && <p className="mc-caption mc-muted">{m.reusedNote}</p>}
             {renderActive && (
               <>
                 <ProgressBar value={render.progress_pct} label={m.renderProgressLabel} showValue />

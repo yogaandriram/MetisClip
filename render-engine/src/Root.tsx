@@ -32,7 +32,10 @@ export const RemotionRoot: React.FC = () => {
             typeof props.coverTime === 'number'
               ? Math.min(durationInFrames - 1, segments.length ? outputFrameAt(segments, props.coverTime, FPS) : Math.round(props.coverTime * FPS))
               : null;
-          return { durationInFrames, props: { ...props, coverFrame } };
+          // [output from, start frame, end frame] of raw.mp4 per kept segment, so a cover chosen after the
+          // render maps to its output frame without another render (services/render.py output_frame_at)
+          const keptFrames = segments.map((s) => [s.from, s.startFrame, s.endFrame]);
+          return { durationInFrames, props: { ...props, coverFrame, keptFrames } };
         }}
       />
     </>
