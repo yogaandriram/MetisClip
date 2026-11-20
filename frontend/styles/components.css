@@ -2075,6 +2075,9 @@ input[type='color'].mc-input {
 
 .mc-alert {
   display: flex;
+  /* In a narrow column (the editor's properties) the action moves to its own line instead of
+     squeezing the text into a column of single words */
+  flex-wrap: wrap;
   align-items: flex-start;
   gap: 12px;
   padding: 16px 20px;
@@ -2095,7 +2098,7 @@ input[type='color'].mc-input {
 }
 
 .mc-alert__body {
-  flex: 1;
+  flex: 1 1 14rem;
   min-width: 0;
   padding-top: 6px;
 }
