@@ -13,6 +13,9 @@ export const jobs = {
   /** A completed job whose clips partly failed: process only those again */
   retryFailed: (n: number) => `Ulangi ${n} klip gagal`,
   retryStarted: 'Klip yang gagal diproses ulang',
+  again: 'Cari klip lagi',
+  againTip: 'Job baru untuk video ini dengan pengaturan yang sama. Momen yang sudah jadi klip di campaign-nya dilewati.',
+  againStarted: 'Job baru dimulai: mencari momen lain dari video ini',
   cancelled: 'Job dibatalkan',
   deleted: 'Job dihapus',
   /** "45-60 detik · maks. 3 klip"; max 0 = unlimited */

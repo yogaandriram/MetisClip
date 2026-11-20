@@ -2,7 +2,7 @@
 
 import React, { Suspense, useCallback, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { ArrowLeft, Clapperboard, Link2, ListChecks, RotateCcw, Upload, X } from 'lucide-react'
+import { ArrowLeft, Clapperboard, Link2, ListChecks, RotateCcw, Search, Upload, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
   Alert,
@@ -22,12 +22,14 @@ import {
   Tabs,
   TextAreaField,
   ToggleSwitch,
+  Tooltip,
   type StepState,
 } from '@/components/ui'
 import { NoCampaignState } from '@/components/NoCampaignState'
 import { VideoFilePicker } from '@/components/discover/VideoFilePicker'
 import { CampaignPicker } from '@/components/brief/CampaignPicker'
 import { MomentsEditor, momentRanges, newMomentRow, type MomentRow } from '@/components/clips/MomentsEditor'
+import { MAX_VIDEOS, YoutubeLinks, linkVideos, newLinkRow, type LinkRow } from '@/components/discover/YoutubeLinks'
 import { useCampaign } from '@/contexts/CampaignContext'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
@@ -39,7 +41,6 @@ import {
   RESUMABLE_JOB_STATUSES,
   errorMessage,
   formatDateTime,
-  isYoutubeUrl,
   jobSource,
   jobStepLabel,
 } from '@/lib/format'
@@ -114,6 +115,7 @@ function Discover() {
             key={activeCampaign.id}
             initialCampaign={linkedActive ? linked : activeCampaign.id}
             onCreated={(id) => router.push(`/discover/?job=${encodeURIComponent(id)}`)}
+            onCreatedMany={() => router.push(QUEUE_HREF)}
           />
         )}
       </div>
@@ -124,13 +126,23 @@ function Discover() {
 // ---------------------------------------------------------------------------
 
 /** The job form. `initialCampaign` is chosen when the form opens (the active campaign, or the linked one). */
-function JobForm({ onCreated, initialCampaign }: { onCreated: (jobId: string) => void; initialCampaign: string | null }) {
+function JobForm({
+  onCreated,
+  onCreatedMany,
+  initialCampaign,
+}: {
+  onCreated: (jobId: string) => void
+  /** Several videos: one job each */
+  onCreatedMany: (count: number) => void
+  initialCampaign: string | null
+}) {
   const { epoch } = useEngine()
   const t = useT()
   const f = t.discover.form
   const b = t.brief
   const [mode, setMode] = useState<'url' | 'file'>('url')
-  const [youtubeUrl, setYoutubeUrl] = useState('')
+  const [links, setLinks] = useState<LinkRow[]>(() => [newLinkRow()])
+  const [showLinkErrors, setShowLinkErrors] = useState(false)
   const [filePath, setFilePath] = useState<string | null>(null)
   const [duration, setDuration] = useState('45-60')
   const [customLo, setCustomLo] = useState('30')
@@ -232,9 +244,32 @@ function JobForm({ onCreated, initialCampaign }: { onCreated: (jobId: string) =>
       setFormError(b.picker.required)
       return
     }
-    if (mode === 'url' && !isYoutubeUrl(youtubeUrl)) {
-      setFormError(f.invalidUrl)
-      return
+    const videos = mode === 'url' ? linkVideos(links) : null
+    if (videos) {
+      const problems = Object.values(videos.problems)
+      if (problems.length || videos.urls.length === 0) {
+        setShowLinkErrors(true)
+        setFormError(
+          problems.includes('playlist')
+            ? f.links.playlistNotLoaded
+            : problems.length
+              ? links.length > 1
+                ? f.links.checkMarked
+                : f.invalidUrl
+              : links.some((r) => r.playlist)
+                ? f.links.noneChosen
+                : f.invalidUrl,
+        )
+        return
+      }
+      if (videos.urls.length > MAX_VIDEOS) {
+        setFormError(f.links.tooMany(MAX_VIDEOS))
+        return
+      }
+      if (pick === 'manual' && videos.urls.length > 1) {
+        setFormError(f.links.manualOneVideo)
+        return
+      }
     }
     if (mode === 'file' && !filePath) {
       setFormError(f.fileRequired)
@@ -252,16 +287,21 @@ function JobForm({ onCreated, initialCampaign }: { onCreated: (jobId: string) =>
     }
     setSubmitting(true)
     try {
-      const { job } = await api.jobs.create({
-        ...(mode === 'url' ? { youtube_url: youtubeUrl.trim() } : { local_file_path: filePath! }),
+      const { job, jobs } = await api.jobs.create({
+        ...(videos ? (videos.urls.length === 1 ? { youtube_url: videos.urls[0] } : { youtube_urls: videos.urls }) : { local_file_path: filePath! }),
         campaign_ids: chosen.map((c) => c.id),
         smart_layout: smartChoice,
         ...(ranges
           ? { manual_ranges: ranges, snap_edges: snapEdges }
           : { clip_duration: clipDuration, max_clips: maxClips, note: note.trim() }),
       })
-      toast.success(f.started)
-      onCreated(job.id)
+      if (jobs.length > 1) {
+        toast.success(f.links.startedMany(jobs.length))
+        onCreatedMany(jobs.length)
+      } else {
+        toast.success(f.started)
+        onCreated(job.id)
+      }
     } catch (err) {
       setFormError(errorMessage(err, f.startFailed))
     } finally {
@@ -292,14 +332,13 @@ function JobForm({ onCreated, initialCampaign }: { onCreated: (jobId: string) =>
           />
 
           {mode === 'url' ? (
-            <InputField
-              label={f.linkLabel}
-              placeholder="https://www.youtube.com/watch?v=…"
-              value={youtubeUrl}
-              onChange={(e) => setYoutubeUrl(e.target.value)}
-              icon={<Link2 size={18} aria-hidden="true" />}
-              inputSize="lg"
-              autoFocus
+            <YoutubeLinks
+              rows={links}
+              onChange={(rows) => {
+                setLinks(rows)
+                setFormError(null)
+              }}
+              showErrors={showLinkErrors}
             />
           ) : (
             <VideoFilePicker value={filePath} onChange={setFilePath} onError={setFormError} />
@@ -451,10 +490,13 @@ function JobProgress({ jobId }: { jobId: string }) {
   const [liveMessage, setLiveMessage] = useState<string | null>(null)
   const [confirmCancel, setConfirmCancel] = useState(false)
   const [busy, setBusy] = useState(false)
+  // Only a job seen running here leaves for the gallery when it completes; an old one opened from Antrian stays
+  const [watched, setWatched] = useState(false)
 
   const load = useCallback(async () => {
     try {
       const { job } = await api.jobs.get(jobId)
+      if (job.status === 'pending' || job.status === 'running') setWatched(true)
       setJob(job)
       setLoadError(null)
     } catch (err) {
@@ -468,6 +510,7 @@ function JobProgress({ jobId }: { jobId: string }) {
 
   useEngineEvents((e) => {
     if (e.type === 'job.progress' && e.id === jobId) {
+      setWatched(true)
       setJob((prev) =>
         prev
           ? { ...prev, status: e.status, current_step: e.current_step, progress_pct: e.progress_pct, total_scenes: e.total_scenes, processed_scenes: e.processed_scenes }
@@ -476,6 +519,7 @@ function JobProgress({ jobId }: { jobId: string }) {
       if (e.message) setLiveMessage(e.message)
     } else if (e.type === 'job.status' && e.id === jobId) {
       // A completed job waits for the fresh document: its failed_clips decide whether to leave for the gallery
+      if (e.status === 'pending' || e.status === 'running') setWatched(true)
       if (e.status !== 'completed') setJob((prev) => (prev ? { ...prev, status: e.status } : prev))
       if (e.error) setLiveMessage(e.error)
       load()
@@ -484,11 +528,11 @@ function JobProgress({ jobId }: { jobId: string }) {
 
   // Completed -> go to the clips gallery (unless some clips failed: the user can retry them here)
   useEffect(() => {
-    if (job?.status !== 'completed' || job.failed_clips > 0) return
+    if (!watched || job?.status !== 'completed' || job.failed_clips > 0) return
     toast.success(tm().discover.progress.completed)
     const timer = setTimeout(() => router.push('/clips/'), 1500)
     return () => clearTimeout(timer)
-  }, [job?.status, job?.failed_clips, router])
+  }, [watched, job?.status, job?.failed_clips, router])
 
   const cancel = async () => {
     setBusy(true)
@@ -497,6 +541,19 @@ function JobProgress({ jobId }: { jobId: string }) {
       setJob(job)
       setConfirmCancel(false)
       toast.success(p.cancelled)
+    } catch (err) {
+      toast.error(errorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const again = async () => {
+    setBusy(true)
+    try {
+      const { job: created } = await api.jobs.again(jobId)
+      toast.success(tm().jobs.againStarted)
+      router.push(`/discover/?job=${encodeURIComponent(created.id)}`)
     } catch (err) {
       toast.error(errorMessage(err))
     } finally {
@@ -587,14 +644,21 @@ function JobProgress({ jobId }: { jobId: string }) {
               </Button>
             )}
             {job.status === 'completed' && job.failed_clips > 0 && (
-              <>
-                <Button variant="primary" size="sm" icon={<RotateCcw size={16} aria-hidden="true" />} onClick={resume} loading={busy}>
-                  {t.jobs.retryFailed(job.failed_clips)}
+              <Button variant="primary" size="sm" icon={<RotateCcw size={16} aria-hidden="true" />} onClick={resume} loading={busy}>
+                {t.jobs.retryFailed(job.failed_clips)}
+              </Button>
+            )}
+            {job.status === 'completed' && (
+              <ButtonLink href="/clips/" variant={job.failed_clips > 0 ? 'secondary' : 'primary'} size="sm">
+                {p.viewClips}
+              </ButtonLink>
+            )}
+            {job.kind === 'ai' && job.status === 'completed' && (
+              <Tooltip label={t.jobs.againTip}>
+                <Button variant="secondary" size="sm" icon={<Search size={16} aria-hidden="true" />} onClick={again} loading={busy}>
+                  {t.jobs.again}
                 </Button>
-                <ButtonLink href="/clips/" variant="secondary" size="sm">
-                  {p.viewClips}
-                </ButtonLink>
-              </>
+              </Tooltip>
             )}
             <ButtonLink href={QUEUE_HREF} variant="secondary" size="sm" icon={<ListChecks size={16} aria-hidden="true" />}>
               {t.clips.tabs.queue}

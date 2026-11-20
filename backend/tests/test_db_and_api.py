@@ -364,6 +364,90 @@ def test_a_job_can_take_the_moments_the_user_chose(client, monkeypatch):
     assert r.json()["job"]["kind"] == "ai"
 
 
+def test_several_links_make_one_job_per_video(client, monkeypatch):
+    from backend.api.routes import jobs as jobs_route
+
+    monkeypatch.setattr(jobs_route.runner, "submit_job", lambda job_id: None)
+    camp = client.post("/api/campaigns", json={"name": "Banyak"}).json()["campaign"]
+    base = {"campaign_ids": [camp["id"]], "clip_duration": "30-45", "max_clips": 2, "note": "fokus tanya jawab"}
+    links = ["https://youtu.be/aaaaaaaaaaa", "https://www.youtube.com/watch?v=bbbbbbbbbbb&list=PLxyz1234567",
+             "https://www.youtube.com/watch?v=aaaaaaaaaaa"]  # the first video twice
+    r = client.post("/api/jobs", json={**base, "youtube_urls": links})
+    assert r.status_code == 200, r.text
+    jobs = r.json()["jobs"]
+    assert [j["source"]["youtube_url"] for j in jobs] == links[:2] and r.json()["job"]["id"] == jobs[0]["id"]
+    assert all(j["config"]["clip_duration"] == "30-45" and j["note"] == "fokus tanya jawab" for j in jobs)
+    r = client.post("/api/jobs", json={**base, "youtube_urls": [links[0], "https://example.com/x"]})
+    assert r.status_code == 400 and r.json()["detail"] == "Link 2 bukan link video YouTube"
+    r = client.post("/api/jobs", json={**base, "youtube_urls": links[:2], "manual_ranges": [{"start": 0, "end": 30}]})
+    assert r.status_code == 400 and r.json()["detail"].startswith("Momen pilihan sendiri hanya bisa untuk satu video")
+    many = [f"https://youtu.be/{i:011d}" for i in range(51)]
+    assert client.post("/api/jobs", json={**base, "youtube_urls": many}).json()["detail"] == "Maksimal 50 video sekaligus"
+
+
+def test_find_more_clips_starts_the_same_job_again(client, db, monkeypatch):
+    from backend.api.routes import jobs as jobs_route
+
+    monkeypatch.setattr(jobs_route.runner, "submit_job", lambda job_id: None)
+    camp = client.post("/api/campaigns", json={"name": "Lagi"}).json()["campaign"]
+    other = client.post("/api/campaigns", json={"name": "Arsip"}).json()["campaign"]
+    body = {"campaign_ids": [camp["id"], other["id"]], "youtube_url": "https://youtu.be/ccccccccccc",
+            "clip_duration": "60-75", "max_clips": 4, "note": "bagian akhir", "smart_layout": True}
+    first = client.post("/api/jobs", json=body).json()["job"]
+    assert client.post(f"/api/jobs/{first['id']}/again").status_code == 409  # still pending
+    db.discovery_jobs.update_one({"_id": first["id"]}, {"$set": {"status": "completed"}})
+    client.put(f"/api/campaigns/{other['id']}", json={"status": "archived"})
+    r = client.post(f"/api/jobs/{first['id']}/again")
+    assert r.status_code == 200, r.text
+    again = r.json()["job"]
+    assert again["id"] != first["id"] and again["status"] == "pending" and again["kind"] == "ai"
+    assert again["source"]["youtube_url"] == body["youtube_url"] and again["note"] == "bagian akhir"
+    assert again["config"]["clip_duration"] == "60-75" and again["config"]["max_clips_per_video"] == 4
+    assert again["config"]["smart_layout"] is True
+    assert again["campaign_ids"] == [camp["id"]]  # the archived campaign is left out
+    # Not for the moments the user chose
+    manual = client.post("/api/jobs", json={**body, "campaign_ids": [camp["id"]],
+                                           "manual_ranges": [{"start": 10, "end": 40}]}).json()["job"]
+    db.discovery_jobs.update_one({"_id": manual["id"]}, {"$set": {"status": "completed"}})
+    assert client.post(f"/api/jobs/{manual['id']}/again").status_code == 400
+    client.put(f"/api/campaigns/{camp['id']}", json={"status": "archived"})
+    r = client.post(f"/api/jobs/{first['id']}/again")
+    assert r.status_code == 400 and "diarsipkan" in r.json()["detail"]
+
+
+def test_a_playlist_lists_its_videos(client, monkeypatch):
+    import json
+
+    from backend.agents.tools import ytdlp
+
+    calls: list[list[str]] = []
+    entries = [{"id": "ddddddddddd", "title": "Episode 1", "duration": 3600.0, "channel": "Podcast"},
+               {"id": "eeeeeeeeeee", "title": "[Private video]", "duration": None},
+               {"id": "fffffffffff", "title": "Episode 2", "duration": None, "uploader": "Podcast"}]
+
+    def fake_run(args, cancel, timeout):
+        calls.append(args)
+        return json.dumps({"title": "Musim 1", "channel": "Podcast", "entries": entries})
+
+    monkeypatch.setattr(ytdlp, "_run", fake_run)
+    r = client.post("/api/jobs/playlist", json={"url": "https://www.youtube.com/watch?v=ddddddddddd&list=PLabcdefghij12"})
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["playlist_id"] == "PLabcdefghij12" and data["title"] == "Musim 1" and data["more"] is False
+    assert [(e["youtube_id"], e["title"], e["duration_seconds"]) for e in data["entries"]] == [
+        ("ddddddddddd", "Episode 1", 3600.0), ("fffffffffff", "Episode 2", None)]
+    assert data["entries"][1]["youtube_url"] == "https://www.youtube.com/watch?v=fffffffffff"
+    [args] = calls
+    assert "--flat-playlist" in args and "--no-playlist" not in args
+    assert args[-1] == "https://www.youtube.com/playlist?list=PLabcdefghij12"
+    # Only the first 50, and it says there are more
+    entries[:] = [{"id": f"{i:011d}", "title": f"V{i}", "duration": 60} for i in range(60)]
+    data = client.post("/api/jobs/playlist", json={"url": "https://www.youtube.com/playlist?list=PLabcdefghij12"}).json()
+    assert len(data["entries"]) == 50 and data["more"] is True
+    r = client.post("/api/jobs/playlist", json={"url": "https://youtu.be/ddddddddddd"})
+    assert r.status_code == 400 and "bukan link playlist" in r.json()["detail"]
+
+
 def test_files_route_blocks_private_dirs(client, paths):
     (paths.private_dir / "db-credentials.json").write_text("{}")
     (paths.library_dir / "ok.txt").write_text("hi")

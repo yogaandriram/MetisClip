@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Eye, FileVideo, Link as LinkIcon, ListChecks, Megaphone, RotateCcw, Trash2, XCircle } from 'lucide-react'
+import { Eye, FileVideo, Link as LinkIcon, ListChecks, Megaphone, RotateCcw, Search, Trash2, XCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
   Alert,
@@ -110,6 +110,20 @@ export function JobQueue({ campaignId }: { campaignId: string | undefined }) {
     try {
       replaceJob((await api.jobs.resume(job.id)).job)
       toast.success(job.status === 'completed' ? m.retryStarted : m.resumed)
+    } catch (err) {
+      toast.error(errorMessage(err))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  /** "Cari klip lagi": a new job for the same video; it shows up in the running list through its events */
+  const again = async (job: Job) => {
+    setBusyId(job.id)
+    try {
+      const { job: created } = await api.jobs.again(job.id)
+      setJobs((prev) => (prev && !prev.some((j) => j.id === created.id) ? [created, ...prev] : prev))
+      toast.success(m.againStarted)
     } catch (err) {
       toast.error(errorMessage(err))
     } finally {
@@ -370,6 +384,16 @@ export function JobQueue({ campaignId }: { campaignId: string | undefined }) {
                                     <Button variant="secondary" size="sm" icon={<RotateCcw size={16} />} onClick={() => resume(job)} loading={busyId === job.id}>
                                       {m.retryFailed(job.failed_clips)}
                                     </Button>
+                                  )}
+                                  {job.kind === 'ai' && job.status === 'completed' && (
+                                    <IconButton
+                                      label={m.again}
+                                      icon={<Search size={16} />}
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => again(job)}
+                                      disabled={busyId === job.id}
+                                    />
                                   )}
                                   <IconButton label={m.detailAria} icon={<Eye size={16} />} variant="ghost" size="sm" onClick={() => openDetail(job)} />
                                   <IconButton

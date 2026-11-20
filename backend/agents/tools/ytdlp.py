@@ -172,6 +172,50 @@ def watch_url(youtube_id: str) -> str:
     return f"https://www.youtube.com/watch?v={youtube_id}"
 
 
+_PLAYLIST_RE = re.compile(r"[?&]list=([0-9A-Za-z_-]{10,64})")
+PLAYLIST_MAX = 50
+# Entries a flat playlist lists without a video behind them
+_GONE_TITLES = {"[private video]", "[deleted video]", "[unavailable video]"}
+
+
+def extract_playlist_id(url: str) -> str | None:
+    """The `list=` id of a YouTube link (a playlist page, or a video opened inside a playlist)."""
+    s = (url or "").strip()
+    if "youtube.com" not in s and "youtu.be" not in s:
+        return None
+    m = _PLAYLIST_RE.search(s)
+    return m.group(1) if m else None
+
+
+def list_playlist(playlist_id: str, cancel: procs.CancelToken | None = None, limit: int = PLAYLIST_MAX) -> dict:
+    """The first `limit` videos of a playlist, without downloading anything (`--flat-playlist`):
+    {title, channel, entries: [{youtube_id, title, duration_seconds, channel}], more: bool}. Private and
+    deleted entries are left out."""
+    args = [a for a in _base_args() if a != "--no-playlist"]
+    url = f"https://www.youtube.com/playlist?list={playlist_id}"
+    out = _run(args + ["--flat-playlist", "-J", "--playlist-end", str(limit + 1), url], cancel, timeout=120)
+    data = json.loads(out)
+    entries = []
+    for e in data.get("entries") or []:
+        vid = e.get("id") if isinstance(e, dict) else None
+        title = str(e.get("title") or "").strip() if isinstance(e, dict) else ""
+        if not vid or not _ID_RE.match(vid) or title.lower() in _GONE_TITLES:
+            continue
+        duration = e.get("duration")
+        entries.append({
+            "youtube_id": vid,
+            "title": title,
+            "duration_seconds": float(duration) if isinstance(duration, (int, float)) else None,
+            "channel": e.get("channel") or e.get("uploader") or "",
+        })
+    return {
+        "title": data.get("title") or "",
+        "channel": data.get("channel") or data.get("uploader") or "",
+        "entries": entries[:limit],
+        "more": len(entries) > limit,
+    }
+
+
 def _base_args() -> list[str]:
     from backend.core.settings_store import get_settings
 

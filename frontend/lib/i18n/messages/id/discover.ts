@@ -36,6 +36,28 @@ export const discover = {
     maxClips: 'Jumlah klip (maks.)',
     unlimited: 'Tanpa batas',
     start: 'Mulai proses',
+    /** Several links, and the videos of a playlist (components/discover/YoutubeLinks.tsx) */
+    links: {
+      rowAria: (n: number) => `Link YouTube ${n}`,
+      remove: (n: number) => `Hapus link ${n}`,
+      add: 'Tambah link',
+      count: (n: number) => `${n} video, masing-masing jadi satu job dengan pengaturan yang sama`,
+      tooMany: (max: number) => `Lebih dari ${max} video. Kurangi pilihannya dulu.`,
+      isPlaylist: 'Ini link playlist. Ambil daftar videonya, lalu pilih video yang mau diproses.',
+      inPlaylist: 'Video ini bagian dari playlist. Biarkan untuk memproses video ini saja, atau ambil daftar video playlist-nya.',
+      loadPlaylist: 'Ambil video playlist',
+      playlistFailed: 'Daftar video playlist tidak bisa diambil',
+      playlistTitle: (title: string, n: number) => `${title} · ${n} video`,
+      selectAll: 'Pilih semua',
+      selectNone: 'Kosongkan pilihan',
+      closePlaylist: 'Tutup playlist',
+      firstOnly: (n: number) => `Hanya ${n} video pertama yang ditampilkan.`,
+      playlistNotLoaded: 'Ambil dulu video playlist-nya, lalu pilih videonya.',
+      noneChosen: 'Pilih minimal satu video.',
+      checkMarked: 'Ada link yang belum benar. Periksa link yang ditandai.',
+      manualOneVideo: 'Momen pilihan sendiri hanya bisa untuk satu video. Hapus link lainnya, atau pilih "AI pilih momen terbaik".',
+      startedMany: (n: number) => `${n} job dimulai. Progresnya ada di Antrian.`,
+    },
     /** Who chooses the moments: the Analyzer, or the user (a manual job) */
     choose: {
       label: 'Pemilihan momen',

@@ -266,9 +266,21 @@ export interface ClipRange {
   end: number
 }
 
-/** Exactly one source: a YouTube link, or a video file on this PC (used in place, never copied). */
+/** A YouTube playlist's videos (POST /api/jobs/playlist): at most 50, private and deleted ones left out */
+export interface PlaylistInfo {
+  playlist_id: string
+  title: string
+  channel: string
+  entries: { youtube_id: string; youtube_url: string; title: string; duration_seconds: number | null; channel: string }[]
+  /** The playlist has more videos than the 50 listed */
+  more: boolean
+}
+
+/** Exactly one source: YouTube link(s), or a video file on this PC (used in place, never copied). */
 export interface JobCreate {
   youtube_url?: string
+  /** Several YouTube links: one job per video (the same video once), with the same settings; at most 50 */
+  youtube_urls?: string[]
   /** Absolute path; the engine checks that it is a readable video with sound */
   local_file_path?: string
   /** '30-45' | '45-60' | '60-75' | '75-90', or a custom 'lo-hi' between 10 and 180 seconds (at least 5 apart) */
@@ -993,7 +1005,11 @@ export const api = {
   jobs: {
     list: (query: { campaign_id?: string; status?: JobStatus; limit?: number } = {}) => request<{ jobs: Job[] }>('GET', '/api/jobs', { query }),
     get: (id: string) => request<{ job: Job }>('GET', `/api/jobs/${id}`),
-    create: (input: JobCreate) => request<{ job: Job }>('POST', '/api/jobs', { body: input }),
+    /** One job per video: `job` is the first, `jobs` all of them */
+    create: (input: JobCreate) => request<{ job: Job; jobs: Job[] }>('POST', '/api/jobs', { body: input }),
+    /** "Cari klip lagi": the same video, campaigns and settings; moments the campaigns already have are skipped */
+    again: (id: string) => request<{ job: Job }>('POST', `/api/jobs/${id}/again`),
+    playlist: (url: string) => request<PlaylistInfo>('POST', '/api/jobs/playlist', { body: { url } }),
     cancel: (id: string) => request<{ job: Job }>('POST', `/api/jobs/${id}/cancel`),
     resume: (id: string) => request<{ job: Job }>('POST', `/api/jobs/${id}/resume`),
     remove: (id: string) => request<{ ok: true }>('DELETE', `/api/jobs/${id}`),
