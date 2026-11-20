@@ -6,7 +6,9 @@ import logging
 import os
 import re
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
+from typing import Iterator
 from pathlib import Path
 
 from backend.core import procs
@@ -14,6 +16,10 @@ from backend.core.config import deno_path, ffmpeg_path, ytdlp_command
 from backend.core import i18n
 
 M = i18n.messages({
+    "in_use": {
+        "id": "yt-dlp sedang mengunduh video (job, ekspor, atau persiapan video sumber). Coba update lagi setelah unduhan selesai.",
+        "en": "yt-dlp is downloading a video (a job, an export or a source video being prepared). Try the update again once it is done.",
+    },
     "bot_check": {
         "id": "YouTube meminta verifikasi bot. Coba 'Update yt-dlp' di halaman Sistem, atau impor cookies.txt di Pengaturan.",
         "en": "YouTube is asking for a bot check. Try 'Update yt-dlp' on the System page, or import cookies.txt in Settings.",
@@ -100,6 +106,57 @@ class YtDlpError(RuntimeError):
     pass
 
 
+class YtDlpBusy(RuntimeError):
+    """`yt-dlp -U` refused: yt-dlp is running (message in the UI language)."""
+
+
+class _ExeGate:
+    """
+    yt-dlp runs share the exe; `yt-dlp -U` replaces it and needs it to itself. An update starts only while no
+    yt-dlp runs (never waits), and a run that starts during an update waits for it, then uses the new exe.
+    """
+
+    def __init__(self) -> None:
+        self._cond = threading.Condition()
+        self._users = 0
+        self._updating = False
+
+    @contextmanager
+    def use(self, cancel: procs.CancelToken | None = None) -> Iterator[None]:
+        with self._cond:
+            while self._updating:
+                if cancel is not None:
+                    cancel.check()
+                self._cond.wait(0.5)
+            self._users += 1
+        try:
+            yield
+        finally:
+            with self._cond:
+                self._users -= 1
+                self._cond.notify_all()
+
+    def begin_update(self) -> bool:
+        with self._cond:
+            if self._users or self._updating:
+                return False
+            self._updating = True
+            return True
+
+    def end_update(self) -> None:
+        with self._cond:
+            self._updating = False
+            self._cond.notify_all()
+
+    @property
+    def in_use(self) -> bool:
+        with self._cond:
+            return self._users > 0
+
+
+_exe_gate = _ExeGate()
+
+
 def extract_video_id(url_or_id: str) -> str | None:
     s = (url_or_id or "").strip()
     if _ID_RE.match(s):
@@ -163,7 +220,8 @@ def _friendly(stderr: str) -> str:
 
 def _run(args: list[str], cancel: procs.CancelToken | None, timeout: float) -> str:
     try:
-        res = procs.run(args, cancel=cancel, timeout=timeout)
+        with _exe_gate.use(cancel):
+            res = procs.run(args, cancel=cancel, timeout=timeout)
     except procs.ProcessError as exc:
         raise YtDlpError(_friendly(exc.stderr)) from exc
     except FileNotFoundError as exc:
@@ -226,13 +284,18 @@ def version() -> str | None:
 
 def self_update() -> dict:
     """`yt-dlp -U` on the user-writable copy (YouTube breaks old builds; CLAUDE.md §10.4).
-    Waits for a daily check that is already running."""
+    Waits for a daily check that is already running; raises YtDlpBusy while yt-dlp downloads."""
     with _update_lock:
         return _update(auto=False)
 
 
 def _update(auto: bool) -> dict:
-    result = _run_self_update()
+    if not _exe_gate.begin_update():
+        raise YtDlpBusy(M("in_use"))
+    try:
+        result = _run_self_update()
+    finally:
+        _exe_gate.end_update()
     _save_state(result, auto)
     return result
 
@@ -335,6 +398,8 @@ def maybe_auto_update(now: datetime | None = None) -> dict | None:
         return None  # the Update button is running it now
     try:
         result = _update(auto=True)
+    except YtDlpBusy:
+        return None  # yt-dlp is downloading (e.g. an editor preparing a source video): next round
     finally:
         _update_lock.release()
     if result.get("updated"):

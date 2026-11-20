@@ -134,11 +134,6 @@ class JobRunner:
         with self._lock:
             return job_id in self._tokens
 
-    def has_active_jobs(self) -> bool:
-        """True while a pipeline job is queued in this process or running."""
-        with self._lock:
-            return bool(self._tokens)
-
     # -- renders -------------------------------------------------------------------
 
     def submit_render(self, render_id: str) -> None:

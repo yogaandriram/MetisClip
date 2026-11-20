@@ -80,10 +80,6 @@ M = i18n.messages({
         "id": "{gb} GB kosong (disarankan ≥ 5 GB)",
         "en": "{gb} GB free (≥ 5 GB recommended)",
     },
-    "jobs_running": {
-        "id": "Tunggu job yang sedang berjalan selesai sebelum memperbarui yt-dlp",
-        "en": "Wait for the running jobs to finish before updating yt-dlp",
-    },
     "backup_failed": {
         "id": "Backup gagal: {error}",
         "en": "Backup failed: {error}",
@@ -236,11 +232,12 @@ def _storage() -> dict:
 
 @router.post("/update-ytdlp")
 async def update_ytdlp():
-    from backend.core.queue import runner
-
-    if runner.has_active_jobs():
-        raise http_error(409, M("jobs_running"))
-    return await run_in_threadpool(ytdlp.self_update)
+    """Refused (409) only while yt-dlp itself runs: a job in another step, or one that downloads a moment
+    later, waits for the update and then uses the new yt-dlp (agents/tools/ytdlp._ExeGate)."""
+    try:
+        return await run_in_threadpool(ytdlp.self_update)
+    except ytdlp.YtDlpBusy as exc:
+        raise http_error(409, str(exc))
 
 
 @router.get("/storage")

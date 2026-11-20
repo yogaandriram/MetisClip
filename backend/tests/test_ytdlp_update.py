@@ -127,3 +127,68 @@ def test_the_component_check_reports_it(updater, db, secrets):
     assert res.status_code == 200
     info = res.json()["ytdlp_update"]
     assert info["auto"] is True and info["ok"] is True and info["checked_at"]
+
+
+def test_an_update_never_replaces_yt_dlp_while_it_downloads(updater, monkeypatch):
+    """`yt-dlp -U` replaces the exe: refused while yt-dlp runs (the button gets 409, the daily check waits
+    for its next round), and a download that starts during an update waits for it."""
+    import threading
+    import time
+
+    from fastapi.testclient import TestClient
+
+    from backend.core import procs
+
+    in_download = threading.Event()
+    finish_download = threading.Event()
+
+    def slow_run(args, cancel=None, timeout=None):
+        in_download.set()
+        finish_download.wait(5)
+        return type("R", (), {"stdout": b"{}", "stderr": b""})()
+
+    monkeypatch.setattr(procs, "run", slow_run)
+    t = threading.Thread(target=ytdlp.dump_metadata, args=("dQw4w9WgXcQ",))
+    t.start()
+    try:
+        assert in_download.wait(5)
+        with pytest.raises(ytdlp.YtDlpBusy):
+            ytdlp.self_update()
+        assert ytdlp.maybe_auto_update(T0) is None and updater["runs"] == []
+        assert ytdlp.update_state() == {}  # not counted as the day's check
+        from backend.core.config import config
+        from backend.main import create_app
+
+        with TestClient(create_app()) as client:
+            res = client.post("/api/system/update-ytdlp", headers={"Authorization": f"Bearer {config.token}"})
+        assert res.status_code == 409 and "sedang mengunduh" in res.json()["detail"]
+    finally:
+        finish_download.set()
+        t.join(5)
+    assert ytdlp.self_update() == UP_TO_DATE
+
+    # A download that starts while an update runs waits for it
+    order: list[str] = []
+    updating = threading.Event()
+    release_update = threading.Event()
+
+    def slow_update() -> dict:
+        updating.set()
+        release_update.wait(5)
+        order.append("update")
+        return UP_TO_DATE
+
+    monkeypatch.setattr(ytdlp, "_run_self_update", slow_update)
+    monkeypatch.setattr(procs, "run", lambda args, cancel=None, timeout=None: order.append("download") or
+                        type("R", (), {"stdout": b"{}", "stderr": b""})())
+    u = threading.Thread(target=ytdlp.self_update)
+    u.start()
+    assert updating.wait(5)
+    d = threading.Thread(target=ytdlp.dump_metadata, args=("dQw4w9WgXcQ",))
+    d.start()
+    time.sleep(0.3)
+    assert order == []  # the download waits
+    release_update.set()
+    u.join(5)
+    d.join(5)
+    assert order == ["update", "download"]

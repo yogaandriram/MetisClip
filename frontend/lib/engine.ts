@@ -482,7 +482,7 @@ export interface SystemCheck {
   ram_gb: number
 }
 
-/** POST /api/system/update-ytdlp (409 while a job is running) */
+/** POST /api/system/update-ytdlp (409 while yt-dlp is downloading) */
 export interface YtdlpUpdateResult {
   ok: boolean
   updated: boolean
