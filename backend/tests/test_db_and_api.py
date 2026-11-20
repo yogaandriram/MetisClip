@@ -426,3 +426,57 @@ def test_system_resources_and_setting(client):
     assert st["auto"] is False and st["reserve_mb"] == 2048
     assert client.put("/api/settings", json={"resources": {"reserve_gb": 99}}).status_code in (400, 422)
     client.put("/api/settings", json={"resources": {"auto": True, "reserve_gb": 0}})
+
+
+def test_ytdlp_player_client_is_validated(client):
+    s = client.put("/api/settings", json={"ytdlp": {"player_client": " TV, web_safari "}}).json()["settings"]
+    assert s["ytdlp"]["player_client"] == "tv,web_safari"
+    s = client.put("/api/settings", json={"ytdlp": {"player_client": ""}}).json()["settings"]
+    assert s["ytdlp"]["player_client"] == "default"
+    for bad in ("tv;rm", "web=1", "a" * 81):
+        assert client.put("/api/settings", json={"ytdlp": {"player_client": bad}}).status_code == 400
+    client.put("/api/settings", json={"ytdlp": {"player_client": "default"}})
+
+
+def test_render_concurrency_applies_without_a_restart(db, monkeypatch):
+    """Renders wait in queue order for a slot; raising render.concurrency in Pengaturan lets a waiting one
+    start at once, and a cancelled waiting render leaves the queue."""
+    import threading
+    import time
+
+    from backend.core import queue as q
+    from backend.core.settings_store import update_settings
+    from backend.services import render as render_service
+
+    started: list[str] = []
+    release = threading.Event()
+
+    def fake_run_render(render_id, token):
+        started.append(render_id)
+        release.wait(10)
+
+    monkeypatch.setattr(render_service, "run_render", fake_run_render)
+    monkeypatch.setattr(q, "GATE_RECHECK_S", 0.05)
+    update_settings({"render": {"concurrency": 1}})
+    r = q.JobRunner()
+    r._render = q.ThreadPoolExecutor(max_workers=q.MAX_RENDER_CONCURRENCY)
+
+    def wait_for(cond, timeout=3.0):
+        end = time.monotonic() + timeout
+        while time.monotonic() < end and not cond():
+            time.sleep(0.02)
+        return cond()
+
+    try:
+        for rid in ("r1", "r2", "r3"):
+            r.submit_render(rid)
+        assert wait_for(lambda: started == ["r1"])
+        time.sleep(0.2)
+        assert started == ["r1"]  # one slot
+        r.cancel_render("r2")  # not in render_jobs: only its token is cancelled
+        update_settings({"render": {"concurrency": 2}})
+        assert wait_for(lambda: started == ["r1", "r3"])
+    finally:
+        release.set()
+        r._render.shutdown(wait=True)
+        update_settings({"render": {"concurrency": 1}})

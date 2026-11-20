@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import logging
 import os
+import re
 from typing import Any
 
 from backend.core.llm_providers import DEFAULT_COMPATIBLE_BASE_URL, DEFAULT_PROVIDER, PROVIDERS
@@ -11,6 +12,9 @@ from backend.core.paths import get_paths
 from backend.core import i18n
 
 logger = logging.getLogger(__name__)
+
+PLAYER_CLIENT_RE = re.compile(r"[a-z0-9_-]+(,[a-z0-9_-]+)*")
+PLAYER_CLIENT_MAX = 80
 
 M = i18n.messages({
     "unknown_provider": {
@@ -60,6 +64,10 @@ M = i18n.messages({
     "reserve_range": {
         "id": "Cadangan RAM harus antara 0 (otomatis) dan 16 GB",
         "en": "The RAM reserve must be between 0 (automatic) and 16 GB",
+    },
+    "player_client": {
+        "id": "Player client yt-dlp hanya boleh berisi huruf kecil, angka, garis bawah, tanda hubung, dan koma (contoh: tv,web_safari)",
+        "en": "The yt-dlp player client may only hold lowercase letters, digits, underscores, hyphens and commas (e.g. tv,web_safari)",
     },
     "ytdlp_auto_bool": {
         "id": "Update yt-dlp otomatis harus aktif atau nonaktif",
@@ -192,6 +200,11 @@ def _validate(s: dict) -> None:
         raise SettingsError(M("auto_bool"))
     if not isinstance(s["ytdlp"].get("auto_update"), bool):
         raise SettingsError(M("ytdlp_auto_bool"))
+    # Passed to yt-dlp as --extractor-args youtube:player_client=<value> (agents/tools/ytdlp.py)
+    client = re.sub(r"\s+", "", str(s["ytdlp"].get("player_client") or "")).lower().strip(",")
+    if client and (len(client) > PLAYER_CLIENT_MAX or not PLAYER_CLIENT_RE.fullmatch(client)):
+        raise SettingsError(M("player_client"))
+    s["ytdlp"]["player_client"] = client or "default"
     if not i18n.is_lang(s["app"].get("language")):
         raise SettingsError(M("unknown_language"))
     try:

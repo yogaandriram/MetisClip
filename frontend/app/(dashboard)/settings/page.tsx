@@ -324,7 +324,7 @@ export default function SettingsPage() {
               </div>
               <SelectField
                 label={m.processing.encoder}
-                hint={encoders.length ? m.processing.encoderDetected(encoders.join(', ')) : m.processing.encoderHint}
+                hint={encoders.length ? `${m.processing.encoderHint} ${m.processing.encoderDetected(encoders.join(', '))}` : m.processing.encoderHint}
                 value={settings.processing.encoder}
                 options={encoderOptions}
                 onChange={(e) => patch('processing', { ...settings.processing, encoder: e.target.value as EncoderSetting })}
@@ -380,6 +380,17 @@ export default function SettingsPage() {
                   </button>
                 </div>
               )}
+              <InputField
+                label={m.ytdlp.playerClient}
+                hint={m.ytdlp.playerClientHint}
+                placeholder="default"
+                value={settings.ytdlp.player_client === 'default' ? '' : settings.ytdlp.player_client}
+                mono
+                spellCheck={false}
+                autoComplete="off"
+                maxLength={80}
+                onChange={(e) => patch('ytdlp', { ...settings.ytdlp, player_client: e.target.value.trim() || 'default' })}
+              />
             </div>
           )}
         </Card>

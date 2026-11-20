@@ -24,12 +24,12 @@ export const settings: Messages['settings'] = {
     title: 'Video processing',
     subtitle: "Choose how much of the computer's resources are used.",
     workers: 'Parallel processing workers',
-    workersHint: 'How many clips are cut at the same time. Raise it if your CPU is strong.',
+    workersHint: 'How many clips are cut at the same time. Raise it if your CPU is strong. Applies to the next job.',
     renders: 'Parallel renders',
-    rendersHint: 'How many subtitle renders (Remotion) run at the same time.',
+    rendersHint: 'How many video exports run at the same time. Applies at once to exports still waiting. Each export needs 2.5 GB of RAM or more.',
     encoder: 'Video encoder',
     encoderDetected: (list: string) => `Detected: ${list}`,
-    encoderHint: 'A hardware encoder is used when available.',
+    encoderHint: 'Used when clips are cut and cropped. Exporting a video with subtitles always uses the CPU encoder.',
     encoders: {
       auto: 'Automatic (picks the fastest)',
       libx264: 'CPU (libx264)',
@@ -55,6 +55,9 @@ export const settings: Messages['settings'] = {
     notUsed: 'Not used',
     pickCookies: 'Choose the cookies.txt file',
     stopCookies: "Don't use a cookies file",
+    playerClient: 'YouTube player client (advanced)',
+    playerClientHint:
+      'Leave empty for the yt-dlp default. Fill it in when downloads cannot read the video formats, e.g. tv or tv,web_safari (separate several with commas).',
   },
   storage: {
     title: 'Local storage',

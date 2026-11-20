@@ -22,12 +22,12 @@ export const settings = {
     title: 'Pemrosesan video',
     subtitle: 'Atur seberapa banyak sumber daya komputer yang dipakai.',
     workers: 'Worker pemrosesan paralel',
-    workersHint: 'Batas clip yang dipotong bersamaan. Naikkan jika CPU kuat.',
+    workersHint: 'Batas clip yang dipotong bersamaan. Naikkan jika CPU kuat. Berlaku untuk job berikutnya.',
     renders: 'Render paralel',
-    rendersHint: 'Jumlah render subtitle (Remotion) yang berjalan bersamaan.',
+    rendersHint: 'Jumlah ekspor video yang berjalan bersamaan. Berlaku langsung untuk ekspor yang masih menunggu. Tiap ekspor butuh 2,5 GB RAM atau lebih.',
     encoder: 'Encoder video',
     encoderDetected: (list: string) => `Terdeteksi: ${list}`,
-    encoderHint: 'Encoder hardware dipakai jika tersedia.',
+    encoderHint: 'Dipakai saat memotong dan meng-crop clip. Ekspor video dengan subtitle selalu memakai encoder CPU.',
     encoders: {
       auto: 'Otomatis (pilih yang tercepat)',
       libx264: 'CPU (libx264)',
@@ -53,6 +53,9 @@ export const settings = {
     notUsed: 'Tidak dipakai',
     pickCookies: 'Pilih file cookies.txt',
     stopCookies: 'Jangan pakai file cookies',
+    playerClient: 'Player client YouTube (lanjutan)',
+    playerClientHint:
+      'Kosongkan untuk bawaan yt-dlp. Isi jika unduhan gagal membaca format video, misalnya tv atau tv,web_safari (beberapa dipisah koma).',
   },
   storage: {
     title: 'Penyimpanan lokal',

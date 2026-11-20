@@ -232,7 +232,7 @@ def main() -> None:
             await asyncio.sleep(0.05)
         if server.started:
             # Workers start only once the event loop is bound (events reach the WS bus)
-            runner.start(render_concurrency=int(settings["render"]["concurrency"]))
+            runner.start()
             threading.Thread(target=_housekeeping, args=(stop,), daemon=True, name="housekeeping").start()
             threading.Thread(target=_parent_watchdog, args=(request_shutdown,), daemon=True, name="watchdog").start()
             from backend.agents.tools.ffmpeg_ops import detect_hw_encoders
