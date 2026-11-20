@@ -25,6 +25,7 @@ from backend.agents.tools import brief_match, caption_ai, clip_edges, ffmpeg_ops
 from backend.agents.tools.smart_crop import process_auto_tracking_video
 from backend.agents.tools.transcript import cached as cached_transcript
 from backend.core import events, llm, resources
+from backend.core.config import config
 from backend.core.db import get_db, utcnow
 from backend.core.paths import get_paths
 from backend.core.procs import Cancelled
@@ -37,6 +38,12 @@ M = i18n.messages({
     "whisper_failed": {
         "id": "Whisper gagal untuk klip {start}s, memakai transkrip: {error}",
         "en": "Whisper failed for the clip at {start}s, using the transcript: {error}",
+    },
+    "no_words": {
+        "id": "Klip {start}s tidak punya subtitle: Whisper gagal dan transkrip tidak berisi kata di bagian ini. "
+              "Tambahkan katanya di editor klip.",
+        "en": "The clip at {start}s has no subtitles: Whisper failed and the transcript has no words in this part. "
+              "Add the words in the clip editor.",
     },
     "ai_marks_skipped": {
         "id": "Sorot kata kunci/emoji AI dilewati: {error}",
@@ -269,8 +276,14 @@ def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw
         if faces_tmp.is_file():
             shutil.move(str(faces_tmp), str(faces_file))
         if words is None:
-            words = (words_from_transcript(_transcript_key(seg), start, end)
-                     or mock_words(seg.get("hook_text") or "", end - start))
+            words = words_from_transcript(_transcript_key(seg), start, end)
+        if not words:
+            if config.is_dev:
+                words = mock_words(seg.get("hook_text") or "", end - start)
+            else:
+                # Never invent captions: the clip is kept without words and the editor can add them
+                words = []
+                ctx.error("processing", M("no_words", start=f"{start:.0f}"))
     finally:
         shutil.rmtree(work, ignore_errors=True)
     ctx.check()

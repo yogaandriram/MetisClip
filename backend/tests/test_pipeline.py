@@ -232,3 +232,20 @@ def test_missing_llm_key_fails_with_indonesian_message_in_production(db, fake_wo
     job = db.discovery_jobs.find_one({"_id": job_id})
     assert job["status"] == "failed"
     assert "API key LLM (OpenAI-compatible) belum diisi" in job["errors"][-1]["message"]
+
+
+def test_clip_without_any_words_gets_no_invented_captions_in_production(db, fake_world, secrets, monkeypatch):
+    """Without Whisper words or transcript words for a clip, production keeps the clip with no captions and
+    says so; it never fills in the hook text as fake words (dev still does, for demos)."""
+    from backend.core.config import config
+
+    monkeypatch.setattr(config, "env", "production")
+    secrets.set_secret("llm_api_key", "sk-test-0000000000")  # the production keyring service
+    monkeypatch.setattr(processor, "words_from_transcript", lambda *a, **k: [])
+    job_id = _make_job(db, _campaign("Agen"))
+    static_pipeline.run_job(job_id, procs.CancelToken())
+    job = db.discovery_jobs.find_one({"_id": job_id})
+    assert job["status"] == "completed", job.get("errors")
+    clips = list(db.clips.find({"job_id": job_id}))
+    assert len(clips) == 2 and all(c["subtitle"]["words"] == [] for c in clips)
+    assert sum("tidak punya subtitle" in e["message"] for e in job["errors"]) == 2
