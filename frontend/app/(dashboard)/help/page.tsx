@@ -111,7 +111,8 @@ export default function HelpPage() {
   useEffect(() => {
     Promise.all([api.dashboard.stats(), api.secrets.status(), api.settings.get()])
       .then(([stats, { secrets }, { settings }]) => {
-        const ai = !!secrets[providerInfo(settings.llm.provider).secret]
+        const info = providerInfo(settings.llm.provider)
+        const ai = !!info && !!secrets[info.secret]
         setSteps({ campaign: true, ai, ...stats.firstSteps })
       })
       .catch(() => setSteps(null))

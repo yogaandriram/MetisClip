@@ -105,6 +105,8 @@ export const settings = {
   /** components/settings/LlmFields.tsx */
   llm: {
     provider: 'Penyedia LLM',
+    /** No provider is chosen by default */
+    chooseProvider: 'Pilih penyedia LLM yang kamu pakai. Kolom API key dan model muncul setelah itu.',
     /** The provider hint has an inline key icon between these two parts */
     providerHintBefore: 'Dipakai untuk menganalisis transkrip, memilih momen viral, dan menandai kata kunci/emoji. Tanda',
     providerHintAfter: 'berarti API key penyedia itu sudah tersimpan.',

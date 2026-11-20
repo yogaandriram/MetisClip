@@ -81,6 +81,7 @@ export const about: Messages['about'] = {
     accessShared: 'other accounts can open it too',
     nonAscii: 'the path has non-ASCII characters',
     llm: 'LLM',
+    noProvider: 'not chosen yet',
     transcription: 'Transcription',
     localModel: (model: string) => `local model ${model}`,
     language: 'Display language',

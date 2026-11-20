@@ -37,13 +37,15 @@ PROVIDERS: dict[str, Provider] = {
                  vision=False),
         Provider("qwen", "Alibaba Qwen", "qwen_api_key", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
                  "qwen-plus"),
-        # 9Router, Groq, OpenRouter, Together AI, … : any endpoint that speaks the OpenAI format
-        Provider("openai_compatible", "OpenAI-compatible", "llm_api_key", None, "metisclip"),
+        # 9Router, Groq, OpenRouter, Together AI, … : any endpoint that speaks the OpenAI format. No model
+        # is suggested: the user types the endpoint's model name or picks it from its list.
+        Provider("openai_compatible", "OpenAI-compatible", "llm_api_key", None, ""),
     )
 }
 
-DEFAULT_PROVIDER = "openai_compatible"
-DEFAULT_COMPATIBLE_BASE_URL = "https://9routeryoga.my.id/v1"
+# No provider until the user chooses one (owner decision 2026-11-20, open-source release): the Setup
+# Wizard and Pengaturan ask for it, and every LLM call says so until then (core/llm.py).
+DEFAULT_PROVIDER = ""
 
 # Keyring names of every LLM key, in display order
 LLM_SECRETS: tuple[str, ...] = tuple(p.secret for p in PROVIDERS.values())

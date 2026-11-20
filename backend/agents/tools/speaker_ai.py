@@ -5,7 +5,7 @@ appear in that text are kept (every significant word of the name must be there),
 an invented or guessed name on someone. The user picks a suggestion in the clip editor; nothing is
 saved here.
 
-QA 2026-11-19 asked 8 times per clip (9Router route `metisclip`): a channel named "Sepulang Sekolah"
+QA 2026-11-19 asked 8 times per clip (an OpenAI-compatible router): a channel named "Sepulang Sekolah"
 came back as the host in 11 of 16 answers (the rest empty), "Son" from "Risyad and Son" as a second
 host, and "Cair" ("Itu si Cair banget tuh") as a name in 3 of 8. The prompt now says that channel and
 show names are not people, that a name in the speech must be used for a person (a greeting, an
@@ -101,7 +101,7 @@ def suggest_speakers(title: str, channel: str, words: list[dict[str, Any]], hook
         _PROMPT,
         f"Judul video: {title or '-'}\nChannel: {channel or '-'}\nUcapan di klip:\n{spoken or hook or '-'}",
         temperature=0,  # the same clip gets the same names
-        max_tokens=1500,  # room for reasoning models (the default 9Router route is one)
+        max_tokens=1500,  # room for reasoning models
         retries=2,
     )
     haystack = set(_tokens(" ".join([title or "", channel or "", spoken, hook or ""])))

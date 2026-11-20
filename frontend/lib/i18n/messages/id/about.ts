@@ -83,6 +83,7 @@ export const about = {
     accessShared: 'akun lain juga bisa membuka',
     nonAscii: 'path berisi karakter non-ASCII',
     llm: 'LLM',
+    noProvider: 'belum dipilih',
     transcription: 'Transkripsi',
     localModel: (model: string) => `model lokal ${model}`,
     language: 'Bahasa tampilan',

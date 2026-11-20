@@ -82,9 +82,13 @@ export function supportText({ t, lang, systemInfo, check, storage, settings, now
 
   if (settings) {
     const provider = settings.llm.provider
-    const label = LLM_PROVIDERS.find((p) => p.id === provider)?.label || provider
-    const where = provider === 'openai_compatible' ? host(settings.llm.base_url) : ''
-    lines.push(`${i.llm}: ${label}${where ? ` (${where})` : ''} · ${settings.llm.models[provider] || '-'}`)
+    if (provider) {
+      const label = LLM_PROVIDERS.find((p) => p.id === provider)?.label || provider
+      const where = provider === 'openai_compatible' ? host(settings.llm.base_url) : ''
+      lines.push(`${i.llm}: ${label}${where ? ` (${where})` : ''} · ${settings.llm.models[provider] || '-'}`)
+    } else {
+      lines.push(`${i.llm}: ${i.noProvider}`)
+    }
     lines.push(`${i.transcription}: ${settings.whisper.provider} · ${i.localModel(settings.whisper.local_model)}`)
   }
   lines.push(`${i.language}: ${lang}`)

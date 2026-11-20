@@ -61,7 +61,7 @@ export default function DashboardOverview() {
   const [jobs, setJobs] = useState<Job[] | null>(null)
   const [clips, setClips] = useState<Clip[] | null>(null)
   const [missingKeys, setMissingKeys] = useState<SecretName[]>([])
-  const [llmLabel, setLlmLabel] = useState('LLM')
+  const [llmLabel, setLlmLabel] = useState('')
   const [llmReady, setLlmReady] = useState<boolean | null>(null)
   const [error, setError] = useState<string | null>(null)
   const shell = useShell()
@@ -115,12 +115,14 @@ export default function DashboardOverview() {
   useEffect(() => {
     Promise.all([api.secrets.status(), api.settings.get()])
       .then(([{ secrets }, { settings }]) => {
-        const llmKey = providerInfo(settings.llm.provider).secret
-        setLlmLabel(providerInfo(settings.llm.provider).label)
-        setLlmReady(!!secrets[llmKey])
+        // No provider chosen yet: the warning asks for one (its key is the placeholder in the list)
+        const info = providerInfo(settings.llm.provider)
+        const llmKey: SecretName = info?.secret ?? 'llm_api_key'
+        setLlmLabel(info?.label ?? '')
+        setLlmReady(!!info && !!secrets[llmKey])
         // Groq is only required when transcription is set to "Selalu Groq"; otherwise local Whisper covers it
         const required: SecretName[] = settings.whisper.provider === 'groq' ? [llmKey, 'groq_api_key'] : [llmKey]
-        setMissingKeys(required.filter((k) => !secrets[k]))
+        setMissingKeys(required.filter((k) => !secrets[k] || (k === llmKey && !info)))
       })
       .catch(() => {
         setMissingKeys([])
@@ -194,7 +196,7 @@ export default function DashboardOverview() {
               </ButtonLink>
             }
           >
-            {m.keys.missing(missingKeys.map((k) => (k === 'groq_api_key' ? m.keys.groq : m.keys.llm(llmLabel))))}
+            {m.keys.missing(missingKeys.map((k) => (k === 'groq_api_key' ? m.keys.groq : llmLabel ? m.keys.llm(llmLabel) : m.keys.noProvider)))}
           </Alert>
         )}
 

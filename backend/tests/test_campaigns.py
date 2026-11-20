@@ -280,10 +280,10 @@ def _bad_request(message: str):
     return openai.BadRequestError(message, response=resp, body={"error": {"message": message}})
 
 
-def test_images_go_as_openai_parts_and_refusals_are_remembered(db, secrets, monkeypatch):
+def test_images_go_as_openai_parts_and_refusals_are_remembered(db, secrets, monkeypatch, use_llm):
     from backend.core import llm
 
-    secrets.set_secret("llm_api_key", "k")
+    use_llm("k")
     llm._no_vision.clear()
     ok = _FakeCompletions()
     monkeypatch.setattr(llm, "_openai_client", lambda t, timeout: type("C", (), {"chat": type("Ch", (), {"completions": ok})})())
@@ -691,7 +691,7 @@ def _wait_parse(client, cid, timeout=10.0):
     raise AssertionError("parse did not finish")
 
 
-def test_campaign_api_flow(client, secrets, monkeypatch, tmp_path, db):
+def test_campaign_api_flow(client, secrets, monkeypatch, tmp_path, db, use_llm):
     from backend.agents.tools import brief_ai
 
     r = client.post("/api/campaigns", json={"name": "  Tokopedia   Ramadan ", "client": "Tokopedia"})
@@ -721,7 +721,7 @@ def test_campaign_api_flow(client, secrets, monkeypatch, tmp_path, db):
 
     # Understanding the brief: needs an LLM key, runs in the background, lands in the draft
     assert client.post(f"/api/campaigns/{cid}/parse").status_code == 400
-    secrets.set_secret("llm_api_key", "k")
+    use_llm("k")
     monkeypatch.setattr(brief_ai, "read_brief", lambda sources, **kw: {
         "brief": clean_brief(BRIEF_JSON), "name": "Tokopedia Ramadan", "client": "Tokopedia",
         "unreadable": [], "used_ocr": False, "used_vision": False})
@@ -835,11 +835,11 @@ def test_campaign_api_flow(client, secrets, monkeypatch, tmp_path, db):
     assert db.clips.find_one({"_id": plain_clip})["campaign_id"] == plain["id"]
 
 
-def test_parse_failure_and_restart_recovery(client, secrets, monkeypatch, db):
+def test_parse_failure_and_restart_recovery(client, secrets, monkeypatch, db, use_llm):
     from backend.agents.tools import brief_ai
     from backend.services import campaigns as csvc
 
-    secrets.set_secret("llm_api_key", "k")
+    use_llm("k")
     cid = client.post("/api/campaigns", json={"name": "X"}).json()["campaign"]["id"]
 
     def boom(sources, **kw):

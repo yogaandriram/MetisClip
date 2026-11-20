@@ -528,7 +528,8 @@ export interface Settings {
   export_dir: string
   cache_limit_gb: number
   /** base_url is only used by the OpenAI-compatible provider; models holds the chosen model per provider */
-  llm: { provider: LlmProvider; base_url: string; models: Record<LlmProvider, string> }
+  /** provider '' = not chosen yet (no default provider) */
+  llm: { provider: LlmProvider | ''; base_url: string; models: Record<LlmProvider, string> }
   /** provider: auto = Groq while a key is set and Groq answers, else local; model = the Groq model */
   whisper: { provider: WhisperProvider; model: string; local_model: WhisperLocalModelSetting }
   processing: { max_workers: number; encoder: EncoderSetting }

@@ -34,6 +34,14 @@ from backend.core.secrets import get_secret
 from backend.core import i18n
 
 M = i18n.messages({
+    "no_provider": {
+        "id": "Penyedia LLM belum dipilih. Pilih penyedia dan isi API key-nya di Pengaturan.",
+        "en": "No LLM provider is chosen yet. Choose one and enter its API key in Settings.",
+    },
+    "no_model": {
+        "id": "Model LLM belum diisi di Pengaturan",
+        "en": "The LLM model is not set in Settings",
+    },
     "unknown_provider": {
         "id": "Penyedia LLM tidak dikenal. Pilih ulang di Pengaturan.",
         "en": "Unknown LLM provider. Choose it again in Settings.",
@@ -356,13 +364,18 @@ def target(provider_id: str | None = None, *, key: str | None = None, base_url: 
            model: str | None = None) -> Target:
     """Provider, endpoint, model and key for a request (defaults: the active provider in settings)."""
     s = _llm_settings()
-    provider = PROVIDERS.get(provider_id or s["provider"])
+    chosen = provider_id or s.get("provider")
+    if not chosen:
+        raise LLMNotConfigured(M("no_provider"))
+    provider = PROVIDERS.get(chosen)
     if provider is None:
         raise LLMError(M("unknown_provider"))
     url = (base_url or provider.base_url or s.get("base_url") or "").strip().rstrip("/")
     if not url.startswith(("http://", "https://")):
         raise LLMNotConfigured(M("no_base_url"))
     name = (model or (s.get("models") or {}).get(provider.id) or provider.default_model).strip()
+    if not name:
+        raise LLMNotConfigured(M("no_model"))
     api_key = (key or "").strip() or get_secret(provider.secret)
     if not api_key:
         raise LLMNotConfigured(M("no_key", provider=provider.label))

@@ -105,6 +105,7 @@ export const settings: Messages['settings'] = {
   },
   llm: {
     provider: 'LLM provider',
+    chooseProvider: 'Choose the LLM provider you use. The API key and model fields appear after that.',
     providerHintBefore: 'Used to analyze transcripts, pick viral moments and mark keywords/emojis. The',
     providerHintAfter: "mark means that provider's API key is already saved.",
     keyStored: ', API key saved',

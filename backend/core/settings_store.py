@@ -7,7 +7,7 @@ import os
 import re
 from typing import Any
 
-from backend.core.llm_providers import DEFAULT_COMPATIBLE_BASE_URL, DEFAULT_PROVIDER, PROVIDERS
+from backend.core.llm_providers import DEFAULT_PROVIDER, PROVIDERS
 from backend.core.paths import get_paths
 from backend.core import i18n
 
@@ -106,11 +106,11 @@ def defaults() -> dict[str, Any]:
         # quality: "high", "standard" or "small" (720p), see QUALITY in services/render.py
         "export": {"post_text": True, "loudness": True, "quality": "standard"},
         "cache_limit_gb": 10,
-        # provider: one of llm_providers.PROVIDERS; models: the chosen model per provider;
-        # base_url: only used by the OpenAI-compatible provider
+        # provider: one of llm_providers.PROVIDERS, or "" until the user chooses one; models: the chosen
+        # model per provider; base_url: only used by the OpenAI-compatible provider
         "llm": {
             "provider": DEFAULT_PROVIDER,
-            "base_url": DEFAULT_COMPATIBLE_BASE_URL,
+            "base_url": "",
             "models": {pid: p.default_model for pid, p in PROVIDERS.items()},
         },
         # provider: "auto" (Groq while a key is set and Groq answers, else local), "local" or "groq";
@@ -159,11 +159,14 @@ class SettingsError(ValueError):
 
 def _validate(s: dict) -> None:
     llm = s["llm"]
-    if llm.get("provider") not in PROVIDERS:
+    # "" = not chosen yet: the other settings can still be saved
+    provider = llm.get("provider") or ""
+    if provider and provider not in PROVIDERS:
         raise SettingsError(M("unknown_provider"))
+    llm["provider"] = provider
     models = llm.get("models") if isinstance(llm.get("models"), dict) else {}
     llm["models"] = {pid: str(models.get(pid) or "").strip()[:200] for pid in PROVIDERS}
-    if not llm["models"][llm["provider"]]:
+    if provider and not llm["models"][provider]:
         raise SettingsError(M("model_required"))
     for pid, p in PROVIDERS.items():
         llm["models"][pid] = llm["models"][pid] or p.default_model

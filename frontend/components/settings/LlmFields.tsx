@@ -35,25 +35,27 @@ export function LlmSection({ value, onChange, secrets, onSecretConfigured, persi
   const [loadingModels, setLoadingModels] = useState(false)
   const [modelsError, setModelsError] = useState<string | null>(null)
 
+  // null until the user chooses: there is no default provider
   const provider = providerInfo(value.provider)
-  const model = value.models[value.provider] || ''
-  const keyValue = keys[provider.secret] || ''
-  const hasKey = secrets[provider.secret] || !!keyValue.trim()
-  const list = models[value.provider]
+  const model = provider ? value.models[provider.id] || '' : ''
+  const keyValue = provider ? keys[provider.secret] || '' : ''
+  const hasKey = !!provider && (secrets[provider.secret] || !!keyValue.trim())
+  const list = provider ? models[provider.id] : undefined
   const compatible = value.provider === 'openai_compatible'
 
   const choose = (id: LlmProvider) => {
     setModelsError(null)
     onChange({ ...value, provider: id })
   }
-  const setModel = (m: string) => onChange({ ...value, models: { ...value.models, [value.provider]: m } })
+  const setModel = (m: string) => provider && onChange({ ...value, models: { ...value.models, [provider.id]: m } })
 
   const loadModels = async () => {
+    if (!provider) return
     setLoadingModels(true)
     setModelsError(null)
     try {
-      const res = await api.llm.models(value.provider, { value: keyValue.trim() || undefined, base_url: compatible ? value.base_url : undefined })
-      setModels((prev) => ({ ...prev, [value.provider]: res.models }))
+      const res = await api.llm.models(provider.id, { value: keyValue.trim() || undefined, base_url: compatible ? value.base_url : undefined })
+      setModels((prev) => ({ ...prev, [provider.id]: res.models }))
       if (!res.models.length) setModelsError(m.noModels)
     } catch (err) {
       setModelsError(errorMessage(err, m.modelsFailed))
@@ -87,8 +89,10 @@ export function LlmSection({ value, onChange, secrets, onSecretConfigured, persi
           </>
         }
       >
-        <ChoiceChips ariaLabel={m.provider} options={providerOptions} value={value.provider} onChange={choose} />
+        <ChoiceChips<LlmProvider | ''> ariaLabel={m.provider} options={providerOptions} value={value.provider} onChange={(id) => id && choose(id)} />
       </Field>
+
+      {!provider && <span className="mc-caption mc-muted">{m.chooseProvider}</span>}
 
       {compatible && (
         <InputField
@@ -102,57 +106,61 @@ export function LlmSection({ value, onChange, secrets, onSecretConfigured, persi
         />
       )}
 
-      <SecretField
-        key={provider.secret}
-        name={provider.secret}
-        label={compatible ? m.keyLabelCompatible : m.keyLabel(provider.label)}
-        description={
-          provider.keyUrl ? (
-            <a href={provider.keyUrl} target="_blank" rel="noreferrer" className="mc-link" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              {m.createKey(provider.label)} <ExternalLink size={14} aria-hidden="true" />
-            </a>
-          ) : (
-            m.compatibleKeyHint
-          )
-        }
-        configured={secrets[provider.secret]}
-        value={keyValue}
-        onChange={(v) => setKeys((prev) => ({ ...prev, [provider.secret]: v }))}
-        onConfiguredChange={(c) => onSecretConfigured(provider.secret, c)}
-        beforeTest={persist}
-        allowRemove={allowRemove}
-      />
-
-      <div className="mc-stack mc-gap-8">
-        <div className="mc-row mc-gap-8" style={{ alignItems: 'flex-end' }}>
-          <InputField label={m.model} value={model} onChange={(e) => setModel(e.target.value)} spellCheck={false} containerClassName="mc-grow" placeholder={m.modelPlaceholder} mono />
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={loadModels}
-            loading={loadingModels}
-            disabled={!hasKey || (compatible && !/^https?:\/\//.test(value.base_url))}
-            icon={<ListRestart size={16} aria-hidden="true" />}
-          >
-            {m.loadModels}
-          </Button>
-        </div>
-        {list && list.length > 0 && (
-          <SelectField
-            label={m.pickFrom(list.length, provider.label)}
-            value={list.includes(model) ? model : MANUAL}
-            options={[...(list.includes(model) ? [] : [{ value: MANUAL, label: model ? m.typedManually(model) : m.chooseModel }]), ...list.map((m) => ({ value: m, label: m }))]}
-            onChange={(e) => e.target.value !== MANUAL && setModel(e.target.value)}
+      {provider && (
+        <>
+          <SecretField
+            key={provider.secret}
+            name={provider.secret}
+            label={compatible ? m.keyLabelCompatible : m.keyLabel(provider.label)}
+            description={
+              provider.keyUrl ? (
+                <a href={provider.keyUrl} target="_blank" rel="noreferrer" className="mc-link" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  {m.createKey(provider.label)} <ExternalLink size={14} aria-hidden="true" />
+                </a>
+              ) : (
+                m.compatibleKeyHint
+              )
+            }
+            configured={secrets[provider.secret]}
+            value={keyValue}
+            onChange={(v) => setKeys((prev) => ({ ...prev, [provider.secret]: v }))}
+            onConfiguredChange={(c) => onSecretConfigured(provider.secret, c)}
+            beforeTest={persist}
+            allowRemove={allowRemove}
           />
-        )}
-        {modelsError && (
-          <span className="mc-field__error" role="alert">
-            <AlertTriangle size={14} aria-hidden="true" />
-            {modelsError}
-          </span>
-        )}
-        {!hasKey && <span className="mc-caption mc-muted">{m.needKey(provider.label)}</span>}
-      </div>
+
+          <div className="mc-stack mc-gap-8">
+            <div className="mc-row mc-gap-8" style={{ alignItems: 'flex-end' }}>
+              <InputField label={m.model} value={model} onChange={(e) => setModel(e.target.value)} spellCheck={false} containerClassName="mc-grow" placeholder={m.modelPlaceholder} mono />
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={loadModels}
+                loading={loadingModels}
+                disabled={!hasKey || (compatible && !/^https?:\/\//.test(value.base_url))}
+                icon={<ListRestart size={16} aria-hidden="true" />}
+              >
+                {m.loadModels}
+              </Button>
+            </div>
+            {list && list.length > 0 && (
+              <SelectField
+                label={m.pickFrom(list.length, provider.label)}
+                value={list.includes(model) ? model : MANUAL}
+                options={[...(list.includes(model) ? [] : [{ value: MANUAL, label: model ? m.typedManually(model) : m.chooseModel }]), ...list.map((m) => ({ value: m, label: m }))]}
+                onChange={(e) => e.target.value !== MANUAL && setModel(e.target.value)}
+              />
+            )}
+            {modelsError && (
+              <span className="mc-field__error" role="alert">
+                <AlertTriangle size={14} aria-hidden="true" />
+                {modelsError}
+              </span>
+            )}
+            {!hasKey && <span className="mc-caption mc-muted">{m.needKey(provider.label)}</span>}
+          </div>
+        </>
+      )}
     </div>
   )
 }

@@ -31,8 +31,8 @@ export function safeDragName(value: unknown): string {
 /** The final.mp4 files under <dataRoot>\library that the renderer asked for; anything else is dropped. */
 export function checkDragItems(dataRoot: string, items: unknown): { source: string; name: string }[] {
   if (!Array.isArray(items)) return []
-  // Real paths on both sides: the engine reports long names ("ASUS VivoBook"), a saved data folder may hold
-  // the 8.3 form ("ASUSVI~1") or go through a junction
+  // Real paths on both sides: the engine reports long names ("Nama Pengguna"), a saved data folder may hold
+  // the 8.3 form ("NAMAPE~1") or go through a junction
   let library: string
   try {
     library = fs.realpathSync.native(path.resolve(dataRoot, 'library'))

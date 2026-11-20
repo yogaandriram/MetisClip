@@ -55,9 +55,9 @@ CHOICE = {
 
 
 @pytest.fixture()
-def fake_llm(monkeypatch, secrets):
+def fake_llm(monkeypatch, secrets, use_llm):
     """An LLM key is set and the template designer answers with `answer` (a dict, or a callable)."""
-    secrets.set_secret("llm_api_key", "k")
+    use_llm("k")
     calls = []
     state = {"answer": CHOICE}
 

@@ -29,8 +29,8 @@ def fake_chat(system, user, **kw):
 
 
 @pytest.fixture()
-def fake_world(monkeypatch, db, secrets):
-    secrets.set_secret("llm_api_key", "sk-test-0000000000")
+def fake_world(monkeypatch, db, secrets, use_llm):
+    use_llm("sk-test-0000000000")
     downloads: list[str] = []
 
     def fake_metadata(youtube_id, cancel=None):
@@ -126,10 +126,10 @@ def _make_video(path: Path, seconds: int) -> Path:
     return path
 
 
-def test_upload_job_clips_the_local_file(db, secrets, monkeypatch, tmp_path):
+def test_upload_job_clips_the_local_file(db, secrets, monkeypatch, tmp_path, use_llm):
     from backend.agents.tools import whisper
 
-    secrets.set_secret("llm_api_key", "sk-test-0000000000")
+    use_llm("sk-test-0000000000")
     secrets.set_secret("groq_api_key", "gsk-test-0000000000")
     video_path = _make_video(tmp_path / "Video Saya ü" / "podcast lokal.mp4", 400)
     calls: list[bool] = []
@@ -188,12 +188,12 @@ def test_upload_job_clips_the_local_file(db, secrets, monkeypatch, tmp_path):
     assert db.clips.count_documents({"job_id": job["_id"]}) == 2 and len(calls) == 3
 
 
-def test_upload_job_fails_clearly_when_the_file_is_gone(db, secrets, tmp_path, monkeypatch):
+def test_upload_job_fails_clearly_when_the_file_is_gone(db, secrets, tmp_path, monkeypatch, use_llm):
     from backend.core import events
 
     sent: list[dict] = []
     monkeypatch.setattr(events, "publish", sent.append)
-    secrets.set_secret("llm_api_key", "sk-test-0000000000")
+    use_llm("sk-test-0000000000")
     gone = str(tmp_path / "dipindah.mp4")
     job_id = new_id()
     db.discovery_jobs.insert_one(JobDoc(
