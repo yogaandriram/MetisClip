@@ -9,6 +9,8 @@
 4. Code keeps every clip inside the duration range at sentence edges (never a hard cut mid-sentence),
    drops a bare reaction at either edge ("Gitu ya.", "Iya.") and keeps the question a clip's first
    sentence answers, applies the intro ban, drops overlaps and keeps the best `max_clips_per_video`.
+5. A campaign skips the moments it already has a clip of from the same video (made by another job), so
+   running a video again finds new moments instead of the same clips.
 The Processor then snaps both edges to the clip's own Whisper words (`tools.clip_edges`), finding the
 transcript's own words at each edge (`edge_text`) in them.
 """
@@ -72,6 +74,12 @@ M = i18n.messages({
     "one_on_brief": {
         "id": "Hanya {n} momen di '{title}' yang memenuhi brief '{campaign}'",
         "en": "Only {n} moment in '{title}' meets the '{campaign}' brief",
+    },
+    "already_clipped": {
+        "id": "{skipped} momen di '{title}' sudah pernah diklip di campaign '{campaign}' dan dilewati; "
+              "{n} momen baru ditemukan",
+        "en": "{skipped} moments in '{title}' were already clipped in the '{campaign}' campaign and were "
+              "skipped; {n} new moments found",
     },
     "none_on_brief": {
         "id": "Tidak ada momen di '{title}' yang memenuhi brief '{campaign}'",
@@ -651,6 +659,45 @@ def _for_campaign(cands: list[dict[str, Any]], units: list[Unit], k: int, campai
     return ok, dropped
 
 
+ALREADY_CLIPPED_RATIO = 0.5  # a candidate sharing more than half of an existing clip is that clip again
+
+
+def clipped_ranges(video: dict[str, Any], campaign_id: str, job_id: str) -> list[tuple[float, float]]:
+    """Time ranges of the clips other jobs already made from this video for this campaign (a YouTube
+    video by its id, an uploaded file by its fingerprint). A new job on the same video then finds new
+    moments instead of the same clips again."""
+    db = get_db()
+    q: dict[str, Any] = {"campaign_id": campaign_id, "job_id": {"$ne": job_id}}
+    if video.get("youtube_id"):
+        q["youtube_id"] = video["youtube_id"]
+    elif video.get("file_fingerprint"):
+        ids = [d["_id"] for d in db.source_videos.find({"file_fingerprint": video["file_fingerprint"]}, {"_id": 1})]
+        q["source_video_id"] = {"$in": ids}
+    else:
+        return []
+    return [(float(d.get("start_time") or 0), float(d.get("end_time") or 0))
+            for d in db.clips.find(q, {"start_time": 1, "end_time": 1})]
+
+
+def already_clipped(start: float, end: float, ranges: list[tuple[float, float]]) -> bool:
+    for a, b in ranges:
+        shared = min(end, b) - max(start, a)
+        if shared > 0 and shared / max(0.1, min(end - start, b - a)) > ALREADY_CLIPPED_RATIO:
+            return True
+    return False
+
+
+def _fresh(ctx: JobContext, video: dict[str, Any], units: list[Unit], cands: list[dict[str, Any]],
+           campaign: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
+    """The candidates this campaign has no clip of yet, and how many were left out."""
+    ranges = clipped_ranges(video, campaign["id"], ctx.id)
+    if not ranges:
+        return cands, 0
+    fresh = [c for c in cands
+             if not already_clipped(*clip_times(units, c["i"], c["j"], video.get("duration_seconds")), ranges)]
+    return fresh, len(cands) - len(fresh)
+
+
 def _segment(ctx: JobContext, video: dict[str, Any], units: list[Unit], c: dict[str, Any],
              campaign: dict[str, Any] | None, plain: bool = False) -> dict[str, Any] | None:
     start, end = clip_times(units, c["i"], c["j"], video.get("duration_seconds"))
@@ -713,15 +760,25 @@ def _analyze_video(ctx: JobContext, video: dict[str, Any], lo: float, hi: float,
         return [seg for c in picked if (seg := _segment(ctx, video, units, c, None))]
 
     out: list[dict[str, Any]] = []
+
+    def note_skipped(campaign: dict[str, Any], skipped: int, picked: list[dict[str, Any]], limit: int) -> None:
+        if skipped and (not picked or (limit > 0 and len(picked) < limit)):
+            ctx.error("analysis", M("already_clipped", skipped=skipped, n=len(picked), title=title[:60],
+                                    campaign=campaign.get("name") or ""))
+
     for campaign in plain:
-        picked = _pick(cands, "viral_score", per_video)
+        fresh, skipped = _fresh(ctx, video, units, cands, campaign)
+        picked = _pick(fresh, "viral_score", per_video)
+        note_skipped(campaign, skipped, picked, per_video)
         out.extend(seg for c in picked if (seg := _segment(ctx, video, units, c, campaign, plain=True)))
 
     # Each campaign chooses on its own: a moment may become a clip for two campaigns (the Processor cuts it once)
     for k, campaign in enumerate(briefed):
         limit = campaign_limit(per_video, campaign)
         ok, dropped = _for_campaign(cands, units, k, campaign, lo, hi)
+        ok, skipped = _fresh(ctx, video, units, ok, campaign)
         picked = _pick(ok, "rank_score", limit)
+        note_skipped(campaign, skipped, picked, limit)
         if dropped and (not picked or (limit > 0 and len(picked) < limit)):
             key = "none_on_brief" if not picked else ("one_on_brief" if len(picked) == 1 else "few_on_brief")
             ctx.error("analysis", M(key, n=len(picked), title=title[:60], campaign=campaign.get("name") or ""))
