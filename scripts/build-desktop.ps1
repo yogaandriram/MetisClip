@@ -93,10 +93,41 @@ Invoke-Native $Render 'npm.cmd' @('run', 'build')
 Assert-Path (Join-Path $Render 'build\index.html') 'Remotion bundle'
 Assert-Path (Join-Path $Render 'dist\render.js') 'Render worker'
 
-$BrowserSrc = Join-Path $Render 'node_modules\.remotion\chrome-headless-shell\win64\chrome-headless-shell-win64'
-if (-not (Test-Path (Join-Path $BrowserSrc 'chrome-headless-shell.exe'))) {
-  Invoke-Native $Render 'npx.cmd' @('remotion', 'browser', 'ensure')
+# Chrome Headless Shell: the Chrome for Testing build Remotion is tested with, downloaded from Google's
+# official bucket and checked against a pinned SHA256 like the binaries in fetch-binaries.ps1 (the copy that
+# `npx remotion browser ensure` puts in node_modules for development is not used for the installer).
+# Updating @remotion/renderer changes its TESTED_VERSION: update both pins below with the new zip's hash.
+$ChromeVersion = '149.0.7790.0'
+$ChromeSha256  = '8a112c0e768907ff382ff994dcde35cdbd0e1f5a3a475da93d3a83e3260e78c2'
+$ChromeUrl     = "https://storage.googleapis.com/chrome-for-testing-public/$ChromeVersion/win64/chrome-headless-shell-win64.zip"
+$tested = Select-String -LiteralPath (Join-Path $Render 'node_modules\@remotion\renderer\dist\browser\get-chrome-download-url.js') `
+  -Pattern "TESTED_VERSION = '([^']+)'" | Select-Object -First 1
+if (-not $tested) { throw 'Could not read the Chrome version Remotion is tested with (@remotion/renderer)' }
+if ($tested.Matches[0].Groups[1].Value -ne $ChromeVersion) {
+  throw ("Remotion is tested with Chrome Headless Shell {0}, the build pins {1}: update `$ChromeVersion and `$ChromeSha256" -f $tested.Matches[0].Groups[1].Value, $ChromeVersion)
 }
+$ChromeCache = Join-Path $Desktop '.cache'
+New-Item -ItemType Directory -Force $ChromeCache | Out-Null
+$ChromeZip = Join-Path $ChromeCache "chrome-headless-shell-win64-$ChromeVersion.zip"
+$zipOk = (Test-Path -LiteralPath $ChromeZip) -and ((Get-FileHash -Algorithm SHA256 -LiteralPath $ChromeZip).Hash -eq $ChromeSha256)
+if (-not $zipOk) {
+  Write-Host "   downloading Chrome Headless Shell $ChromeVersion"
+  $prevProgress = $ProgressPreference
+  $ProgressPreference = 'SilentlyContinue'   # Invoke-WebRequest is very slow with the progress bar on PS 5.1
+  try { Invoke-WebRequest -Uri $ChromeUrl -OutFile $ChromeZip -UseBasicParsing } finally { $ProgressPreference = $prevProgress }
+  $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $ChromeZip).Hash.ToLowerInvariant()
+  if ($hash -ne $ChromeSha256) {
+    Remove-Item -LiteralPath $ChromeZip -Force
+    throw ("SHA256 mismatch for Chrome Headless Shell {0}: expected {1}, got {2}" -f $ChromeVersion, $ChromeSha256, $hash)
+  }
+}
+Write-Host "   Chrome Headless Shell ${ChromeVersion}: sha256 verified"
+$ChromeX = Join-Path $ChromeCache "chrome-headless-shell-$ChromeVersion"
+if (Test-Path -LiteralPath $ChromeX) { Remove-Item -LiteralPath $ChromeX -Recurse -Force }
+# Extracted fresh from the verified zip every build; ZipFile takes seconds where Expand-Archive takes minutes
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[IO.Compression.ZipFile]::ExtractToDirectory($ChromeZip, $ChromeX)
+$BrowserSrc = Join-Path $ChromeX 'chrome-headless-shell-win64'
 Assert-Path (Join-Path $BrowserSrc 'chrome-headless-shell.exe') 'Chrome Headless Shell'
 
 Step 'Render engine: staging runtime -> desktop\.stage\render-engine'
@@ -111,7 +142,6 @@ Invoke-Native $Stage 'npm.cmd' @('ci', '--omit=dev', '--no-audit', '--no-fund')
 Assert-Path (Join-Path $Stage 'node_modules\@remotion\compositor-win32-x64-msvc') 'Remotion compositor (win32-x64)'
 # Chrome Headless Shell at <render-engine>\browser\chrome-headless-shell.exe (found by render.js and main)
 Copy-Item -LiteralPath $BrowserSrc -Destination (Join-Path $Stage 'browser') -Recurse
-Remove-Item -LiteralPath (Join-Path $Stage 'browser\debug.log') -Force -ErrorAction SilentlyContinue
 $stageMb = [math]::Round(((Get-ChildItem -LiteralPath $Stage -Recurse -File | Measure-Object Length -Sum).Sum / 1MB), 1)
 Write-Host "   staged render-engine: $stageMb MB"
 

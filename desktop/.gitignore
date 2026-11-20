@@ -3,4 +3,6 @@ dist/
 dist-main/
 # render-engine runtime staged by scripts/build-desktop.ps1
 .stage/
+# downloads cached by scripts/build-desktop.ps1 (Chrome Headless Shell zip)
+.cache/
 resources/bin/
