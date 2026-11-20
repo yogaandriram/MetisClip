@@ -36,7 +36,8 @@ import toast from 'react-hot-toast'
 import { presets } from '@/lib/presets'
 import { CaptionLayer } from '@/lib/presets/CaptionLayer'
 import { LogoOverlay } from '@/lib/presets/BrandOverlay'
-import { LayoutStage } from '@/lib/presets/LayoutStage'
+import { FormatBox, LayoutStage } from '@/lib/presets/LayoutStage'
+import { FORMAT_SIZE, OUTPUT_FORMATS, type OutputFormat, formatCaptionY } from '@/lib/presets/position'
 import {
   type DuoTop,
   type FrameRatio,
@@ -48,6 +49,7 @@ import {
   companionStart,
   companionTime,
   mergeLayout,
+  outputFormat,
   resolveLayout,
   type Scene,
   SCENE_VIEWS,
@@ -392,6 +394,8 @@ function ClipEditor() {
               export_error: e.export_error ?? prev.export_error,
               reused: e.reused ?? prev.reused,
               loudness: e.loudness ?? prev.loudness,
+              format: e.format ?? prev.format,
+              quality: e.quality ?? prev.quality,
               error: e.error ?? prev.error,
             }
           : prev,
@@ -920,12 +924,21 @@ function ClipEditor() {
   const smartOn = baseLayout.smart.enabled
   const layout = applySmart(baseLayout, content)
   const hasSource = !!clip.files.source
+  // 1:1 and 16:9: source.mp4 cropped per shot, whatever the mode (until the clip has it, the preview is 9:16)
+  const format = outputFormat(layout, hasSource)
+  const formatted = format !== 'vertical'
   // Podcast and card show source.mp4; until it exists the preview stays full
-  const sourceView = usesSource(layout.mode) && hasSource
-  const split = layout.mode === 'split'
+  const sourceView = !formatted && usesSource(layout.mode) && hasSource
+  const split = !formatted && layout.mode === 'split'
   // Duo and auto: a view per scene of the face scan; needs the source and the scan
   const sceneData = detail.scenes || null
-  const scenesView = usesScenes(layout.mode) && hasSource && !!sceneData
+  const scenesView = !formatted && usesScenes(layout.mode) && hasSource && !!sceneData
+  /** The main video is source.mp4 (podcast, card, 1:1, 16:9) rather than raw.mp4 */
+  const showsSource = sourceView || formatted
+  const stageLayout = formatted
+    ? layout
+    : { ...layout, format: 'vertical' as const, ...(sourceView || split || scenesView ? {} : { mode: 'full' as const }) }
+  const stageRatio = FORMAT_SIZE[format].width / FORMAT_SIZE[format].height
   const plan = scenePlan(sceneData, layout)
   const companionSrc = split ? assetUrl(layout.companion.videoUrl) : ''
   compLoop.current = { start: companionStart(clip.id, layout.companion.duration), duration: layout.companion.duration }
@@ -1168,14 +1181,14 @@ function ClipEditor() {
             />
           </div>
 
-          <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {/* A size container: the video box takes the largest size of its format that fits it */}
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', containerType: 'size' }}>
             <div
               ref={containerRef}
               onClick={togglePlay}
               style={{
-                height: '100%',
-                maxWidth: '100%',
-                aspectRatio: '9 / 16',
+                width: `min(100cqw, ${stageRatio} * 100cqh)`,
+                aspectRatio: String(stageRatio),
                 position: 'relative',
                 containerType: 'inline-size',
                 borderRadius: 'var(--r-md)',
@@ -1187,8 +1200,8 @@ function ClipEditor() {
               {clip.files.raw ? (
                 // Same layout component as the Remotion render (lib/presets/LayoutStage.tsx): preview == render
                 <LayoutStage
-                  layout={sourceView || split || scenesView ? layout : { ...layout, mode: 'full' }}
-                  scenes={scenesView ? sceneData : null}
+                  layout={stageLayout}
+                  scenes={scenesView || formatted ? sceneData : null}
                   aspect={aspect}
                   title={present.title}
                   channel={detail.channel}
@@ -1240,10 +1253,10 @@ function ClipEditor() {
                       )
                     ) : role === 'main' ? (
                       <video
-                        key={sourceView ? 'source' : 'raw'}
+                        key={showsSource ? 'source' : 'raw'}
                         ref={videoRef}
-                        src={sourceView ? mediaUrl(clip.id, 'source', cutVersion) : mediaUrl(clip.id, 'raw', clip.updated_at)}
-                        poster={!sourceView && clip.files.thumbnail ? mediaUrl(clip.id, 'thumbnail', clip.updated_at) : undefined}
+                        src={showsSource ? mediaUrl(clip.id, 'source', cutVersion) : mediaUrl(clip.id, 'raw', clip.updated_at)}
+                        poster={!showsSource && clip.files.thumbnail ? mediaUrl(clip.id, 'thumbnail', clip.updated_at) : undefined}
                         onLoadedMetadata={(e) => {
                           const v = e.currentTarget
                           setDuration(v.duration || clip.duration_seconds)
@@ -1302,10 +1315,17 @@ function ClipEditor() {
                 </div>
               )}
 
-              <LogoOverlay src={overlaySrc} brand={brand} />
+              <LogoOverlay src={overlaySrc} brand={brand} format={format} />
 
               {/* Same component as the Remotion render (lib/presets/CaptionLayer.tsx): preview == render */}
-              <CaptionLayer words={words} time={currentTime} style={style} ai={ai} />
+              <FormatBox format={format}>
+                <CaptionLayer
+                  words={words}
+                  time={currentTime}
+                  style={formatted ? { ...style, positionY: formatCaptionY(style, ai.emojis, format) } : style}
+                  ai={ai}
+                />
+              </FormatBox>
             </div>
           </div>
 
@@ -1416,6 +1436,56 @@ function ClipEditor() {
                 )
               }
             >
+              <Field label={m.format.label} hint={m.format.hints[layout.format]}>
+                <ChoiceChips<OutputFormat>
+                  ariaLabel={m.format.label}
+                  size="sm"
+                  options={OUTPUT_FORMATS.map((value) => ({ value, label: m.format.names[value] }))}
+                  value={layout.format}
+                  onChange={(value) => setLayout({ format: value })}
+                />
+              </Field>
+              {layout.format !== 'vertical' && (
+                <>
+                  {!hasSource ? (
+                    <Alert
+                      tone="info"
+                      title={m.sourceMissingTitle}
+                      icon={<Film size={18} aria-hidden="true" />}
+                      action={
+                        <Button size="sm" variant="secondary" loading={preparing} onClick={prepareSource}>
+                          {m.prepareNow}
+                        </Button>
+                      }
+                    >
+                      {m.format.sourceMissing}
+                    </Alert>
+                  ) : (
+                    !sceneData && (
+                      <Alert
+                        tone="info"
+                        title={m.facesMissingTitle}
+                        icon={<Film size={18} aria-hidden="true" />}
+                        action={
+                          <Button size="sm" variant="secondary" loading={analyzing} onClick={prepareFaces}>
+                            {m.analyzeNow}
+                          </Button>
+                        }
+                      >
+                        {m.format.facesMissing}
+                      </Alert>
+                    )
+                  )}
+                  <ToggleSwitch
+                    label={m.format.credit}
+                    hint={m.format.creditHint}
+                    checked={layout.credit.enabled}
+                    onChange={(enabled) => setLayout({ credit: { enabled } })}
+                  />
+                </>
+              )}
+              {layout.format === 'vertical' && (
+              <>
               <ToggleSwitch
                 label={m.smart.toggle}
                 hint={m.smart.hint}
@@ -1651,6 +1721,8 @@ function ClipEditor() {
                   />
                 </>
               )}
+              </>
+              )}
               <ToggleSwitch
                 label={m.zoom}
                 hint={m.zoomHint}
@@ -1834,6 +1906,7 @@ function ClipEditor() {
 
             <PanelSection title={m.positionTitle}>
               <CaptionPositionControls style={style} emoji={ai.emojis} onChange={(patch, key) => setStyle(patch, key)} />
+              {layout.format !== 'vertical' && <p className="mc-caption mc-muted">{m.format.positionNote}</p>}
             </PanelSection>
 
             <Divider />
@@ -1892,6 +1965,9 @@ function ClipEditor() {
             {render.reused && render.status === 'completed' && <p className="mc-caption mc-muted">{m.reusedNote}</p>}
             {render.status === 'completed' && render.loudness && (
               <p className="mc-caption mc-muted">{m.loudness(formatLufs(render.loudness.before), formatLufs(render.loudness.after))}</p>
+            )}
+            {render.status === 'completed' && render.format && render.quality && (
+              <p className="mc-caption mc-muted">{m.format.made(m.format.names[render.format], m.format.qualities[render.quality])}</p>
             )}
             {renderActive && (
               <>

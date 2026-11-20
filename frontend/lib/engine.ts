@@ -450,6 +450,9 @@ export interface SubtitleUpdate {
 }
 
 export type RenderStatus = 'queued' | 'rendering' | 'completed' | 'failed' | 'cancelled'
+/** Output format of a render (lib/presets/position.ts OutputFormat) and the export quality (Pengaturan) */
+export type OutputFormat = 'vertical' | 'square' | 'landscape'
+export type ExportQuality = 'high' | 'standard' | 'small'
 
 export interface RenderJob {
   id: string
@@ -468,6 +471,9 @@ export interface RenderJob {
   reused?: boolean
   /** The sound leveled to about -14 LUFS (LUFS before and after); null: left as it was */
   loudness?: { before: number; after: number } | null
+  /** The format and quality it was made in */
+  format?: OutputFormat | null
+  quality?: ExportQuality | null
   error: string | null
   created_at: ISODate
   finished_at: ISODate | null
@@ -503,8 +509,8 @@ export interface Settings {
   /** auto_update: check for a new yt-dlp once a day */
   ytdlp: { player_client: string; cookies_file: string | null; auto_update: boolean }
   /** post_text: a campaign clip's export gets a .txt with its post text next to the video;
-   *  loudness: every exported video's sound is leveled to about -14 LUFS */
-  export: { post_text: boolean; loudness: boolean }
+   *  loudness: every exported video's sound is leveled to about -14 LUFS; quality: x264 CRF and size */
+  export: { post_text: boolean; loudness: boolean; quality: ExportQuality }
   db: { wiredtiger_cache_gb: number }
   /** language: the UI language, mirrored for the engine's own messages (lib/i18n) */
   /** The engine's copy of the UI language; closing to the tray is a shell setting (window.metis) */
@@ -701,6 +707,8 @@ export type EngineEvent =
       /** Copied again without a render (nothing changed since the last one) */
       reused?: boolean
       loudness?: { before: number; after: number } | null
+      format?: OutputFormat | null
+      quality?: ExportQuality | null
       error?: string | null
     }
   | { type: 'system.notice'; level: 'info' | 'warning' | 'error'; message: string }

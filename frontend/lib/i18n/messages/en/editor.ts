@@ -155,6 +155,22 @@ export const editor: Messages['editor'] = {
   retryRender: 'Render again',
   reusedStatus: 'Final video copied again',
   loudness: (before: string, after: string) => `Sound volume leveled: ${before} → ${after} LUFS.`,
+  format: {
+    label: 'Video format',
+    names: { vertical: '9:16', square: '1:1', landscape: '16:9' },
+    hints: {
+      vertical: 'For TikTok, Reels and Shorts. Every layout below applies.',
+      square: 'For Instagram and Facebook feeds. The source video is cropped square around the faces of each shot; the 9:16 layouts are not used.',
+      landscape: 'For YouTube and wide screens. The source video shows in 16:9, cropped around the faces when its ratio differs; the 9:16 layouts are not used.',
+    },
+    sourceMissing: 'This format uses the source video in its own ratio. Prepare it now to see the preview; the export also prepares it by itself.',
+    facesMissing: 'Without a face analysis the video is cropped in the middle. Analyze now so the crop follows the faces of each shot; the export also does it by itself.',
+    credit: 'Show the source credit',
+    creditHint: 'The credit text from the Brand Template, in the top-left corner. Not shown for uploads without a channel name.',
+    positionNote: 'In this format the caption position is mapped to the video height: a caption at the bottom stays at the bottom, one at the top stays at the top.',
+    qualities: { high: 'High', standard: 'Standard', small: 'Small (720p)' },
+    made: (format: string, quality: string) => `Format ${format}, ${quality} quality.`,
+  },
   reusedNote: 'Not rendered again: nothing changed since the last render, so the existing final video was copied again.',
   renderAgain: 'Render again',
 

@@ -476,6 +476,9 @@ class RenderJobDoc(Doc):
     reused: bool = False
     # The sound leveled to about -14 LUFS: {"before", "after"} in LUFS (None: left as it was)
     loudness: Optional[dict[str, float]] = None
+    # The format ("vertical", "square", "landscape") and quality ("high", "standard", "small") it was made in
+    format: Optional[str] = None
+    quality: Optional[str] = None
     error: Optional[str] = None
     created_at: datetime = Field(default_factory=_now)
     started_at: Optional[datetime] = None

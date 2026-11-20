@@ -53,6 +53,10 @@ M = i18n.messages({
         "id": "Konkurensi render harus berupa angka",
         "en": "Render concurrency must be a number",
     },
+    "bad_quality": {
+        "id": "Kualitas ekspor harus Tinggi, Standar, atau Hemat",
+        "en": "The export quality must be High, Standard or Small",
+    },
     "auto_bool": {
         "id": "Hemat RAM otomatis harus aktif atau nonaktif",
         "en": "Automatic RAM saving must be on or off",
@@ -99,7 +103,8 @@ def defaults() -> dict[str, Any]:
         "export_dir": str(get_paths().exports_dir),
         # post_text: a campaign clip's export gets a .txt with its post text next to the video
         # loudness: every exported video's audio is leveled to about -14 LUFS (services/render.py)
-        "export": {"post_text": True, "loudness": True},
+        # quality: "high", "standard" or "small" (720p), see QUALITY in services/render.py
+        "export": {"post_text": True, "loudness": True, "quality": "standard"},
         "cache_limit_gb": 10,
         # provider: one of llm_providers.PROVIDERS; models: the chosen model per provider;
         # base_url: only used by the OpenAI-compatible provider
@@ -199,6 +204,8 @@ def _validate(s: dict) -> None:
     res["reserve_gb"] = round(reserve, 2)
     if not isinstance(s["export"].get("post_text"), bool) or not isinstance(s["export"].get("loudness"), bool):
         raise SettingsError(M("auto_bool"))
+    if s["export"].get("quality") not in ("high", "standard", "small"):
+        raise SettingsError(M("bad_quality"))
     if not isinstance(s["ytdlp"].get("auto_update"), bool):
         raise SettingsError(M("ytdlp_auto_bool"))
     # Passed to yt-dlp as --extractor-args youtube:player_client=<value> (agents/tools/ytdlp.py)

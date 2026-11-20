@@ -163,6 +163,23 @@ export const editor = {
   reusedStatus: 'Video final disalin lagi',
   /** The sound leveled after the render (values already formatted) */
   loudness: (before: string, after: string) => `Volume suara disamakan: ${before} → ${after} LUFS.`,
+  /** Output format (1:1 and 16:9 crop the source video per shot) and the export quality */
+  format: {
+    label: 'Format video',
+    names: { vertical: '9:16', square: '1:1', landscape: '16:9' },
+    hints: {
+      vertical: 'Untuk TikTok, Reels dan Shorts. Semua layout di bawah berlaku.',
+      square: 'Untuk feed Instagram dan Facebook. Video sumber dipotong persegi mengikuti wajah di tiap adegan; layout 9:16 tidak dipakai.',
+      landscape: 'Untuk YouTube dan layar lebar. Video sumber tampil 16:9, dipotong mengikuti wajah bila rasionya lain; layout 9:16 tidak dipakai.',
+    },
+    sourceMissing: 'Format ini memakai video sumber dengan rasio aslinya. Siapkan sekarang untuk melihat pratinjaunya; ekspor juga menyiapkannya sendiri.',
+    facesMissing: 'Tanpa analisis wajah, video dipotong di tengah. Analisis sekarang agar potongannya mengikuti wajah di tiap adegan; ekspor juga melakukannya sendiri.',
+    credit: 'Tampilkan kredit sumber',
+    creditHint: 'Teks kredit dari Brand Template, di pojok kiri atas. Tidak tampil untuk video upload tanpa nama kanal.',
+    positionNote: 'Di format ini posisi caption dipetakan ke tinggi videonya: caption di bawah tetap di bawah, caption di atas tetap di atas.',
+    qualities: { high: 'Tinggi', standard: 'Standar', small: 'Hemat (720p)' },
+    made: (format: string, quality: string) => `Format ${format}, kualitas ${quality}.`,
+  },
   reusedNote: 'Tidak dirender ulang: tidak ada yang berubah sejak render terakhir, jadi video final yang ada disalin lagi.',
   renderAgain: 'Render ulang',
 

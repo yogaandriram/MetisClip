@@ -46,6 +46,10 @@ M = i18n.messages({
         "id": "Render worker tidak ditemukan (render-engine/dist/render.js). Jalankan build render-engine.",
         "en": "The render worker was not found (render-engine/dist/render.js). Build render-engine first.",
     },
+    "format_needs_source": {
+        "id": "Format {name} butuh video sumber: {error}",
+        "en": "The {name} format needs the source video: {error}",
+    },
     "loudness": {
         "id": "Menyamakan volume suara…",
         "en": "Leveling the sound volume…",
@@ -166,14 +170,19 @@ def build_props(clip: dict[str, Any]) -> dict[str, Any]:
     # The chosen cover (seconds of raw.mp4): the composition reports which output frame shows it
     if clip.get("cover_time") is not None:
         props["coverTime"] = float(clip["cover_time"])
-    # Podcast, card, duo and auto layouts: the original-ratio cut (same timeline as raw.mp4); without
-    # one the clip stays full. Duo and auto also need the shots of the face scan.
+    # Podcast, card, duo and auto layouts and the 1:1 and 16:9 formats: the original-ratio cut (same
+    # timeline as raw.mp4); without one the clip stays full 9:16. Duo and auto also need the shots of the
+    # face scan; 1:1 and 16:9 point their crop at the faces when the scan exists.
     if layout_svc.needs_source(lay) and (clip.get("files") or {}).get("source"):
         props["sourceUrl"] = media_url(clip["_id"], "source")
         props["sourceAspect"] = source_aspect(clip)
         props["channel"] = channel_name(clip)
         if layout_svc.needs_faces(lay):
             props["scenes"] = layout_svc.scene_info(clip)
+        elif layout_svc.output_format(lay) != "vertical":
+            scenes = layout_svc.scene_info(clip)
+            if scenes:
+                props["scenes"] = scenes
     return props
 
 
@@ -198,13 +207,36 @@ def loudness_on() -> bool:
     return bool(get_settings()["export"].get("loudness", True))
 
 
-def fingerprint(props: dict[str, Any], loudness: bool | None = None) -> str:
+# Export quality (Pengaturan → Penyimpanan lokal, gap analysis B9): x264 CRF, the share of the
+# composition's size rendered (2/3: 1080x1920 -> 720x1280) and the JPEG quality of the captured frames
+QUALITY: dict[str, dict[str, Any]] = {
+    "high": {"crf": 15, "scale": 1, "jpeg": 95},
+    "standard": {"crf": 18, "scale": 1, "jpeg": 90},
+    "small": {"crf": 23, "scale": 2 / 3, "jpeg": 85},
+}
+
+
+def quality_now() -> str:
+    from backend.core.settings_store import get_settings
+
+    q = get_settings()["export"].get("quality")
+    return q if q in QUALITY else "standard"
+
+
+def quality_args(quality: str) -> list[str]:
+    """The render worker's arguments for an export quality."""
+    q = QUALITY.get(quality) or QUALITY["standard"]
+    return ["--crf", str(q["crf"]), "--scale", f"{q['scale']:.7f}", "--jpeg-quality", str(q["jpeg"])]
+
+
+def fingerprint(props: dict[str, Any], loudness: bool | None = None, quality: str | None = None) -> str:
     """What a render's video depends on, as a hash: its props without the chosen cover (a cover can be
     taken from the video afterwards) and without this launch's port and token, whether its sound is
-    leveled (`loudness`, the current setting when None), plus the app version (presets, fonts and the
-    composition change with it). Equal fingerprints render the same video."""
+    leveled (`loudness`) and its quality (`quality`; the current settings when None), plus the app
+    version (presets, fonts and the composition change with it). Equal fingerprints render the same video."""
     data = {k: v for k, v in props.items() if k != "coverTime"}
     data["_loudness"] = loudness_on() if loudness is None else bool(loudness)
+    data["_quality"] = quality_now() if quality is None else quality
     text = json.dumps(data, sort_keys=True, ensure_ascii=False, default=str)
     for volatile in (config.base_url, config.token):
         if volatile:
@@ -318,7 +350,8 @@ def _copy_to_exports(render_id: str, clip: dict[str, Any]) -> dict[str, Any]:
 
 
 def _finish(render_id: str, clip: dict[str, Any], rendered: Path, done: dict[str, Any] | None = None,
-            props_fingerprint: str | None = None, loudness: dict[str, float] | None = None) -> None:
+            props_fingerprint: str | None = None, loudness: dict[str, float] | None = None,
+            output: dict[str, str] | None = None) -> None:
     """Move the rendered file to the clip's final.mp4, copy it to the export folder, mark the job completed.
 
     `done` is the worker's last line (the cover's output frame and the kept frames). A failed copy does
@@ -352,13 +385,16 @@ def _finish(render_id: str, clip: dict[str, Any], rendered: Path, done: dict[str
         "total_frames": total,
         "cover_time": cover_time if cover_rel else None,
         "loudness": loudness,
+        # The format and quality it was rendered in ({"format", "quality"}): the export's file name
+        **(output or {"format": "vertical", "quality": "standard"}),
         "at": utcnow(),
     }
     db.clips.update_one({"_id": clip_id}, {"$set": {"files.final": rel, "files.cover": cover_rel,
                                                      "final_render": final_render,
                                                      "status": "exported", "updated_at": utcnow()}})
     files = {**(clip.get("files") or {}), "final": rel, "cover": cover_rel}
-    result = {**_copy_to_exports(render_id, {**clip, "cover_time": cover_time, "files": files}), "loudness": loudness}
+    exported = {**clip, "cover_time": cover_time, "files": files, "final_render": final_render}
+    result = {**_copy_to_exports(render_id, exported), "loudness": loudness, **(output or {})}
     db.render_jobs.update_one(
         {"_id": render_id},
         {"$set": {"status": "completed", "progress_pct": 100.0, "finished_at": utcnow(), **result}},
@@ -406,12 +442,14 @@ def reuse_final(clip: dict[str, Any]) -> dict[str, Any]:
         files["cover"] = cover_from_final(clip)
     now = utcnow()
     doc = RenderJobDoc(_id=new_id(), clip_id=clip_id, status="completed", progress_pct=100.0, reused=True,
-                       loudness=info.get("loudness"), started_at=now, finished_at=now).to_mongo()
+                       loudness=info.get("loudness"), format=info.get("format"), quality=info.get("quality"),
+                       started_at=now, finished_at=now).to_mongo()
     doc.update(_copy_to_exports(doc["_id"], {**clip, "files": files}))
     db.render_jobs.insert_one(doc)
     db.clips.update_one({"_id": clip_id}, {"$set": {"status": "exported", "updated_at": now}})
     events.publish({"type": "clip.updated", "id": clip_id})
-    _publish(doc["_id"], clip_id, "completed", reused=True, loudness=doc["loudness"], output_path=doc["output_path"],
+    _publish(doc["_id"], clip_id, "completed", reused=True, loudness=doc["loudness"], format=doc["format"],
+             quality=doc["quality"], output_path=doc["output_path"],
              exported_path=doc["exported_path"], export_dir=doc["export_dir"], export_error=doc["export_error"])
     return doc
 
@@ -448,9 +486,10 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
                             "status": "rendering", "progress_pct": 0.0, "message": message})
 
         lay = layout_svc.effective_layout(clip, template_for(clip))
+        fmt = layout_svc.output_format(lay)
         # Layout otomatis sesuai konten: the clip's content picks its layout, so it is read first
-        # (clips made before their face scan was kept get it now)
-        if layout_svc.smart_on(lay) and layout_svc.content_profile(clip) is None:
+        # (clips made before their face scan was kept get it now). 1:1 and 16:9 do not use the mode.
+        if fmt == "vertical" and layout_svc.smart_on(lay) and layout_svc.content_profile(clip) is None:
             try:
                 clip = layout_svc.prepare_faces(clip, cancel, on_step=step)
             except layout_svc.SourceError as exc:
@@ -461,9 +500,25 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
         if problem:
             raise RuntimeError(problem)
 
+        # 1:1 and 16:9 crop source.mp4 (fetched first for clips made before it was kept) around the faces
+        # of each shot: without a face scan (or when it fails) the crop points at the center
+        if fmt != "vertical":
+            label = layout_svc.FORMAT_LABELS[fmt]
+            if not layout_svc.source_path(clip):
+                try:
+                    clip = layout_svc.prepare_source(clip, cancel, on_step=step)
+                except layout_svc.SourceError as exc:
+                    raise RuntimeError(M("format_needs_source", name=label, error=exc)) from exc
+                cancel.check()
+            if not layout_svc.scene_info(clip):
+                try:
+                    clip = layout_svc.prepare_faces(clip, cancel, on_step=step)
+                except layout_svc.SourceError as exc:
+                    logger.warning("Render %s: no face scan for the %s crop, centered: %s", render_id, label, exc)
+                cancel.check()
         # Clips made before these layouts did not keep their original-ratio video or their face scan
         name = layout_svc.mode_name(str(lay.get("mode")))
-        if layout_svc.needs_source(lay) and not layout_svc.source_path(clip):
+        if fmt == "vertical" and layout_svc.needs_source(lay) and not layout_svc.source_path(clip):
             try:
                 clip = layout_svc.prepare_source(clip, cancel, on_step=step)
             except layout_svc.SourceError as exc:
@@ -477,14 +532,16 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
             cancel.check()
         props = build_props(clip)
         props_path.write_text(json.dumps(props, ensure_ascii=False), encoding="utf-8")
-        # Read once: the video is leveled (or not) as the setting said when it started
+        # Read once: the video is leveled (or not) and made in the quality the settings said when it started
         level = loudness_on()
-        props_fingerprint = fingerprint(props, level)
+        quality = quality_now()
+        props_fingerprint = fingerprint(props, level, quality)
         script = paths.render_dir / "dist" / "render.js"
         if not script.exists():
             raise RuntimeError(M("no_worker"))
         prefix, extra_env = node_command()
-        cmd = prefix + [str(script), "--props", str(props_path), "--out", str(tmp_out), "--gl", "angle"]
+        cmd = prefix + [str(script), "--props", str(props_path), "--out", str(tmp_out), "--gl", "angle",
+                        *quality_args(quality)]
         bundle = paths.render_dir / "build"
         if bundle.exists():
             cmd += ["--bundle", str(bundle)]
@@ -496,7 +553,7 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
                             "status": "rendering", "progress_pct": 0.0, "message": info.message()})
 
         # The RAM guard sizes the render: Chrome tabs that fit, the lean encoder and frame cache
-        extra = resources.LAYOUT_RENDER_MB.get(str(lay.get("mode")), 0)
+        extra = resources.LAYOUT_RENDER_MB.get(str(lay.get("mode")), 0) if fmt == "vertical" else 0
         with resources.render_slot(cancel=cancel, on_wait=waiting, extra_mb=extra) as tabs:
             low = tabs is not None
             if tabs is not None:
@@ -508,7 +565,7 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
         cancel.check()
         if ok and tmp_out.exists() and tmp_out.stat().st_size > 0:
             loudness = _level_loudness(render_id, clip_id, tmp_out, work, cancel) if level else None
-            _finish(render_id, clip, tmp_out, info, props_fingerprint, loudness)
+            _finish(render_id, clip, tmp_out, info, props_fingerprint, loudness, {"format": fmt, "quality": quality})
             status = "completed"
             return
         error = error or M("no_message")

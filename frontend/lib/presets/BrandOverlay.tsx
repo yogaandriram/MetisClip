@@ -1,6 +1,7 @@
 import React from 'react';
 import { DESIGN_CANVAS } from './defaults';
 import { r4 } from './anim';
+import { formatCanvas, formatLogoPosition, type OutputFormat } from './position';
 
 /** Base logo width on the 300×533 design canvas, before `logoScale`. */
 export const LOGO_BASE_SIZE = 60;
@@ -24,26 +25,29 @@ export function logoPosition(brand: LogoSettings | null | undefined): { x: numbe
 }
 
 /**
- * Brand logo / CTA overlay, positioned in % of the 9:16 box so the editor and the render match.
+ * Brand logo / CTA overlay, positioned in % of the video box so the editor and the render match.
  * `ImgComponent` lets Remotion pass its <Img> (waits for the image before the frame is captured).
+ * `format`: on a 1:1 or 16:9 canvas the logo keeps its size and its corner (formatLogoPosition).
  */
 export const LogoOverlay: React.FC<{
   src: string;
   brand: LogoSettings | null | undefined;
   ImgComponent?: React.ComponentType<{ src: string; style?: React.CSSProperties }>;
   zIndex?: number;
-}> = ({ src, brand, ImgComponent, zIndex = 5 }) => {
+  format?: OutputFormat;
+}> = ({ src, brand, ImgComponent, zIndex = 5, format = 'vertical' }) => {
   if (!src) return null;
-  const pos = logoPosition(brand);
   const width = LOGO_BASE_SIZE * logoScale(brand);
+  const pos = formatLogoPosition(logoPosition(brand), width, format);
+  const canvas = formatCanvas(format);
   const imgStyle: React.CSSProperties = { width: '100%', height: 'auto', display: 'block' };
   return (
     <div
       style={{
         position: 'absolute',
-        top: `${r4((pos.y / DESIGN_CANVAS.height) * 100)}%`,
-        left: `${r4((pos.x / DESIGN_CANVAS.width) * 100)}%`,
-        width: `${r4((width / DESIGN_CANVAS.width) * 100)}%`,
+        top: `${r4((pos.y / canvas.height) * 100)}%`,
+        left: `${r4((pos.x / canvas.width) * 100)}%`,
+        width: `${r4((width / canvas.width) * 100)}%`,
         zIndex,
         pointerEvents: 'none',
       }}

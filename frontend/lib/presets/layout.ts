@@ -16,13 +16,26 @@
 //    podcast frame. The view changes only at camera cuts, where the picture changes anyway.
 // Every mode can add a dynamic zoom (punch-in on AI keywords or every other sentence) and a speaker
 // name tag (lower third) shown for a few seconds.
+// `format` picks the output: 'vertical' (9:16, the modes above), or 'square' (1:1) and 'landscape'
+// (16:9), which show source.mp4 cropped per shot of the face scan (formatFocus, formatCrop) whatever
+// the mode; the caption, the logo and the speaker tag keep their size (position.ts formatCanvas).
 // Pure (no React, no DOM): the clip editor, the Brand Template preview and the Remotion render use
 // the same geometry and timing (preview == render). Keep the defaults and limits in sync with
 // backend/services/layout.py.
 //
 // Units are design px of DESIGN_CANVAS (300×533), like the caption position; font sizes use the
 // caption's unit (font in design px = fontSize / 2). Times are seconds of the source clip.
-import { DESIGN_CANVAS, PLATFORM_LABELS, PLATFORM_UI, PLATFORMS, toDesign, type Platform } from './position';
+import {
+  DESIGN_CANVAS,
+  OUTPUT_FORMATS,
+  PLATFORM_LABELS,
+  PLATFORM_UI,
+  PLATFORMS,
+  formatCanvas,
+  toDesign,
+  type OutputFormat,
+  type Platform,
+} from './position';
 import { charWidthEm } from './metrics';
 import { isFiller } from './captions';
 import { Ease, interpolate } from './anim';
@@ -212,6 +225,8 @@ export interface ContentProfile {
 
 export interface Layout {
   mode: LayoutMode;
+  /** Output format: 9:16 uses `mode`; 1:1 and 16:9 show the source cropped per shot. */
+  format: OutputFormat;
   smart: LayoutSmart;
   frame: LayoutFrame;
   background: LayoutBackground;
@@ -228,6 +243,7 @@ export interface Layout {
 /** Partial layout as stored (template layout_settings, clip layout_style): sections are partial too. */
 export type LayoutPatch = {
   mode?: LayoutMode;
+  format?: OutputFormat;
   smart?: Partial<LayoutSmart>;
   frame?: Partial<LayoutFrame>;
   background?: Partial<LayoutBackground>;
@@ -254,6 +270,7 @@ const SAFE = toDesign({
 
 export const DEFAULT_LAYOUT: Layout = {
   mode: 'full',
+  format: 'vertical',
   // Off: every clip uses `mode`. On: one person full, two people as panels, slides in the frame,
   // the rest per scene
   smart: { enabled: false, speaker: 'full', duo: 'duo', screen: 'podcast', mixed: 'auto' },
@@ -373,7 +390,7 @@ export function mergeLayout(...patches: Array<LayoutPatch | Record<string, any> 
   for (const p of patches) {
     if (!p || typeof p !== 'object') continue;
     for (const [k, v] of Object.entries(p)) {
-      if (k === 'mode') out.mode = v;
+      if (k === 'mode' || k === 'format') out[k] = v;
       else if ((SECTIONS as readonly string[]).includes(k)) {
         if (v && typeof v === 'object') out[k] = { ...(out[k] || {}), ...v };
       }
@@ -400,6 +417,7 @@ export function resolveLayout(...patches: Array<LayoutPatch | Record<string, any
   const L = LAYOUT_LIMITS;
   return {
     mode: oneOf(p.mode, MODES, d.mode),
+    format: oneOf(p.format, OUTPUT_FORMATS, d.format),
     smart: {
       enabled: bool(sm.enabled, d.smart.enabled),
       speaker: oneOf(sm.speaker, SMART_CHOICES.speaker, d.smart.speaker),
@@ -870,6 +888,78 @@ export const MIN_SCENE_S = 1.0;
  * less than half a frame even at 120 fps.
  */
 const SCENE_EPS = 0.004;
+
+// ---------------------------------------------------------------------------------------------
+// 1:1 and 16:9 output (gap analysis B9)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The format a clip is shown in: 1:1 and 16:9 need source.mp4 (the render fetches it first); until the
+ * editor has it, the preview stays 9:16.
+ */
+export function outputFormat(layout: Layout, hasSource: boolean): OutputFormat {
+  return layout.format !== 'vertical' && hasSource ? layout.format : 'vertical';
+}
+
+/**
+ * A 1:1 or 16:9 video crops the source while the crop keeps at least 1 / FORMAT_MAX_CROP of it across or
+ * down (16:9 into 1:1 keeps 56 %); a source further from the format's shape (a vertical upload in 16:9)
+ * sits whole on its blurred copy instead.
+ */
+export const FORMAT_MAX_CROP = 2;
+/** When the crop cuts the top and the bottom, the faces sit this far down the picture. */
+export const FORMAT_FACE_Y = 0.42;
+/** The blurred copy behind a whole source (design px) and the darkening over it. */
+export const FORMAT_BLUR = 18;
+export const FORMAT_DIM = 0.25;
+/** Where to point without faces (a slide, a wide shot, no face scan): the middle, a little high. */
+const FORMAT_CENTER = { x: 0.5, y: 0.45 };
+
+/** The shot at source time `t` (shots cover the clip), or null. */
+export function shotAt(data: SceneData | null | undefined, t: number): Shot | null {
+  if (!data || !Array.isArray(data.shots)) return null;
+  const u = t + SCENE_EPS;
+  for (const s of data.shots) if (u >= s.start && u < s.end) return s;
+  return null;
+}
+
+/**
+ * Where a 1:1 or 16:9 crop points at source time `t` (fractions of the source): the middle of the faces of
+ * the shot, so two people side by side both stay in; the center without faces. One point per shot: the
+ * crop moves only at camera cuts.
+ */
+export function formatFocus(data: SceneData | null | undefined, t: number): { x: number; y: number } {
+  const faces = shotAt(data, t)?.faces || [];
+  if (!faces.length) return FORMAT_CENTER;
+  const x = faces.reduce((sum, f) => sum + f.x, 0) / faces.length;
+  const y = faces.reduce((sum, f) => sum + f.y, 0) / faces.length;
+  return { x: clamp(x, 0, 1), y: clamp(y, 0, 1) };
+}
+
+/**
+ * The source picture on a format's canvas (design px): covering the canvas around `focus` (centered
+ * across, FORMAT_FACE_Y down, never past the picture's edges), or whole and centered (`contain`, over its
+ * blurred copy) when the crop would keep less than 1 / FORMAT_MAX_CROP of it.
+ */
+export function formatCrop(focus: { x: number; y: number }, aspect: number, format: OutputFormat): { rect: Rect; contain: boolean } {
+  const c = formatCanvas(format);
+  const a = aspect > 0 && Number.isFinite(aspect) ? aspect : 16 / 9;
+  const ca = c.width / c.height;
+  const contain = Math.max(a / ca, ca / a) > FORMAT_MAX_CROP;
+  if (contain) {
+    const width = a > ca ? c.width : c.height * a;
+    const height = a > ca ? c.width / a : c.height;
+    return { rect: { left: (c.width - width) / 2, top: (c.height - height) / 2, width, height }, contain };
+  }
+  if (a >= ca) {
+    const width = c.height * a;
+    const left = clamp(c.width / 2 - focus.x * width, c.width - width, 0);
+    return { rect: { left, top: 0, width, height: c.height }, contain };
+  }
+  const height = c.width / a;
+  const top = clamp(c.height * FORMAT_FACE_Y - focus.y * height, c.height - height, 0);
+  return { rect: { left: 0, top, width: c.width, height }, contain };
+}
 
 /** Modes that pick a view per scene from the clip's face scan. */
 export const usesScenes = (mode: LayoutMode): boolean => mode === 'duo' || mode === 'auto';

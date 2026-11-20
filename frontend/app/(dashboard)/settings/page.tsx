@@ -3,11 +3,11 @@
 import React, { useCallback, useEffect, useId, useState } from 'react'
 import { AppWindow, Cpu, Download, FolderOpen, HardDrive, KeyRound, Mic, Save } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { Alert, Button, Card, CardHeader, Field, IconButton, InputField, LanguageSwitch, PageHeader, SelectField, Skeleton, ToggleSwitch } from '@/components/ui'
+import { Alert, Button, Card, CardHeader, ChoiceChips, Field, IconButton, InputField, LanguageSwitch, PageHeader, SelectField, Skeleton, ToggleSwitch } from '@/components/ui'
 import { LlmSection } from '@/components/settings/LlmFields'
 import { WhisperSection } from '@/components/settings/WhisperFields'
 import { useEngine } from '@/contexts/EngineContext'
-import { api, type EncoderSetting, type ResourceStatus, type SecretName, type Settings } from '@/lib/engine'
+import { api, type EncoderSetting, type ExportQuality, type ResourceStatus, type SecretName, type Settings } from '@/lib/engine'
 import { errorMessage } from '@/lib/format'
 import { isDesktop } from '@/lib/media'
 import { getLang, localeTag, tm } from '@/lib/i18n'
@@ -16,6 +16,7 @@ import { useUpdateStatus } from '@/lib/updates'
 import { useUnsavedGuard } from '@/components/shell/UnsavedGuard'
 
 const ENCODERS: EncoderSetting[] = ['auto', 'libx264', 'h264_nvenc', 'h264_qsv', 'h264_amf']
+const EXPORT_QUALITIES: ExportQuality[] = ['high', 'standard', 'small']
 
 /** Fixed choices for "Keep RAM free for other apps" (0 = automatic, backend/core/resources.py) */
 const RESERVE_GB = [1, 1.5, 2, 3, 4, 6]
@@ -433,6 +434,15 @@ export default function SettingsPage() {
                 checked={settings.export?.loudness ?? true}
                 onChange={(v) => patch('export', { ...settings.export, loudness: v })}
               />
+              <Field label={m.storage.quality} hint={m.storage.qualityHint}>
+                <ChoiceChips<ExportQuality>
+                  ariaLabel={m.storage.quality}
+                  size="sm"
+                  options={EXPORT_QUALITIES.map((value) => ({ value, label: m.storage.qualities[value] }))}
+                  value={settings.export?.quality ?? 'standard'}
+                  onChange={(v) => patch('export', { ...settings.export, quality: v })}
+                />
+              </Field>
               <div className="mc-grid">
                 <InputField
                   containerClassName="mc-col-6"
