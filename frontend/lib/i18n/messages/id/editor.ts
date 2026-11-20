@@ -103,6 +103,7 @@ export const editor = {
     undo: 'Undo',
     redo: 'Redo',
     export: 'Ekspor video',
+    find: 'Cari kata di subtitle',
   },
 
   // Loading and events
@@ -180,6 +181,37 @@ export const editor = {
   emojiAria: (n: number) => `Emoji kata ${n}`,
   emojiTitle: 'Emoji di atas subtitle mulai kata ini (kosongkan untuk menghapus)',
   insertWord: 'Sisipkan kata',
+  /** The word list's tools (components/editor/WordPanel.tsx) */
+  words: {
+    find: 'Cari kata',
+    findPlaceholder: 'Cari di subtitle (Ctrl+F)',
+    clearFind: 'Hapus pencarian',
+    matches: (n: number) => (n ? `${n} kata cocok` : 'Tidak ada kata yang cocok'),
+    prevMatch: 'Kata cocok sebelumnya (Shift+Enter)',
+    nextMatch: 'Kata cocok berikutnya (Enter)',
+    replaceToggle: 'Ganti kata',
+    replaceWith: 'Ganti dengan',
+    replacePlaceholder: 'Ganti dengan… (kosong = hapus)',
+    replaceAll: (n: number) => `Ganti semua (${n})`,
+    replaced: (n: number) => `${n} kata diganti`,
+    follow: 'Daftar mengikuti video (klik untuk berhenti)',
+    followOff: 'Ikuti video: gulir ke kata yang sedang diucapkan',
+    more: (n: number) => `Aksi lain untuk kata ${n}`,
+    split: (parts: number) => `Pisah jadi ${parts} kata`,
+    splitHint: 'Pisah kata: ketik spasi di teksnya dulu',
+    merge: (next: string) => `Gabung dengan "${next}"`,
+    problems: (n: number) => `${n} kata punya waktu atau teks yang perlu dicek.`,
+    showProblem: 'Lihat',
+    fix: 'Rapikan waktu',
+    fixed: 'Waktu kata dirapikan',
+    problem: {
+      empty: 'Teks kosong (dihapus saat dirapikan)',
+      short: 'Terlalu singkat untuk tersorot',
+      order: 'Mulai sebelum kata sebelumnya',
+      overlap: 'Bertumpuk dengan kata sebelumnya',
+      outside: 'Di luar durasi clip',
+    },
+  },
 
   // Stage
   undo: 'Undo (Ctrl+Z)',
@@ -194,6 +226,12 @@ export const editor = {
   pause: 'Jeda (Spasi)',
   timeline: 'Posisi video',
   timeOf: (current: string, total: string) => `${current} dari ${total}`,
+  /** The legend of the marks on the timeline */
+  marks: {
+    keyword: 'Kata kunci',
+    match: 'Hasil pencarian',
+    problem: 'Perlu dicek',
+  },
 
   // Properties panel
   propsTitle: 'Properti',

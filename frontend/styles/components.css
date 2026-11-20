@@ -2490,6 +2490,12 @@ input[type='color'].mc-input {
   font: inherit;
 }
 
+/* A subtitle word that matches the editor's search (components/editor/WordPanel.tsx) */
+.mc-word--match {
+  outline: 2px dashed var(--line-input);
+  outline-offset: -2px;
+}
+
 .mc-thumb--picked,
 .mc-thumb--picked.mc-card--interactive:hover {
   box-shadow: 0 0 0 3px var(--canvas), 0 0 0 6px var(--ink);

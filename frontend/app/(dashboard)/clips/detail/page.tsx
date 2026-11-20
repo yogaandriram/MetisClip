@@ -17,14 +17,11 @@ import {
   Pause,
   PenLine,
   Play,
-  Plus,
   Redo2,
   RotateCcw,
   Save,
   ScanText,
   Scissors,
-  Star,
-  Trash2,
   Type,
   Undo2,
   UserRound,
@@ -64,7 +61,6 @@ import {
   DEFAULT_AI_SETTINGS,
   computeKeepSegments,
   isCut,
-  isFiller,
   keptDuration,
   nextKeptTime,
   outputTimeAt,
@@ -81,7 +77,6 @@ import {
   ConfirmModal,
   Divider,
   Dropdown,
-  EmptyState,
   Field,
   IconButton,
   InputField,
@@ -104,6 +99,8 @@ import {
 } from '@/components/ui'
 import { CampaignPanel, mergeBriefDetail } from '@/components/brief/CampaignPanel'
 import { RecutDialog } from '@/components/clips/RecutDialog'
+import { WordPanel } from '@/components/editor/WordPanel'
+import { findWords, wordProblems } from '@/lib/wordEdit'
 import { useUnsavedGuard } from '@/components/shell/UnsavedGuard'
 import { cx } from '@/lib/cx'
 import { CaptionPositionControls } from '@/components/captions/CaptionPositionControls'
@@ -253,6 +250,9 @@ function ClipEditor() {
   const [confirmReset, setConfirmReset] = useState(false)
   /** Where to go after the unsaved-changes prompt (null = no prompt) */
   const [showShortcuts, setShowShortcuts] = useState(false)
+  /** The word list's search (Ctrl+F focuses it) */
+  const [find, setFind] = useState('')
+  const findRef = useRef<HTMLInputElement>(null)
 
   /** Left column: the subtitle words, or the clip's campaign (checklist and post text) */
   // `?tab=brief` opens the campaign tab (from the gallery's brief badge)
@@ -564,6 +564,21 @@ function ClipEditor() {
   const adjustedTime = currentTime - style.offsetTime / 1000
   const activeWordIndex = useMemo(() => words.findIndex((w) => adjustedTime >= w.start && adjustedTime <= w.end), [words, adjustedTime])
 
+  // The word list's search and timing checks, also marked on the timeline
+  const matches = useMemo(() => findWords(words, find), [words, find])
+  const wordIssues = useMemo(() => wordProblems(words, sourceDuration), [words, sourceDuration])
+  const marks = useMemo(() => {
+    const matched = new Set(matches)
+    const out: TimelineMark[] = []
+    words.forEach((w, i) => {
+      const t = w.start + style.offsetTime / 1000
+      if (wordIssues[i]) out.push({ t, kind: 'problem' })
+      else if (matched.has(i)) out.push({ t, kind: 'match' })
+      else if (w.keyword && ai.keywords) out.push({ t, kind: 'keyword' })
+    })
+    return out
+  }, [words, matches, wordIssues, style.offsetTime, ai.keywords])
+
   // ---- actions ------------------------------------------------------------
 
   const save = async (silent = false): Promise<boolean> => {
@@ -805,6 +820,15 @@ function ClipEditor() {
       startRender()
       return
     }
+    if (ctrl && key === 'f') {
+      e.preventDefault()
+      setLeftTab('words')
+      requestAnimationFrame(() => {
+        findRef.current?.focus()
+        findRef.current?.select()
+      })
+      return
+    }
     if (isTypingTarget(e.target)) return
     if (ctrl && key === 'z' && !e.shiftKey) {
       e.preventDefault()
@@ -906,6 +930,7 @@ function ClipEditor() {
     ['Ctrl + Z', m.shortcuts.undo],
     ['Ctrl + Y', m.shortcuts.redo],
     ['Ctrl + E', m.shortcuts.export],
+    ['Ctrl + F', m.shortcuts.find],
   ]
 
   const saveState = saving ? (
@@ -1067,123 +1092,28 @@ function ClipEditor() {
               <CardHeader size="sm" icon={<Type size={18} />} title={m.captionTitle} subtitle={m.captionSubtitle} />
             )}
           </div>
-          <div style={{ ...COLUMN_BODY, padding: leftTab === 'brief' ? '4px 20px 20px' : '4px 12px 16px' }}>
-            {leftTab === 'brief' ? (
+          {leftTab === 'brief' ? (
+            <div style={{ ...COLUMN_BODY, padding: '4px 20px 20px' }}>
               <CampaignPanel detail={detail} dirty={dirty} onDetail={(fn) => setDetail((d) => (d ? fn(d) : d))} onNavigate={leave} />
-            ) : words.length === 0 ? (
-              <EmptyState
-                icon={Type}
-                title={m.noSubtitles}
-                description={m.noSubtitlesBody}
-                action={
-                  <Button variant="secondary" size="sm" icon={<Plus size={16} />} onClick={() => setWords([{ word: m.firstWordText, start: 0, end: 0.5 }])}>
-                    {m.addWord}
-                  </Button>
-                }
-              />
-            ) : (
-              <div className="mc-stack mc-gap-8">
-                {words.map((item, index) => {
-                  const active = activeWordIndex === index
-                  const filler = ai.fillerWords && isFiller(item.word)
-                  const keyword = !!item.keyword && ai.keywords
-                  return (
-                    <div
-                      key={index}
-                      className={cx('mc-card', 'mc-card--pad-none', active ? 'mc-card--leaf' : 'mc-card--dew', active && 'mc-card--selected')}
-                      aria-current={active || undefined}
-                      onClick={(e) => {
-                        if (!isTypingTarget(e.target)) seekTo(item.start + style.offsetTime / 1000)
-                      }}
-                      style={{ padding: '10px 10px 10px 12px', borderRadius: 'var(--r-md)', cursor: 'pointer' }}
-                    >
-                      <div className="mc-row mc-gap-4">
-                        <input
-                          type="text"
-                          className="mc-input mc-input--sm mc-grow"
-                          aria-label={m.wordAria(index + 1)}
-                          value={item.word}
-                          onChange={(e) => setWords(words.map((w, i) => (i === index ? { ...w, word: e.target.value } : w)), `word-${index}`)}
-                          style={{
-                            padding: '0 12px',
-                            fontWeight: active || item.keyword ? 600 : 400,
-                            color: filler ? 'var(--text-subtle)' : keyword ? 'var(--moss)' : undefined,
-                            textDecoration: filler ? 'line-through' : undefined,
-                          }}
-                        />
-                        {filler && (
-                          <Badge tone="quiet" size="sm" title={m.fillerTitle}>
-                            {m.fillerBadge}
-                          </Badge>
-                        )}
-                        <IconButton
-                          size="sm"
-                          variant={item.keyword ? 'ink' : 'surface'}
-                          tooltip="end"
-                          label={item.keyword ? m.keywordOn : m.keywordOff}
-                          aria-pressed={!!item.keyword}
-                          icon={<Star size={16} fill={item.keyword ? 'currentColor' : 'none'} />}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setWords(words.map((w, i) => (i === index ? { ...w, keyword: !w.keyword } : w)))
-                          }}
-                        />
-                        <IconButton
-                          size="sm"
-                          tooltip="end"
-                          label={m.deleteWord}
-                          icon={<Trash2 size={16} />}
-                          onClick={() => setWords(words.filter((_, i) => i !== index))}
-                        />
-                      </div>
-                      <div className="mc-row mc-gap-4" style={{ marginTop: 8 }}>
-                        <TimeInput
-                          label={m.wordStart(index + 1)}
-                          value={item.start}
-                          onCommit={(v) => setWords(words.map((w, i) => (i === index ? { ...w, start: v } : w)), `start-${index}`)}
-                        />
-                        <span className="mc-caption mc-muted" aria-hidden="true">
-                          –
-                        </span>
-                        <TimeInput
-                          label={m.wordEnd(index + 1)}
-                          value={item.end}
-                          onCommit={(v) => setWords(words.map((w, i) => (i === index ? { ...w, end: v } : w)), `end-${index}`)}
-                        />
-                        <input
-                          type="text"
-                          className="mc-input mc-input--sm"
-                          value={item.emoji || ''}
-                          placeholder={m.emojiPlaceholder}
-                          aria-label={m.emojiAria(index + 1)}
-                          title={m.emojiTitle}
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={(e) => {
-                            const v = Array.from(e.target.value.trim()).slice(-2).join('')
-                            setWords(words.map((w, i) => (i === index ? { ...w, emoji: v || null } : w)), `emoji-${index}`)
-                          }}
-                          style={{ width: 64, padding: '0 8px', textAlign: 'center' }}
-                        />
-                        <span className="mc-grow" />
-                        <IconButton
-                          size="sm"
-                          tooltip="end"
-                          label={m.insertWord}
-                          icon={<Plus size={16} />}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            const next = [...words]
-                            next.splice(index + 1, 0, { word: m.insertedWordText, start: item.end, end: item.end + 0.5 })
-                            setWords(next)
-                          }}
-                        />
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <WordPanel
+              words={words}
+              setWords={setWords}
+              ai={ai}
+              offsetS={style.offsetTime / 1000}
+              activeIndex={activeWordIndex}
+              isPlaying={isPlaying}
+              duration={sourceDuration}
+              problems={wordIssues}
+              find={find}
+              onFindChange={setFind}
+              matches={matches}
+              onSeek={seekTo}
+              findRef={findRef}
+              bodyStyle={COLUMN_BODY}
+            />
+          )}
         </Card>
 
         {/* Preview */}
@@ -1361,8 +1291,9 @@ function ClipEditor() {
             <span className="mc-mono" style={{ whiteSpace: 'nowrap' }}>
               {formatClock(currentTime)} <span className="mc-muted">/ {formatClock(sourceDuration)}</span>
             </span>
-            <Timeline time={currentTime} duration={sourceDuration} segments={segments} onSeek={seekTo} />
+            <Timeline time={currentTime} duration={sourceDuration} segments={segments} marks={marks} onSeek={seekTo} />
           </div>
+          {marks.length > 0 && <MarkLegend marks={marks} />}
         </Stage>
 
         {/* Style panel */}
@@ -1984,7 +1915,48 @@ function PanelSection({ title, action, children }: { title: string; action?: Rea
  * Scrub track on the stage (DESIGN.md §8.17): kept ranges in ink-line, cut ranges (fillers, pauses)
  * leave the darker track visible, the playhead is a white line. ← / → seek via the editor shortcuts.
  */
-function Timeline({ time, duration, segments, onSeek }: { time: number; duration: number; segments: Segment[]; onSeek: (t: number) => void }) {
+type TimelineMark = { t: number; kind: 'keyword' | 'match' | 'problem' }
+
+/** One mark on the timeline: keywords as dots on top, search matches as bars, words to check as diamonds below */
+function MarkShape({ kind, style }: { kind: TimelineMark['kind']; style?: React.CSSProperties }) {
+  const shape: React.CSSProperties =
+    kind === 'keyword'
+      ? { width: 6, height: 6, borderRadius: 'var(--r-full)', background: 'var(--leaf)' }
+      : kind === 'match'
+        ? { width: 3, height: 16, borderRadius: 2, background: 'var(--sage)' }
+        : { width: 7, height: 7, transform: 'rotate(45deg)', boxShadow: 'inset 0 0 0 2px var(--on-ink)' }
+  return <span aria-hidden="true" style={{ display: 'inline-block', flexShrink: 0, ...shape, ...style }} />
+}
+
+/** What the timeline's marks mean (only the kinds it shows) */
+function MarkLegend({ marks }: { marks: TimelineMark[] }) {
+  const m = useT().editor
+  const kinds = (['keyword', 'match', 'problem'] as const).filter((k) => marks.some((x) => x.kind === k))
+  return (
+    <div className="mc-row mc-gap-16 mc-caption" style={{ justifyContent: 'flex-end', flexWrap: 'wrap', color: 'var(--on-ink-muted)' }}>
+      {kinds.map((k) => (
+        <span key={k} className="mc-row mc-gap-8">
+          <MarkShape kind={k} />
+          {m.marks[k]}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function Timeline({
+  time,
+  duration,
+  segments,
+  marks,
+  onSeek,
+}: {
+  time: number
+  duration: number
+  segments: Segment[]
+  marks: TimelineMark[]
+  onSeek: (t: number) => void
+}) {
   const m = useT().editor
   const track = useRef<HTMLDivElement>(null)
   const dragging = useRef(false)
@@ -2027,6 +1999,18 @@ function Timeline({ time, duration, segments, onSeek }: { time: number; duration
           key={`${s.start}-${s.end}`}
           aria-hidden="true"
           style={{ position: 'absolute', top: 0, bottom: 0, left: `${pct(s.start)}%`, width: `${pct(s.end) - pct(s.start)}%`, background: 'var(--ink-line)' }}
+        />
+      ))}
+      {marks.map((mk, i) => (
+        <MarkShape
+          key={`${mk.kind}-${i}`}
+          kind={mk.kind}
+          style={{
+            position: 'absolute',
+            left: `${pct(mk.t)}%`,
+            marginLeft: mk.kind === 'match' ? -1.5 : mk.kind === 'keyword' ? -3 : -3.5,
+            ...(mk.kind === 'keyword' ? { top: 5 } : mk.kind === 'match' ? { top: 12 } : { bottom: 5 }),
+          }}
         />
       ))}
       <span aria-hidden="true" style={{ position: 'absolute', top: 0, bottom: 0, left: `${pct(time)}%`, width: 2, marginLeft: -1, background: 'var(--on-ink)' }}>
@@ -2090,36 +2074,5 @@ function SceneStrip({ plan, duration, time, onSeek }: { plan: Scene[]; duration:
         ))}
       </div>
     </div>
-  )
-}
-
-/** Seconds input (2 decimals) committed on every valid value. */
-function TimeInput({ value, onCommit, label }: { value: number; onCommit: (v: number) => void; label: string }) {
-  const [text, setText] = useState(value.toFixed(2))
-  const focused = useRef(false)
-  useEffect(() => {
-    if (!focused.current) setText(Number(value).toFixed(2))
-  }, [value])
-  return (
-    <input
-      type="number"
-      className="mc-input mc-input--sm mc-input--mono"
-      aria-label={label}
-      step={0.05}
-      min={0}
-      value={text}
-      onClick={(e) => e.stopPropagation()}
-      onFocus={() => (focused.current = true)}
-      onBlur={() => {
-        focused.current = false
-        setText(Number(value).toFixed(2))
-      }}
-      onChange={(e) => {
-        setText(e.target.value)
-        const n = parseFloat(e.target.value)
-        if (isFinite(n) && n >= 0) onCommit(Math.round(n * 1000) / 1000)
-      }}
-      style={{ width: 80, padding: '0 8px 0 12px' }}
-    />
   )
 }
