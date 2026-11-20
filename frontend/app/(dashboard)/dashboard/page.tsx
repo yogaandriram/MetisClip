@@ -2,7 +2,8 @@
 
 import React, { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { ArrowRight, ArrowUpRight, Clapperboard, Film, KeyRound, Plus } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, Clapperboard, Film, KeyRound, LifeBuoy, Plus, X } from 'lucide-react'
+import toast from 'react-hot-toast'
 import {
   Alert,
   Badge,
@@ -13,6 +14,7 @@ import {
   Contour,
   EmptyState,
   GooPair,
+  IconButton,
   Notch,
   PageHeader,
   ProgressBar,
@@ -24,6 +26,8 @@ import {
   iconButtonClass,
 } from '@/components/ui'
 import { NoCampaignState } from '@/components/NoCampaignState'
+import { FIRST_STEPS, FirstSteps, firstStepsDone, type FirstStepsState } from '@/components/help/FirstSteps'
+import { useShell } from '@/components/shell/ShellContext'
 import { useCampaign } from '@/contexts/CampaignContext'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
@@ -36,6 +40,8 @@ import { tm, type Messages } from '@/lib/i18n'
 import { useT } from '@/lib/i18n/I18nProvider'
 
 const LATEST_CLIPS = 6
+/** Per viewer: the first-steps guide was hidden (the Setup Wizard's end shows it again) */
+const GUIDE_HIDDEN_KEY = 'metisclip.firstStepsHidden'
 
 function summary(t: Messages, ready: number | null, running: number | null, failed: boolean): string {
   const m = t.dashboard
@@ -56,7 +62,36 @@ export default function DashboardOverview() {
   const [clips, setClips] = useState<Clip[] | null>(null)
   const [missingKeys, setMissingKeys] = useState<SecretName[]>([])
   const [llmLabel, setLlmLabel] = useState('LLM')
+  const [llmReady, setLlmReady] = useState<boolean | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const shell = useShell()
+  // The first-steps guide: hidden until the viewer's choice is read; `?welcome=1` comes from the Setup Wizard
+  const [guideHidden, setGuideHidden] = useState(true)
+  const [welcome, setWelcome] = useState(false)
+
+  useEffect(() => {
+    const isWelcome = new URLSearchParams(window.location.search).get('welcome') === '1'
+    let hidden = false
+    try {
+      if (isWelcome) window.localStorage.removeItem(GUIDE_HIDDEN_KEY)
+      else hidden = window.localStorage.getItem(GUIDE_HIDDEN_KEY) === '1'
+    } catch {
+      // Storage blocked: the guide shows
+    }
+    setWelcome(isWelcome)
+    setGuideHidden(hidden)
+    if (isWelcome) window.history.replaceState(window.history.state, '', window.location.pathname)
+  }, [])
+
+  const hideGuide = () => {
+    try {
+      window.localStorage.setItem(GUIDE_HIDDEN_KEY, '1')
+    } catch {
+      // Hidden for this visit only
+    }
+    setGuideHidden(true)
+    toast(tm().help.firstSteps.hidden)
+  }
 
   const load = useCallback(async (id: string) => {
     setError(null)
@@ -82,11 +117,15 @@ export default function DashboardOverview() {
       .then(([{ secrets }, { settings }]) => {
         const llmKey = providerInfo(settings.llm.provider).secret
         setLlmLabel(providerInfo(settings.llm.provider).label)
+        setLlmReady(!!secrets[llmKey])
         // Groq is only required when transcription is set to "Selalu Groq"; otherwise local Whisper covers it
         const required: SecretName[] = settings.whisper.provider === 'groq' ? [llmKey, 'groq_api_key'] : [llmKey]
         setMissingKeys(required.filter((k) => !secrets[k]))
       })
-      .catch(() => setMissingKeys([]))
+      .catch(() => {
+        setMissingKeys([])
+        setLlmReady(false)
+      })
   }, [epoch])
 
   useEngineEvents((e) => {
@@ -95,6 +134,9 @@ export default function DashboardOverview() {
       setJobs((prev) => prev?.map((j) => (j.id === e.id ? { ...j, status: e.status, current_step: e.current_step, progress_pct: e.progress_pct, total_scenes: e.total_scenes, processed_scenes: e.processed_scenes } : j)) ?? prev)
     } else if (e.type === 'job.status' || e.type === 'clip.created' || e.type === 'clip.deleted') {
       if (e.type === 'clip.deleted' || eventForCampaign(e, campaignId)) load(campaignId)
+    } else if (e.type === 'render.status' && e.status === 'completed' && stats && !stats.firstSteps.export) {
+      // The guide's last step
+      load(campaignId)
     }
   })
 
@@ -112,12 +154,36 @@ export default function DashboardOverview() {
   const heroJob = activeJobs ? activeJobs.find((j) => j.status === 'running') || activeJobs[0] || null : null
   const latestClips = clips ? clips.slice(0, LATEST_CLIPS) : null
 
+  const guide: FirstStepsState | null = stats && llmReady !== null ? { campaign: true, ai: llmReady, ...stats.firstSteps } : null
+  const guideDone = guide ? firstStepsDone(guide) : 0
+  const showGuide = !!guide && !guideHidden && guideDone < FIRST_STEPS.length
+  // The guide's "Hubungkan AI" step covers a missing LLM key; the warning stays for the Groq key
+  const showKeys = missingKeys.length > 0 && !(showGuide && missingKeys.every((k) => k !== 'groq_api_key'))
+
   return (
     <>
       <PageHeader title={activeCampaign.name} subtitle={summary(t, readyCount, activeJobs ? activeJobs.length : null, !!error)} />
 
       <div className="mc-stack mc-gap-32">
-        {missingKeys.length > 0 && (
+        {showGuide && guide && (
+          <Card tone="dew">
+            <CardHeader
+              title={welcome ? t.help.firstSteps.welcomeTitle : t.help.firstSteps.title}
+              subtitle={t.help.firstSteps.progress(guideDone, FIRST_STEPS.length)}
+              action={
+                <div className="mc-row mc-gap-8">
+                  <ButtonLink href="/help/" variant="ghost" size="sm" icon={<LifeBuoy size={16} aria-hidden="true" />}>
+                    {t.help.firstSteps.openHelp}
+                  </ButtonLink>
+                  <IconButton variant="ghost" size="sm" tooltip="end" label={t.help.firstSteps.hide} icon={<X size={16} />} onClick={hideGuide} />
+                </div>
+              }
+            />
+            <FirstSteps state={guide} running={(shell?.activeJobs ?? 0) > 0} />
+          </Card>
+        )}
+
+        {showKeys && (
           <Alert
             tone="warning"
             icon={<KeyRound size={18} />}

@@ -3,7 +3,7 @@
 import React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { ArrowLeft, Plus } from 'lucide-react'
+import { ArrowLeft, CircleHelp, Plus } from 'lucide-react'
 import { useShell } from '@/components/shell/ShellContext'
 import { normalizePath } from '@/components/shell/NavRail'
 import { IconLink } from './IconButton'
@@ -17,7 +17,7 @@ interface PageHeaderProps {
   actions?: React.ReactNode
   /** Back button before the title */
   back?: { href: string; label: string }
-  /** "+ Klip baru" and the jobs pill (default true inside the shell); the campaign is the profile circle */
+  /** "+ Klip baru", the jobs pill and Bantuan (default true inside the shell); the campaign is the profile circle */
   showGlobal?: boolean
 }
 
@@ -59,6 +59,7 @@ export function PageHeader({ title, subtitle, actions, back, showGlobal = true }
               </Link>
             </div>
           )}
+          {global && pathname !== '/help' && <IconLink href="/help/" label={t.help.open} icon={<CircleHelp size={18} />} tooltip="bottom" />}
         </div>
       )}
     </header>

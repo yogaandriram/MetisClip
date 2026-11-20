@@ -175,6 +175,12 @@ export function useUnsavedGuard(
   return ctx?.guard ?? ((action: () => void) => action())
 }
 
+/** For navigation the shell starts itself (F1 opens Bantuan): asks first while the open page has unsaved edits,
+ *  without registering a page. */
+export function useGuardedNavigation(): (action: () => void) => void {
+  return useContext(GuardContext)?.guard ?? ((action: () => void) => action())
+}
+
 /** For the campaign switcher: asks first on pages where switching the campaign drops unsaved edits. */
 export function useCampaignSwitchGuard(): (action: () => void) => void {
   return useContext(GuardContext)?.guardCampaignSwitch ?? ((action: () => void) => action())

@@ -108,6 +108,7 @@ import { CampaignPanel, mergeBriefDetail } from '@/components/brief/CampaignPane
 import { RecutDialog } from '@/components/clips/RecutDialog'
 import { WordPanel } from '@/components/editor/WordPanel'
 import { findWords, wordProblems } from '@/lib/wordEdit'
+import { editorShortcuts } from '@/lib/shortcuts'
 import { useUnsavedGuard } from '@/components/shell/UnsavedGuard'
 import { cx } from '@/lib/cx'
 import { CaptionPositionControls } from '@/components/captions/CaptionPositionControls'
@@ -1019,16 +1020,7 @@ function ClipEditor() {
   const fontWeights = FONT_WEIGHTS_MAP[style.fontFamily] || ['Regular']
   const weightOptions = (fontWeights.includes(style.fontWeight) ? fontWeights : [style.fontWeight, ...fontWeights]).map((w) => ({ value: w, label: w }))
   const fullOrFramedOptions = FULL_OR_FRAMED.map((value) => ({ value, label: m.views[value] }))
-  const shortcuts: [string, string][] = [
-    [m.shortcuts.spaceKey, m.shortcuts.playPause],
-    ['← / →', m.shortcuts.step],
-    ['Shift + ← / →', m.shortcuts.stepLong],
-    ['Ctrl + S', m.shortcuts.save],
-    ['Ctrl + Z', m.shortcuts.undo],
-    ['Ctrl + Y', m.shortcuts.redo],
-    ['Ctrl + E', m.shortcuts.export],
-    ['Ctrl + F', m.shortcuts.find],
-  ]
+  const shortcuts = editorShortcuts(t)
 
   const saveState = saving ? (
     <span className="mc-row mc-gap-4 mc-caption">

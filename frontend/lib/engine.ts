@@ -676,6 +676,8 @@ export interface DashboardStats {
   /** Clips waiting for an export (status ready) */
   clipsReady: number
   potentialViews: number
+  /** Beranda's first-steps guide, over every campaign: a job started, a clip made, a render finished */
+  firstSteps: { job: boolean; clip: boolean; export: boolean }
 }
 
 export type EngineEvent =
@@ -1119,6 +1121,7 @@ export const api = {
   },
 
   dashboard: {
-    stats: (campaignId: string) => request<DashboardStats>('GET', '/api/dashboard/stats', { query: { campaign_id: campaignId } }),
+    /** One campaign's numbers, or every campaign's without an id (firstSteps always covers every campaign) */
+    stats: (campaignId?: string) => request<DashboardStats>('GET', '/api/dashboard/stats', { query: campaignId ? { campaign_id: campaignId } : {} }),
   },
 }

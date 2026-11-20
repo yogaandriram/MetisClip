@@ -201,6 +201,7 @@ def test_campaign_is_the_container(client, db, paths):
     templates = client.get("/api/brand-templates").json()["brand_templates"]
     assert len(templates) == 3 and all(t["is_default"] for t in templates)
     assert {t["campaign_id"] for t in templates} == {a["id"], b["id"], other["id"]}
+    assert client.get("/api/dashboard/stats").json()["firstSteps"] == {"job": False, "clip": False, "export": False}
 
     # Clips and jobs: the job that follows only `a` goes with it, the shared one keeps following `other`
     only_a = JobDoc(_id=new_id(), source=JobSource(type="url", youtube_url="https://youtu.be/abcdefghijk"), config=JobConfig(),
@@ -222,6 +223,11 @@ def test_campaign_is_the_container(client, db, paths):
             clip_ids.append(clip_id)
     assert client.get("/api/dashboard/stats", params={"campaign_id": a["id"]}).json()["clipsGenerated"] == 2
     assert client.get("/api/dashboard/stats").json()["clipsGenerated"] == 3
+    # The first-steps guide counts every campaign, and an export is a finished render
+    steps = client.get("/api/dashboard/stats", params={"campaign_id": b["id"]}).json()["firstSteps"]
+    assert steps == {"job": True, "clip": True, "export": False}
+    db.render_jobs.insert_one({"_id": new_id(), "clip_id": clip_ids[0], "status": "completed", "created_at": utcnow()})
+    assert client.get("/api/dashboard/stats").json()["firstSteps"]["export"] is True
     db.clips.update_one({"_id": clip_ids[0]}, {"$set": {"status": "exported"}})
     assert client.get("/api/dashboard/stats", params={"campaign_id": a["id"]}).json()["clipsReady"] == 1
     storage = client.get("/api/system/storage").json()

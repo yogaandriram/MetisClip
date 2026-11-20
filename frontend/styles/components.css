@@ -2648,3 +2648,140 @@ input[type='color'].mc-input {
 .mc-design-reasons[open] .mc-design-reasons__chevron {
   transform: rotate(180deg);
 }
+
+/* First steps (gap analysis B11): Beranda's guide after the Setup Wizard (row) and the help page (list).
+   Done steps carry a leaf check, the next step an ink marker and its link, later steps stay quiet. */
+.mc-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.mc-steps--row {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  /* Equally tall cards, whatever the text and the next step's link add */
+  align-items: stretch;
+}
+
+.mc-steps--list {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+.mc-steps__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.mc-steps--row .mc-steps__item {
+  flex-direction: column;
+  padding: 16px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.mc-steps--row .mc-steps__item[data-state='next'] {
+  box-shadow: inset 0 0 0 2px var(--ink);
+}
+
+.mc-steps__marker {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-full);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  font: 600 14px/1 var(--font-display);
+  background: var(--dew);
+  color: var(--moss);
+  box-shadow: inset 0 0 0 1px var(--line-dashed);
+}
+
+.mc-steps__item[data-state='done'] .mc-steps__marker {
+  background: var(--leaf);
+  color: var(--ink);
+  box-shadow: none;
+}
+
+.mc-steps__item[data-state='next'] .mc-steps__marker {
+  background: var(--ink);
+  color: var(--on-ink);
+  box-shadow: none;
+}
+
+.mc-steps__body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mc-steps__title {
+  font-weight: 600;
+}
+
+.mc-steps__text {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* Help page topics: a question that opens its answer (gap analysis B11) */
+.mc-help-topic + .mc-help-topic {
+  border-top: 1px solid var(--line);
+}
+
+.mc-help-topic > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 4px;
+  font-weight: 600;
+  border-radius: var(--r-sm);
+}
+
+.mc-help-topic > summary::-webkit-details-marker {
+  display: none;
+}
+
+.mc-help-topic > summary:hover {
+  color: var(--moss);
+}
+
+.mc-help-topic > summary:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.mc-help-topic__chevron {
+  flex-shrink: 0;
+  color: var(--moss);
+  transition: transform var(--dur-base) var(--ease-out);
+}
+
+.mc-help-topic[open] .mc-help-topic__chevron {
+  transform: rotate(180deg);
+}
+
+.mc-help-topic__body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 0 4px 18px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.mc-help-topic__body p {
+  margin: 0;
+}
