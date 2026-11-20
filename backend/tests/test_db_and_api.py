@@ -363,6 +363,21 @@ def test_settings_roundtrip(client):
     assert client.put("/api/settings", json={"processing": {"max_workers": 99}}).status_code == 400
 
 
+
+def test_mongod_cache_size_reaches_the_file_electron_reads(client):
+    """Electron starts mongod before the database is readable, so the engine mirrors the cache size into
+    <DATA_ROOT>/.metisclip/mongod.json (capped at 4 GB like the validation)."""
+    import json
+
+    from backend.core.paths import get_paths
+
+    target = get_paths().private_dir / "mongod.json"
+    assert client.put("/api/settings", json={"db": {"wiredtiger_cache_gb": 1.5}}).status_code == 200
+    assert json.loads(target.read_text(encoding="utf-8")) == {"wiredtiger_cache_gb": 1.5}
+    client.put("/api/settings", json={"db": {"wiredtiger_cache_gb": 9}})
+    assert json.loads(target.read_text(encoding="utf-8")) == {"wiredtiger_cache_gb": 4.0}
+    client.put("/api/settings", json={"db": {"wiredtiger_cache_gb": 0.25}})
+
 def test_secret_values_are_only_returned_on_reveal(client):
     assert client.put("/api/secrets/groq_api_key", json={"value": "gsk_abcdefghijklmnop"}).status_code == 200
     body = client.get("/api/secrets").text

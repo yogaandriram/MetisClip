@@ -192,6 +192,9 @@ def restore_backup(name: str) -> dict[str, Any]:
             db.meta.update_one({"_id": "schema"}, {"$set": {"version": version}}, upsert=True)
         migrated_to = migrate(db, backup=False)
         settle_restored()
+        from backend.core.settings_store import write_mongod_options
+
+        write_mongod_options()  # mongod reads the restored cache size at its next start
         logger.info("Restored %s: %d collection(s), %d document(s), schema %s -> %s (safety backup %s)",
                     path.name, len(colls), documents, version, migrated_to, safety["name"])
         return {

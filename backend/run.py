@@ -186,9 +186,10 @@ def main() -> None:
             from backend.services.data_move import rewrite_paths
 
             rewrite_paths(moved_from(), paths.data_root)
-        from backend.core.settings_store import get_settings
+        from backend.core.settings_store import get_settings, write_mongod_options
 
         settings = get_settings()
+        write_mongod_options(settings)
     except dbm.DatabaseError as exc:
         _fatal(str(exc))
         return

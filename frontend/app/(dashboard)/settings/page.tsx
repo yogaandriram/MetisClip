@@ -427,13 +427,13 @@ export default function SettingsPage() {
                   containerClassName="mc-col-6"
                   type="number"
                   min={0.25}
-                  max={8}
+                  max={4}
                   step={0.25}
                   label={m.storage.mongoCache}
                   hint={m.storage.mongoCacheHint}
                   value={settings.db.wiredtiger_cache_gb}
                   mono
-                  onChange={(e) => patch('db', { wiredtiger_cache_gb: Math.max(0.25, Number(e.target.value) || 0.25) })}
+                  onChange={(e) => patch('db', { wiredtiger_cache_gb: Math.min(4, Math.max(0.25, Number(e.target.value) || 0.25)) })}
                 />
               </div>
             </div>

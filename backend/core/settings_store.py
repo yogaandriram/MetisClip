@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import copy
+import logging
 import os
 from typing import Any
 
 from backend.core.llm_providers import DEFAULT_COMPATIBLE_BASE_URL, DEFAULT_PROVIDER, PROVIDERS
 from backend.core.paths import get_paths
 from backend.core import i18n
+
+logger = logging.getLogger(__name__)
 
 M = i18n.messages({
     "unknown_provider": {
@@ -237,4 +240,29 @@ def update_settings(patch: dict) -> dict[str, Any]:
     # other setting must not switch the engine's messages back to it.
     if "language" in (clean.get("app") or {}):
         i18n.set_language(merged["app"]["language"])
+    write_mongod_options(merged)
     return merged
+
+
+MONGOD_OPTIONS_FILE = "mongod.json"
+
+
+def write_mongod_options(settings: dict[str, Any] | None = None) -> None:
+    """Writes the mongod options Electron needs before mongod starts (it cannot read them from the
+    database) to <DATA_ROOT>\\.metisclip\\mongod.json. Called on every settings change and at engine start
+    (a restore or a copied data folder may hold other settings). Never fails the caller."""
+    import json
+
+    try:
+        s = settings or get_settings()
+        gb = min(4.0, max(0.25, float(s["db"]["wiredtiger_cache_gb"])))
+        target = get_paths().private_dir / MONGOD_OPTIONS_FILE
+        target.parent.mkdir(parents=True, exist_ok=True)
+        body = json.dumps({"wiredtiger_cache_gb": gb})
+        if target.is_file() and target.read_text(encoding="utf-8") == body:
+            return
+        tmp = target.with_suffix(".tmp")
+        tmp.write_text(body, encoding="utf-8")
+        tmp.replace(target)
+    except Exception:  # noqa: BLE001 - a missing options file only means mongod keeps its default
+        logger.warning("Could not write %s", MONGOD_OPTIONS_FILE, exc_info=True)
