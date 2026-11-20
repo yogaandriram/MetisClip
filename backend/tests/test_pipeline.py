@@ -396,7 +396,9 @@ def test_a_recut_replaces_the_files_and_keeps_the_users_edits(db, fake_world, mo
     [clip] = list(db.clips.find({"job_id": job_id}))
     folder = get_paths().from_relative(clip["files"]["raw"]).parent
     (folder / "final.mp4").write_bytes(b"old export")
+    (folder / "cover.jpg").write_bytes(b"old cover")
     db.clips.update_one({"_id": clip["_id"]}, {"$set": {
+        "cover_time": 12.0, "files.cover": clip["files"]["raw"].replace("raw.mp4", "cover.jpg"),
         "subtitle.words": [{"word": "DIEDIT", "start": 0.0, "end": 0.5}],
         "subtitle_style": {"fontSize": 40}, "hook_text": "Judul saya",
         "files.final": clip["files"]["raw"].replace("raw.mp4", "final.mp4"), "status": "exported"}})
@@ -423,6 +425,8 @@ def test_a_recut_replaces_the_files_and_keeps_the_users_edits(db, fake_world, mo
     assert after["job_id"] == job_id and db.clips.count_documents({}) == 1  # the same clip, not a new one
     assert after["hook_text"] == "Judul saya" and after["subtitle_style"] == {"fontSize": 40}
     assert after["status"] == "ready" and after["files"]["final"] is None and not (folder / "final.mp4").exists()
+    # The chosen cover belonged to the old timeline
+    assert after["cover_time"] is None and after["files"].get("cover") is None and not (folder / "cover.jpg").exists()
     words = after["subtitle"]["words"]
     # The added 5 s at the start come from the transcript; the edited word moved with its moment
     assert [w["word"] for w in words] == ["Ini", "kalimat", "nomor", "23.", "DIEDIT"]

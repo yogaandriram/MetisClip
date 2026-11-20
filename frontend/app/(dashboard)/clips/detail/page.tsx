@@ -9,6 +9,7 @@ import {
   ChevronDown,
   Download,
   Film,
+  ImagePlus,
   FolderOpen,
   Keyboard,
   Maximize,
@@ -687,6 +688,22 @@ function ClipEditor() {
       setPreparing(false)
     }
   }
+  const [coverBusy, setCoverBusy] = useState(false)
+  /** The cover: the frame at the playhead (null: back to the middle frame). Saved at once, outside undo. */
+  const chooseCover = async (time: number | null) => {
+    if (!clipId || coverBusy) return
+    setCoverBusy(true)
+    try {
+      const { clip } = await api.clips.setCover(clipId, time === null ? null : Math.round(time * 1000) / 1000)
+      // Only the cover fields: unsaved edits stay as they are
+      setDetail((d) => (d ? { ...d, clip: { ...d.clip, files: clip.files, cover_time: clip.cover_time, updated_at: clip.updated_at } } : d))
+      toast.success(time !== null && detail?.clip.files.final ? m.cover.savedExportAgain : m.cover.saved)
+    } catch (err) {
+      toast.error(errorMessage(err, m.cover.failed))
+    } finally {
+      setCoverBusy(false)
+    }
+  }
   const [analyzing, setAnalyzing] = useState(false)
   /** Face scan for the duo and auto layouts, for a clip made before it was kept (fetches source.mp4 too). */
   const prepareFaces = async () => {
@@ -1329,6 +1346,40 @@ function ClipEditor() {
                   {m.resetToTemplate}
                 </Button>
               </div>
+            </PanelSection>
+
+            <Divider />
+
+            <PanelSection title={m.cover.title}>
+              <div className="mc-row mc-gap-12" style={{ alignItems: 'flex-start' }}>
+                {clip.files.thumbnail && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={mediaUrl(clip.id, 'thumbnail', clip.updated_at)}
+                    alt={m.cover.imageAlt}
+                    style={{ width: 54, aspectRatio: '9 / 16', objectFit: 'cover', borderRadius: 'var(--r-xs)', background: 'var(--ink)', flexShrink: 0 }}
+                  />
+                )}
+                <div className="mc-stack mc-gap-8 mc-grow" style={{ minWidth: 0 }}>
+                  <span className="mc-label">{clip.cover_time != null ? m.cover.chosen(formatClock(clip.cover_time)) : m.cover.auto}</span>
+                  <div className="mc-row mc-gap-4" style={{ flexWrap: 'wrap' }}>
+                    <Button size="sm" variant="secondary" icon={<ImagePlus size={16} />} loading={coverBusy} onClick={() => chooseCover(videoRef.current?.currentTime ?? currentTime)}>
+                      {m.cover.useFrame(formatClock(currentTime))}
+                    </Button>
+                    {clip.cover_time != null && (
+                      <>
+                        <Button size="sm" variant="ghost" onClick={() => seekTo(clip.cover_time ?? 0)}>
+                          {m.cover.show}
+                        </Button>
+                        <Button size="sm" variant="ghost" disabled={coverBusy} onClick={() => chooseCover(null)}>
+                          {m.cover.reset}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <p className="mc-caption mc-muted">{m.cover.hint}</p>
             </PanelSection>
 
             <Divider />

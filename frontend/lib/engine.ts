@@ -327,6 +327,8 @@ export interface ClipFiles {
   source?: string | null
   /** Face scan of source (duo and auto layouts); null for clips made before it was kept */
   faces?: string | null
+  /** The chosen cover taken from final by the last render (exported as <video name>.jpg) */
+  cover?: string | null
 }
 
 export interface Clip {
@@ -345,6 +347,8 @@ export interface Clip {
   rationale: string
   status: ClipStatus
   files: ClipFiles
+  /** The chosen cover in seconds of raw (null: the middle frame, and no cover is exported) */
+  cover_time?: number | null
   /** Only from GET /api/clips/{id}: the list leaves the words out (see `word_count`) */
   subtitle_data?: { clip_id: string; words: SubtitleWord[] }
   /** Only in the list: how many subtitle words the clip has */
@@ -1031,6 +1035,8 @@ export const api = {
     /** One LLM call: mark keywords and/or pick emojis on the saved words (replaces earlier AI marks). */
     enrichSubtitles: (id: string, opts: { keywords: boolean; emojis: boolean }) =>
       request<{ clip: Clip; keywords: number; emojis: number }>('POST', `/api/clips/${id}/subtitles/enrich`, { body: opts }),
+    /** The cover: a frame of raw (seconds) as the thumbnail, taken from the final video by the next render; null = automatic */
+    setCover: (id: string, time: number | null) => request<{ clip: Clip }>('PUT', `/api/clips/${id}/cover`, { body: { time } }),
     remove: (id: string, deleteFiles = true) => request<{ ok: true }>('DELETE', `/api/clips/${id}`, { query: { delete_files: deleteFiles } }),
     /** Cut the clip again at new edges (seconds of its source video): a one-moment job; style, title and edited words stay */
     recut: (id: string, range: ClipRange & { snap_edges?: boolean }) => request<{ job: Job }>('POST', `/api/clips/${id}/recut`, { body: range }),

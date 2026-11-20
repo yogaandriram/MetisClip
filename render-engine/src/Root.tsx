@@ -1,4 +1,5 @@
 import { Composition } from 'remotion';
+import { outputFrameAt } from '../../frontend/lib/presets/captions';
 import { FPS, OverlayProps, SubtitleOverlay, overlaySegments } from './SubtitleOverlay';
 
 const DEFAULT_PROPS: OverlayProps = {
@@ -25,7 +26,13 @@ export const RemotionRoot: React.FC = () => {
         calculateMetadata={({ props }) => {
           const { segments, sourceFrames } = overlaySegments(props, FPS);
           const total = segments.reduce((sum, s) => sum + s.durationInFrames, 0);
-          return { durationInFrames: Math.max(1, total || sourceFrames) };
+          const durationInFrames = Math.max(1, total || sourceFrames);
+          // The output frame of the chosen cover (cuts move it), reported by the render worker
+          const coverFrame =
+            typeof props.coverTime === 'number'
+              ? Math.min(durationInFrames - 1, segments.length ? outputFrameAt(segments, props.coverTime, FPS) : Math.round(props.coverTime * FPS))
+              : null;
+          return { durationInFrames, props: { ...props, coverFrame } };
         }}
       />
     </>

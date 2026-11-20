@@ -210,3 +210,77 @@ def test_a_full_disk_stops_queueing_the_rest(client, db, paths, monkeypatch):
     data = client.post("/api/clips/render", json={"clip_ids": [c["_id"] for c in clips]}).json()
     assert data["render_jobs"] == [] and [s["clip_id"] for s in data["skipped"]] == [c["_id"] for c in clips]
     assert {s["reason"] for s in data["skipped"]} == {"Ruang disk hampir habis"}
+
+
+def _video(path: Path, seconds: int = 2) -> Path:
+    """A real H.264 test picture (its frames differ over time), so ffmpeg can take frames from it."""
+    import subprocess
+
+    from backend.agents.tools.ffmpeg_ops import ffmpeg_path
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run([ffmpeg_path(), "-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
+                    f"testsrc=size=108x192:rate=30:duration={seconds}", "-c:v", "libx264", "-preset", "ultrafast",
+                    "-pix_fmt", "yuv420p", str(path)], check=True)
+    return path
+
+
+def test_a_chosen_cover_is_the_thumbnail_and_the_exported_picture(client, db, paths, tmp_path, events_seen):
+    dest = (tmp_path / "Ekspor").resolve()
+    update_settings({"export_dir": str(dest)})
+    clip = _clip(db, paths, "Sampul")
+    folder = paths.from_relative(clip["files"]["raw"]).parent
+    _video(folder / "raw.mp4")
+    db.clips.update_one({"_id": clip["_id"]}, {"$set": {"duration_seconds": 2, "status": "ready"}})
+    url = f"/api/clips/{clip['_id']}/cover"
+
+    # Outside the clip: refused
+    assert client.put(url, json={"time": 5}).status_code == 400
+
+    # A frame of raw.mp4 becomes the thumbnail (a new file, so a shared hard link keeps its own)
+    linked = tmp_path / "other-campaign-thumb.jpg"
+    first = client.put(url, json={"time": 0.2}).json()["clip"]
+    thumb = paths.from_relative(first["files"]["thumbnail"])
+    import os
+
+    os.link(thumb, linked)
+    assert first["cover_time"] == 0.2
+    second = client.put(url, json={"time": 1.5}).json()["clip"]
+    assert second["cover_time"] == 1.5 and thumb.read_bytes() != linked.read_bytes()
+
+    # The render takes the same moment from final.mp4 (the composition's output frame) as the cover,
+    # and the export copies it next to the video
+    doc = db.clips.find_one({"_id": clip["_id"]})
+    render._finish(_render_job(db, clip["_id"]), doc, _video(paths.cache_dir / f"render-{new_id()}" / "final.mp4"), 40)
+    after = db.clips.find_one({"_id": clip["_id"]})
+    cover = paths.from_relative(after["files"]["cover"])
+    assert cover.name == "cover.jpg" and cover.stat().st_size > 0
+    video = dest / f"Sampul - {clip['_id'][:8]}.mp4"
+    assert video.exists() and video.with_suffix(".jpg").read_bytes() == cover.read_bytes()
+    assert client.get(f"/api/clips/{clip['_id']}").json()["clip"]["files"]["cover"] == after["files"]["cover"]
+
+    # A new choice: the old cover no longer matches and goes until the next render
+    third = client.put(url, json={"time": None}).json()["clip"]
+    assert third["cover_time"] is None and third["files"]["cover"] is None and not cover.exists()
+
+    # A render without a chosen cover makes none (and copies none)
+    video.with_suffix(".jpg").unlink()
+    doc = db.clips.find_one({"_id": clip["_id"]})
+    render._finish(_render_job(db, clip["_id"]), doc, _video(paths.cache_dir / f"render-{new_id()}" / "final.mp4"), 40)
+    assert db.clips.find_one({"_id": clip["_id"]})["files"]["cover"] is None
+    assert not cover.exists() and not video.with_suffix(".jpg").exists()
+
+
+def test_a_cover_changed_during_the_render_waits_for_the_next_one(db, paths, events_seen):
+    clip = _clip(db, paths, "Ganti")
+    db.clips.update_one({"_id": clip["_id"]}, {"$set": {"cover_time": 1.0}})
+    rendered_with = db.clips.find_one({"_id": clip["_id"]})
+    db.clips.update_one({"_id": clip["_id"]}, {"$set": {"cover_time": 0.5}})  # chosen while it rendered
+    render._finish(_render_job(db, clip["_id"]), rendered_with, _video(paths.cache_dir / f"render-{new_id()}" / "final.mp4"), 30)
+    assert db.clips.find_one({"_id": clip["_id"]})["files"]["cover"] is None
+
+
+def test_the_render_props_carry_the_chosen_cover(db, paths):
+    clip = _clip(db, paths, "Props")
+    assert "coverTime" not in render.build_props(clip)
+    assert render.build_props({**clip, "cover_time": 3.25})["coverTime"] == 3.25

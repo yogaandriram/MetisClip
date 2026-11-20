@@ -99,7 +99,26 @@ def copy_final(clip: dict[str, Any], folder: Path) -> Path:
             raise ExportError(M("locked", folder=folder)) from exc
         raise ExportError(M("copy_failed", folder=folder, error=exc.strerror or exc)) from exc
     write_post_text(clip, target)
+    write_cover(clip, target)
     return target
+
+
+def write_cover(clip: dict[str, Any], video: Path) -> Path | None:
+    """The cover the user chose (taken from final.mp4 by the render) as `<video name>.jpg` next to the
+    exported video, for platforms that take a cover image. Never fails the export."""
+    rel = (clip.get("files") or {}).get("cover")
+    if not rel:
+        return None
+    src = get_paths().from_relative(rel)
+    if not src.is_file():
+        return None
+    out = video.with_suffix(".jpg")
+    try:
+        shutil.copyfile(src, out)
+    except OSError as exc:
+        logger.warning("Cover next to %s not written: %s", video.name, exc)
+        return None
+    return out
 
 
 def post_text_enabled() -> bool:

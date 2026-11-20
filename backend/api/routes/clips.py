@@ -1,6 +1,7 @@
 """Clips: list/detail, subtitle editing, media streaming, render queue, export, delete."""
 from __future__ import annotations
 
+import os
 import shutil
 from typing import Any, Literal, Optional
 
@@ -9,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from backend.api.dto import brand_template_dto, campaign_dto, clip_dto, http_error, job_dto, render_dto
 from backend.api.routes.files import serve_relative
-from backend.agents.tools import caption_ai, post_copy_ai, speaker_ai
+from backend.agents.tools import caption_ai, ffmpeg_ops, post_copy_ai, speaker_ai
 from backend.agents.tools.caption_ai import valid_emoji
 from backend.core import disk, events, llm
 from backend.core.db import get_db, new_id, utcnow
@@ -31,6 +32,18 @@ M = i18n.messages({
     "recut_while_render": {
         "id": "Tunggu ekspor klip ini selesai (atau batalkan) sebelum memotong ulang.",
         "en": "Wait for this clip's export to finish (or cancel it) before cutting it again.",
+    },
+    "cover_while_recut": {
+        "id": "Klip ini sedang dipotong ulang. Pilih sampul setelah selesai.",
+        "en": "This clip is being cut again. Choose the cover once that is done.",
+    },
+    "cover_outside": {
+        "id": "Waktu sampul harus di dalam clip (0 sampai {duration} detik).",
+        "en": "The cover time must be inside the clip (0 to {duration} seconds).",
+    },
+    "cover_failed": {
+        "id": "Frame sampul tidak bisa diambil: {error}",
+        "en": "The cover frame could not be taken: {error}",
     },
     "render_while_recut": {
         "id": "Klip ini sedang dipotong ulang. Ekspor setelah selesai.",
@@ -526,6 +539,52 @@ def clip_media(clip_id: str, kind: Literal["raw", "final", "thumbnail", "thumb",
     if not rel:
         raise http_error(404, M("file_not_ready"))
     return serve_relative(rel)
+
+
+class CoverBody(BaseModel):
+    # Seconds of raw.mp4; None goes back to the middle frame (and no cover is exported)
+    time: Optional[float] = None
+
+
+@router.put("/api/clips/{clip_id}/cover")
+def set_cover(clip_id: str, body: CoverBody):
+    """The clip's cover: its thumbnail becomes the frame of raw.mp4 at `time`, and the next render takes the
+    same moment from final.mp4 as the exported cover (`<video name>.jpg`). A cover from an earlier render
+    no longer matches and is removed."""
+    clip = _get(clip_id)
+    files = clip.get("files") or {}
+    paths = get_paths()
+    raw = paths.from_relative(files["raw"]) if files.get("raw") else None
+    if not raw or not raw.is_file():
+        raise http_error(409, M("no_raw"))
+    if active_recut(clip_id):
+        raise http_error(409, M("cover_while_recut"))
+    duration = float(clip.get("duration_seconds") or 0)
+    at = body.time
+    if at is not None and (at < 0 or (duration > 0 and at > duration + 0.05)):
+        raise http_error(400, M("cover_outside", duration=f"{duration:.1f}"))
+    frame_at = duration / 2 if at is None else max(0.0, min(at, max(0.0, duration - 0.05)))
+    folder = raw.parent
+    thumb = folder / "thumb.jpg"
+    tmp = folder / "thumb.new.jpg"
+    try:
+        ffmpeg_ops.thumbnail(raw, tmp, frame_at, None)
+        if not tmp.is_file() or tmp.stat().st_size == 0:
+            raise RuntimeError("ffmpeg")
+        os.replace(tmp, thumb)  # a new file: another campaign's hard link keeps its own thumbnail
+    except Exception as exc:
+        tmp.unlink(missing_ok=True)
+        raise http_error(502, M("cover_failed", error=exc))
+    if files.get("cover"):
+        paths.from_relative(files["cover"]).unlink(missing_ok=True)
+    get_db().clips.update_one({"_id": clip_id}, {"$set": {
+        "cover_time": None if at is None else round(frame_at, 3),
+        "files.thumbnail": paths.to_relative(thumb),
+        "files.cover": None,
+        "updated_at": utcnow(),
+    }})
+    events.publish({"type": "clip.updated", "id": clip_id})
+    return {"clip": clip_dto(_get(clip_id))}
 
 
 @router.post("/api/clips/{clip_id}/source")

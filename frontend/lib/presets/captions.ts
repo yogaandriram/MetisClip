@@ -276,6 +276,20 @@ export function frameSegments(segments: Segment[], fps: number): FrameSegment[] 
   return out;
 }
 
+/**
+ * Output frame that shows source time `time` (seconds): the first kept frame after it when `time` falls in a
+ * cut, the last frame when it is past the end. The inverse of sourceTimeAt.
+ */
+export function outputFrameAt(segments: FrameSegment[], time: number, fps: number): number {
+  const f = Math.max(0, Math.round(time * fps));
+  for (const s of segments) {
+    if (f < s.startFrame) return s.from;
+    if (f < s.endFrame) return s.from + (f - s.startFrame);
+  }
+  const last = segments[segments.length - 1];
+  return last ? Math.max(0, last.from + last.durationInFrames - 1) : f;
+}
+
 /** Source time (seconds) shown at output frame `frame`. */
 export function sourceTimeAt(segments: FrameSegment[], frame: number, fps: number): number {
   for (const s of segments) {

@@ -260,7 +260,9 @@ async function main(): Promise<void> {
 
   if (!fs.existsSync(args.out) || fs.statSync(args.out).size === 0) throw new Error('File hasil render tidak terbentuk');
   progress('encoding', 1, true);
-  emit({ type: 'done', output: args.out });
+  // The output frame of the chosen cover (calculateMetadata), so the engine can take it from the video
+  const coverFrame = (composition.props as { coverFrame?: unknown }).coverFrame;
+  emit({ type: 'done', output: args.out, cover_frame: typeof coverFrame === 'number' ? coverFrame : null });
 }
 
 main().then(

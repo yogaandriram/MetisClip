@@ -54,6 +54,10 @@ export type OverlayProps = {
   clipId?: string;
   /** The clip's shots from its face scan (duo and auto layouts): {width, height, shots}. */
   scenes?: any;
+  /** The chosen cover in seconds of raw.mp4; calculateMetadata adds the output frame that shows it. */
+  coverTime?: number;
+  /** Set by calculateMetadata from coverTime; the render worker reports it so the engine can take the cover. */
+  coverFrame?: number | null;
 };
 
 export const FPS = 30;

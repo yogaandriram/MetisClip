@@ -562,6 +562,7 @@ def recut_segment(ctx: JobContext, seg: dict[str, Any], limits: Limits = (None, 
                 dst.unlink(missing_ok=True)
                 new_files[kind] = None
         (target / "final.mp4").unlink(missing_ok=True)
+        (target / "cover.jpg").unlink(missing_ok=True)  # the chosen cover belongs to the old timeline
         info = media["source_info"]
         db.clips.update_one({"_id": clip_id}, {"$set": {
             "start_time": media["start"],
@@ -571,6 +572,7 @@ def recut_segment(ctx: JobContext, seg: dict[str, Any], limits: Limits = (None, 
             "source_width": info.get("source_width"),
             "source_height": info.get("source_height"),
             "subtitle.words": words,
+            "cover_time": None,
             "status": "ready",
             "updated_at": utcnow(),
         }})

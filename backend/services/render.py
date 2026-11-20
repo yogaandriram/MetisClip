@@ -23,6 +23,7 @@ from backend.core.config import config, node_command
 from backend.core.db import get_db, utcnow
 from backend.core.logging_setup import redactor
 from backend.core.paths import get_paths
+from backend.agents.tools import ffmpeg_ops
 from backend.services import layout as layout_svc
 from backend.core import i18n
 
@@ -156,6 +157,9 @@ def build_props(clip: dict[str, Any]) -> dict[str, Any]:
         "title": clip.get("hook_text") or "",
         "clipId": clip["_id"],  # picks where the companion loop starts (split layout)
     }
+    # The chosen cover (seconds of raw.mp4): the composition reports which output frame shows it
+    if clip.get("cover_time") is not None:
+        props["coverTime"] = float(clip["cover_time"])
     # Podcast, card, duo and auto layouts: the original-ratio cut (same timeline as raw.mp4); without
     # one the clip stays full. Duo and auto also need the shots of the face scan.
     if layout_svc.needs_source(lay) and (clip.get("files") or {}).get("source"):
@@ -181,7 +185,27 @@ def _publish(render_id: str, clip_id: str, status: str, **extra: Any) -> None:
     events.publish({"type": "render.status", "id": render_id, "clip_id": clip_id, "status": status, **extra})
 
 
-def _finish(render_id: str, clip: dict[str, Any], rendered: Path) -> None:
+def _make_cover(clip: dict[str, Any], final: Path, cover_frame: Any) -> str | None:
+    """The chosen cover as cover.jpg next to final.mp4: the output frame the composition reported for the
+    clip's cover_time (cuts of filler words and pauses move it). None without a chosen cover; a stale
+    cover.jpg is removed then. Never fails the render."""
+    cover = final.with_name("cover.jpg")
+    if clip.get("cover_time") is None or not isinstance(cover_frame, (int, float)) or cover_frame < 0:
+        cover.unlink(missing_ok=True)
+        return None
+    tmp = final.with_name("cover.new.jpg")
+    try:
+        # Half a frame in, so the seek never lands on the frame before
+        ffmpeg_ops.thumbnail(final, tmp, (float(cover_frame) + 0.5) / FPS, None)
+        os.replace(tmp, cover)  # a new file: another campaign's hard link keeps its own cover
+    except Exception as exc:
+        tmp.unlink(missing_ok=True)
+        logger.warning("Cover of clip %s not made: %s", clip["_id"], exc)
+        return None
+    return get_paths().to_relative(cover)
+
+
+def _finish(render_id: str, clip: dict[str, Any], rendered: Path, cover_frame: Any = None) -> None:
     """Move the rendered file to the clip's final.mp4, copy it to the export folder, mark the job completed.
 
     A failed copy (folder gone, no space, file open in a player) does not fail the render: the job is
@@ -196,7 +220,12 @@ def _finish(render_id: str, clip: dict[str, Any], rendered: Path) -> None:
     final = out_dir / "final.mp4"
     os.replace(rendered, final)
     rel = paths.to_relative(final)
-    db.clips.update_one({"_id": clip_id}, {"$set": {"files.final": rel, "status": "exported", "updated_at": utcnow()}})
+    # The cover chosen when the render started; a newer choice waits for the next render
+    current = db.clips.find_one({"_id": clip_id}, {"cover_time": 1}) or {}
+    same_cover = current.get("cover_time") == clip.get("cover_time")
+    cover_rel = _make_cover(clip, final, cover_frame if same_cover else None)
+    db.clips.update_one({"_id": clip_id}, {"$set": {"files.final": rel, "files.cover": cover_rel,
+                                                     "status": "exported", "updated_at": utcnow()}})
 
     exported_path: str | None = None
     export_error: str | None = None
@@ -204,7 +233,8 @@ def _finish(render_id: str, clip: dict[str, Any], rendered: Path) -> None:
     try:
         folder = exports.check_dest(None)
         export_dir = str(folder)
-        exported_path = str(exports.copy_final({**clip, "files": {**(clip.get("files") or {}), "final": rel}}, folder))
+        files = {**(clip.get("files") or {}), "final": rel, "cover": cover_rel}
+        exported_path = str(exports.copy_final({**clip, "files": files}, folder))
     except exports.ExportError as exc:
         export_error = str(exc)
         logger.warning("Render %s: copy to the export folder failed: %s", render_id, exc)
@@ -303,10 +333,10 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
                         "--encoder-threads", str(resources.RENDER_ENCODER_THREADS),
                         "--media-cache-mb", str(resources.RENDER_MEDIA_CACHE_MB)]
             with workload.rendering():  # local Whisper waits until the export is done
-                error, ok = _run_worker(cmd, extra_env, render_id, clip_id, cancel, low_priority=low)
+                error, ok, info = _run_worker(cmd, extra_env, render_id, clip_id, cancel, low_priority=low)
         cancel.check()
         if ok and tmp_out.exists() and tmp_out.stat().st_size > 0:
-            _finish(render_id, clip, tmp_out)
+            _finish(render_id, clip, tmp_out, info.get("cover_frame"))
             status = "completed"
             return
         error = error or M("no_message")
@@ -329,7 +359,8 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
 
 
 def _run_worker(cmd: list[str], extra_env: dict[str, str], render_id: str, clip_id: str,
-                cancel: procs.CancelToken, low_priority: bool = False) -> tuple[str | None, bool]:
+                cancel: procs.CancelToken, low_priority: bool = False) -> tuple[str | None, bool, dict[str, Any]]:
+    """Run the render worker. Returns its error, whether it finished, and its final `done` line."""
     rlog = _rlog()
     rlog.info("[%s] start: %s", render_id, " ".join(cmd))
     # Below-normal priority is inherited by Chrome and the encoder the worker starts
@@ -346,6 +377,7 @@ def _run_worker(cmd: list[str], extra_env: dict[str, str], render_id: str, clip_
     t.start()
     error: str | None = None
     done = False
+    info: dict[str, Any] = {}
     last_write = 0.0
     db = get_db()
     try:
@@ -370,6 +402,7 @@ def _run_worker(cmd: list[str], extra_env: dict[str, str], render_id: str, clip_
                                     "status": "rendering", "progress_pct": pct})
             elif kind == "done":
                 done = True
+                info = msg
             elif kind == "error":
                 error = str(msg.get("message") or M("failed"))
         code = proc.wait()
@@ -381,4 +414,4 @@ def _run_worker(cmd: list[str], extra_env: dict[str, str], render_id: str, clip_
         raise procs.Cancelled(cancel.reason)
     if code != 0 and not error:
         error = "\n".join(list(stderr_tail)[-5:]) or M("exit_code", code=code)
-    return error, (code == 0 and (done or error is None))
+    return error, (code == 0 and (done or error is None)), info

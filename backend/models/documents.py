@@ -418,6 +418,8 @@ class ClipFiles(BaseModel):
     source: Optional[str] = None
     # Face scan of source.mp4 (agents/tools/faces.py), for layouts that crop at render time (duo)
     faces: Optional[str] = None
+    # The chosen cover frame taken from final.mp4 by the last render (exported as <video name>.jpg)
+    cover: Optional[str] = None
 
 
 class ClipDoc(Doc):
@@ -434,6 +436,8 @@ class ClipDoc(Doc):
     # "ai": chosen and scored by the Analyzer; "manual": a moment the user chose (no score)
     origin: Literal["ai", "manual"] = "ai"
     files: ClipFiles = Field(default_factory=ClipFiles)
+    # The cover the user chose, in seconds of raw.mp4 (None: the middle frame, and no cover is exported)
+    cover_time: Optional[float] = None
     subtitle: dict[str, Any] = Field(default_factory=lambda: {"words": []})
     subtitle_style: dict[str, Any] = Field(default_factory=dict)
     # Per-clip override of the template's layout_settings (only changed keys; services/layout.py)
