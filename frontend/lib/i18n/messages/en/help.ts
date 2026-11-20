@@ -135,6 +135,7 @@ export const help: Messages['help'] = {
       a: [
         'Click Export (Ctrl+E) in the editor, or select several clips in Clips and click "Render & export". The video is rendered with its subtitles and copied to the export folder (Settings, Export folder).',
         "Next to the MP4 you get a .jpg when you chose a cover, and a .txt with the post text for campaign clips. A clip that hasn't changed since its last render is copied again without a render.",
+        'A rendered clip can also be dragged from Clips into Explorer or another app. In the queue, "Open the export folder" opens the folder of the newest video a job exported.',
       ],
     },
     post: {

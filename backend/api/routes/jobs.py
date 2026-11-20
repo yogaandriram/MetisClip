@@ -12,7 +12,7 @@ from backend.agents.nodes.discovery import check_local_video
 from backend.agents.tools import whisper
 from backend.agents.tools import ytdlp
 from backend.agents.tools.ytdlp import extract_video_id, watch_url
-from backend.api.dto import http_error, job_dto, recut_event
+from backend.api.dto import http_error, job_dto, job_outputs, recut_event
 from backend.core import disk, events
 from backend.core.config import config
 from backend.core.db import get_db, new_id, utcnow
@@ -313,13 +313,16 @@ def list_jobs(campaign_id: Optional[str] = None, status: Optional[str] = None, l
         q["campaign_ids"] = campaign_id
     if status:
         q["status"] = status
-    docs = get_db().discovery_jobs.find(q).sort("created_at", -1).limit(max(1, min(500, limit)))
-    return {"jobs": [job_dto(d) for d in docs]}
+    db = get_db()
+    docs = list(db.discovery_jobs.find(q).sort("created_at", -1).limit(max(1, min(500, limit))))
+    outputs = job_outputs(db, [d["_id"] for d in docs])
+    return {"jobs": [job_dto(d, outputs[d["_id"]]) for d in docs]}
 
 
 @router.get("/{job_id}")
 def get_job(job_id: str):
-    return {"job": job_dto(_get(job_id))}
+    doc = _get(job_id)
+    return {"job": job_dto(doc, job_outputs(get_db(), [job_id])[job_id])}
 
 
 @router.post("/{job_id}/cancel")

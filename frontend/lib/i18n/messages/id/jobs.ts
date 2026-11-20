@@ -34,6 +34,11 @@ export const jobs = {
   detailAria: 'Detail job',
   cancel: 'Batalkan',
   delete: 'Hapus job',
+  /** What a finished job made (gap analysis B12) */
+  output: (clips: number, exported: number) => (exported ? `${clips} klip, ${exported} sudah diekspor` : `${clips} klip, belum diekspor`),
+  viewClips: 'Lihat klip job ini',
+  openOutput: 'Buka folder hasil ekspor',
+  openOutputFailed: 'Folder hasil ekspor tidak bisa dibuka',
   stoppedAt: (step: string) => `Terhenti di langkah: ${step}.`,
   progressClips: (done: number, total: number) => `${done}/${total} klip`,
   activity: 'Sedang berjalan',

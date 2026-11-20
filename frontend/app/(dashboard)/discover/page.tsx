@@ -2,7 +2,7 @@
 
 import React, { Suspense, useCallback, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { ArrowLeft, Clapperboard, Link2, ListChecks, RotateCcw, Search, Upload, X } from 'lucide-react'
+import { ArrowLeft, Clapperboard, FolderOpen, Link2, ListChecks, RotateCcw, Search, Upload, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
   Alert,
@@ -48,6 +48,7 @@ import { tm } from '@/lib/i18n'
 import { resolveLayout } from '@/lib/presets/layout'
 import { QUEUE_HREF } from '@/lib/routes'
 import { useT } from '@/lib/i18n/I18nProvider'
+import { isDesktop } from '@/lib/media'
 
 const CONTENT: React.CSSProperties = { maxWidth: 760, margin: '0 auto' }
 const CUSTOM = 'custom'
@@ -652,6 +653,16 @@ function JobProgress({ jobId }: { jobId: string }) {
               <ButtonLink href={`/clips/?job=${encodeURIComponent(job.id)}`} variant={job.failed_clips > 0 ? 'secondary' : 'primary'} size="sm">
                 {p.viewClips}
               </ButtonLink>
+            )}
+            {isDesktop() && job.output?.export_file && (
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<FolderOpen size={16} aria-hidden="true" />}
+                onClick={() => window.metis?.showItemInFolder(job.output!.export_file!)}
+              >
+                {t.jobs.openOutput}
+              </Button>
             )}
             {job.kind === 'ai' && job.status === 'completed' && (
               <Tooltip label={t.jobs.againTip}>

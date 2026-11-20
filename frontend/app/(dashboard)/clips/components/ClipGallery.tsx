@@ -28,7 +28,7 @@ import { useCampaign } from '@/contexts/CampaignContext'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
 import { cx } from '@/lib/cx'
-import { api, eventForCampaign, type Clip, type ClipDetail, type ClipStatus } from '@/lib/engine'
+import { api, eventForCampaign, toAbsolutePath, type Clip, type ClipDetail, type ClipStatus } from '@/lib/engine'
 import { isDesktop, mediaUrl, revealInExplorer } from '@/lib/media'
 import { CLIP_STATUS, errorMessage, formatClock, formatDate } from '@/lib/format'
 import { tm } from '@/lib/i18n'
@@ -255,6 +255,27 @@ export function ClipGallery({ campaignId, jobId, onJobChange }: ClipGalleryProps
   // Clips with a final video render again only when edited since; the others are copied again (reuse)
   const toRender = renderable
   const withFinal = picked.filter((c) => c.files.final)
+
+  // Dragging rendered clips out into Explorer or another app (gap analysis B12): the clip itself, or every
+  // picked clip with a final video when it is one of them. Without a final video nothing is dragged.
+  const dragItems = (clip: Clip) => {
+    const root = systemInfo?.data_root
+    if (!desktop || !root || !clip.files.final) return []
+    const clips = selecting && selected.has(clip.id) ? withFinal : [clip]
+    return clips.map((c) => ({ path: toAbsolutePath(root, c.files.final!), name: c.export_name || `MetisClip - ${c.id.slice(0, 8)}.mp4` }))
+  }
+  const dragProps = (clip: Clip) => {
+    const n = dragItems(clip).length
+    if (!n) return { draggable: false }
+    return {
+      draggable: true,
+      title: n > 1 ? m.dragHintMany(n) : m.dragHint,
+      onDragStart: (e: React.DragEvent) => {
+        e.preventDefault()
+        window.metis?.startDrag(dragItems(clip))
+      },
+    }
+  }
   const toggle = (id: string) =>
     setSelected((prev) => {
       const next = new Set(prev)
@@ -498,6 +519,7 @@ export function ClipGallery({ campaignId, jobId, onJobChange }: ClipGalleryProps
                           aria-pressed={isPicked}
                           aria-label={m.pick.toggle(hook)}
                           onClick={() => toggle(clip.id)}
+                          {...dragProps(clip)}
                         >
                           {thumbInner(
                             clip,
@@ -514,6 +536,7 @@ export function ClipGallery({ campaignId, jobId, onJobChange }: ClipGalleryProps
                           className="mc-thumb mc-on-ink mc-card--interactive"
                           style={{ display: 'block', aspectRatio: '9 / 16', textDecoration: 'none' }}
                           aria-label={m.openEditor(hook, Math.round(clip.viral_score), CLIP_STATUS[clip.status]?.label ?? clip.status, formatClock(clip.duration_seconds))}
+                          {...dragProps(clip)}
                         >
                           {thumbInner(clip, null)}
                         </Link>

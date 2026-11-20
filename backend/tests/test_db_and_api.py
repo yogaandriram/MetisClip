@@ -597,3 +597,58 @@ def test_render_concurrency_applies_without_a_restart(db, monkeypatch):
         release.set()
         r._render.shutdown(wait=True)
         update_settings({"render": {"concurrency": 1}})
+
+
+def test_job_output_in_the_queue(client, db, paths, tmp_path):
+    """Antrian shows what a job made and opens the folder of its newest exported video that still exists,
+    and every rendered clip carries its export file name for dragging it out of the gallery (gap analysis B12)."""
+    from datetime import timedelta
+
+    from backend.models.documents import ClipDoc, JobConfig, JobDoc, JobSource
+
+    camp = client.post("/api/campaigns", json={"name": "Keluaran"}).json()["campaign"]
+    slug = db.campaigns.find_one({"_id": camp["id"]})["slug"]
+    job = JobDoc(_id=new_id(), source=JobSource(type="url", youtube_url="https://youtu.be/abcdefghijk"), config=JobConfig(),
+                 campaign_ids=[camp["id"]], status="completed").to_mongo()
+    empty = JobDoc(_id=new_id(), source=JobSource(type="url", youtube_url="https://youtu.be/abcdefghijk"), config=JobConfig(),
+                   campaign_ids=[camp["id"]], status="failed").to_mongo()
+    db.discovery_jobs.insert_many([job, empty])
+    clips = []
+    for i in range(3):
+        clip_id = new_id()
+        folder = paths.clip_dir(slug, clip_id)
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "raw.mp4").write_bytes(b"v")
+        files = {"raw": paths.to_relative(folder / "raw.mp4")}
+        if i < 2:
+            (folder / "final.mp4").write_bytes(b"f")
+            files["final"] = paths.to_relative(folder / "final.mp4")
+        db.clips.insert_one(ClipDoc(_id=clip_id, campaign_id=camp["id"], job_id=job["_id"], source_video_id=None, youtube_id="x",
+                                    start_time=0, end_time=10, duration_seconds=10, status="ready", hook_text=f"Momen {i}?",
+                                    files=files, final_render={"format": "square"} if i == 1 else None).to_mongo())
+        clips.append(clip_id)
+
+    exports = tmp_path / "ekspor"
+    exports.mkdir()
+    old, new = exports / "Momen 0.mp4", exports / "Momen 1 1x1.mp4"
+    old.write_bytes(b"f")
+    t0 = utcnow()
+    db.render_jobs.insert_many([
+        {"_id": new_id(), "clip_id": clips[0], "status": "completed", "exported_path": str(old), "created_at": t0,
+         "finished_at": t0},
+        # A newer export whose copy is gone, a render whose copy failed, and a failed render
+        {"_id": new_id(), "clip_id": clips[1], "status": "completed", "exported_path": str(new), "created_at": t0,
+         "finished_at": t0 + timedelta(minutes=5)},
+        {"_id": new_id(), "clip_id": clips[0], "status": "completed", "exported_path": None, "export_error": "x",
+         "created_at": t0, "finished_at": t0 + timedelta(minutes=9)},
+        {"_id": new_id(), "clip_id": clips[2], "status": "failed", "created_at": t0},
+    ])
+
+    listed = {j["id"]: j["output"] for j in client.get("/api/jobs").json()["jobs"]}
+    assert listed[job["_id"]] == {"clips": 3, "exported": 2, "export_file": str(old)}
+    assert listed[empty["_id"]] == {"clips": 0, "exported": 0, "export_file": None}
+    new.write_bytes(b"f")
+    assert client.get(f"/api/jobs/{job['_id']}").json()["job"]["output"]["export_file"] == str(new)
+
+    names = {c["id"]: c["export_name"] for c in client.get("/api/clips", params={"campaign_id": camp["id"]}).json()["clips"]}
+    assert names == {clips[0]: f"Momen 0 - {clips[0][:8]}.mp4", clips[1]: f"Momen 1 - {clips[1][:8]} 1x1.mp4", clips[2]: None}

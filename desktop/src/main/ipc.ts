@@ -7,6 +7,7 @@ import type { AppTray } from './tray'
 import type { AppUpdater } from './updater'
 import { dataRootAvailable, defaultDataRoot, ensureStructure, readBootstrap, validateDataRoot, writeBootstrap } from './data-root'
 import { cancelMove, deletePrevious, forgetPrevious, moveDataRoot, planMove, previousRoot } from './data-move'
+import { checkDragItems, dragIcon, linkDragFiles } from './drag'
 import { createLogger } from './logger'
 import { getPaths, isTrustedUrl } from './paths'
 import { getLanguage, isLang, setLanguage, tr } from './i18n'
@@ -29,6 +30,7 @@ export const CH = {
   selectFile: 'metis:select-file',
   openPath: 'metis:open-path',
   showItemInFolder: 'metis:show-item-in-folder',
+  startDrag: 'metis:start-drag',
   openExternal: 'metis:open-external',
   notify: 'metis:notify',
   navigate: 'metis:navigate',
@@ -208,6 +210,17 @@ export function registerIpc(
     } catch (err) {
       log.warn(`showItemInFolder: ${(err as Error).message}`)
     }
+  })
+
+  // Clips dragged out of the gallery (drag.ts): only final.mp4 files inside the data folder's library
+  ipcMain.on(CH.startDrag, (e, items: unknown) => {
+    if (!trusted(e)) return
+    const root = readBootstrap()
+    if (!root) return
+    const files = checkDragItems(root, items)
+    if (!files.length) return
+    const paths = linkDragFiles(root, files)
+    e.sender.startDrag({ file: paths[0], files: paths, icon: dragIcon(files[0].source, getPaths().iconFile) })
   })
 
   handle(CH.openExternal, async (_e, u: unknown) => {

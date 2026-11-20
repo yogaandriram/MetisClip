@@ -1,6 +1,7 @@
 """Mongo documents -> API DTOs (shapes defined by frontend/lib/engine.ts)."""
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from fastapi import HTTPException
@@ -60,7 +61,41 @@ def recut_event(job: dict) -> dict:
     return {"kind": "recut", "clip_id": recut.get("clip_id")} if recut else {}
 
 
-def job_dto(doc: dict[str, Any]) -> dict[str, Any]:
+def job_outputs(db: Any, job_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """What each job made (gap analysis B12): its clips, how many of them were exported, and the newest
+    exported video that is still there, whose folder Antrian opens. One query per collection for the
+    whole list; at most a few file checks per job."""
+    out: dict[str, dict[str, Any]] = {jid: {"clips": 0, "exported": 0, "export_file": None} for jid in job_ids}
+    if not out:
+        return out
+    clip_job: dict[str, str] = {}
+    for c in db.clips.find({"job_id": {"$in": list(out)}}, {"job_id": 1}):
+        clip_job[c["_id"]] = c["job_id"]
+        out[c["job_id"]]["clips"] += 1
+    if not clip_job:
+        return out
+    exported: dict[str, set[str]] = {}
+    paths: dict[str, list[str]] = {}
+    renders = db.render_jobs.find(
+        {"clip_id": {"$in": list(clip_job)}, "status": "completed", "exported_path": {"$type": "string"}},
+        {"clip_id": 1, "exported_path": 1},
+    ).sort("finished_at", -1)
+    for r in renders:
+        jid = clip_job[r["clip_id"]]
+        exported.setdefault(jid, set()).add(r["clip_id"])
+        paths.setdefault(jid, []).append(r["exported_path"])
+    for jid, files in paths.items():
+        out[jid]["exported"] = len(exported[jid])
+        # The newest copy that still exists (the user may have moved or deleted it since)
+        for f in list(dict.fromkeys(files))[:5]:
+            if os.path.isfile(f):
+                out[jid]["export_file"] = f
+                break
+    return out
+
+
+def job_dto(doc: dict[str, Any], output: dict[str, Any] | None = None) -> dict[str, Any]:
+    """`output` (job_outputs) only where a page shows it: the jobs list and one job's detail."""
     from backend.agents.context import failed_segments
 
     d = to_api(doc) or {}
@@ -89,6 +124,7 @@ def job_dto(doc: dict[str, Any]) -> dict[str, Any]:
     # What a running job does or waits for now (its last job.progress message); only while it runs
     act = d.get("activity")
     d["activity"] = act if d.get("status") == "running" and isinstance(act, dict) and act.get("message") else None
+    d["output"] = output
     return d
 
 
@@ -102,6 +138,8 @@ def _translation(tr: Any) -> dict[str, Any] | None:
 
 
 def clip_dto(doc: dict[str, Any]) -> dict[str, Any]:
+    from backend.services.exports import file_name
+
     files = doc.get("files") or {}
     return {
         "id": doc["_id"],
@@ -119,6 +157,8 @@ def clip_dto(doc: dict[str, Any]) -> dict[str, Any]:
         "status": doc.get("status", "ready"),
         "files": {"raw": files.get("raw"), "final": files.get("final"), "thumbnail": files.get("thumbnail"),
                   "source": files.get("source"), "faces": files.get("faces"), "cover": files.get("cover")},
+        # The rendered video's name in the export folder; dragging the clip out of the gallery uses it
+        "export_name": file_name(doc) if files.get("final") else None,
         "cover_time": doc.get("cover_time"),
         "source_width": doc.get("source_width"),
         "source_height": doc.get("source_height"),

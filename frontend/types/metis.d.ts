@@ -163,6 +163,8 @@ declare global {
     /** Opens a folder or a media file with the default app. Refuses executables. */
     openPath(absPath: string): Promise<{ ok: boolean; error?: string }>
     showItemInFolder(absPath: string): Promise<void>
+    /** Drags clips' final.mp4 out of the window under their export names; call it in dragstart after preventDefault */
+    startDrag(items: Array<{ path: string; name: string }>): void
     openExternal(url: string): Promise<void>
     /** Windows notification, shown only while the window is in the background; a click opens the app on opts.route */
     notify(title: string, body?: string, opts?: { route?: string }): void

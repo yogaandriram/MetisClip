@@ -29,6 +29,8 @@ export const clips: Messages['clips'] = {
   openEditor: (hook: string, score: number, status: string, clock: string) => `Open editor: ${hook} (viral score ${score}, ${status}, length ${clock})`,
   edit: 'Edit',
   export: 'Export',
+  dragHint: 'Drag to Explorer or another app to copy the final video',
+  dragHintMany: (n: number) => `Drag to copy the ${n} selected final ${n === 1 ? 'video' : 'videos'}`,
   delete: 'Delete clip',
   deleteModal: {
     title: 'Delete this clip?',

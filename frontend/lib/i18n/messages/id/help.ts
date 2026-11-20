@@ -136,6 +136,7 @@ export const help = {
       a: [
         'Klik Ekspor (Ctrl+E) di editor, atau pilih beberapa clip di Hasil Clip lalu "Render & ekspor". Video dirender dengan subtitle lalu disalin ke folder ekspor (Pengaturan, Folder ekspor).',
         'Di sebelah MP4 ada .jpg kalau kamu memilih sampul, dan .txt berisi teks posting untuk clip campaign. Clip yang tidak berubah sejak render terakhir langsung disalin lagi tanpa render.',
+        'Clip yang sudah dirender juga bisa diseret dari Hasil Clip ke Explorer atau aplikasi lain. Di Antrian, "Buka folder hasil ekspor" membuka folder video terbaru dari sebuah job.',
       ],
     },
     post: {

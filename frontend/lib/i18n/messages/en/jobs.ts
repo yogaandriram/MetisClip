@@ -31,6 +31,11 @@ export const jobs: Messages['jobs'] = {
   detailAria: 'Job details',
   cancel: 'Cancel',
   delete: 'Delete job',
+  output: (clips: number, exported: number) =>
+    `${clips} ${clips === 1 ? 'clip' : 'clips'}, ${exported ? `${exported} exported` : 'none exported yet'}`,
+  viewClips: "See this job's clips",
+  openOutput: 'Open the export folder',
+  openOutputFailed: "The export folder couldn't be opened",
   stoppedAt: (step: string) => `Stopped at step: ${step}.`,
   progressClips: (done: number, total: number) => `${done}/${total} ${total === 1 ? 'clip' : 'clips'}`,
   activity: 'Now',

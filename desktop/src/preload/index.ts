@@ -14,6 +14,7 @@ const CH = {
   selectFile: 'metis:select-file',
   openPath: 'metis:open-path',
   showItemInFolder: 'metis:show-item-in-folder',
+  startDrag: 'metis:start-drag',
   openExternal: 'metis:open-external',
   notify: 'metis:notify',
   navigate: 'metis:navigate',
@@ -150,6 +151,10 @@ const bridge = {
   },
   openPath: (absPath: string) => invoke<{ ok: boolean; error?: string }>(CH.openPath, absPath),
   showItemInFolder: (absPath: string) => invoke<void>(CH.showItemInFolder, absPath),
+  /** Drags clips' final videos out of the window (call it in dragstart, after preventDefault) */
+  startDrag(items: Array<{ path: string; name: string }>): void {
+    ipcRenderer.send(CH.startDrag, Array.isArray(items) ? items.map((i) => ({ path: String(i?.path ?? ''), name: String(i?.name ?? '') })) : [])
+  },
   openExternal: (url: string) => invoke<void>(CH.openExternal, url),
   /** Windows notification while the window is in the background; a click opens the app on opts.route */
   notify(title: string, body?: string, opts?: { route?: string }): void {

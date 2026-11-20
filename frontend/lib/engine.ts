@@ -218,6 +218,13 @@ export interface JobError {
   at: ISODate
 }
 
+/** What a job made (gap analysis B12) */
+export interface JobOutput {
+  clips: number
+  exported: number
+  export_file: string | null
+}
+
 export interface Job {
   id: string
   source: {
@@ -253,6 +260,9 @@ export interface Job {
   errors: JobError[]
   /** What a running job does or waits for now (its last job.progress message, in the UI language); null otherwise */
   activity: { message: string; at: ISODate } | null
+  /** What it made (the jobs list and one job's detail only): its clips, how many were exported, and the
+   * newest exported video that still exists (Antrian opens its folder) */
+  output?: JobOutput | null
   created_at: ISODate
   started_at: ISODate | null
   finished_at: ISODate | null
@@ -347,6 +357,8 @@ export interface Clip {
   rationale: string
   status: ClipStatus
   files: ClipFiles
+  /** The rendered video's file name in the export folder (null until a render); dragging the clip out uses it */
+  export_name?: string | null
   /** The chosen cover in seconds of raw (null: the middle frame, and no cover is exported) */
   cover_time?: number | null
   /** Only from GET /api/clips/{id}: the list leaves the words out (see `word_count`) */

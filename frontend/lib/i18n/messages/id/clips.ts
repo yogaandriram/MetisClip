@@ -33,6 +33,9 @@ export const clips = {
   openEditor: (hook: string, score: number, status: string, clock: string) => `Buka editor: ${hook} (skor viral ${score}, ${status}, durasi ${clock})`,
   edit: 'Edit',
   export: 'Ekspor',
+  /** Rendered clips can be dragged out of the gallery (gap analysis B12) */
+  dragHint: 'Seret ke Explorer atau aplikasi lain untuk menyalin video final',
+  dragHintMany: (n: number) => `Seret untuk menyalin ${n} video final yang dipilih`,
   delete: 'Hapus clip',
   deleteModal: {
     title: 'Hapus clip ini?',
