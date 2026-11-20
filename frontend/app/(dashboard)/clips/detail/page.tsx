@@ -110,7 +110,7 @@ import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
 import { api, type BrandTemplate, type ClipDetail, type RenderJob, type SubtitleWord } from '@/lib/engine'
 import { assetUrl, isDesktop, mediaUrl } from '@/lib/media'
-import { RENDER_STATUS, errorMessage, formatClock } from '@/lib/format'
+import { RENDER_STATUS, errorMessage, formatClock, splitPath } from '@/lib/format'
 import { useI18n, useT } from '@/lib/i18n/I18nProvider'
 import { tm } from '@/lib/i18n'
 
@@ -152,12 +152,6 @@ function aiOverrides(ai: AiCaptionSettings, tpl: BrandTemplate | null): Partial<
   const out: Partial<AiCaptionSettings> = {}
   for (const k of Object.keys(ai) as (keyof AiCaptionSettings)[]) if (ai[k] !== base[k]) out[k] = ai[k]
   return out
-}
-
-/** `C:\a\b\clip.mp4` → [`C:\a\b`, `clip.mp4`] (Windows or POSIX separators). */
-function splitPath(p: string): [string, string] {
-  const i = Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/'))
-  return i < 0 ? ['', p] : [p.slice(0, i), p.slice(i + 1)]
 }
 
 const isTypingTarget = (t: EventTarget | null) => {
@@ -347,14 +341,12 @@ function ClipEditor() {
             </span>,
             { duration: 6000 },
           )
-          window.metis?.notify('MetisClip', m.notifyRenderSavedIn(folder))
         } else if (e.export_error) {
           toast.error(m.renderDoneNotCopied(e.export_error), { duration: 8000 })
-          window.metis?.notify('MetisClip', m.notifyRenderDone)
         } else {
           toast.success(m.renderDone)
-          window.metis?.notify('MetisClip', m.notifyRenderDone)
         }
+        // The Windows notification comes from the shell (ShellContext), on every page
         // Refresh clip (files.final / updated_at) without touching unsaved edits
         api.clips
           .get(clipId)

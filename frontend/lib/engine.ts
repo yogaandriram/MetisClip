@@ -436,12 +436,14 @@ export interface Settings {
   render: { concurrency: number }
   /** RAM guard (backend/core/resources.py): auto = heavy steps wait for free RAM; reserve_gb 0 = automatic */
   resources: { auto: boolean; reserve_gb: number }
-  ytdlp: { player_client: string; cookies_file: string | null }
+  /** auto_update: check for a new yt-dlp once a day */
+  ytdlp: { player_client: string; cookies_file: string | null; auto_update: boolean }
   /** post_text: a campaign clip's export gets a .txt with its post text next to the video */
   export: { post_text: boolean }
   db: { wiredtiger_cache_gb: number }
   /** language: the UI language, mirrored for the engine's own messages (lib/i18n) */
-  app: { close_to_tray: boolean; auto_update: boolean; language: Lang }
+  /** The engine's copy of the UI language; closing to the tray is a shell setting (window.metis) */
+  app: { language: Lang }
 }
 
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
@@ -471,6 +473,8 @@ export interface SystemCheckItem {
 
 export interface SystemCheck {
   items: SystemCheckItem[]
+  /** The daily yt-dlp update check: its switch, the last successful check and the last attempt (ISO, UTC) */
+  ytdlp_update?: { auto: boolean; checked_at?: string | null; attempted_at?: string | null; ok?: boolean; message?: string | null }
   encoders: string[]
   cpu_count: number
   ram_gb: number
@@ -486,6 +490,8 @@ export interface YtdlpUpdateResult {
 
 export interface StorageInfo {
   data_root: string
+  /** Who may open the data folder: only this Windows account (plus SYSTEM and Administrators), or more (§6.1) */
+  access?: 'private' | 'shared' | 'unknown'
   drive_free_bytes: number
   drive_total_bytes: number
   db_bytes: number
@@ -594,7 +600,16 @@ export type EngineEvent =
       processed_scenes: number
       message?: string
     }
-  | { type: 'job.status'; id: string; campaign_ids?: string[]; status: JobStatus; error?: string | null }
+  | {
+      type: 'job.status'
+      id: string
+      campaign_ids?: string[]
+      status: JobStatus
+      error?: string | null
+      /** When it finished: the source video's title, and (completed) how many clips it made */
+      title?: string | null
+      clips?: number
+    }
   | { type: 'clip.created'; id: string; job_id: string | null; campaign_id?: string | null }
   | { type: 'clip.updated'; id: string }
   | { type: 'clip.deleted'; id: string }

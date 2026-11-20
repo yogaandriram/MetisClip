@@ -54,4 +54,25 @@ export const shell: Messages['shell'] = {
     hint: "Language of the menus, buttons and messages in the app. It doesn't change the language of videos or subtitles.",
     changed: 'Display language changed to English',
   },
+  offline: {
+    title: "You're offline.",
+    body: 'Editing and exporting clips still work. Downloading YouTube videos and the AI features need the internet.',
+    dismiss: 'Close the offline notice',
+  },
+  update: {
+    title: (version: string) => `MetisClip ${version} is ready to install.`,
+    body: 'It installs by itself when MetisClip closes.',
+    restart: 'Restart now',
+    dismiss: 'Close the update notice',
+    failed: "The update couldn't be installed",
+  },
+  notify: {
+    jobDone: (n: number) => `Job done: ${n} clip${n === 1 ? '' : 's'} ready`,
+    jobDoneNone: 'Job finished without clips',
+    jobFailed: 'Job failed',
+    renderDone: 'Video export done',
+    renderSavedIn: (folder: string) => `Saved in ${folder}`,
+    renderNotCopied: "The video is done but wasn't copied to the export folder. Open the clip to try again.",
+    renderFailed: 'Video export failed',
+  },
 }

@@ -1,8 +1,6 @@
 import { Composition } from 'remotion';
 import { FPS, OverlayProps, SubtitleOverlay, overlaySegments } from './SubtitleOverlay';
 
-export type MyCompositionProps = OverlayProps;
-
 const DEFAULT_PROPS: OverlayProps = {
   videoUrl: '',
   words: [],

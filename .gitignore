@@ -13,7 +13,6 @@ node_modules/
 .next/
 out/
 build/
-.vercel
 
 # Python
 __pycache__/
@@ -29,15 +28,6 @@ env/
 # IDE
 .vscode/
 .idea/
-
-# Local Temp
-tmp/
-backend/tmp/
-frontend/tmp/
-
-output/
-render-engine/out.mp4
-render-engine/public/tmp_videos/
 
 # Local env files (never commit secrets)
 .env.local

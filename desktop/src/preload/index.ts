@@ -16,9 +16,17 @@ const CH = {
   showItemInFolder: 'metis:show-item-in-folder',
   openExternal: 'metis:open-external',
   notify: 'metis:notify',
+  navigate: 'metis:navigate',
   relaunch: 'metis:relaunch',
   getLanguage: 'metis:get-language',
   setLanguage: 'metis:set-language',
+  getCloseToTray: 'metis:get-close-to-tray',
+  setCloseToTray: 'metis:set-close-to-tray',
+  getUpdateStatus: 'metis:get-update-status',
+  checkForUpdates: 'metis:check-for-updates',
+  installUpdate: 'metis:install-update',
+  setAutoUpdate: 'metis:set-auto-update',
+  updateStatus: 'metis:update-status',
   planDataMove: 'metis:plan-data-move',
   moveDataRoot: 'metis:move-data-root',
   cancelDataMove: 'metis:cancel-data-move',
@@ -62,9 +70,35 @@ const bridge = {
   platform: process.platform,
   appVersion: arg('metis-app-version') || '0.0.0',
   isPackaged: arg('metis-packaged') === '1',
+  /** For "Salin info sistem": the shell's runtime and the Windows build (available to a sandboxed preload) */
+  versions: { electron: process.versions.electron, chrome: process.versions.chrome, node: process.versions.node },
+  arch: process.arch,
+  osVersion: (() => {
+    try {
+      return process.getSystemVersion()
+    } catch {
+      return ''
+    }
+  })(),
   /** UI language saved by main; read synchronously so the first paint already uses it */
   language: initialLanguage(),
   setLanguage: (lang: string) => invoke<void>(CH.setLanguage, lang),
+  /** Closing the window keeps MetisClip running in the tray (saved by main at once) */
+  getCloseToTray: () => invoke<boolean>(CH.getCloseToTray),
+  setCloseToTray: (on: boolean) => invoke<void>(CH.setCloseToTray, on),
+  /** App updates from GitHub Releases (main/updater.ts) */
+  getUpdateStatus: () => invoke(CH.getUpdateStatus),
+  checkForUpdates: () => invoke(CH.checkForUpdates),
+  installUpdate: () => invoke<void>(CH.installUpdate),
+  setAutoUpdate: (on: boolean) => invoke<void>(CH.setAutoUpdate, on),
+  onUpdateStatus(cb: (status: unknown) => void): () => void {
+    if (typeof cb !== 'function') return () => undefined
+    const listener = (_e: IpcRendererEvent, status: unknown) => cb(status)
+    ipcRenderer.on(CH.updateStatus, listener)
+    return () => {
+      ipcRenderer.removeListener(CH.updateStatus, listener)
+    }
+  },
 
   async getEngineInfo(): Promise<EngineInfo> {
     const r = await invoke<{ ok: boolean; info?: EngineInfo; error?: string }>(CH.getEngineInfo)
@@ -114,8 +148,17 @@ const bridge = {
   openPath: (absPath: string) => invoke<{ ok: boolean; error?: string }>(CH.openPath, absPath),
   showItemInFolder: (absPath: string) => invoke<void>(CH.showItemInFolder, absPath),
   openExternal: (url: string) => invoke<void>(CH.openExternal, url),
-  notify(title: string, body?: string): void {
-    ipcRenderer.send(CH.notify, title, body)
+  /** Windows notification while the window is in the background; a click opens the app on opts.route */
+  notify(title: string, body?: string, opts?: { route?: string }): void {
+    ipcRenderer.send(CH.notify, title, body, opts?.route)
+  },
+  onNavigate(cb: (route: string) => void): () => void {
+    if (typeof cb !== 'function') return () => undefined
+    const listener = (_e: IpcRendererEvent, route: string) => cb(route)
+    ipcRenderer.on(CH.navigate, listener)
+    return () => {
+      ipcRenderer.removeListener(CH.navigate, listener)
+    }
   },
   relaunch(): void {
     ipcRenderer.send(CH.relaunch)

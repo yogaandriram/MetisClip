@@ -113,6 +113,12 @@ export const CLIP_DURATION_OPTIONS: { value: (typeof CLIP_DURATIONS)[number]; la
 /** Video containers Cari Video accepts for upload (backend/agents/nodes/discovery.py VIDEO_EXTENSIONS). */
 export const VIDEO_FILE_EXTENSIONS = ['mp4', 'mkv', 'mov', 'webm', 'm4v', 'avi']
 
+/** `C:\a\b\clip.mp4` → [`C:\a\b`, `clip.mp4`] (Windows or POSIX separators). */
+export function splitPath(p: string): [string, string] {
+  const i = Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/'))
+  return i < 0 ? ['', p] : [p.slice(0, i), p.slice(i + 1)]
+}
+
 /** "D:\Video\podcast.mp4" -> "podcast.mp4" */
 export function fileName(path: string): string {
   return path.split(/[\\/]/).pop() || path

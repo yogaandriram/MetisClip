@@ -46,6 +46,8 @@ export const settings = {
   },
   ytdlp: {
     title: 'Unduhan YouTube (yt-dlp)',
+    autoUpdate: 'Perbarui yt-dlp otomatis',
+    autoUpdateHint: 'Diperiksa sekali sehari saat tidak ada job atau ekspor yang berjalan. YouTube sering membuat versi lama gagal mengunduh, jadi sebaiknya tetap aktif.',
     cookies: 'File cookies YouTube (opsional)',
     cookiesHint: 'Dipakai yt-dlp jika YouTube meminta verifikasi. Format cookies.txt (Netscape).',
     notUsed: 'Tidak dipakai',
@@ -62,15 +64,18 @@ export const settings = {
     postText: 'Simpan teks posting untuk clip campaign',
     postTextHint: 'Saat clip campaign diekspor, file .txt berisi judul, caption, mention, hashtag, dan label kerja sama ikut disimpan di sebelah videonya.',
     cacheLimit: 'Batas cache (GB)',
-    cacheLimitHint: 'Video sumber sementara dihapus otomatis jika melebihi batas ini.',
+    cacheLimitHint: 'Sisa file sementara dihapus setiap MetisClip dibuka dan saat cache melebihi batas ini. File pekerjaan yang sedang berjalan tidak ikut dihapus.',
     mongoCache: 'Cache MongoDB (GB)',
     mongoCacheHint: 'Memori untuk database. Berlaku setelah aplikasi dimulai ulang.',
   },
   app: {
     title: 'Aplikasi',
     tray: 'Tetap berjalan di tray saat ditutup',
-    trayHint: 'Job yang berjalan tidak terhenti ketika jendela ditutup.',
-    autoUpdate: 'Pembaruan otomatis',
+    trayHint: 'Job dan ekspor tetap berjalan setelah jendela ditutup. Klik ikon MetisClip di area notifikasi untuk membukanya lagi, klik kanan untuk keluar.',
+    trayFailed: 'Pengaturan tray tidak tersimpan',
+    autoUpdate: 'Perbarui MetisClip otomatis',
+    autoUpdateHint: 'Memeriksa versi baru di GitHub saat MetisClip dibuka dan setiap 6 jam, lalu mengunduhnya di latar belakang. Versi baru dipasang saat MetisClip ditutup.',
+    autoUpdateFailed: 'Pengaturan pembaruan tidak tersimpan',
   },
   /** components/settings/SecretField.tsx */
   secret: {

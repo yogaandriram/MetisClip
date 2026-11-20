@@ -68,7 +68,7 @@ export function CampaignProfile({ pathname }: { pathname: string }) {
         {activeCampaign ? (
           <Avatar name={activeCampaign.name} seed={activeCampaign.id} size={44} />
         ) : (
-          <LogoMark size={26} />
+          <LogoMark size={42} />
         )}
       </button>
 
@@ -131,7 +131,7 @@ export function CampaignProfile({ pathname }: { pathname: string }) {
           <div className="mc-menu-sep" role="separator" />
           <div className="mc-profile__brand">
             <span className="mc-profile__brand-mark" aria-hidden="true">
-              <LogoMark size={12} />
+              <LogoMark size={15} />
             </span>
             MetisClip{version ? ` v${version}` : ''}
           </div>

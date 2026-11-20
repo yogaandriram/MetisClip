@@ -9,16 +9,15 @@ Whisper is Groq or the local engine, as chosen in Pengaturan (`tools/whisper.py`
 from __future__ import annotations
 
 import logging
-import shutil
 from pathlib import Path
 from typing import Any, Callable
 
 from backend.agents.context import PipelineError
 from backend.agents.tools import ffmpeg_ops, whisper, ytdlp
+from backend.core import cache
 from backend.core.config import config
 from backend.core.db import get_db, utcnow
 from backend.core.procs import CancelToken, Cancelled
-from backend.core.paths import get_paths
 from backend.core import i18n
 
 M = i18n.messages({
@@ -147,7 +146,7 @@ def _whisper_chunks(
 def _from_whisper(
     video: dict[str, Any], cancel: CancelToken, on_status: Callable[[str], None] | None
 ) -> tuple[list[dict[str, Any]], str | None]:
-    work = get_paths().cache_dir / f"transcript-{cache_key(video).replace(':', '-')}"
+    work = cache.claim(f"transcript-{cache_key(video).replace(':', '-')}")
     try:
         if video.get("file_path"):
             if on_status:
@@ -160,7 +159,7 @@ def _from_whisper(
         chunks = ffmpeg_ops.chunk_audio(audio, work / "chunks", CHUNK_SECONDS, cancel)
         return _whisper_chunks(cache_key(video), chunks, cancel, on_status)
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        cache.release(work)
 
 
 def get_transcript(

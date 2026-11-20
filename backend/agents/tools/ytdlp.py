@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+import threading
+from datetime import datetime, timezone
 from pathlib import Path
 
 from backend.core import procs
@@ -78,6 +81,12 @@ M = i18n.messages({
 })
 
 logger = logging.getLogger(__name__)
+
+# Daily update check (CLAUDE.md §10.4): YouTube breaks old builds within weeks
+AUTO_EVERY_S = 24 * 3600
+AUTO_RETRY_S = 3 * 3600  # after a failed check (offline, GitHub unreachable)
+STATE_FILE = "yt-dlp-update.json"  # next to the updatable copy, in tools_dir
+_update_lock = threading.Lock()  # one `yt-dlp -U` at a time (the button and the daily check)
 
 _ID_RE = re.compile(r"^[0-9A-Za-z_-]{11}$")
 _URL_PATTERNS = [
@@ -216,7 +225,19 @@ def version() -> str | None:
 
 
 def self_update() -> dict:
-    """`yt-dlp -U` on the user-writable copy (YouTube breaks old builds; CLAUDE.md §10.4)."""
+    """`yt-dlp -U` on the user-writable copy (YouTube breaks old builds; CLAUDE.md §10.4).
+    Waits for a daily check that is already running."""
+    with _update_lock:
+        return _update(auto=False)
+
+
+def _update(auto: bool) -> dict:
+    result = _run_self_update()
+    _save_state(result, auto)
+    return result
+
+
+def _run_self_update() -> dict:
     from backend.core.config import note_ytdlp_version, ytdlp_exe
     from backend.core.paths import get_paths
 
@@ -246,3 +267,78 @@ def self_update() -> dict:
     logger.warning("yt-dlp self-update failed: %s", output.strip()[-1000:])
     return {"ok": False, "updated": False, "version": after,
             "message": M("update_failed", tail=tail) if tail else M("update_failed_offline")}
+
+
+# ---------------------------------------------------------------------------
+# Daily update check
+# ---------------------------------------------------------------------------
+
+def _state_path() -> Path:
+    from backend.core.paths import get_paths
+
+    return get_paths().tools_dir / STATE_FILE
+
+
+def update_state() -> dict:
+    """The last update check of the tools copy: {checked_at (last success), attempted_at, ok, auto,
+    version, message}, times as ISO strings in UTC; {} before the first one."""
+    try:
+        data = json.loads(_state_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _save_state(result: dict, auto: bool) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    state = update_state()
+    state.update({"attempted_at": now, "ok": bool(result.get("ok")), "auto": auto,
+                  "version": result.get("version"), "message": result.get("message")})
+    if result.get("ok"):
+        state["checked_at"] = now
+    path = _state_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError as exc:
+        logger.warning("Cannot save the yt-dlp update state: %s", exc)
+
+
+def _age_s(iso: str | None, now: datetime) -> float:
+    try:
+        return (now - datetime.fromisoformat(str(iso))).total_seconds()
+    except (TypeError, ValueError):
+        return float("inf")
+
+
+def maybe_auto_update(now: datetime | None = None) -> dict | None:
+    """Housekeeping (backend/run.py): checks for a new yt-dlp once a day while `ytdlp.auto_update` is on,
+    and only while no job or export runs (they may be running yt-dlp). A failed check is tried again
+    after 3 hours. Returns the result when a check ran."""
+    from backend.core import events
+    from backend.core.db import get_db
+    from backend.core.settings_store import get_settings
+
+    if not get_settings()["ytdlp"].get("auto_update", True):
+        return None
+    now = now or datetime.now(timezone.utc)
+    state = update_state()
+    if _age_s(state.get("checked_at"), now) < AUTO_EVERY_S or _age_s(state.get("attempted_at"), now) < AUTO_RETRY_S:
+        return None
+    db = get_db()
+    if (db.discovery_jobs.count_documents({"status": {"$in": ["running", "pending"]}})
+            or db.render_jobs.count_documents({"status": {"$in": ["queued", "rendering"]}})):
+        return None
+    if not _update_lock.acquire(blocking=False):
+        return None  # the Update button is running it now
+    try:
+        result = _update(auto=True)
+    finally:
+        _update_lock.release()
+    if result.get("updated"):
+        events.notice(result["message"])
+    elif not result.get("ok"):
+        logger.info("Automatic yt-dlp update check failed, trying again in 3 hours: %s", result.get("message"))
+    return result

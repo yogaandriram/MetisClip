@@ -12,6 +12,7 @@ import { errorMessage } from '@/lib/format'
 import { isDesktop } from '@/lib/media'
 import { getLang, localeTag, tm } from '@/lib/i18n'
 import { useT } from '@/lib/i18n/I18nProvider'
+import { useUpdateStatus } from '@/lib/updates'
 
 const ENCODERS: EncoderSetting[] = ['auto', 'libx264', 'h264_nvenc', 'h264_qsv', 'h264_amf']
 
@@ -74,6 +75,64 @@ function SettingsSkeleton({ rows = 2 }: { rows?: number }) {
 }
 
 const headerIcon = (Icon: React.ElementType) => <Icon size={18} aria-hidden="true" />
+
+/** "Keep running in the tray": a shell setting, saved by the main process at once (preferences.json). */
+function TraySwitch() {
+  const m = useT().settings.app
+  const [on, setOn] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    window.metis
+      ?.getCloseToTray()
+      .then(setOn)
+      .catch(() => setOn(false))
+  }, [])
+
+  if (on === null) return <Skeleton height={48} radius="md" />
+  return (
+    <ToggleSwitch
+      label={m.tray}
+      hint={m.trayHint}
+      checked={on}
+      onChange={async (v) => {
+        setOn(v)
+        try {
+          await window.metis!.setCloseToTray(v)
+        } catch (err) {
+          setOn(!v)
+          toast.error(errorMessage(err, m.trayFailed))
+        }
+      }}
+    />
+  )
+}
+
+/** "Perbarui MetisClip otomatis" (main/updater.ts, preferences.json); hidden in a development build. */
+function AutoUpdateSwitch() {
+  const m = useT().settings.app
+  const status = useUpdateStatus()
+  const [saving, setSaving] = useState<boolean | null>(null)
+
+  if (!status) return <Skeleton height={48} radius="md" />
+  if (status.phase === 'unsupported') return null
+  return (
+    <ToggleSwitch
+      label={m.autoUpdate}
+      hint={m.autoUpdateHint}
+      checked={saving ?? status.auto}
+      onChange={async (v) => {
+        setSaving(v)
+        try {
+          await window.metis!.setAutoUpdate(v)
+        } catch (err) {
+          toast.error(errorMessage(err, m.autoUpdateFailed))
+        } finally {
+          setSaving(null)
+        }
+      }}
+    />
+  )
+}
 
 export default function SettingsPage() {
   const t = useT()
@@ -289,6 +348,12 @@ export default function SettingsPage() {
             <SettingsSkeleton rows={1} />
           ) : (
             <div className="mc-stack mc-gap-12">
+              <ToggleSwitch
+                label={m.ytdlp.autoUpdate}
+                hint={m.ytdlp.autoUpdateHint}
+                checked={settings.ytdlp.auto_update ?? true}
+                onChange={(v) => patch('ytdlp', { ...settings.ytdlp, auto_update: v })}
+              />
               <PathField
                 label={m.ytdlp.cookies}
                 hint={m.ytdlp.cookiesHint}
@@ -377,22 +442,11 @@ export default function SettingsPage() {
 
         <Card>
           <CardHeader size="sm" icon={headerIcon(AppWindow)} title={m.app.title} />
+          {/* Both apply and save at once, outside the Save button below */}
           <div className="mc-stack mc-gap-20">
-            {/* Applies and saves at once, outside the Save button below */}
             <LanguageSwitch withLabel />
-            {!settings ? (
-              <SettingsSkeleton />
-            ) : (
-              <div className="mc-stack mc-gap-20">
-                <ToggleSwitch
-                  label={m.app.tray}
-                  hint={m.app.trayHint}
-                  checked={settings.app.close_to_tray}
-                  onChange={(v) => patch('app', { ...settings.app, close_to_tray: v })}
-                />
-                <ToggleSwitch label={m.app.autoUpdate} checked={settings.app.auto_update} onChange={(v) => patch('app', { ...settings.app, auto_update: v })} />
-              </div>
-            )}
+            {desktop && <TraySwitch />}
+            {desktop && <AutoUpdateSwitch />}
           </div>
         </Card>
 

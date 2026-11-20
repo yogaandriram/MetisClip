@@ -1,17 +1,18 @@
 'use client'
 
 import React, { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, Archive, Check, Cpu, Database, FolderInput, FolderOpen, HardDrive, Info, MemoryStick, RefreshCw, RotateCcw, Trash2 } from 'lucide-react'
+import { AlertTriangle, Archive, Check, ChevronRight, Copy, Cpu, Database, FolderInput, FolderOpen, HardDrive, Info, Lock, MemoryStick, RefreshCw, RotateCcw, Trash2, Users } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { Alert, Badge, Button, Card, CardHeader, ConfirmModal, EmptyState, IconButton, KeyValueList, PageHeader, ProgressRow, Skeleton } from '@/components/ui'
+import { Alert, Badge, Button, ButtonLink, Card, CardHeader, ConfirmModal, EmptyState, IconButton, KeyValueList, PageHeader, ProgressRow, Skeleton } from '@/components/ui'
 import { MoveDataModal } from '@/components/system/MoveDataModal'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
 import { api, type BackupInfo, type ResourceStatus, type ResourceTask, type StorageInfo, type SystemCheck } from '@/lib/engine'
 import { errorMessage, formatBytes, formatDateTime } from '@/lib/format'
 import { isDesktop } from '@/lib/media'
-import { localeTag } from '@/lib/i18n'
-import { useT } from '@/lib/i18n/I18nProvider'
+import { localeTag, tm } from '@/lib/i18n'
+import { useI18n, useT } from '@/lib/i18n/I18nProvider'
+import { copyWhenReady, supportText } from '@/lib/supportInfo'
 
 const headerIcon = (Icon: React.ElementType) => <Icon size={18} aria-hidden="true" />
 
@@ -89,8 +90,16 @@ function HealthBadge({ ok }: { ok: boolean }) {
 
 const pct = (part: number, whole: number) => (whole > 0 ? (part / whole) * 100 : 0)
 
+/** Under yt-dlp in the component check: the daily update check (backend/agents/tools/ytdlp.py). */
+function ytdlpAutoText(u: NonNullable<SystemCheck['ytdlp_update']>): string {
+  const m = tm().system.check
+  if (!u.auto) return m.ytdlpAutoOff
+  if (u.attempted_at && u.ok === false) return m.ytdlpAutoFailed(formatDateTime(u.attempted_at))
+  return u.checked_at ? m.ytdlpAuto(formatDateTime(u.checked_at)) : m.ytdlpAutoPending
+}
+
 export default function SystemPage() {
-  const t = useT()
+  const { t, lang } = useI18n()
   const m = t.system
   const { epoch, systemInfo, refreshSystemInfo } = useEngine()
   const desktop = isDesktop()
@@ -231,7 +240,8 @@ export default function SystemPage() {
       const res = await api.system.updateYtdlp()
       if (res.ok) toast.success(res.message)
       else toast.error(res.message)
-      if (res.updated) runCheck()
+      runCheck() // the version, and the time of the last check
+
     } catch (err) {
       toast.error(errorMessage(err, m.check.updateYtdlpFailed))
     } finally {
@@ -243,6 +253,20 @@ export default function SystemPage() {
     if (!window.metis || !path) return
     const res = await window.metis.openPath(path)
     if (!res.ok) toast.error(res.error || m.folderOpenFailed)
+  }
+
+  // §10.5: what this page already loaded, plus the AI and transcription settings (never a key)
+  const copySupportInfo = async () => {
+    const text = Promise.all([
+      api.settings.get().then((r) => r.settings, () => null),
+      check ? Promise.resolve(check) : api.system.check().catch(() => null), // still running: wait for it
+    ]).then(([settings, checked]) => supportText({ t, lang, systemInfo, check: checked, storage, settings }))
+    try {
+      await copyWhenReady(text)
+      toast.success(t.about.support.copied)
+    } catch (err) {
+      toast.error(`${t.about.support.copyFailed}: ${errorMessage(err)}`)
+    }
   }
 
   const driveUsed = storage ? storage.drive_total_bytes - storage.drive_free_bytes : 0
@@ -257,6 +281,9 @@ export default function SystemPage() {
         actions={
           desktop && systemInfo ? (
             <>
+              <Button variant="secondary" size="sm" icon={<Copy size={16} aria-hidden="true" />} onClick={copySupportInfo}>
+                {t.about.support.copy}
+              </Button>
               <Button variant="secondary" size="sm" icon={<FolderOpen size={16} aria-hidden="true" />} onClick={() => open(systemInfo.logs_dir)}>
                 {m.openLogs}
               </Button>
@@ -315,6 +342,7 @@ export default function SystemPage() {
                                 {item.detail}
                               </div>
                             )}
+                            {item.key === 'ytdlp' && check.ytdlp_update && <div className="mc-caption mc-muted">{ytdlpAutoText(check.ytdlp_update)}</div>}
                           </td>
                           <td className="mc-mono mc-caption">{item.version || '-'}</td>
                           <td>
@@ -437,6 +465,16 @@ export default function SystemPage() {
                   <div className="mc-mono mc-caption" style={{ overflowWrap: 'anywhere' }}>
                     {storage.data_root}
                   </div>
+                  {(storage.access === 'private' || storage.access === 'shared') && (
+                    <div className="mc-row mc-gap-8 mc-caption" style={{ alignItems: 'flex-start' }}>
+                      {storage.access === 'private' ? (
+                        <Lock size={14} aria-hidden="true" style={{ flex: 'none', marginTop: 3 }} />
+                      ) : (
+                        <Users size={14} aria-hidden="true" style={{ flex: 'none', marginTop: 3 }} />
+                      )}
+                      <span>{storage.access === 'private' ? m.storage.accessPrivate : m.storage.accessShared}</span>
+                    </div>
+                  )}
                   <ProgressRow label={m.storage.driveUsed} value={`${formatBytes(driveUsed)} / ${formatBytes(storage.drive_total_bytes)}`} percent={usedPct} highlight />
                   <div className="mc-caption">{m.storage.driveFree(formatBytes(storage.drive_free_bytes))}</div>
                   {desktop && (
@@ -491,7 +529,16 @@ export default function SystemPage() {
           </Card>
 
           <Card>
-            <CardHeader size="sm" icon={headerIcon(Info)} title={m.info.title} />
+            <CardHeader
+              size="sm"
+              icon={headerIcon(Info)}
+              title={m.info.title}
+              action={
+                <ButtonLink href="/system/about/" variant="ghost" size="sm" iconRight={<ChevronRight size={16} aria-hidden="true" />}>
+                  {t.about.open}
+                </ButtonLink>
+              }
+            />
             {!systemInfo ? (
               <Skeleton height={160} radius="md" />
             ) : (

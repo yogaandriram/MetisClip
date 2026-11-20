@@ -16,7 +16,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Callable
 
-from backend.core import procs
+from backend.core import cache, procs
 from backend.core.db import get_db, utcnow
 from backend.core.paths import get_paths
 from backend.core import i18n
@@ -509,8 +509,7 @@ def prepare_source(clip: dict[str, Any], cancel: procs.CancelToken | None = None
     db = get_db()
     sv = db.source_videos.find_one({"_id": clip.get("source_video_id")}) if clip.get("source_video_id") else None
     local = (sv or {}).get("file_path")
-    work = get_paths().cache_dir / f"source-{clip['_id']}"
-    work.mkdir(parents=True, exist_ok=True)
+    work = cache.claim(f"source-{clip['_id']}")
     if on_step:
         on_step(M("preparing_source"))
     try:
@@ -531,7 +530,7 @@ def prepare_source(clip: dict[str, Any], cancel: procs.CancelToken | None = None
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(tmp), str(dest))
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        cache.release(work)
     fields = source_fields(dest)
     db.clips.update_one({"_id": clip["_id"]}, {"$set": {**fields, "updated_at": utcnow()}})
     return db.clips.find_one({"_id": clip["_id"]}) or clip

@@ -3,6 +3,7 @@ import { auraglowPreset } from './auraglow';
 import { kineticboxPreset } from './kineticbox';
 import { luminaPreset } from './lumina';
 import { popshadowPreset } from './popshadow';
+import { karaokePreset } from './karaoke';
 import { typewriterPreset } from './typewriter';
 import { neonpulsePreset } from './neonpulse';
 import { slideupfadePreset } from './slideupfade';
@@ -18,6 +19,7 @@ export const presets: SubtitlePreset[] = [
   kineticboxPreset,
   luminaPreset,
   popshadowPreset,
+  karaokePreset,
   typewriterPreset,
   neonpulsePreset,
   slideupfadePreset,

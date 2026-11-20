@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from backend.api.dto import brand_template_dto, http_error
-from backend.core import events
+from backend.core import cache, events
 from backend.core.db import get_db, utcnow
 from backend.core.paths import get_paths
 from backend.models.documents import BrandTemplateDoc
@@ -247,8 +247,7 @@ async def upload_asset(template_id: str, file: UploadFile = File(...), kind: str
     kind_clean = _safe_name.sub("-", kind or "asset").strip("-")[:20] or "asset"
     dest = folder / f"{kind_clean}-{uuid.uuid4().hex[:8]}{ext}"
     if companion:  # the upload lands in the cache; only the converted copy is kept
-        upload_path = get_paths().cache_dir / f"upload-{uuid.uuid4().hex}{ext}"
-        upload_path.parent.mkdir(parents=True, exist_ok=True)
+        upload_path = cache.claim(f"upload-{uuid.uuid4().hex}{ext}", folder=False)
         final_path, dest = dest.with_suffix(".mp4"), upload_path
     size = 0
     with dest.open("wb") as out:
@@ -259,7 +258,10 @@ async def upload_asset(template_id: str, file: UploadFile = File(...), kind: str
             size += len(chunk)
             if size > MAX_ASSET_BYTES:
                 out.close()
-                dest.unlink(missing_ok=True)
+                if companion:
+                    cache.release(upload_path)
+                else:
+                    dest.unlink(missing_ok=True)
                 raise http_error(400, M("too_large"))
             out.write(chunk)
     if companion:
@@ -274,7 +276,7 @@ async def upload_asset(template_id: str, file: UploadFile = File(...), kind: str
             final_path.unlink(missing_ok=True)
             raise http_error(400, M("companion_failed", error=exc))
         finally:
-            upload_path.unlink(missing_ok=True)
+            cache.release(upload_path)
         rel = get_paths().to_relative(final_path)
         return {"value": f"asset://{rel}", "path": rel, "duration": duration}
     rel = get_paths().to_relative(dest)

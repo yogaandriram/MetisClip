@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import shutil
 import subprocess
 import threading
 import time
@@ -19,7 +18,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from backend.core import events, procs, resources, workload
+from backend.core import cache, events, procs, resources, workload
 from backend.core.config import config, node_command
 from backend.core.db import get_db, utcnow
 from backend.core.logging_setup import redactor
@@ -241,8 +240,7 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
     _publish(render_id, clip_id, "rendering")
 
     paths = get_paths()
-    work = paths.cache_dir / f"render-{render_id}"
-    work.mkdir(parents=True, exist_ok=True)
+    work = cache.claim(f"render-{render_id}")
     props_path = work / "props.json"
     tmp_out = work / "final.mp4"
     error: str | None = None
@@ -318,7 +316,7 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
         logger.exception("Render %s failed", render_id)
         error = str(exc)
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        cache.release(work)
         if status != "completed":
             db.render_jobs.update_one(
                 {"_id": render_id},

@@ -56,7 +56,13 @@ Packaged layout (`<resources>` = `MetisClip\resources`):
 | `render-engine\browser\chrome-headless-shell.exe` | Chrome Headless Shell (passed as `METISCLIP_BROWSER_PATH`) |
 | `bin\` | `mongod.exe` (+ licenses), `yt-dlp.exe`, `deno.exe`, `ffmpeg.exe`, `whisper\` (whisper.cpp `whisper-cli.exe`, its ggml DLLs, `LICENSE`) |
 
-The NSIS installer is per-user by default (no admin), never deletes `%APPDATA%\MetisClip` or the data folder.
+The NSIS installer is per-user by default (no admin). Its uninstaller (`build-resources/installer.nsh`, with
+`build-resources/uninstall-data.ps1` finding the folders) removes the logs, the updatable tools and the
+data folder's `cache\`, then asks whether the data folder goes too. No is the default and the answer of a
+silent uninstall (`/S`); Yes also removes the folder left from a data move, `%APPDATA%\MetisClip` and the
+saved API keys. An update (`--updated`) touches nothing outside the app folder. For an uninstall test, set
+`METISCLIP_USERDATA_DIR`, `METISCLIP_TOOLS_DIR` and `METISCLIP_KEYRING_SERVICE` before starting it, so
+it never reaches the real data or keys.
 
 ## Environment hooks (verification / tests)
 
@@ -76,6 +82,7 @@ All are read by the main process and logged to `main.log` when used.
 | `METISCLIP_ENGINE_CMD`, `METISCLIP_ENGINE_ARGS` (JSON array) | Dev only: run a different engine command (e.g. a stub) |
 | `METISCLIP_DEVTOOLS=1` | Dev only: open DevTools on start |
 | `METISCLIP_DEBUG=1` | Debug lines in `main.log` (e.g. non-JSON engine stdout) |
+| `METISCLIP_UPDATE_FEED=http://127.0.0.1:<port>/` | App updates from a local generic feed (`latest.yml` + installer) instead of GitHub Releases, also in dev; loopback http only. Downloads go to `%LOCALAPPDATA%\metisclip-desktop-updater-qa` |
 
 Example (packaged-like UI, real engine, throwaway data, screenshot, auto quit):
 

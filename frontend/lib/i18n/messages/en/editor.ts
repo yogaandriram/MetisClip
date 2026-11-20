@@ -70,9 +70,7 @@ export const editor: Messages['editor'] = {
   loadErrorTitle: "The clip can't be opened",
   backToGallery: 'Back to the gallery',
   renderDoneSavedIn: 'Render finished, saved in',
-  notifyRenderSavedIn: (folder: string) => `Render finished. Saved in ${folder}`,
   renderDoneNotCopied: (error: string) => `Render finished, but it wasn't copied to the export folder yet. ${error}`,
-  notifyRenderDone: 'Clip render finished',
   renderDone: 'Render finished',
   clipDeleted: 'This clip was deleted',
 

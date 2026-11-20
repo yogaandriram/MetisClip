@@ -1,7 +1,7 @@
 // MetisClip Electron main process: lifecycle, single instance, window, mongod + engine sidecars.
 import fs from 'node:fs'
 import path from 'node:path'
-import { app, BrowserWindow, screen, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, screen, session, shell, type MessageBoxOptions } from 'electron'
 import { configureUserData, entryUrl, getPaths, isTrustedUrl } from './paths'
 import { createLogger, initLogger } from './logger'
 import { registerAppProtocol, registerSchemePrivileges } from './protocol'
@@ -11,6 +11,8 @@ import { settleMoveForQuit } from './data-move'
 import { dataRootAvailable, dataRootOverride, ensureStructure, readBootstrap } from './data-root'
 import { loadWindowState, MIN_HEIGHT, MIN_WIDTH, trackWindowState } from './window-state'
 import { getLanguage, tr } from './i18n'
+import { AppTray } from './tray'
+import { AppUpdater } from './updater'
 
 configureUserData()
 registerSchemePrivileges()
@@ -20,6 +22,116 @@ const backend = new Backend()
 let mainWindow: BrowserWindow | null = null
 let cleanedUp = false
 let quitting = false
+/** Windows is shutting down or logging off: never hold the window open with a question */
+let sessionEnding = false
+
+function showWindow(): void {
+  const win = mainWindow
+  if (!win || win.isDestroyed()) return
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+}
+
+const appTray = new AppTray({ showWindow, quit: () => void confirmQuit('tray') })
+const updater = new AppUpdater()
+
+type BusyItem = { kind: string; count: number }
+
+/** What would be cut off by quitting (GET /api/system/activity); nothing when the engine is not up. */
+async function busyItems(): Promise<BusyItem[]> {
+  if (backend.getStatus().state !== 'ready') return []
+  try {
+    const activity = await backend.engineGet<{ busy: boolean; items: BusyItem[] }>('/api/system/activity')
+    return activity.busy ? activity.items : []
+  } catch (e) {
+    log.warn(`aktivitas engine tidak terbaca: ${(e as Error).message}`)
+    return []
+  }
+}
+
+let asking = false
+
+/**
+ * Closing the window (setting off) or "Quit" in the tray: quits at once when nothing runs; otherwise asks.
+ * From the window the default is to keep running in the background, optionally from now on.
+ */
+async function confirmQuit(from: 'window' | 'tray'): Promise<void> {
+  if (asking || quitting) return
+  asking = true
+  try {
+    const items = await busyItems()
+    if (!items.length) {
+      app.quit()
+      return
+    }
+    const m = tr().close
+    const list = items.map((i) => (m.items[i.kind] ? m.items[i.kind](i.count) : `${i.count} ${i.kind}`)).join(', ')
+    const fromWindow = from === 'window'
+    const options: MessageBoxOptions = {
+      type: 'warning',
+      title: 'MetisClip',
+      message: m.busyTitle,
+      detail: m.busyDetail(list),
+      buttons: fromWindow ? [m.runInTray, m.quit, m.cancel] : [m.quit, m.cancel],
+      defaultId: 0,
+      cancelId: fromWindow ? 2 : 1,
+      noLink: true,
+      ...(fromWindow ? { checkboxLabel: m.remember } : {}),
+    }
+    const win = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() ? mainWindow : null
+    log.info(`keluar diminta (${from}) saat masih berjalan: ${list}`)
+    const r = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options)
+    const choices = fromWindow ? ['background', 'quit', 'cancel'] : ['quit', 'cancel']
+    const choice = choices[r.response] ?? 'cancel'
+    log.info(`pilihan: ${choice}${r.checkboxChecked ? ' (selalu ke tray)' : ''}`)
+    if (choice === 'quit') app.quit()
+    else if (choice === 'background' && mainWindow && !mainWindow.isDestroyed()) {
+      if (r.checkboxChecked) appTray.setCloseToTray(true)
+      appTray.hideWindow(mainWindow)
+    }
+  } finally {
+    asking = false
+  }
+}
+
+/**
+ * "Mulai ulang dan pasang" (Sistem → Tentang, the update banner): asks first while work runs, then quits.
+ * The quit stops the engine and MongoDB and starts the installer, which opens MetisClip again.
+ */
+async function restartToInstall(): Promise<void> {
+  if (asking || quitting || !updater.pending) return
+  asking = true
+  try {
+    const items = await busyItems()
+    if (items.length) {
+      const m = tr()
+      const list = items.map((i) => (m.close.items[i.kind] ? m.close.items[i.kind](i.count) : `${i.count} ${i.kind}`)).join(', ')
+      const options: MessageBoxOptions = {
+        type: 'warning',
+        title: 'MetisClip',
+        message: m.update.busyTitle(updater.getStatus().version ?? ''),
+        detail: m.update.busyDetail(list),
+        buttons: [m.update.install, m.update.later],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+      }
+      const win = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() ? mainWindow : null
+      log.info(`pasang pembaruan diminta saat masih berjalan: ${list}`)
+      const r = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options)
+      if (r.response !== 0) {
+        log.info('pilihan: nanti')
+        return
+      }
+    }
+    log.info('mulai ulang untuk memasang pembaruan')
+    updater.requestRestart()
+    app.quit()
+  } finally {
+    asking = false
+  }
+}
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
@@ -86,6 +198,8 @@ function createWindow(): BrowserWindow {
     show: false,
     title: 'MetisClip',
     backgroundColor: '#ECFAE5', // --mist, the UI canvas (frontend/styles/tokens.css)
+    // Packaged builds take the window and taskbar icon from MetisClip.exe; dev runs electron.exe, so set it.
+    icon: p.isDev ? p.iconFile : undefined,
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'index.js'),
@@ -138,6 +252,21 @@ function createWindow(): BrowserWindow {
       }
     })
   }
+
+  // The close button: hide to the tray when that is set, otherwise quit (asking first while work runs)
+  win.on('close', (e) => {
+    if (quitting || sessionEnding) return
+    e.preventDefault()
+    if (appTray.closeToTray) appTray.hideWindow(win)
+    else void confirmQuit('window')
+  })
+  win.on('show', () => appTray.windowShown())
+  win.on('query-session-end', () => {
+    sessionEnding = true
+  })
+  win.on('session-end', () => {
+    sessionEnding = true
+  })
 
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null
@@ -248,18 +377,16 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('second-instance', () => {
     log.info('instance kedua dibuka; fokus ke jendela')
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.show()
-      mainWindow.focus()
-    }
+    showWindow()
   })
 
   app.whenReady().then(() => {
     hardenSession()
     if (p.uiDir) registerAppProtocol(p.uiDir)
-    registerIpc(backend)
+    registerIpc(backend, appTray, updater, restartToInstall)
     mainWindow = createWindow()
+    appTray.init()
+    updater.start()
     setupVerificationHooks(mainWindow)
     // Start mongod + engine once the UI has loaded: spawn() is synchronous and can block the main
     // thread (which also serves app://) for seconds while antivirus scans freshly installed binaries.
@@ -283,12 +410,17 @@ if (!app.requestSingleInstanceLock()) {
     quitting = true
     log.info(`quit: menghentikan engine dan MongoDB (pids ${JSON.stringify(backend.pids())})`)
     for (const w of BrowserWindow.getAllWindows()) w.hide()
+    appTray.destroy()
+    updater.stop()
     // A data folder move in progress stops and removes its copy first (the old folder stays in use)
     settleMoveForQuit()
       .then(() => backend.stop('quit'))
       .catch((err) => log.error('stop gagal:', err))
       .finally(() => {
         cleanedUp = true
+        // A downloaded version is installed now that the engine and MongoDB are down (never while
+        // Windows shuts down: the installer could be cut off halfway)
+        if (updater.pending && !sessionEnding) updater.installPending()
         log.info('quit: selesai')
         app.quit()
       })

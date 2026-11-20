@@ -12,7 +12,7 @@ from starlette.concurrency import run_in_threadpool
 from backend.agents.tools import ffmpeg_ops, whisper_local, ytdlp
 from backend.api.dto import http_error
 from backend.core import db as dbm
-from backend.core import procs, resources
+from backend.core import acl, cache, procs, resources
 from backend.core.config import config, deno_path, mongod_path, node_command
 from backend.core.db import get_db
 from backend.core.paths import get_paths
@@ -189,8 +189,12 @@ def _check() -> dict:
         free = 0
     items.append({"key": "disk", "label": M("disk_label"), "ok": free >= 5 * 1024**3, "version": None,
                   "detail": M("disk_free" if free >= 5 * 1024**3 else "disk_low", gb=f"{free / 1024**3:.1f}")})
+    from backend.core.settings_store import get_settings
+
     return {
         "items": items,
+        # the daily yt-dlp update check: its switch and the last check (ytdlp.update_state)
+        "ytdlp_update": {**ytdlp.update_state(), "auto": bool(get_settings()["ytdlp"].get("auto_update", True))},
         "encoders": ffmpeg_ops.detect_hw_encoders() + ["libx264"],
         "cpu_count": psutil.cpu_count(logical=False) or os.cpu_count() or 1,
         "ram_gb": round(psutil.virtual_memory().total / 1024**3, 1),
@@ -218,6 +222,7 @@ def _storage() -> dict:
                              "bytes": _dir_size(paths.campaign_library(slug_of(campaign)))})
     return {
         "data_root": str(paths.data_root),
+        "access": acl.status(paths.data_root),
         "drive_free_bytes": free,
         "drive_total_bytes": total,
         "db_bytes": _dir_size(paths.db_dir),
@@ -283,25 +288,6 @@ async def activity_status():
 
 @router.post("/purge-cache")
 def purge_cache():
-    """Deletes cache files of jobs/renders that are not running."""
-    from backend.core.queue import runner
-
-    paths = get_paths()
-    removed = 0
-    if paths.cache_dir.exists():
-        for child in paths.cache_dir.iterdir():
-            name = child.name
-            if name.startswith("job-") and runner.is_running(name[4:]):
-                continue
-            if name.startswith("render-"):
-                continue
-            try:
-                if child.is_dir():
-                    removed += _dir_size(child)
-                    shutil.rmtree(child, ignore_errors=True)
-                else:
-                    removed += child.stat().st_size
-                    child.unlink()
-            except OSError:
-                pass
-    return {"ok": True, "freed_bytes": removed}
+    """Deletes every cache file no running step uses (jobs, renders, transcriptions keep theirs)."""
+    res = cache.sweep(None)
+    return {"ok": True, "freed_bytes": res["freed_bytes"]}

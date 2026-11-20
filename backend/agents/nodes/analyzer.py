@@ -223,28 +223,6 @@ def campaign_limit(per_video: int, campaign: dict[str, Any]) -> int:
     return per_video or brief_max
 
 
-def ts_to_seconds(value: Any) -> float | None:
-    """'MM:SS', 'HH:MM:SS', '754', 754.0 -> seconds."""
-    if value is None:
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    s = str(value).strip()
-    if not s:
-        return None
-    try:
-        parts = [float(p) for p in s.split(":")]
-    except ValueError:
-        return None
-    if len(parts) == 1:
-        return parts[0]
-    if len(parts) == 2:
-        return parts[0] * 60 + parts[1]
-    if len(parts) == 3:
-        return parts[0] * 3600 + parts[1] * 60 + parts[2]
-    return None
-
-
 def fmt_ts(seconds: float) -> str:
     seconds = int(seconds)
     h, rem = divmod(seconds, 3600)

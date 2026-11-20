@@ -35,6 +35,74 @@
   max-width: 1600px;
 }
 
+/* Shell notices, bottom left of the content so they never cover the toasts (bottom right) or the engine banner
+   (top center): no network (§9.3) and a downloaded update (§10.4). Pills, sage like other warnings
+   (DESIGN.md §2.3), stacked when both show. */
+.mc-notices {
+  position: fixed;
+  left: 120px;
+  bottom: 24px;
+  z-index: 190;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.mc-notice {
+  pointer-events: auto;
+  max-width: min(640px, calc(100vw - 520px));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 8px 8px 16px;
+  border-radius: var(--r-full);
+  background: var(--sage);
+  color: var(--ink);
+  box-shadow: var(--shadow-1);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.mc-notice__icon {
+  flex: none;
+}
+
+.mc-notice .mc-btn {
+  flex: none;
+}
+
+/* Plain text to read or copy as it is, e.g. the system info for support (Sistem → Tentang) */
+.mc-codebox {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: var(--r-md);
+  background: var(--mist);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 360px;
+  overflow: auto;
+}
+
+/* Release notes: a plain bulleted list in body text */
+.mc-notes {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
+  color: var(--text);
+  line-height: 1.55;
+}
+
+.mc-notes li::marker {
+  color: var(--moss);
+}
+
 .mc-logo {
   width: 64px;
   height: 64px;
@@ -49,6 +117,14 @@
 .mc-logo--sm {
   width: 48px;
   height: 48px;
+}
+
+/* The logo image itself (LogoMark): a brand asset, so its own white outline is allowed (§14) */
+.mc-logo-mark {
+  display: block;
+  flex: none;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 /* The active campaign as the rail's head (DESIGN.md §4.2.8, §5.2): a circle as wide as the rail in the

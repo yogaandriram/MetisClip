@@ -6,6 +6,26 @@ export {}
 declare global {
   type MetisEngineState = 'idle' | 'starting' | 'ready' | 'restarting' | 'error' | 'stopped'
 
+  /** App updates from GitHub Releases (desktop/src/main/updater.ts) */
+  interface MetisUpdateStatus {
+    /** unsupported: a development build (no feed); ready: a newer version waits to be installed */
+    phase: 'unsupported' | 'idle' | 'checking' | 'latest' | 'downloading' | 'ready' | 'error'
+    /** "Perbarui MetisClip otomatis" is on */
+    auto: boolean
+    /** This app's version */
+    current: string
+    /** The newer version (downloading, ready) */
+    version?: string
+    percent?: number
+    transferred?: number
+    total?: number
+    /** Last check that reached the feed (ISO time) */
+    checkedAt?: string
+    error?: { kind: 'offline' | 'noRelease' | 'corrupt' | 'signature' | 'disk' | 'other'; detail: string }
+    /** The release page of `version` on GitHub */
+    releaseUrl?: string
+  }
+
   interface MetisEngineInfo {
     /** e.g. "http://127.0.0.1:53817" (no trailing slash) */
     baseUrl: string
@@ -82,10 +102,28 @@ declare global {
     readonly platform: string
     readonly appVersion: string
     readonly isPackaged: boolean
+    /** Runtime versions of the desktop shell */
+    readonly versions?: { electron: string; chrome: string; node: string }
+    /** 'x64' */
+    readonly arch?: string
+    /** Windows build, e.g. "10.0.26200" */
+    readonly osVersion?: string
     /** UI language saved by the main process ('id' | 'en'), read when the window loaded */
     readonly language: string
     /** Saves the UI language: main uses it for its own screens and dialogs and passes it to the engine */
     setLanguage(lang: string): Promise<void>
+    /** Closing the window keeps MetisClip running in the tray (Pengaturan → Aplikasi; saved by main at once) */
+    getCloseToTray(): Promise<boolean>
+    setCloseToTray(on: boolean): Promise<void>
+    /** App updates (Sistem → Tentang, Pengaturan → Aplikasi, the update banner) */
+    getUpdateStatus(): Promise<MetisUpdateStatus>
+    /** Checks GitHub now; a newer version starts downloading */
+    checkForUpdates(): Promise<MetisUpdateStatus>
+    /** "Mulai ulang dan pasang": asks first while work runs, then quits, installs and opens MetisClip again */
+    installUpdate(): Promise<void>
+    /** "Perbarui MetisClip otomatis" (saved by main at once) */
+    setAutoUpdate(on: boolean): Promise<void>
+    onUpdateStatus(cb: (status: MetisUpdateStatus) => void): () => void
 
     /** Resolves once the engine is ready (waits while starting / during first-run setup). Rejects on fatal error. */
     getEngineInfo(): Promise<MetisEngineInfo>
@@ -126,7 +164,10 @@ declare global {
     openPath(absPath: string): Promise<{ ok: boolean; error?: string }>
     showItemInFolder(absPath: string): Promise<void>
     openExternal(url: string): Promise<void>
-    notify(title: string, body?: string): void
+    /** Windows notification, shown only while the window is in the background; a click opens the app on opts.route */
+    notify(title: string, body?: string, opts?: { route?: string }): void
+    /** A notification click asks the UI to open a route; returns an unsubscribe function */
+    onNavigate(cb: (route: string) => void): () => void
     relaunch(): void
   }
 

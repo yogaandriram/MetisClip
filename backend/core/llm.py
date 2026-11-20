@@ -377,12 +377,6 @@ def is_configured() -> bool:
         return False
 
 
-def model_name() -> str:
-    s = _llm_settings()
-    provider = PROVIDERS.get(s["provider"])
-    return ((s.get("models") or {}).get(s["provider"]) or (provider.default_model if provider else "")).strip()
-
-
 def _short(text: str) -> str:
     text = re.sub(r"\s+", " ", text or "").strip()
     return text[:220] + ("…" if len(text) > 220 else "")

@@ -7,11 +7,10 @@ between units of work and kills running child processes.
 from __future__ import annotations
 
 import logging
-import shutil
 
 from backend.agents.context import JobContext, PipelineError
 from backend.agents.nodes import analyzer, discovery, processor
-from backend.core import events, llm
+from backend.core import cache, events, llm
 from backend.core.db import get_db, utcnow
 from backend.core.procs import Cancelled, CancelToken
 from backend.core import i18n
@@ -46,7 +45,14 @@ def _finish(job_id: str, campaign_ids: list[str], status: str, error: str | None
     if error:
         update["$push"] = {"errors": {"$each": [{"step": step, "message": error[:1000], "at": utcnow()}], "$slice": -50}}
     db.discovery_jobs.update_one({"_id": job_id}, update)
-    events.publish({"type": "job.status", "id": job_id, "campaign_ids": campaign_ids, "status": status, "error": error})
+    # The video's title and the clip count, for the Windows notification (components/shell/ShellContext.tsx)
+    extra: dict = {}
+    source = db.source_videos.find_one({"job_id": job_id}, {"title": 1})
+    if source and source.get("title"):
+        extra["title"] = source["title"]
+    if status == "completed":
+        extra["clips"] = db.clips.count_documents({"job_id": job_id})
+    events.publish({"type": "job.status", "id": job_id, "campaign_ids": campaign_ids, "status": status, "error": error, **extra})
 
 
 def run_job(job_id: str, cancel: CancelToken) -> None:
@@ -60,6 +66,7 @@ def run_job(job_id: str, cancel: CancelToken) -> None:
         logger.info("Job %s is no longer pending; skipping", job_id)
         return
     ctx = JobContext(job, cancel)
+    cache.claim(ctx.cache_dir)
     events.publish({"type": "job.status", "id": job_id, "campaign_ids": ctx.campaign_ids, "status": "running"})
     logger.info("Job %s started (%s)", job_id, job["source"].get("type"))
     step = job.get("current_step") or "discovery"
@@ -105,4 +112,4 @@ def run_job(job_id: str, cancel: CancelToken) -> None:
         logger.exception("Job %s crashed at %s", job_id, step)
         _finish(job_id, ctx.campaign_ids, "failed", M("unexpected", error=exc), step)
     finally:
-        shutil.rmtree(ctx.cache_dir, ignore_errors=True)
+        cache.release(ctx.cache_dir)

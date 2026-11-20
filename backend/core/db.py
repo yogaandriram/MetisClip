@@ -108,16 +108,6 @@ def to_api(doc: dict | None) -> dict | None:
     return out
 
 
-def parse_dt(value: Any) -> datetime | None:
-    if value is None or value == "":
-        return None
-    if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-    s = str(value).strip().replace("Z", "+00:00")
-    dt = datetime.fromisoformat(s)
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-
-
 # ---------------------------------------------------------------------------
 # Credentials
 # ---------------------------------------------------------------------------

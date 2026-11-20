@@ -90,17 +90,39 @@ def _parent_watchdog(request_shutdown) -> None:
 
 
 def _housekeeping(stop: threading.Event) -> None:
+    from backend.agents.tools import ytdlp
+    from backend.core import acl, cache
+    from backend.core.paths import get_paths
     from backend.services.backup import maybe_daily_backup
 
     log = logging.getLogger("metisclip.housekeeping")
+    # A data folder outside the user profile (D:\MetisClip) inherits the drive's access list: every account
+    # of the PC could open the clips and the database files
+    try:
+        acl.restrict_data_root(get_paths().data_root)
+    except Exception as exc:
+        log.warning("Restricting the data folder failed: %s", exc)
+    # Nothing ran in this session yet: whatever the cache holds was left by the last one (a crash, a hard kill)
+    try:
+        cache.clear_leftovers()
+    except Exception as exc:
+        log.warning("Cache cleanup failed: %s", exc)
     if stop.wait(120):
         return
     while True:
         try:
-            maybe_daily_backup()
+            cache.enforce_limit()
+        except Exception as exc:
+            log.warning("Cache limit check failed: %s", exc)
+        try:
+            maybe_daily_backup()  # once a day, checked by its own clock
         except Exception as exc:
             log.warning("Daily backup failed: %s", exc)
-        if stop.wait(3600):
+        try:
+            ytdlp.maybe_auto_update()  # once a day, while no job or export runs
+        except Exception as exc:
+            log.warning("yt-dlp update check failed: %s", exc)
+        if stop.wait(600):
             return
 
 

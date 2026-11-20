@@ -41,12 +41,17 @@ extraResources:
     to: bin
     # mongod writes *.mdmp crash dumps next to its exe; never ship them
     filter: ["**/*", "!**/*.mdmp"]
+  # The tray icon (src/main/tray.ts); the exe carries the same icon, but a tray needs a file
+  - from: build-resources/icon.ico
+    to: icon.ico
 
 win:
   target:
     - target: nsis
       arch: [x64]
   executableName: MetisClip
+  # The owner's logo (ink "m" with a white outline), 16-256 px; also the installer's and uninstaller's icon below
+  icon: build-resources/icon.ico
   requestedExecutionLevel: asInvoker
   # Code signing (Phase 2): configure certificateFile/certificatePassword or Azure Trusted Signing here.
 
@@ -59,9 +64,20 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: MetisClip
   uninstallDisplayName: MetisClip
-  # Never delete user data on uninstall: %APPDATA%\MetisClip (bootstrap.json, logs) is kept, and the
-  # data folder (database + library, chosen by the user, e.g. D:\MetisClip) is never touched.
+  installerIcon: build-resources/icon.ico
+  uninstallerIcon: build-resources/icon.ico
+  installerHeaderIcon: build-resources/icon.ico
+  # electron-builder's own app-data removal stays off: build-resources/installer.nsh (customUnInstall) removes
+  # the logs, the updatable tools and the cache, and asks whether the data folder goes too (default: keep).
   deleteAppDataOnUninstall: false
   runAfterFinish: true
 
-publish: null
+# App updates (src/main/updater.ts, CLAUDE.md §10.4): the GitHub Releases of the open-source repository.
+# electron-builder writes this into resources\app-update.yml. Builds never upload on their own
+# (--publish never); scripts\build-desktop.ps1 -Publish (with GH_TOKEN set) uploads the installer, its
+# .blockmap (smaller downloads for the next update) and latest.yml to a DRAFT release, published by hand.
+# A public repository needs no token in the app.
+publish:
+  provider: github
+  owner: yogaandriram
+  repo: MetisClip

@@ -15,7 +15,7 @@ hiddenimports = (
     + collect_submodules("uvicorn")
     + collect_submodules("websockets")
     + collect_submodules("keyring.backends")
-    + ["win32ctypes.core", "multipart", "python_multipart", "pymongo.srv_resolver"]
+    + ["win32ctypes.core", "multipart", "python_multipart"]
 )
 
 datas = (
@@ -39,9 +39,8 @@ a = Analysis(
         "tkinter", "IPython", "jupyter", "notebook", "pytest", "PyInstaller",
         # dev-only: packaged builds use the standalone yt-dlp.exe and bin\ffmpeg.exe
         "yt_dlp", "imageio_ffmpeg",
-        # unused leftovers from the web build
-        "boto3", "botocore", "langgraph", "langchain", "langchain_core", "langchain_groq",
-        "langchain_openai", "redis", "jwt", "torch", "tensorflow", "sounddevice",
+        # heavy optional imports never needed (sounddevice comes with mediapipe)
+        "torch", "tensorflow", "sounddevice",
     ],
     noarchive=False,
 )
