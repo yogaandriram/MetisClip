@@ -474,6 +474,8 @@ class RenderJobDoc(Doc):
     export_error: Optional[str] = None
     # True when nothing changed since the last render: final.mp4 was copied again, not rendered
     reused: bool = False
+    # The sound leveled to about -14 LUFS: {"before", "after"} in LUFS (None: left as it was)
+    loudness: Optional[dict[str, float]] = None
     error: Optional[str] = None
     created_at: datetime = Field(default_factory=_now)
     started_at: Optional[datetime] = None

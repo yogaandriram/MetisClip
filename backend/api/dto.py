@@ -149,6 +149,7 @@ def render_dto(doc: dict[str, Any]) -> dict[str, Any]:
         "export_dir": doc.get("export_dir"),
         "export_error": doc.get("export_error"),
         "reused": bool(doc.get("reused")),
+        "loudness": doc.get("loudness"),
         "error": doc.get("error"),
         "created_at": iso(doc.get("created_at")),
         "finished_at": iso(doc.get("finished_at")),

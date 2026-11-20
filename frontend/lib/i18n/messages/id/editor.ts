@@ -161,6 +161,8 @@ export const editor = {
   retryRender: 'Coba render lagi',
   /** Export without a render (nothing changed since the last one) */
   reusedStatus: 'Video final disalin lagi',
+  /** The sound leveled after the render (values already formatted) */
+  loudness: (before: string, after: string) => `Volume suara disamakan: ${before} → ${after} LUFS.`,
   reusedNote: 'Tidak dirender ulang: tidak ada yang berubah sejak render terakhir, jadi video final yang ada disalin lagi.',
   renderAgain: 'Render ulang',
 

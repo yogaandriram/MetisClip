@@ -154,6 +154,7 @@ export const editor: Messages['editor'] = {
   exportTo: 'Export to…',
   retryRender: 'Render again',
   reusedStatus: 'Final video copied again',
+  loudness: (before: string, after: string) => `Sound volume leveled: ${before} → ${after} LUFS.`,
   reusedNote: 'Not rendered again: nothing changed since the last render, so the existing final video was copied again.',
   renderAgain: 'Render again',
 

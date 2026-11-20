@@ -36,6 +36,12 @@ export function formatClock(seconds: number | null | undefined): string {
   return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`
 }
 
+/** A loudness in LUFS with one decimal and a real minus sign: -21.9 -> "−21,9" (id) */
+export function formatLufs(value: number): string {
+  const text = Math.abs(value).toLocaleString(localeTag(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+  return value < 0 ? `−${text}` : text
+}
+
 /** Seconds as m:ss.d or h:mm:ss.d (tenths), for the edges of a clip in its source video. */
 export function formatClockTenths(seconds: number | null | undefined): string {
   if (seconds === null || seconds === undefined || !isFinite(seconds) || seconds < 0) return '0:00.0'

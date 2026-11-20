@@ -113,7 +113,7 @@ import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
 import { api, type BrandTemplate, type ClipDetail, type Job, type RenderJob, type SourceVideoInfo, type SubtitleWord } from '@/lib/engine'
 import { assetUrl, isDesktop, mediaUrl } from '@/lib/media'
-import { RENDER_STATUS, errorMessage, formatClock, splitPath } from '@/lib/format'
+import { RENDER_STATUS, errorMessage, formatClock, formatLufs, splitPath } from '@/lib/format'
 import { useI18n, useT } from '@/lib/i18n/I18nProvider'
 import { tm } from '@/lib/i18n'
 
@@ -391,6 +391,7 @@ function ClipEditor() {
               export_dir: e.export_dir ?? prev.export_dir,
               export_error: e.export_error ?? prev.export_error,
               reused: e.reused ?? prev.reused,
+              loudness: e.loudness ?? prev.loudness,
               error: e.error ?? prev.error,
             }
           : prev,
@@ -1889,6 +1890,9 @@ function ClipEditor() {
               <span className="mc-label">{render.reused && render.status === 'completed' ? m.reusedStatus : RENDER_STATUS[render.status]}</span>
             </div>
             {render.reused && render.status === 'completed' && <p className="mc-caption mc-muted">{m.reusedNote}</p>}
+            {render.status === 'completed' && render.loudness && (
+              <p className="mc-caption mc-muted">{m.loudness(formatLufs(render.loudness.before), formatLufs(render.loudness.after))}</p>
+            )}
             {renderActive && (
               <>
                 <ProgressBar value={render.progress_pct} label={m.renderProgressLabel} showValue />

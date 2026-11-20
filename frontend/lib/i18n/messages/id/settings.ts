@@ -65,6 +65,9 @@ export const settings = {
     exportFolderHint: 'Setiap hasil render otomatis disalin ke sini. Juga tujuan default saat mengekspor clip.',
     pickExport: 'Pilih folder ekspor',
     postText: 'Simpan teks posting untuk clip campaign',
+    loudness: 'Samakan volume suara (−14 LUFS)',
+    loudnessHint:
+      'Setelah render, volume tiap video disamakan dengan yang dipakai TikTok, Reels dan Shorts, jadi clip yang pelan tidak tenggelam dan yang keras tidak pecah. Gambarnya tidak diubah. Mengubah pilihan ini membuat ekspor berikutnya dirender ulang.',
     postTextHint: 'Saat clip campaign diekspor, file .txt berisi judul, caption, mention, hashtag, dan label kerja sama ikut disimpan di sebelah videonya.',
     cacheLimit: 'Batas cache (GB)',
     cacheLimitHint: 'Sisa file sementara dihapus setiap MetisClip dibuka dan saat cache melebihi batas ini. File pekerjaan yang sedang berjalan tidak ikut dihapus.',

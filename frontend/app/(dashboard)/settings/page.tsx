@@ -427,6 +427,12 @@ export default function SettingsPage() {
                 checked={settings.export?.post_text ?? true}
                 onChange={(v) => patch('export', { ...settings.export, post_text: v })}
               />
+              <ToggleSwitch
+                label={m.storage.loudness}
+                hint={m.storage.loudnessHint}
+                checked={settings.export?.loudness ?? true}
+                onChange={(v) => patch('export', { ...settings.export, loudness: v })}
+              />
               <div className="mc-grid">
                 <InputField
                   containerClassName="mc-col-6"

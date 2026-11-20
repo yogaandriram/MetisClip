@@ -466,6 +466,8 @@ export interface RenderJob {
   export_error?: string | null
   /** Nothing changed since the last render: final.mp4 was copied again instead of rendered */
   reused?: boolean
+  /** The sound leveled to about -14 LUFS (LUFS before and after); null: left as it was */
+  loudness?: { before: number; after: number } | null
   error: string | null
   created_at: ISODate
   finished_at: ISODate | null
@@ -500,8 +502,9 @@ export interface Settings {
   resources: { auto: boolean; reserve_gb: number }
   /** auto_update: check for a new yt-dlp once a day */
   ytdlp: { player_client: string; cookies_file: string | null; auto_update: boolean }
-  /** post_text: a campaign clip's export gets a .txt with its post text next to the video */
-  export: { post_text: boolean }
+  /** post_text: a campaign clip's export gets a .txt with its post text next to the video;
+   *  loudness: every exported video's sound is leveled to about -14 LUFS */
+  export: { post_text: boolean; loudness: boolean }
   db: { wiredtiger_cache_gb: number }
   /** language: the UI language, mirrored for the engine's own messages (lib/i18n) */
   /** The engine's copy of the UI language; closing to the tray is a shell setting (window.metis) */
@@ -697,6 +700,7 @@ export type EngineEvent =
       export_error?: string | null
       /** Copied again without a render (nothing changed since the last one) */
       reused?: boolean
+      loudness?: { before: number; after: number } | null
       error?: string | null
     }
   | { type: 'system.notice'; level: 'info' | 'warning' | 'error'; message: string }

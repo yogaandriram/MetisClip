@@ -67,7 +67,7 @@ def test_finished_render_is_copied_to_the_export_folder(db, paths, tmp_path, eve
     done = [e for e in events_seen if e["type"] == "render.status"]
     assert done == [{"type": "render.status", "id": rid, "clip_id": clip["_id"], "status": "completed",
                      "output_path": rj["output_path"], "exported_path": str(copy), "export_dir": str(dest),
-                     "export_error": None}]
+                     "export_error": None, "loudness": None}]
 
     # A re-render of the same clip replaces its copy instead of adding a second file
     render._finish(_render_job(db, clip["_id"]), clip, _rendered(paths, b"video-2"))

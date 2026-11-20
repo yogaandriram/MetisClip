@@ -46,6 +46,10 @@ M = i18n.messages({
         "id": "Render worker tidak ditemukan (render-engine/dist/render.js). Jalankan build render-engine.",
         "en": "The render worker was not found (render-engine/dist/render.js). Build render-engine first.",
     },
+    "loudness": {
+        "id": "Menyamakan volume suara…",
+        "en": "Leveling the sound volume…",
+    },
     "no_message": {
         "id": "Render gagal tanpa pesan error",
         "en": "The render failed without an error message",
@@ -187,11 +191,20 @@ def _publish(render_id: str, clip_id: str, status: str, **extra: Any) -> None:
     events.publish({"type": "render.status", "id": render_id, "clip_id": clip_id, "status": status, **extra})
 
 
-def fingerprint(props: dict[str, Any]) -> str:
-    """What a render's picture depends on, as a hash: its props without the chosen cover (a cover can be
-    taken from the video afterwards) and without this launch's port and token, plus the app version
-    (presets, fonts and the composition change with it). Equal fingerprints render the same video."""
+def loudness_on() -> bool:
+    """Pengaturan → Folder ekspor → "Samakan volume suara": exported audio leveled to about -14 LUFS."""
+    from backend.core.settings_store import get_settings
+
+    return bool(get_settings()["export"].get("loudness", True))
+
+
+def fingerprint(props: dict[str, Any], loudness: bool | None = None) -> str:
+    """What a render's video depends on, as a hash: its props without the chosen cover (a cover can be
+    taken from the video afterwards) and without this launch's port and token, whether its sound is
+    leveled (`loudness`, the current setting when None), plus the app version (presets, fonts and the
+    composition change with it). Equal fingerprints render the same video."""
     data = {k: v for k, v in props.items() if k != "coverTime"}
+    data["_loudness"] = loudness_on() if loudness is None else bool(loudness)
     text = json.dumps(data, sort_keys=True, ensure_ascii=False, default=str)
     for volatile in (config.base_url, config.token):
         if volatile:
@@ -305,7 +318,7 @@ def _copy_to_exports(render_id: str, clip: dict[str, Any]) -> dict[str, Any]:
 
 
 def _finish(render_id: str, clip: dict[str, Any], rendered: Path, done: dict[str, Any] | None = None,
-            props_fingerprint: str | None = None) -> None:
+            props_fingerprint: str | None = None, loudness: dict[str, float] | None = None) -> None:
     """Move the rendered file to the clip's final.mp4, copy it to the export folder, mark the job completed.
 
     `done` is the worker's last line (the cover's output frame and the kept frames). A failed copy does
@@ -338,19 +351,41 @@ def _finish(render_id: str, clip: dict[str, Any], rendered: Path, done: dict[str
         "frames": frames,
         "total_frames": total,
         "cover_time": cover_time if cover_rel else None,
+        "loudness": loudness,
         "at": utcnow(),
     }
     db.clips.update_one({"_id": clip_id}, {"$set": {"files.final": rel, "files.cover": cover_rel,
                                                      "final_render": final_render,
                                                      "status": "exported", "updated_at": utcnow()}})
     files = {**(clip.get("files") or {}), "final": rel, "cover": cover_rel}
-    result = _copy_to_exports(render_id, {**clip, "cover_time": cover_time, "files": files})
+    result = {**_copy_to_exports(render_id, {**clip, "cover_time": cover_time, "files": files}), "loudness": loudness}
     db.render_jobs.update_one(
         {"_id": render_id},
         {"$set": {"status": "completed", "progress_pct": 100.0, "finished_at": utcnow(), **result}},
     )
     events.publish({"type": "clip.updated", "id": clip_id})
     _publish(render_id, clip_id, "completed", **result)
+
+
+def _level_loudness(render_id: str, clip_id: str, video: Path, work: Path,
+                    cancel: procs.CancelToken) -> dict[str, float] | None:
+    """Level the rendered video's sound to about -14 LUFS in place (gap analysis B8): measured on the
+    output itself, after cut pauses and filler words. Returns {"before", "after"}, or None when the sound
+    was left as it was (silence, already there) or leveling failed: that never fails the render."""
+    events.publish({"type": "render.progress", "id": render_id, "clip_id": clip_id, "status": "rendering",
+                    "progress_pct": 99.0, "message": M("loudness")})
+    leveled = work / "final.leveled.mp4"
+    try:
+        result = ffmpeg_ops.normalize_loudness(video, leveled, cancel)
+        if result is not None:
+            os.replace(leveled, video)
+        return result
+    except procs.Cancelled:
+        raise
+    except Exception as exc:
+        leveled.unlink(missing_ok=True)
+        logger.warning("Render %s: loudness not leveled: %s", render_id, exc)
+        return None
 
 
 def reuse_final(clip: dict[str, Any]) -> dict[str, Any]:
@@ -371,12 +406,12 @@ def reuse_final(clip: dict[str, Any]) -> dict[str, Any]:
         files["cover"] = cover_from_final(clip)
     now = utcnow()
     doc = RenderJobDoc(_id=new_id(), clip_id=clip_id, status="completed", progress_pct=100.0, reused=True,
-                       started_at=now, finished_at=now).to_mongo()
+                       loudness=info.get("loudness"), started_at=now, finished_at=now).to_mongo()
     doc.update(_copy_to_exports(doc["_id"], {**clip, "files": files}))
     db.render_jobs.insert_one(doc)
     db.clips.update_one({"_id": clip_id}, {"$set": {"status": "exported", "updated_at": now}})
     events.publish({"type": "clip.updated", "id": clip_id})
-    _publish(doc["_id"], clip_id, "completed", reused=True, output_path=doc["output_path"],
+    _publish(doc["_id"], clip_id, "completed", reused=True, loudness=doc["loudness"], output_path=doc["output_path"],
              exported_path=doc["exported_path"], export_dir=doc["export_dir"], export_error=doc["export_error"])
     return doc
 
@@ -442,6 +477,9 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
             cancel.check()
         props = build_props(clip)
         props_path.write_text(json.dumps(props, ensure_ascii=False), encoding="utf-8")
+        # Read once: the video is leveled (or not) as the setting said when it started
+        level = loudness_on()
+        props_fingerprint = fingerprint(props, level)
         script = paths.render_dir / "dist" / "render.js"
         if not script.exists():
             raise RuntimeError(M("no_worker"))
@@ -469,7 +507,8 @@ def run_render(render_id: str, cancel: procs.CancelToken) -> None:
                 error, ok, info = _run_worker(cmd, extra_env, render_id, clip_id, cancel, low_priority=low)
         cancel.check()
         if ok and tmp_out.exists() and tmp_out.stat().st_size > 0:
-            _finish(render_id, clip, tmp_out, info, fingerprint(props))
+            loudness = _level_loudness(render_id, clip_id, tmp_out, work, cancel) if level else None
+            _finish(render_id, clip, tmp_out, info, props_fingerprint, loudness)
             status = "completed"
             return
         error = error or M("no_message")

@@ -67,6 +67,9 @@ export const settings: Messages['settings'] = {
     exportFolderHint: 'Every render is copied here automatically. Also the default target when you export clips.',
     pickExport: 'Choose the export folder',
     postText: 'Save the post text for campaign clips',
+    loudness: 'Level the sound volume (−14 LUFS)',
+    loudnessHint:
+      'After the render, each video is brought to the volume TikTok, Reels and Shorts play at, so a quiet clip is not drowned out and a loud one does not distort. The picture is not changed. Changing this renders the next export again.',
     postTextHint: 'When a campaign clip is exported, a .txt file with its title, caption, mentions, hashtags and partnership label is saved next to the video.',
     cacheLimit: 'Cache limit (GB)',
     cacheLimitHint: 'Leftover temporary files are deleted each time MetisClip opens and when the cache grows past this limit. Files of running work stay.',

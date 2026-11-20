@@ -1,7 +1,9 @@
 """FFmpeg operations: encoder detection, 9:16 finishing, thumbnails, audio extraction, local video cuts."""
 from __future__ import annotations
 
+import json
 import logging
+import math
 import re
 import threading
 from pathlib import Path
@@ -236,6 +238,68 @@ def normalize_companion(source: Path, out_path: Path, cancel: procs.CancelToken 
         out_path.unlink(missing_ok=True)
         raise ValueError(M("companion_failed"))
     return round(duration, 3)
+
+
+# Loudness of exported videos (gap analysis B8): what YouTube, TikTok and Instagram play short videos at,
+# with a true peak that survives their own AAC encode
+LOUDNESS_TARGET = -14.0  # LUFS, integrated
+LOUDNESS_TRUE_PEAK = -1.0  # dBTP
+LOUDNESS_RANGE = 11.0  # LU: speech keeps its dynamics (loudnorm's default 7 squeezes it)
+LOUDNESS_SILENT = -70.0  # LUFS: quieter than this is silence (nothing to level)
+LOUDNESS_CLOSE = 0.5  # LU: already this close to the target (and under the peak): left as it is
+
+
+def measure_loudness(video: Path, cancel: procs.CancelToken | None = None) -> dict[str, float] | None:
+    """EBU R128 loudness of the video's audio (loudnorm's first pass): input_i, input_tp, input_lra,
+    input_thresh and target_offset. None when the audio cannot be measured (none, or silence)."""
+    res = procs.run(
+        [ffmpeg_path(), "-hide_banner", "-nostats", "-i", str(video), "-vn", "-sn", "-dn",
+         "-af", f"loudnorm=I={LOUDNESS_TARGET}:TP={LOUDNESS_TRUE_PEAK}:LRA={LOUDNESS_RANGE}:print_format=json",
+         "-f", "null", "-"],
+        cancel=cancel, timeout=600, low_priority=resources.enabled(),
+    )
+    text = (res.stderr or b"").decode("utf-8", "replace")
+    start, end = text.rfind("{"), text.rfind("}")
+    if start < 0 or end < start:
+        return None
+    try:
+        raw = json.loads(text[start:end + 1])
+        values = {k: float(raw[k]) for k in ("input_i", "input_tp", "input_lra", "input_thresh", "target_offset")}
+    except (ValueError, KeyError, TypeError):
+        return None
+    if not all(math.isfinite(v) for v in values.values()):  # "-inf" for silence
+        return None
+    return values
+
+
+def normalize_loudness(video: Path, out_path: Path, cancel: procs.CancelToken | None = None) -> dict[str, float] | None:
+    """Level the video's audio to LOUDNESS_TARGET (loudnorm's second pass, linear when the peak allows):
+    the picture is copied, only the audio is encoded again. Returns {"before", "after"} in LUFS when
+    `out_path` was written; None when there is nothing to do (no audio, silence, already at the target)."""
+    info = probe_media(video)
+    if not info or not info.get("has_audio"):
+        return None
+    m = measure_loudness(video, cancel)
+    if not m or m["input_i"] < LOUDNESS_SILENT:
+        return None
+    if abs(m["input_i"] - LOUDNESS_TARGET) < LOUDNESS_CLOSE and m["input_tp"] <= LOUDNESS_TRUE_PEAK:
+        return None
+    af = (f"loudnorm=I={LOUDNESS_TARGET}:TP={LOUDNESS_TRUE_PEAK}:LRA={LOUDNESS_RANGE}"
+          f":measured_I={m['input_i']}:measured_TP={m['input_tp']}:measured_LRA={m['input_lra']}"
+          f":measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    procs.run(
+        [ffmpeg_path(), "-y", "-hide_banner", "-loglevel", "error", "-i", str(video),
+         "-map", "0:v:0?", "-map", "0:a:0", "-c:v", "copy", "-af", af,
+         # loudnorm works at 192 kHz inside: back to the usual 48 kHz. The fast AAC coder: ffmpeg 7.1's default
+         # (twoloop) took 13.7 s for 90 s of mono audio on the reference laptop, the fast one 5.1 s
+         "-ar", "48000", "-c:a", "aac", "-aac_coder", "fast", "-b:a", "192k", "-movflags", "+faststart",
+         str(out_path)],
+        cancel=cancel, timeout=600, low_priority=resources.enabled(),
+    )
+    if not out_path.is_file() or out_path.stat().st_size == 0:
+        raise RuntimeError("loudnorm")
+    return {"before": round(m["input_i"], 1), "after": LOUDNESS_TARGET}
 
 
 def probe_media(path: Path) -> dict | None:
