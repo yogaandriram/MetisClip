@@ -196,36 +196,45 @@ def transcribe(
     return whisper_local.transcribe(audio_path, words=words, cancel=cancel, on_status=on_status)
 
 
+GROQ_TRANSCRIBE_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
+GROQ_TIMEOUT_S = 300
+
+
 def _groq_transcribe(audio_path: Path, *, words: bool, retries: int = 3) -> dict[str, Any]:
-    """Groq verbose_json payload as a dict ({text, segments, words?})."""
-    from groq import Groq
-    import groq
+    """Groq verbose_json payload as a dict ({text, segments, words?}), over HTTP (no Groq SDK: the engine
+    bundles only `requests`). 401/403 pause Groq for an hour, 429 for 15 minutes, network and server
+    errors for 2 minutes; another refusal (e.g. 413, file too large) is not retried."""
+    import requests
 
     key = get_secret("groq_api_key")
     if not key:
         raise GroqError(M("groq_no_key"))
-    client = Groq(api_key=key, max_retries=0, timeout=300.0)
     granularities = ["word", "segment"] if words else ["segment"]
+    fields = [("model", _model()), ("response_format", "verbose_json")]
+    fields += [("timestamp_granularities[]", g) for g in granularities]
     data = audio_path.read_bytes()
     last: Exception | None = None
     pause = 120.0
     for attempt in range(retries + 1):
         try:
-            res = client.audio.transcriptions.create(
-                file=(audio_path.name, data),
-                model=_model(),
-                response_format="verbose_json",
-                timestamp_granularities=granularities,
-            )
-            return res.model_dump() if hasattr(res, "model_dump") else dict(res)
-        except groq.AuthenticationError as exc:
-            raise GroqError(M("groq_key_rejected"), pause=3600) from exc
-        except groq.RateLimitError as exc:
-            last, pause = exc, 900.0  # quota: the hourly audio limit resets slowly
-        except (groq.APIConnectionError, groq.APITimeoutError, groq.InternalServerError) as exc:
+            r = requests.post(GROQ_TRANSCRIBE_URL, headers={"Authorization": f"Bearer {key}"}, data=fields,
+                              files={"file": (audio_path.name, data)}, timeout=GROQ_TIMEOUT_S)
+        except requests.RequestException as exc:
             last, pause = exc, 120.0
-        except groq.APIStatusError as exc:  # e.g. 413 file too large: not worth a retry or a pause
-            raise GroqError(M("groq_refused", status=exc.status_code)) from exc
+        else:
+            if r.status_code == 200:
+                try:
+                    return r.json()
+                except ValueError as exc:
+                    last, pause = exc, 120.0
+            elif r.status_code in (401, 403):
+                raise GroqError(M("groq_key_rejected"), pause=3600)
+            elif r.status_code == 429:
+                last, pause = RuntimeError(f"HTTP 429: {r.text[:300]}"), 900.0  # quota: the hourly audio limit resets slowly
+            elif r.status_code >= 500:
+                last, pause = RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}"), 120.0
+            else:
+                raise GroqError(M("groq_refused", status=r.status_code))
         if attempt >= retries:
             break
         wait = min(30, 3 * 2**attempt)
