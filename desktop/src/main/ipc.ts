@@ -35,6 +35,7 @@ export const CH = {
   relaunch: 'metis:relaunch',
   restartBackend: 'metis:restart-backend',
   openLogs: 'metis:open-logs',
+  setUnsaved: 'metis:set-unsaved',
   getLanguage: 'metis:get-language',
   setLanguage: 'metis:set-language',
   getCloseToTray: 'metis:get-close-to-tray',
@@ -91,7 +92,13 @@ function existingAbsPath(v: unknown): string {
   return resolved
 }
 
-export function registerIpc(backend: Backend, tray: AppTray, updater: AppUpdater, restartToInstall: () => Promise<void>): void {
+export function registerIpc(
+  backend: Backend,
+  tray: AppTray,
+  updater: AppUpdater,
+  restartToInstall: () => Promise<void>,
+  onUnsavedChanges: (dirty: boolean) => void
+): void {
   handle(CH.getEngineInfo, async () => {
     try {
       const info = await backend.waitReady()
@@ -270,6 +277,11 @@ export function registerIpc(backend: Backend, tray: AppTray, updater: AppUpdater
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) win.webContents.send(CH.updateStatus, status)
     }
+  })
+
+  ipcMain.on(CH.setUnsaved, (e, dirty: unknown) => {
+    if (!trusted(e)) return
+    onUnsavedChanges(dirty === true)
   })
 
   ipcMain.on(CH.relaunch, (e) => {

@@ -51,6 +51,29 @@ async function busyItems(): Promise<BusyItem[]> {
 }
 
 let asking = false
+/** The open page has unsaved edits (components/shell/UnsavedGuard.tsx, metis:set-unsaved) */
+let unsavedChanges = false
+
+/** Asks before closing over unsaved edits; true when MetisClip may close. Never asks while Windows ends the session. */
+async function confirmDiscardUnsaved(): Promise<boolean> {
+  if (!unsavedChanges || sessionEnding) return true
+  const m = tr().close
+  const options: MessageBoxOptions = {
+    type: 'warning',
+    title: 'MetisClip',
+    message: m.unsavedTitle,
+    detail: m.unsavedDetail,
+    buttons: [m.discard, m.cancel],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  }
+  const win = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() ? mainWindow : null
+  log.info('keluar diminta saat ada perubahan yang belum disimpan')
+  const r = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options)
+  log.info(`pilihan: ${r.response === 0 ? 'tutup tanpa menyimpan' : 'batal'}`)
+  return r.response === 0
+}
 
 /**
  * Closing the window (setting off) or "Quit" in the tray: quits at once when nothing runs; otherwise asks.
@@ -60,6 +83,7 @@ async function confirmQuit(from: 'window' | 'tray'): Promise<void> {
   if (asking || quitting) return
   asking = true
   try {
+    if (!(await confirmDiscardUnsaved())) return
     const items = await busyItems()
     if (!items.length) {
       app.quit()
@@ -103,6 +127,7 @@ async function restartToInstall(): Promise<void> {
   if (asking || quitting || !updater.pending) return
   asking = true
   try {
+    if (!(await confirmDiscardUnsaved())) return
     const items = await busyItems()
     if (items.length) {
       const m = tr()
@@ -383,7 +408,9 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     hardenSession()
     if (p.uiDir) registerAppProtocol(p.uiDir)
-    registerIpc(backend, appTray, updater, restartToInstall)
+    registerIpc(backend, appTray, updater, restartToInstall, (dirty) => {
+      unsavedChanges = dirty
+    })
     mainWindow = createWindow()
     appTray.init()
     updater.start()

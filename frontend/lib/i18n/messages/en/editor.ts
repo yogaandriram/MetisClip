@@ -57,7 +57,7 @@ export const editor: Messages['editor'] = {
     title: 'Keyboard shortcuts',
     spaceKey: 'Space',
     playPause: 'Play / pause',
-    step: 'Back / forward 0.1 second',
+    step: 'Back / forward 1 frame',
     stepLong: 'Back / forward 1 second',
     save: 'Save',
     undo: 'Undo',
@@ -272,10 +272,6 @@ export const editor: Messages['editor'] = {
   resetConfirmBody: (template: string) =>
     `This clip's own caption style and AI settings are replaced with the "${template}" template. Subtitle text & timing don't change. You can undo it; it's kept after you click Save.`,
   resetConfirm: 'Reset style',
-  unsavedTitle: 'Unsaved changes',
-  unsavedBody: 'Save your subtitle changes before leaving the editor?',
-  saveAndLeave: 'Save & leave',
-  leaveWithoutSaving: 'Leave without saving',
 
   scenes: 'Scenes',
   sceneAria: (n: number, view: string, from: string, to: string) => `Scene ${n}: ${view}, ${from} to ${to}`,

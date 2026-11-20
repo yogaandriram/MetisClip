@@ -9,6 +9,7 @@ import { NavRail, normalizePath, type RailItem } from '@/components/shell/NavRai
 import { OfflineBanner } from '@/components/shell/OfflineBanner'
 import { UpdateBanner } from '@/components/shell/UpdateBanner'
 import { ShellProvider, useShell } from '@/components/shell/ShellContext'
+import { UnsavedGuardProvider } from '@/components/shell/UnsavedGuard'
 import { useEngine } from '@/contexts/EngineContext'
 import { useT } from '@/lib/i18n/I18nProvider'
 import type { Messages } from '@/lib/i18n'
@@ -69,7 +70,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <Providers>
       <ShellProvider>
-        <Shell>{children}</Shell>
+        <UnsavedGuardProvider>
+          <Shell>{children}</Shell>
+        </UnsavedGuardProvider>
       </ShellProvider>
     </Providers>
   )

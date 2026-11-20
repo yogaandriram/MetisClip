@@ -52,6 +52,13 @@ export const shell = {
     requestFailed: (status: number) => `Permintaan gagal (HTTP ${status})`,
   },
   campaignsLoadFailed: 'Gagal memuat daftar campaign',
+  /** Leaving a page with unsaved edits (components/shell/UnsavedGuard.tsx) */
+  unsaved: {
+    title: 'Perubahan belum disimpan',
+    body: 'Simpan perubahan di halaman ini sebelum pindah?',
+    saveAndLeave: 'Simpan & lanjutkan',
+    leaveWithoutSaving: 'Lanjutkan tanpa menyimpan',
+  },
   language: {
     label: 'Bahasa tampilan',
     hint: 'Bahasa menu, tombol dan pesan di aplikasi. Bahasa video dan subtitle tidak berubah.',

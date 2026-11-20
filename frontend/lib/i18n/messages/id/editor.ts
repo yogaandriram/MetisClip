@@ -56,7 +56,7 @@ export const editor = {
     title: 'Pintasan keyboard',
     spaceKey: 'Spasi',
     playPause: 'Putar / jeda',
-    step: 'Mundur / maju 0,1 detik',
+    step: 'Mundur / maju 1 frame',
     stepLong: 'Mundur / maju 1 detik',
     save: 'Simpan',
     undo: 'Undo',
@@ -287,10 +287,6 @@ export const editor = {
   resetConfirmBody: (template: string) =>
     `Gaya caption dan pengaturan AI khusus clip ini diganti dengan template "${template}". Teks & timing subtitle tidak berubah. Bisa di-undo; tersimpan setelah klik Simpan.`,
   resetConfirm: 'Reset gaya',
-  unsavedTitle: 'Perubahan belum disimpan',
-  unsavedBody: 'Simpan perubahan subtitle sebelum keluar dari editor?',
-  saveAndLeave: 'Simpan & keluar',
-  leaveWithoutSaving: 'Keluar tanpa menyimpan',
 
   // Scene strip
   scenes: 'Adegan',

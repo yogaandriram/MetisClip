@@ -171,6 +171,8 @@ declare global {
     relaunch(): void
     /** Starts mongod and the engine again after they gave up (only acts in the error state) */
     restartBackend(): Promise<{ ok: boolean; error?: string }>
+    /** The open page has unsaved edits: closing or quitting MetisClip asks first */
+    setUnsavedChanges(dirty: boolean): void
     /** Opens the log folder, also while the engine is down */
     openLogs(): Promise<{ ok: boolean; error?: string }>
   }

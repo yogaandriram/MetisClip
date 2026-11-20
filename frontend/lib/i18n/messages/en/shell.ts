@@ -50,6 +50,12 @@ export const shell: Messages['shell'] = {
     requestFailed: (status: number) => `Request failed (HTTP ${status})`,
   },
   campaignsLoadFailed: "Couldn't load the campaign list",
+  unsaved: {
+    title: 'Unsaved changes',
+    body: 'Save the changes on this page before you go?',
+    saveAndLeave: 'Save & continue',
+    leaveWithoutSaving: 'Continue without saving',
+  },
   language: {
     label: 'Display language',
     hint: "Language of the menus, buttons and messages in the app. It doesn't change the language of videos or subtitles.",

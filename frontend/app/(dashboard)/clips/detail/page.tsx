@@ -103,6 +103,7 @@ import {
   Tooltip,
 } from '@/components/ui'
 import { CampaignPanel, mergeBriefDetail } from '@/components/brief/CampaignPanel'
+import { useUnsavedGuard } from '@/components/shell/UnsavedGuard'
 import { cx } from '@/lib/cx'
 import { CaptionPositionControls } from '@/components/captions/CaptionPositionControls'
 import { SUPPORTED_FONTS, FONT_WEIGHTS_MAP } from '@/lib/constants'
@@ -160,6 +161,18 @@ const isTypingTarget = (t: EventTarget | null) => {
   const tag = el.tagName
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable
 }
+
+/** Controls that Space activates themselves (buttons, switches, chips, tabs, menu items, links) */
+const SPACE_CONTROLS = 'button, a[href], summary, [role="button"], [role="switch"], [role="checkbox"], [role="radio"], [role="tab"], [role="menuitem"], [role="menuitemradio"], [role="option"]'
+/** Controls the arrow keys move within (sliders, tab lists, radio groups, menus) */
+const ARROW_CONTROLS = '[role="slider"], [role="tab"], [role="radio"], [role="menuitem"], [role="menuitemradio"], [role="option"], [role="listbox"]'
+
+const handlesKey = (t: EventTarget | null, selector: string) => t instanceof Element && !!t.closest(selector)
+/** A modal is open: the editor's shortcuts stay out of its way */
+const modalOpen = () => typeof document !== 'undefined' && !!document.querySelector('[aria-modal="true"]')
+
+/** One frame of the 30 fps clip (the arrow keys; Shift steps 1 s) */
+const FRAME_S = 1 / 30
 
 // ---------------------------------------------------------------------------
 
@@ -238,7 +251,6 @@ function ClipEditor() {
   const [justSaved, setJustSaved] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
   /** Where to go after the unsaved-changes prompt (null = no prompt) */
-  const [leaveTo, setLeaveTo] = useState<string | null>(null)
   const [showShortcuts, setShowShortcuts] = useState(false)
 
   /** Left column: the subtitle words, or the clip's campaign (checklist and post text) */
@@ -702,10 +714,9 @@ function ClipEditor() {
     }
   }
 
-  const leave = (to: string) => {
-    if (dirty) setLeaveTo(to)
-    else router.push(to)
-  }
+  // Unsaved edits: every link in the app and closing MetisClip ask first (components/shell/UnsavedGuard.tsx)
+  const guardLeave = useUnsavedGuard(dirty, () => save(true))
+  const leave = (to: string) => guardLeave(() => router.push(to))
 
   // ---- keyboard shortcuts -------------------------------------------------
 
@@ -713,6 +724,7 @@ function ClipEditor() {
   keyHandler.current = (e: KeyboardEvent) => {
     const ctrl = e.ctrlKey || e.metaKey
     const key = e.key.toLowerCase()
+    if (modalOpen()) return
     if (ctrl && key === 's') {
       e.preventDefault()
       if (!saving) save()
@@ -731,11 +743,14 @@ function ClipEditor() {
       e.preventDefault()
       redo()
     } else if (e.key === ' ' || e.code === 'Space') {
+      // A focused button, switch or chip keeps its own Space (keyboard users activate it with Space)
+      if (handlesKey(e.target, SPACE_CONTROLS)) return
       e.preventDefault()
       togglePlay()
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      if (handlesKey(e.target, ARROW_CONTROLS)) return
       e.preventDefault()
-      const step = e.shiftKey ? 1 : 0.1
+      const step = e.shiftKey ? 1 : FRAME_S
       seekTo((videoRef.current?.currentTime || 0) + (e.key === 'ArrowLeft' ? -step : step))
     }
   }
@@ -821,16 +836,6 @@ function ClipEditor() {
     ['Ctrl + E', m.shortcuts.export],
   ]
 
-  /** Header links (back, "+ Klip baru", the jobs pill) ask first while there are unsaved edits. */
-  const guardHeaderLinks = (e: React.MouseEvent) => {
-    if (!dirty) return
-    const href = (e.target as Element).closest('a[href]')?.getAttribute('href')
-    if (!href || !href.startsWith('/')) return
-    e.preventDefault()
-    e.stopPropagation()
-    setLeaveTo(href)
-  }
-
   const saveState = saving ? (
     <span className="mc-row mc-gap-4 mc-caption">
       <Spinner size="sm" /> {t.common.saving}
@@ -884,7 +889,7 @@ function ClipEditor() {
 
   return (
     <div style={PAGE_STYLE}>
-      <div onClickCapture={guardHeaderLinks}>
+      <div>
         <PageHeader
           back={back}
           title={
@@ -1819,25 +1824,6 @@ function ClipEditor() {
         onClose={() => setConfirmReset(false)}
       />
 
-      <ConfirmModal
-        isOpen={!!leaveTo}
-        title={m.unsavedTitle}
-        message={m.unsavedBody}
-        confirmLabel={m.saveAndLeave}
-        confirmIcon={<Save size={16} />}
-        cancelLabel={t.common.cancel}
-        loading={saving}
-        onConfirm={async () => {
-          if (await save(true)) router.push(leaveTo || '/clips/')
-        }}
-        onClose={() => setLeaveTo(null)}
-      >
-        <div>
-          <Button variant="danger" size="sm" icon={<Trash2 size={16} />} onClick={() => router.push(leaveTo || '/clips/')}>
-            {m.leaveWithoutSaving}
-          </Button>
-        </div>
-      </ConfirmModal>
     </div>
   )
 }

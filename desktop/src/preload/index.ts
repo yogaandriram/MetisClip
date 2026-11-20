@@ -20,6 +20,7 @@ const CH = {
   relaunch: 'metis:relaunch',
   restartBackend: 'metis:restart-backend',
   openLogs: 'metis:open-logs',
+  setUnsaved: 'metis:set-unsaved',
   getLanguage: 'metis:get-language',
   setLanguage: 'metis:set-language',
   getCloseToTray: 'metis:get-close-to-tray',
@@ -168,6 +169,10 @@ const bridge = {
   /** Starts mongod and the engine again after they gave up (the engine error screen's "Coba lagi") */
   restartBackend: () => invoke<{ ok: boolean; error?: string }>(CH.restartBackend),
   openLogs: () => invoke<{ ok: boolean; error?: string }>(CH.openLogs),
+  /** The open page has unsaved edits: closing or quitting asks first (index.ts) */
+  setUnsavedChanges(dirty: boolean): void {
+    ipcRenderer.send(CH.setUnsaved, dirty === true)
+  },
 }
 
 contextBridge.exposeInMainWorld('metis', bridge)

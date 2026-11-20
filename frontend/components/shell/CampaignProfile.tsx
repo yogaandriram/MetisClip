@@ -12,6 +12,7 @@ import { campaignHref, isBriefEmpty, shownClient } from '@/lib/brief'
 import { cx } from '@/lib/cx'
 import { NEW_CAMPAIGN_HREF } from '@/lib/routes'
 import { useT } from '@/lib/i18n/I18nProvider'
+import { useCampaignSwitchGuard } from './UnsavedGuard'
 
 /** Opens the create dialog on the campaign library (campaigns/page.tsx reads `?new=1`). */
 
@@ -32,6 +33,7 @@ const NECK_PATH = 'M11.73 56.76A17.11 17.11 0 0 1 11.73 83.24H52.27A17.11 17.11 
  */
 export function CampaignProfile({ pathname }: { pathname: string }) {
   const { activeCampaign, activeCampaigns, setActiveCampaign, isCampaignLoading } = useCampaign()
+  const guardSwitch = useCampaignSwitchGuard()
   const { systemInfo } = useEngine()
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
@@ -100,8 +102,8 @@ export function CampaignProfile({ pathname }: { pathname: string }) {
                   aria-checked={false}
                   className="mc-menu-item"
                   onClick={() => {
-                    setActiveCampaign(campaign.id)
                     close()
+                    guardSwitch(() => setActiveCampaign(campaign.id))
                   }}
                 >
                   <Avatar name={campaign.name} seed={campaign.id} size={28} />

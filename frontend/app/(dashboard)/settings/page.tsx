@@ -13,6 +13,7 @@ import { isDesktop } from '@/lib/media'
 import { getLang, localeTag, tm } from '@/lib/i18n'
 import { useT } from '@/lib/i18n/I18nProvider'
 import { useUpdateStatus } from '@/lib/updates'
+import { useUnsavedGuard } from '@/components/shell/UnsavedGuard'
 
 const ENCODERS: EncoderSetting[] = ['auto', 'libx264', 'h264_nvenc', 'h264_qsv', 'h264_amf']
 
@@ -177,8 +178,8 @@ export default function SettingsPage() {
 
   const patch = <K extends keyof Settings>(key: K, value: Settings[K]) => setSettings((s) => (s ? { ...s, [key]: value } : s))
 
-  const saveSettings = async () => {
-    if (!settings) return
+  const saveSettings = async (): Promise<boolean> => {
+    if (!settings) return false
     setSaving(true)
     try {
       const { settings: next } = await api.settings.update({ ...settings, app: { ...settings.app, language: getLang() } })
@@ -186,12 +187,16 @@ export default function SettingsPage() {
       setSavedSettings(JSON.stringify(next))
       refreshSystemInfo()
       toast.success(m.saved)
+      return true
     } catch (err) {
       toast.error(errorMessage(err, m.saveFailed))
+      return false
     } finally {
       setSaving(false)
     }
   }
+
+  useUnsavedGuard(dirty, saveSettings)
 
   const saveLlmOnly = async () => {
     if (!settings) return
