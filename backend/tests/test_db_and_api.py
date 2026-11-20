@@ -179,6 +179,39 @@ def test_migration_008_moves_the_old_default_caption_position(mongo):
         dbm.set_db(None, None)  # type: ignore[arg-type]
 
 
+def test_feature_compatibility_follows_the_mongod_version(mongo):
+    """After a mongod major upgrade the data keeps the old FCV until it is raised; the engine raises it at start,
+    or the next upgrade would no longer start on this data."""
+    from backend.core import db as dbm
+
+    def fcv():
+        return mongo.admin.command({"getParameter": 1, "featureCompatibilityVersion": 1})["featureCompatibilityVersion"]
+
+    own = ".".join(mongo.server_info()["version"].split(".")[:2])
+    assert dbm.ensure_feature_compatibility(mongo) is None and fcv()["version"] == own  # already current
+    older = f"{int(own.split('.')[0]) - 1}.0"
+    mongo.admin.command({"setFeatureCompatibilityVersion": older, "confirm": True})
+    try:
+        assert fcv()["version"] == older
+        assert dbm.ensure_feature_compatibility(mongo) == own
+        assert fcv()["version"] == own and "targetVersion" not in fcv()
+    finally:
+        mongo.admin.command({"setFeatureCompatibilityVersion": own, "confirm": True})
+
+
+def test_windows_10_is_flagged_as_untested():
+    from types import SimpleNamespace as V
+
+    from backend.api.routes.system import windows_item
+
+    w11 = windows_item(V(major=10, minor=0, build=26100, product_type=1))
+    assert w11["ok"] and w11["version"] == "Windows 11 (build 26100)" and w11["detail"] is None
+    w10 = windows_item(V(major=10, minor=0, build=19045, product_type=1))
+    assert not w10["ok"] and w10["version"] == "Windows 10 (build 19045)" and "Windows 11" in w10["detail"]
+    assert windows_item(V(major=10, minor=0, build=20348, product_type=3))["ok"]  # Windows Server 2022
+    assert not windows_item(V(major=10, minor=0, build=17763, product_type=3))["ok"]  # Server 2019
+
+
 def test_auth_required(db):
     from backend.main import create_app
 
