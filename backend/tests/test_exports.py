@@ -284,3 +284,27 @@ def test_the_render_props_carry_the_chosen_cover(db, paths):
     clip = _clip(db, paths, "Props")
     assert "coverTime" not in render.build_props(clip)
     assert render.build_props({**clip, "cover_time": 3.25})["coverTime"] == 3.25
+
+
+def test_the_editor_gets_the_source_video_and_a_link_to_the_moment(client, db, paths, tmp_path):
+    from backend.core.db import utcnow
+
+    db.source_videos.insert_many([
+        {"_id": "sv-yt", "job_id": "j", "youtube_id": "abc123", "title": "Podcast 12", "channel_name": "Kanal",
+         "duration_seconds": 3600, "created_at": utcnow()},
+        {"_id": "sv-file", "job_id": "j", "youtube_id": None, "file_path": str(tmp_path / "rekaman ü.mp4"),
+         "title": "rekaman ü.mp4", "duration_seconds": 600, "created_at": utcnow()},
+    ])
+    yt = _clip(db, paths, "YouTube")
+    db.clips.update_one({"_id": yt["_id"]}, {"$set": {"source_video_id": "sv-yt", "youtube_id": "abc123", "start_time": 754.6}})
+    info = client.get(f"/api/clips/{yt['_id']}").json()["source_video"]
+    assert info["youtube_url"] == "https://www.youtube.com/watch?v=abc123"
+    assert info["youtube_url_at"] == "https://www.youtube.com/watch?v=abc123&t=754s"
+    assert (info["title"], info["channel"], info["file_path"], info["file_exists"]) == ("Podcast 12", "Kanal", None, False)
+
+    up = _clip(db, paths, "Upload")
+    db.clips.update_one({"_id": up["_id"]}, {"$set": {"source_video_id": "sv-file", "youtube_id": None}})
+    info = client.get(f"/api/clips/{up['_id']}").json()["source_video"]
+    assert info["youtube_url"] is None and info["youtube_url_at"] is None and info["file_exists"] is False
+    (tmp_path / "rekaman ü.mp4").write_bytes(b"x")
+    assert client.get(f"/api/clips/{up['_id']}").json()["source_video"]["file_exists"] is True

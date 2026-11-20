@@ -428,7 +428,11 @@ export interface SourceVideoInfo {
   channel: string
   /** The YouTube watch link, or null for an uploaded file */
   youtube_url: string | null
+  /** The same link at the clip's first second (`&t=…s`) */
+  youtube_url_at?: string | null
   file_path: string | null
+  /** The uploaded file is still where it was */
+  file_exists?: boolean
   duration_seconds: number | null
 }
 

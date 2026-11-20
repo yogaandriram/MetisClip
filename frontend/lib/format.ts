@@ -29,9 +29,11 @@ export function formatBytes(bytes: number | null | undefined): string {
 /** 75.4 -> "1:15" */
 export function formatClock(seconds: number | null | undefined): string {
   if (seconds === null || seconds === undefined || !isFinite(seconds) || seconds < 0) return '0:00'
-  const m = Math.floor(seconds / 60)
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
   const s = Math.floor(seconds % 60)
-  return `${m}:${String(s).padStart(2, '0')}`
+  // An hour-long source reads 1:02:05, not 62:05
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`
 }
 
 /** Seconds as m:ss.d or h:mm:ss.d (tenths), for the edges of a clip in its source video. */

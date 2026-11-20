@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import shutil
+from pathlib import Path
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -236,11 +237,16 @@ def _source_video(clip: dict) -> dict[str, Any] | None:
         return None
     video = video or {}
     youtube_id = clip.get("youtube_id") or video.get("youtube_id")
+    start = max(0, int(float(clip.get("start_time") or 0)))
+    file_path = video.get("file_path")
     return {
         "title": video.get("title") or "",
         "channel": video.get("channel_name") or "",
         "youtube_url": watch_url(youtube_id) if youtube_id else None,
-        "file_path": video.get("file_path"),
+        # The same link at the clip's first second, for crediting the moment
+        "youtube_url_at": f"{watch_url(youtube_id)}&t={start}s" if youtube_id else None,
+        "file_path": file_path,
+        "file_exists": bool(file_path) and Path(file_path).is_file(),
         "duration_seconds": video.get("duration_seconds"),
     }
 

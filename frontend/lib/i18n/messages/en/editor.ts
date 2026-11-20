@@ -223,6 +223,23 @@ export const editor: Messages['editor'] = {
   propsTitle: 'Properties',
   propsSubtitle: 'Changes here only apply to this clip.',
   manageTemplates: 'Manage templates',
+  source: {
+    title: 'Source video',
+    untitled: 'Untitled YouTube video',
+    uploaded: 'Uploaded video',
+    range: (start: string, end: string, total: string | null) =>
+      total ? `This clip is ${start}–${end} of a ${total} video.` : `This clip is ${start}–${end} of its video.`,
+    openYoutube: 'Open on YouTube',
+    copyLink: 'Copy link',
+    copyCredit: 'Copy credit',
+    credit: (who: string, url: string) => `Source: ${who}\n${url}`,
+    linkCopied: 'Link to the moment of this clip copied',
+    creditCopied: 'Source credit copied',
+    copyFailed: 'Could not copy to the clipboard',
+    openFailed: 'The link could not be opened',
+    showFile: 'Show in Explorer',
+    fileMissing: 'This file is no longer at that location.',
+  },
   cover: {
     title: 'Cover',
     imageAlt: 'Current cover of the clip',

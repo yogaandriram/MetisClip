@@ -237,6 +237,26 @@ export const editor = {
   propsTitle: 'Properti',
   propsSubtitle: 'Perubahan di sini hanya berlaku untuk clip ini.',
   manageTemplates: 'Kelola template',
+  /** The video the clip was cut from (properties panel) */
+  source: {
+    title: 'Sumber video',
+    untitled: 'Video YouTube tanpa judul',
+    uploaded: 'Video unggahan',
+    /** total: the source's length, or null when unknown */
+    range: (start: string, end: string, total: string | null) =>
+      total ? `Clip ini bagian ${start}–${end} dari video ${total}.` : `Clip ini bagian ${start}–${end} dari videonya.`,
+    openYoutube: 'Buka di YouTube',
+    copyLink: 'Salin tautan',
+    copyCredit: 'Salin kredit',
+    /** The credit line copied for the post (who: the channel, else the title) */
+    credit: (who: string, url: string) => `Sumber: ${who}\n${url}`,
+    linkCopied: 'Tautan ke detik clip ini disalin',
+    creditCopied: 'Kredit sumber disalin',
+    copyFailed: 'Gagal menyalin ke clipboard',
+    openFailed: 'Tautan tidak bisa dibuka',
+    showFile: 'Tampilkan di Explorer',
+    fileMissing: 'File ini tidak ada lagi di lokasi tersebut.',
+  },
   /** The clip's cover (properties panel) */
   cover: {
     title: 'Sampul',

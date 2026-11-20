@@ -8,8 +8,11 @@ import {
   CheckCircle2,
   ChevronDown,
   Download,
+  Copy,
+  ExternalLink,
   Film,
   ImagePlus,
+  Quote,
   FolderOpen,
   Keyboard,
   Maximize,
@@ -108,7 +111,7 @@ import { CaptionPositionControls } from '@/components/captions/CaptionPositionCo
 import { SUPPORTED_FONTS, FONT_WEIGHTS_MAP } from '@/lib/constants'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
-import { api, type BrandTemplate, type ClipDetail, type Job, type RenderJob, type SubtitleWord } from '@/lib/engine'
+import { api, type BrandTemplate, type ClipDetail, type Job, type RenderJob, type SourceVideoInfo, type SubtitleWord } from '@/lib/engine'
 import { assetUrl, isDesktop, mediaUrl } from '@/lib/media'
 import { RENDER_STATUS, errorMessage, formatClock, splitPath } from '@/lib/format'
 import { useI18n, useT } from '@/lib/i18n/I18nProvider'
@@ -1382,6 +1385,13 @@ function ClipEditor() {
               <p className="mc-caption mc-muted">{m.cover.hint}</p>
             </PanelSection>
 
+            {detail.source_video && (
+              <>
+                <Divider />
+                <SourceSection info={detail.source_video} start={clip.start_time} end={clip.end_time} />
+              </>
+            )}
+
             <Divider />
 
             <PanelSection
@@ -1949,6 +1959,72 @@ function ClipEditor() {
 // ---------------------------------------------------------------------------
 // Small editor parts
 // ---------------------------------------------------------------------------
+
+/**
+ * Where the clip comes from (gap analysis B6): the video's title and channel, the clip's place in it, and
+ * the YouTube link at the clip's first second to open or copy (with a credit line for the post), or the
+ * uploaded file to show in Explorer.
+ */
+function SourceSection({ info, start, end }: { info: SourceVideoInfo; start: number; end: number }) {
+  const m = useT().editor.source
+  const link = info.youtube_url_at || info.youtube_url
+  const copy = async (text: string, done: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success(done)
+    } catch {
+      toast.error(m.copyFailed)
+    }
+  }
+  const open = (url: string) => {
+    if (window.metis) window.metis.openExternal(url).catch(() => toast.error(m.openFailed))
+    else window.open(url, '_blank', 'noopener')
+  }
+  const name = info.title || (link ? m.untitled : m.uploaded)
+  return (
+    <PanelSection title={m.title}>
+      <div className="mc-stack mc-gap-4" style={{ minWidth: 0 }}>
+        <span className="mc-label" style={{ overflowWrap: 'anywhere' }}>
+          {name}
+        </span>
+        {info.channel && <span className="mc-caption mc-muted">{info.channel}</span>}
+        <span className="mc-caption mc-muted">
+          {m.range(formatClock(start), formatClock(end), info.duration_seconds ? formatClock(info.duration_seconds) : null)}
+        </span>
+      </div>
+      {link ? (
+        <div className="mc-row mc-gap-4" style={{ flexWrap: 'wrap' }}>
+          <Button size="sm" variant="secondary" icon={<ExternalLink size={16} />} onClick={() => open(link)}>
+            {m.openYoutube}
+          </Button>
+          <Button size="sm" variant="ghost" icon={<Copy size={16} />} onClick={() => copy(link, m.linkCopied)}>
+            {m.copyLink}
+          </Button>
+          <Button size="sm" variant="ghost" icon={<Quote size={16} />} onClick={() => copy(m.credit(info.channel || name, link), m.creditCopied)}>
+            {m.copyCredit}
+          </Button>
+        </div>
+      ) : info.file_path ? (
+        <div className="mc-stack mc-gap-8">
+          <span className="mc-caption mc-mono" style={{ overflowWrap: 'anywhere' }}>
+            {info.file_path}
+          </span>
+          {info.file_exists === false ? (
+            <span className="mc-caption mc-muted">{m.fileMissing}</span>
+          ) : (
+            isDesktop() && (
+              <div>
+                <Button size="sm" variant="secondary" icon={<FolderOpen size={16} />} onClick={() => window.metis?.showItemInFolder(info.file_path || '')}>
+                  {m.showFile}
+                </Button>
+              </div>
+            )
+          )}
+        </div>
+      ) : null}
+    </PanelSection>
+  )
+}
 
 function PanelSection({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
