@@ -9,6 +9,8 @@ export const jobs: Messages['jobs'] = {
   progressLabel: 'Job progress',
   loadFailed: "Couldn't load the queue",
   resumed: 'Job resumed',
+  retryFailed: (n: number) => `Retry ${n} failed ${n === 1 ? 'clip' : 'clips'}`,
+  retryStarted: 'Processing the failed clips again',
   cancelled: 'Job cancelled',
   deleted: 'Job deleted',
   config: (duration: string, max: number) => `${duration} sec · max. ${max || '∞'} ${max === 1 ? 'clip' : 'clips'}`,

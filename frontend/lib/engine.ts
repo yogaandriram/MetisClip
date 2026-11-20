@@ -242,6 +242,8 @@ export interface Job {
   progress_pct: number
   total_scenes: number
   processed_scenes: number
+  /** Completed jobs only: clips that failed; resuming the job processes just those */
+  failed_clips: number
   errors: JobError[]
   /** What a running job does or waits for now (its last job.progress message, in the UI language); null otherwise */
   activity: { message: string; at: ISODate } | null

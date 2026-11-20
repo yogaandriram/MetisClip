@@ -10,6 +10,9 @@ export const jobs = {
   progressLabel: 'Progres job',
   loadFailed: 'Gagal memuat antrian',
   resumed: 'Job dilanjutkan',
+  /** A completed job whose clips partly failed: process only those again */
+  retryFailed: (n: number) => `Ulangi ${n} klip gagal`,
+  retryStarted: 'Klip yang gagal diproses ulang',
   cancelled: 'Job dibatalkan',
   deleted: 'Job dihapus',
   /** "45-60 detik · maks. 3 klip"; max 0 = unlimited */

@@ -467,11 +467,13 @@ def run(ctx: JobContext, segments: list[dict[str, Any]]) -> list[dict[str, Any]]
     bases: dict[tuple[Any, ...], dict[str, Any]] = {}  # a finished clip per moment, for the other campaigns
     for seg in segments:
         if seg["segment_id"] in done:
+            # A segment is marked done only after its clip was written, so a missing clip was deleted by
+            # the user: resuming (or retrying a job's failed clips) must not bring it back
             clip = db.clips.find_one({"_id": seg["segment_id"]})
             if clip:
                 results.append(clip)
                 bases.setdefault(media_key(seg), clip)
-                continue
+            continue
         todo.append(seg)
     groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
     for seg in todo:

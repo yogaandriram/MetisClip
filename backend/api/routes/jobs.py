@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from backend.agents.context import PipelineError
+from backend.agents.context import PipelineError, failed_segments
 from backend.agents.nodes.discovery import check_local_video
 from backend.agents.tools import whisper
 from backend.agents.tools.ytdlp import extract_video_id
@@ -207,8 +207,13 @@ def cancel_job(job_id: str):
 @router.post("/{job_id}/resume")
 def resume_job(job_id: str):
     db = get_db()
+    query: dict = {"_id": job_id, "status": {"$in": ["interrupted", "failed", "cancelled"]}}
+    current = db.discovery_jobs.find_one({"_id": job_id}, {"status": 1, "checkpoint": 1})
+    if current and current.get("status") == "completed" and failed_segments(current):
+        # A completed job with failed clips: resuming processes only those (finished ones are skipped)
+        query = {"_id": job_id, "status": "completed"}
     job = db.discovery_jobs.find_one_and_update(
-        {"_id": job_id, "status": {"$in": ["interrupted", "failed", "cancelled"]}},
+        query,
         {"$set": {"status": "pending", "finished_at": None, "activity": None}},
         return_document=True,
     )

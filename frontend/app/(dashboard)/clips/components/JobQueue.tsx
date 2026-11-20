@@ -109,7 +109,7 @@ export function JobQueue({ campaignId }: { campaignId: string | undefined }) {
     setBusyId(job.id)
     try {
       replaceJob((await api.jobs.resume(job.id)).job)
-      toast.success(m.resumed)
+      toast.success(job.status === 'completed' ? m.retryStarted : m.resumed)
     } catch (err) {
       toast.error(errorMessage(err))
     } finally {
@@ -332,7 +332,7 @@ export function JobQueue({ campaignId }: { campaignId: string | undefined }) {
                                 <div style={{ maxWidth: 360 }}>
                                   {sourceTitle(job)}
                                   {briefInfo(job)}
-                                  {lastError && (
+                                  {lastError && (job.status !== 'completed' || job.failed_clips > 0) && (
                                     <div className="mc-caption mc-muted mc-truncate" title={lastError.message}>
                                       {lastError.message}
                                     </div>
@@ -350,6 +350,11 @@ export function JobQueue({ campaignId }: { campaignId: string | undefined }) {
                                   {RESUMABLE_JOB_STATUSES.includes(job.status) && (
                                     <Button variant="secondary" size="sm" icon={<RotateCcw size={16} />} onClick={() => resume(job)} loading={busyId === job.id}>
                                       {m.resume}
+                                    </Button>
+                                  )}
+                                  {job.status === 'completed' && job.failed_clips > 0 && (
+                                    <Button variant="secondary" size="sm" icon={<RotateCcw size={16} />} onClick={() => resume(job)} loading={busyId === job.id}>
+                                      {m.retryFailed(job.failed_clips)}
                                     </Button>
                                   )}
                                   <IconButton label={m.detailAria} icon={<Eye size={16} />} variant="ghost" size="sm" onClick={() => openDetail(job)} />

@@ -39,6 +39,8 @@ export const discover: Messages['discover'] = {
     notFound: 'Job not found',
     loadFailed: "Couldn't load the job",
     completed: 'Pipeline finished. The clips are ready to edit.',
+    partial: (failed: number, total: number) => `${failed} of ${total} ${total === 1 ? 'clip' : 'clips'} failed to process. The others are ready in Clips.`,
+    viewClips: 'View clips',
     cancelled: 'Job cancelled',
     resumed: 'Job resumed from its last checkpoint',
     running: 'The AI pipeline is running',

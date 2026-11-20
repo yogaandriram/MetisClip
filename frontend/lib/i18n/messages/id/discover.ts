@@ -41,6 +41,8 @@ export const discover = {
     notFound: 'Job tidak ditemukan',
     loadFailed: 'Gagal memuat job',
     completed: 'Pipeline selesai. Clip siap diedit.',
+    partial: (failed: number, total: number) => `${failed} dari ${total} klip gagal diproses. Klip lainnya sudah siap di Hasil Clip.`,
+    viewClips: 'Lihat klip',
     cancelled: 'Job dibatalkan',
     resumed: 'Job dilanjutkan dari checkpoint terakhir',
     running: 'AI Pipeline sedang berjalan',

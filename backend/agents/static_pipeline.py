@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 
-from backend.agents.context import JobContext, PipelineError
+from backend.agents.context import JobContext, PipelineError, failed_segments
 from backend.agents.nodes import analyzer, discovery, processor
 from backend.core import cache, events, llm
 from backend.core.db import get_db, utcnow
@@ -97,9 +97,10 @@ def run_job(job_id: str, cancel: CancelToken) -> None:
         clips = processor.run(ctx, segments)
         ctx.check()
 
-        partial = len(clips) < len(segments)
+        # Failed = segments without a finished clip (clips the user deleted since do not count)
+        failed = failed_segments(db.discovery_jobs.find_one({"_id": job_id}, {"checkpoint": 1}) or {})
         _finish(job_id, ctx.campaign_ids, "completed",
-                M("partial", failed=len(segments) - len(clips), total=len(segments)) if partial else None, "processing")
+                M("partial", failed=failed, total=len(segments)) if failed else None, "processing")
         logger.info("Job %s completed: %s clip(s)", job_id, len(clips))
     except Cancelled:
         status = "interrupted" if cancel.reason == "shutdown" else "cancelled"

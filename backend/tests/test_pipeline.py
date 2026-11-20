@@ -249,3 +249,41 @@ def test_clip_without_any_words_gets_no_invented_captions_in_production(db, fake
     clips = list(db.clips.find({"job_id": job_id}))
     assert len(clips) == 2 and all(c["subtitle"]["words"] == [] for c in clips)
     assert sum("tidak punya subtitle" in e["message"] for e in job["errors"]) == 2
+
+
+def test_failed_clips_of_a_completed_job_can_be_retried(db, fake_world, monkeypatch):
+    """A job whose clips partly failed completes with failed_clips; resuming it processes only those, and
+    never brings back a clip the user deleted meanwhile."""
+    from backend.api.dto import job_dto
+    from backend.api.routes import jobs as jobs_route
+
+    real = processor.process_segment
+    calls: list[str] = []
+
+    def flaky(ctx, seg, limits=(None, None)):
+        calls.append(seg["hook_text"])
+        if seg["hook_text"] == "kedua" and calls.count("kedua") == 1:
+            raise RuntimeError("encoder rusak")
+        return real(ctx, seg, limits)
+
+    monkeypatch.setattr(processor, "process_segment", flaky)
+    job_id = _make_job(db, _campaign("Agen"))
+    static_pipeline.run_job(job_id, procs.CancelToken())
+    job = db.discovery_jobs.find_one({"_id": job_id})
+    assert job["status"] == "completed" and "1 dari 2 klip gagal" in job["errors"][-1]["message"]
+    assert job_dto(job)["failed_clips"] == 1
+    [first] = list(db.clips.find({"job_id": job_id}))
+    assert first["hook_text"] == "pertama"
+    db.clips.delete_one({"_id": first["_id"]})  # the user deleted the clip that worked
+
+    submitted: list[str] = []
+    monkeypatch.setattr(jobs_route.runner, "submit_job", submitted.append)
+    assert jobs_route.resume_job(job_id)["job"]["status"] == "pending" and submitted == [job_id]
+    static_pipeline.run_job(job_id, procs.CancelToken())
+    job = db.discovery_jobs.find_one({"_id": job_id})
+    assert job["status"] == "completed" and job_dto(job)["failed_clips"] == 0
+    assert [c["hook_text"] for c in db.clips.find({"job_id": job_id})] == ["kedua"]
+    assert sorted(calls) == ["kedua", "kedua", "pertama"]  # clips run in parallel
+    # Nothing left to retry: a completed job without failed clips is not resumable
+    with pytest.raises(Exception):
+        jobs_route.resume_job(job_id)

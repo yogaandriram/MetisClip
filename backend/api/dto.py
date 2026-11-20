@@ -54,7 +54,11 @@ def brand_template_dto(
 
 
 def job_dto(doc: dict[str, Any]) -> dict[str, Any]:
+    from backend.agents.context import failed_segments
+
     d = to_api(doc) or {}
+    # A completed job whose clips partly failed can retry them (POST /api/jobs/{id}/resume)
+    d["failed_clips"] = failed_segments(doc) if doc.get("status") == "completed" else 0
     d.pop("checkpoint", None)
     src = d.get("source") or {}
     d["source"] = {

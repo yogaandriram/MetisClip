@@ -433,19 +433,20 @@ function JobProgress({ jobId }: { jobId: string }) {
       )
       if (e.message) setLiveMessage(e.message)
     } else if (e.type === 'job.status' && e.id === jobId) {
-      setJob((prev) => (prev ? { ...prev, status: e.status } : prev))
+      // A completed job waits for the fresh document: its failed_clips decide whether to leave for the gallery
+      if (e.status !== 'completed') setJob((prev) => (prev ? { ...prev, status: e.status } : prev))
       if (e.error) setLiveMessage(e.error)
       load()
     }
   })
 
-  // Completed -> go to the clips gallery
+  // Completed -> go to the clips gallery (unless some clips failed: the user can retry them here)
   useEffect(() => {
-    if (job?.status !== 'completed') return
+    if (job?.status !== 'completed' || job.failed_clips > 0) return
     toast.success(tm().discover.progress.completed)
     const timer = setTimeout(() => router.push('/clips/'), 1500)
     return () => clearTimeout(timer)
-  }, [job?.status, router])
+  }, [job?.status, job?.failed_clips, router])
 
   const cancel = async () => {
     setBusy(true)
@@ -464,10 +465,11 @@ function JobProgress({ jobId }: { jobId: string }) {
   const resume = async () => {
     setBusy(true)
     try {
-      const { job } = await api.jobs.resume(jobId)
-      setJob(job)
+      const retrying = job?.status === 'completed'
+      const { job: resumed } = await api.jobs.resume(jobId)
+      setJob(resumed)
       setLiveMessage(null)
-      toast.success(p.resumed)
+      toast.success(retrying ? tm().jobs.retryStarted : p.resumed)
     } catch (err) {
       toast.error(errorMessage(err))
     } finally {
@@ -542,6 +544,16 @@ function JobProgress({ jobId }: { jobId: string }) {
                 {p.resume}
               </Button>
             )}
+            {job.status === 'completed' && job.failed_clips > 0 && (
+              <>
+                <Button variant="primary" size="sm" icon={<RotateCcw size={16} aria-hidden="true" />} onClick={resume} loading={busy}>
+                  {t.jobs.retryFailed(job.failed_clips)}
+                </Button>
+                <ButtonLink href="/clips/" variant="secondary" size="sm">
+                  {p.viewClips}
+                </ButtonLink>
+              </>
+            )}
             <ButtonLink href={QUEUE_HREF} variant="secondary" size="sm" icon={<ListChecks size={16} aria-hidden="true" />}>
               {t.clips.tabs.queue}
             </ButtonLink>
@@ -560,6 +572,9 @@ function JobProgress({ jobId }: { jobId: string }) {
         <div className="mc-stack mc-gap-12">
           <PipelineSteps steps={steps} />
           {active && <p className="mc-muted">{jobStepLabel(job.current_step)}</p>}
+          {job.status === 'completed' && job.failed_clips > 0 && (
+            <p className="mc-muted">{p.partial(job.failed_clips, job.total_scenes)}</p>
+          )}
           {(liveMessage || job.activity?.message) && active && (
             <p className="mc-caption mc-mono mc-muted" style={{ wordBreak: 'break-word' }}>
               › {liveMessage || job.activity?.message}
