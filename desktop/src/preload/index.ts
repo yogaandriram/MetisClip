@@ -18,6 +18,8 @@ const CH = {
   notify: 'metis:notify',
   navigate: 'metis:navigate',
   relaunch: 'metis:relaunch',
+  restartBackend: 'metis:restart-backend',
+  openLogs: 'metis:open-logs',
   getLanguage: 'metis:get-language',
   setLanguage: 'metis:set-language',
   getCloseToTray: 'metis:get-close-to-tray',
@@ -163,6 +165,9 @@ const bridge = {
   relaunch(): void {
     ipcRenderer.send(CH.relaunch)
   },
+  /** Starts mongod and the engine again after they gave up (the engine error screen's "Coba lagi") */
+  restartBackend: () => invoke<{ ok: boolean; error?: string }>(CH.restartBackend),
+  openLogs: () => invoke<{ ok: boolean; error?: string }>(CH.openLogs),
 }
 
 contextBridge.exposeInMainWorld('metis', bridge)

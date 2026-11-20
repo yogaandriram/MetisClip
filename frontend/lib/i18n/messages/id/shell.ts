@@ -44,6 +44,7 @@ export const shell = {
     unreachableTitle: 'Engine MetisClip tidak dapat dihubungi',
     unreachableFallback: 'Terjadi kesalahan saat menyalakan engine lokal.',
     relaunch: 'Mulai ulang aplikasi',
+    openLogs: 'Buka folder log',
     bannerStopped: 'Engine berhenti.',
     bannerRestarting: 'Engine sedang dimulai ulang…',
     notReady: 'Engine belum siap',

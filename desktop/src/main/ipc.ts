@@ -8,7 +8,7 @@ import type { AppUpdater } from './updater'
 import { dataRootAvailable, defaultDataRoot, ensureStructure, readBootstrap, validateDataRoot, writeBootstrap } from './data-root'
 import { cancelMove, deletePrevious, forgetPrevious, moveDataRoot, planMove, previousRoot } from './data-move'
 import { createLogger } from './logger'
-import { isTrustedUrl } from './paths'
+import { getPaths, isTrustedUrl } from './paths'
 import { getLanguage, isLang, setLanguage, tr } from './i18n'
 
 const log = createLogger('ipc')
@@ -33,6 +33,8 @@ export const CH = {
   notify: 'metis:notify',
   navigate: 'metis:navigate',
   relaunch: 'metis:relaunch',
+  restartBackend: 'metis:restart-backend',
+  openLogs: 'metis:open-logs',
   getLanguage: 'metis:get-language',
   setLanguage: 'metis:set-language',
   getCloseToTray: 'metis:get-close-to-tray',
@@ -100,6 +102,26 @@ export function registerIpc(backend: Backend, tray: AppTray, updater: AppUpdater
   })
 
   handle(CH.getEngineStatus, () => backend.getStatus())
+
+  // "Coba lagi" on the engine error screen. In the error state waitReady() rejects at once, so the
+  // backend (mongod + engine) is started again from scratch; any other state just keeps going.
+  handle(CH.restartBackend, async () => {
+    if (backend.getStatus().state !== 'error') return { ok: true }
+    const root = readBootstrap()
+    if (!root) return { ok: false, error: tr().engine.failed }
+    if (!dataRootAvailable(root)) {
+      backend.fail(tr().dataRootMissing(root))
+      return { ok: false, error: tr().dataRootMissing(root) }
+    }
+    log.info('UI meminta backend dimulai ulang setelah error')
+    return backend.start(root)
+  })
+
+  // The log folder, also while the engine (which reports logs_dir) is down
+  handle(CH.openLogs, async () => {
+    const error = await shell.openPath(getPaths().logsDir)
+    return error ? { ok: false, error } : { ok: true }
+  })
 
   handle(CH.getDataRoot, () => readBootstrap())
 

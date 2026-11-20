@@ -42,6 +42,7 @@ export const shell: Messages['shell'] = {
     unreachableTitle: "Can't reach the MetisClip engine",
     unreachableFallback: 'Something went wrong while starting the local engine.',
     relaunch: 'Restart the app',
+    openLogs: 'Open log folder',
     bannerStopped: 'The engine stopped.',
     bannerRestarting: 'The engine is restarting…',
     notReady: 'The engine is not ready yet',

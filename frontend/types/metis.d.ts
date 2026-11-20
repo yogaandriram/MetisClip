@@ -169,6 +169,10 @@ declare global {
     /** A notification click asks the UI to open a route; returns an unsubscribe function */
     onNavigate(cb: (route: string) => void): () => void
     relaunch(): void
+    /** Starts mongod and the engine again after they gave up (only acts in the error state) */
+    restartBackend(): Promise<{ ok: boolean; error?: string }>
+    /** Opens the log folder, also while the engine is down */
+    openLogs(): Promise<{ ok: boolean; error?: string }>
   }
 
   interface Window {

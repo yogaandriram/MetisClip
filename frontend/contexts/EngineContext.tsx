@@ -2,7 +2,7 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, RefreshCw, Power } from 'lucide-react'
+import { AlertTriangle, FolderOpen, RefreshCw, Power } from 'lucide-react'
 import { api, getEngineInfo, type SystemInfo } from '@/lib/engine'
 import { errorMessage } from '@/lib/format'
 import { tm } from '@/lib/i18n'
@@ -110,7 +110,21 @@ export function EngineGate({ children, requireDataRoot = true }: { children: Rea
     }
   }, [attempt, requireDataRoot, router])
 
-  const retry = () => setAttempt((a) => a + 1)
+  // In Electron the backend gives up after repeated crashes; "Coba lagi" starts it again from scratch
+  // (connecting alone would be refused while main is in its error state).
+  const retry = async () => {
+    if (window.metis) {
+      updatePhase('connecting')
+      setMessage(null)
+      const r = await window.metis.restartBackend()
+      if (!r.ok) {
+        setMessage(r.error || tm().shell.engine.failedToStart)
+        updatePhase('error')
+        return
+      }
+    }
+    setAttempt((a) => a + 1)
+  }
 
   const value: EngineContextValue = { epoch, systemInfo, refreshSystemInfo }
 
@@ -183,9 +197,14 @@ function EngineErrorScreen({ message, onRetry }: { message: string | null; onRet
               {t.common.retry}
             </Button>
             {typeof window !== 'undefined' && window.metis && (
-              <Button variant="secondary" onClick={() => window.metis?.relaunch()} icon={<Power size={16} />}>
-                {t.shell.engine.relaunch}
-              </Button>
+              <>
+                <Button variant="secondary" onClick={() => void window.metis?.openLogs()} icon={<FolderOpen size={16} />}>
+                  {t.shell.engine.openLogs}
+                </Button>
+                <Button variant="secondary" onClick={() => window.metis?.relaunch()} icon={<Power size={16} />}>
+                  {t.shell.engine.relaunch}
+                </Button>
+              </>
             )}
           </div>
         </div>
@@ -220,6 +239,11 @@ function EngineBanner({ phase, message, onRetry }: { phase: Phase; message: stri
     >
       {isError ? <AlertTriangle size={16} aria-hidden="true" /> : <Spinner size="sm" />}
       <span>{message || (isError ? t.shell.engine.bannerStopped : t.shell.engine.bannerRestarting)}</span>
+      {isError && typeof window !== 'undefined' && window.metis && (
+        <Button variant="secondary" size="sm" onClick={() => void window.metis?.openLogs()}>
+          {t.shell.engine.openLogs}
+        </Button>
+      )}
       {isError && (
         <Button variant="primary" size="sm" onClick={onRetry}>
           {t.common.retry}
