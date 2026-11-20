@@ -530,9 +530,9 @@ function JobProgress({ jobId }: { jobId: string }) {
   useEffect(() => {
     if (!watched || job?.status !== 'completed' || job.failed_clips > 0) return
     toast.success(tm().discover.progress.completed)
-    const timer = setTimeout(() => router.push('/clips/'), 1500)
+    const timer = setTimeout(() => router.push(`/clips/?job=${encodeURIComponent(jobId)}`), 1500)
     return () => clearTimeout(timer)
-  }, [watched, job?.status, job?.failed_clips, router])
+  }, [watched, job?.status, job?.failed_clips, router, jobId])
 
   const cancel = async () => {
     setBusy(true)
@@ -649,7 +649,7 @@ function JobProgress({ jobId }: { jobId: string }) {
               </Button>
             )}
             {job.status === 'completed' && (
-              <ButtonLink href="/clips/" variant={job.failed_clips > 0 ? 'secondary' : 'primary'} size="sm">
+              <ButtonLink href={`/clips/?job=${encodeURIComponent(job.id)}`} variant={job.failed_clips > 0 ? 'secondary' : 'primary'} size="sm">
                 {p.viewClips}
               </ButtonLink>
             )}

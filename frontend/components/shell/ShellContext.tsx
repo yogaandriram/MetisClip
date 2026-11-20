@@ -84,7 +84,7 @@ function useDesktopNotifications(): void {
         const n = e.clips ?? 0
         const campaign = e.campaign_ids?.[0]
         metis.notify(n > 0 ? m.jobDone(n) : m.jobDoneNone, lines(e.title, e.error), {
-          route: n > 0 ? (campaign ? `/clips/?campaign=${campaign}` : '/clips/') : QUEUE_HREF,
+          route: n > 0 ? `/clips/?${campaign ? `campaign=${campaign}&` : ''}job=${encodeURIComponent(e.id)}` : QUEUE_HREF,
         })
       } else if (e.status === 'failed') {
         metis.notify(m.jobFailed, lines(e.title, e.error), { route: QUEUE_HREF })

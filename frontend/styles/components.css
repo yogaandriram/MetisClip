@@ -2479,6 +2479,69 @@ input[type='color'].mc-input {
   right: 10px;
 }
 
+/* Hasil Clip's selection mode: the thumbnail becomes a toggle with a round mark, and a bar holds the bulk actions */
+.mc-thumb--pickable {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  text-align: inherit;
+  font: inherit;
+}
+
+.mc-thumb--picked,
+.mc-thumb--picked.mc-card--interactive:hover {
+  box-shadow: 0 0 0 3px var(--canvas), 0 0 0 6px var(--ink);
+}
+
+.mc-pick-mark {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-full);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 2px var(--ink);
+}
+
+.mc-thumb--picked .mc-pick-mark {
+  background: var(--leaf);
+}
+
+.mc-bulkbar {
+  position: sticky;
+  bottom: var(--s-4);
+  z-index: 20;
+  margin-top: var(--s-6);
+}
+
+/* A canvas ring keeps the ink bar apart from the ink thumbnails it floats over */
+.mc-bulkbar > .mc-card {
+  box-shadow: 0 0 0 4px var(--canvas), var(--shadow-2);
+}
+
+/* The gallery's search, sort and job filter share one row */
+.mc-gallery-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-3);
+}
+
+.mc-gallery-tools__search {
+  flex: 1 1 280px;
+}
+
+.mc-gallery-tools__sort {
+  flex: 0 0 220px;
+}
+
+.mc-gallery-tools__job {
+  flex: 0 1 380px;
+}
+
 .mc-overlay-glass {
   background: var(--ink-glass);
   -webkit-backdrop-filter: blur(12px);

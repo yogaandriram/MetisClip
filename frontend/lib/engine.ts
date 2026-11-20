@@ -345,7 +345,12 @@ export interface Clip {
   rationale: string
   status: ClipStatus
   files: ClipFiles
-  subtitle_data: { clip_id: string; words: SubtitleWord[] }
+  /** Only from GET /api/clips/{id}: the list leaves the words out (see `word_count`) */
+  subtitle_data?: { clip_id: string; words: SubtitleWord[] }
+  /** Only in the list: how many subtitle words the clip has */
+  word_count?: number
+  /** Only in the list: the source video's title (an upload's file name), '' when unknown */
+  source_title?: string
   /** Per-clip override of the brand caption settings ({} = inherit) */
   subtitle_style: Record<string, any>
   /** Per-clip override of the brand layout_settings ({} = inherit; lib/presets/layout.ts) */
@@ -632,6 +637,8 @@ export interface ResourceStatus {
 export interface DashboardStats {
   videosProcessed: number
   clipsGenerated: number
+  /** Clips waiting for an export (status ready) */
+  clipsReady: number
   potentialViews: number
 }
 
@@ -1016,7 +1023,9 @@ export const api = {
   },
 
   clips: {
-    list: (query: { campaign_id?: string; job_id?: string; status?: ClipStatus } = {}) => request<{ clips: Clip[] }>('GET', '/api/clips', { query }),
+    /** Newest first; `limit` > 0 returns only that many */
+    list: (query: { campaign_id?: string; job_id?: string; status?: ClipStatus; limit?: number } = {}) =>
+      request<{ clips: Clip[] }>('GET', '/api/clips', { query }),
     get: (id: string) => request<ClipDetail>('GET', `/api/clips/${id}`),
     updateSubtitles: (id: string, update: SubtitleUpdate) => request<{ clip: Clip }>('PUT', `/api/clips/${id}/subtitles`, { body: update }),
     /** One LLM call: mark keywords and/or pick emojis on the saved words (replaces earlier AI marks). */
@@ -1026,6 +1035,11 @@ export const api = {
     /** Cut the clip again at new edges (seconds of its source video): a one-moment job; style, title and edited words stay */
     recut: (id: string, range: ClipRange & { snap_edges?: boolean }) => request<{ job: Job }>('POST', `/api/clips/${id}/recut`, { body: range }),
     render: (id: string) => request<{ render_job: RenderJob }>('POST', `/api/clips/${id}/render`),
+    /** Queue several renders (run one after another); a clip that cannot render now is skipped with the reason */
+    renderMany: (clipIds: string[]) =>
+      request<{ render_jobs: RenderJob[]; skipped: { clip_id: string; reason: string }[] }>('POST', '/api/clips/render', { body: { clip_ids: clipIds } }),
+    removeMany: (clipIds: string[], deleteFiles = true) =>
+      request<{ deleted: string[]; missing: string[] }>('POST', '/api/clips/delete', { body: { clip_ids: clipIds, delete_files: deleteFiles } }),
     /** Fetch the clip's original-ratio video again (clips made before the podcast layout). */
     prepareSource: (id: string) => request<{ clip: Clip }>('POST', `/api/clips/${id}/source`),
     /** Face scan for the duo and auto layouts (fetches the source video first when it is missing too) */

@@ -4,7 +4,7 @@ from __future__ import annotations
 import shutil
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.api.dto import brand_template_dto, campaign_dto, clip_dto, http_error, job_dto, render_dto
@@ -97,8 +97,8 @@ M = i18n.messages({
         "en": "Face analysis failed: {error}",
     },
     "no_raw": {
-        "id": "File raw klip tidak ada",
-        "en": "The clip's raw file is missing",
+        "id": "File video mentah klip ini tidak ada di folder data",
+        "en": "This clip's raw video file is not in the data folder",
     },
     "render_not_found": {
         "id": "Render job tidak ditemukan",
@@ -154,8 +154,15 @@ class _BriefContext:
         return brief_check.check(clip, campaign, self.templates[key], channel_name(clip))
 
 
+LIST_MAX = 5000
+
+
 @router.get("/api/clips")
-def list_clips(job_id: Optional[str] = None, status: Optional[str] = None, campaign_id: Optional[str] = None):
+def list_clips(job_id: Optional[str] = None, status: Optional[str] = None, campaign_id: Optional[str] = None,
+               limit: int = 0):
+    """Newest first (`limit` > 0: only that many). Without the subtitle words, which only the editor needs
+    (GET /api/clips/{id}); `word_count` says how many there are. `source_title` names the source video."""
+    db = get_db()
     q: dict = {}
     if job_id:
         q["job_id"] = job_id
@@ -163,11 +170,15 @@ def list_clips(job_id: Optional[str] = None, status: Optional[str] = None, campa
         q["status"] = status
     if campaign_id:
         q["campaign_id"] = campaign_id
-    docs = get_db().clips.find(q).sort("created_at", -1)
+    docs = list(db.clips.find(q).sort("created_at", -1).limit(max(1, min(LIST_MAX, limit)) if limit > 0 else LIST_MAX))
+    source_ids = list({d["source_video_id"] for d in docs if d.get("source_video_id")})
+    titles = {v["_id"]: v.get("title") or "" for v in db.source_videos.find({"_id": {"$in": source_ids}}, {"title": 1})}
     ctx = _BriefContext()
     out = []
     for d in docs:
         dto = clip_dto(d)
+        dto["word_count"] = len(dto.pop("subtitle_data", {}).get("words") or [])
+        dto["source_title"] = titles.get(d.get("source_video_id"), "")
         if d.get("campaign_id"):
             check = ctx.check(d)
             dto["brief_summary"] = check["summary"] if check else None
@@ -558,13 +569,20 @@ RENDER_NEED_BYTES = 512 * 1024**2
 
 @router.post("/api/clips/{clip_id}/render")
 def render_clip(clip_id: str):
-    clip = _get(clip_id)
-    if not (clip.get("files") or {}).get("raw"):
+    return {"render_job": render_dto(_queue_render(_get(clip_id)))}
+
+
+def _queue_render(clip: dict) -> dict:
+    """The clip's render job: the queued or running one, else a new one (raises the HTTP refusals)."""
+    clip_id = clip["_id"]
+    raw = (clip.get("files") or {}).get("raw")
+    # Checked here, so a file deleted by hand fails at once instead of after Chrome started
+    if not raw or not get_paths().from_relative(raw).is_file():
         raise http_error(409, M("no_raw"))
     db = get_db()
     active = db.render_jobs.find_one({"clip_id": clip_id, "status": {"$in": ["queued", "rendering"]}})
     if active:
-        return {"render_job": render_dto(active)}
+        return active
     if active_recut(clip_id):
         raise http_error(409, M("render_while_recut"))
     try:
@@ -575,7 +593,33 @@ def render_clip(clip_id: str):
     db.render_jobs.insert_one(doc)
     events.publish({"type": "render.status", "id": doc["_id"], "clip_id": clip_id, "status": "queued"})
     runner.submit_render(doc["_id"])
-    return {"render_job": render_dto(doc)}
+    return doc
+
+
+class ClipIdsBody(BaseModel):
+    clip_ids: list[str] = Field(min_length=1, max_length=LIST_MAX)
+
+
+@router.post("/api/clips/render")
+def render_clips(body: ClipIdsBody):
+    """Queue the renders of several clips (they run one after another, in this order). A clip that cannot
+    be rendered now is skipped with the reason; the others still go."""
+    db = get_db()
+    queued, skipped = [], []
+    for cid in dict.fromkeys(body.clip_ids):
+        clip = db.clips.find_one({"_id": cid})
+        if not clip:
+            skipped.append({"clip_id": cid, "reason": M("not_found")})
+            continue
+        try:
+            queued.append(render_dto(_queue_render(clip)))
+        except HTTPException as exc:
+            skipped.append({"clip_id": cid, "reason": str(exc.detail)})
+            if exc.status_code == 507:  # the disk is full: the rest would be refused the same way
+                skipped.extend({"clip_id": rest, "reason": str(exc.detail)}
+                               for rest in list(dict.fromkeys(body.clip_ids))[len(queued) + len(skipped):])
+                break
+    return {"render_jobs": queued, "skipped": skipped}
 
 
 class ExportBody(BaseModel):
@@ -605,10 +649,38 @@ def export_clips(body: ExportBody):
 
 @router.delete("/api/clips/{clip_id}")
 def delete_clip(clip_id: str, delete_files: bool = True):
-    clip = _get(clip_id)
+    _delete(_get(clip_id), delete_files)
+    return {"ok": True}
+
+
+class DeleteClipsBody(ClipIdsBody):
+    delete_files: bool = True
+
+
+@router.post("/api/clips/delete")
+def delete_clips(body: DeleteClipsBody):
+    """Delete several clips (and, by default, their folders). Missing ids are listed, not refused."""
+    db = get_db()
+    deleted, missing = [], []
+    for cid in dict.fromkeys(body.clip_ids):
+        clip = db.clips.find_one({"_id": cid})
+        if not clip:
+            missing.append(cid)
+            continue
+        _delete(clip, body.delete_files)
+        deleted.append(cid)
+    return {"deleted": deleted, "missing": missing}
+
+
+def _delete(clip: dict, delete_files: bool) -> None:
+    """Stop the clip's render and recut, then remove its record and (optionally) its own folder."""
+    clip_id = clip["_id"]
     db = get_db()
     for rj in db.render_jobs.find({"clip_id": clip_id, "status": {"$in": ["queued", "rendering"]}}, {"_id": 1}):
         runner.cancel_render(rj["_id"])
+    recut = active_recut(clip_id)
+    if recut:
+        runner.cancel_job(recut["_id"])
     db.render_jobs.delete_many({"clip_id": clip_id, "status": {"$nin": ["queued", "rendering"]}})
     db.clips.delete_one({"_id": clip_id})
     if delete_files:
@@ -619,7 +691,6 @@ def delete_clip(clip_id: str, delete_files: bool = True):
             if folder.name == clip_id and paths.library_dir.resolve() in folder.resolve().parents:
                 shutil.rmtree(folder, ignore_errors=True)
     events.publish({"type": "clip.deleted", "id": clip_id})
-    return {"ok": True}
 
 
 # -- render jobs --------------------------------------------------------------

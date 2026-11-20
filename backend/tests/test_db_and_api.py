@@ -222,6 +222,8 @@ def test_campaign_is_the_container(client, db, paths):
             clip_ids.append(clip_id)
     assert client.get("/api/dashboard/stats", params={"campaign_id": a["id"]}).json()["clipsGenerated"] == 2
     assert client.get("/api/dashboard/stats").json()["clipsGenerated"] == 3
+    db.clips.update_one({"_id": clip_ids[0]}, {"$set": {"status": "exported"}})
+    assert client.get("/api/dashboard/stats", params={"campaign_id": a["id"]}).json()["clipsReady"] == 1
     storage = client.get("/api/system/storage").json()
     assert [c["name"] for c in storage["per_campaign"]] == ["Podcast Bisnis", "Podcast Bisnis", "Lain"]
     assert storage["per_campaign"][0]["bytes"] == 2

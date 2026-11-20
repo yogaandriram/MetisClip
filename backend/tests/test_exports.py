@@ -126,3 +126,87 @@ def test_export_route(db, paths, secrets, tmp_path):
             res = c.post("/api/clips/export", json={"clip_ids": [done["_id"]], "dest_dir": str(bad)})
             assert res.status_code == 400 and res.json()["detail"] == "Folder tujuan tidak diizinkan", bad
         assert not (paths.db_dir / "x").exists() and not (paths.cache_dir / "y").exists()
+
+
+# -- the gallery: a lean list and bulk actions ---------------------------------------------------------------
+
+
+@pytest.fixture()
+def client(db, secrets):
+    from backend.main import create_app
+
+    with TestClient(create_app()) as c:
+        c.headers.update({"Authorization": f"Bearer {config.token}"})
+        yield c
+
+
+def _ready(db, paths, hook: str, *, raw: bool = True, words: int = 0, source_video_id: str | None = None) -> dict:
+    doc = _clip(db, paths, hook)
+    upd: dict = {"status": "ready", "source_video_id": source_video_id,
+                 "subtitle": {"words": [{"word": f"w{i}", "start": i, "end": i + 0.5} for i in range(words)]}}
+    if not raw:
+        upd["files"] = {"raw": None}
+    db.clips.update_one({"_id": doc["_id"]}, {"$set": upd})
+    return {**doc, **upd}
+
+
+def test_the_clip_list_leaves_out_the_words(client, db, paths):
+    from backend.core.db import utcnow
+
+    db.source_videos.insert_one({"_id": "sv-1", "job_id": "job-1", "title": "Podcast Bisnis Eps 12", "created_at": utcnow()})
+    a = _ready(db, paths, "Satu", words=3, source_video_id="sv-1")
+    b = _ready(db, paths, "Dua")
+    listed = client.get("/api/clips").json()["clips"]
+    by_id = {c["id"]: c for c in listed}
+    assert "subtitle_data" not in by_id[a["_id"]]
+    assert by_id[a["_id"]]["word_count"] == 3 and by_id[a["_id"]]["source_title"] == "Podcast Bisnis Eps 12"
+    assert by_id[b["_id"]]["word_count"] == 0 and by_id[b["_id"]]["source_title"] == ""
+    assert len(client.get("/api/clips", params={"limit": 1}).json()["clips"]) == 1
+    # The editor still gets them
+    assert len(client.get(f"/api/clips/{a['_id']}").json()["clip"]["subtitle_data"]["words"]) == 3
+
+
+def test_several_clips_are_rendered_and_deleted_at_once(client, db, paths, monkeypatch):
+    from backend.api.routes import clips as clips_route
+
+    submitted: list[str] = []
+    monkeypatch.setattr(clips_route.runner, "submit_render", submitted.append)
+    a, b = _ready(db, paths, "Satu"), _ready(db, paths, "Dua")
+    no_raw = _ready(db, paths, "Belum ada video", raw=False)
+    deleted_by_hand = _ready(db, paths, "Filenya dihapus")
+    (paths.library_dir / "podcast" / deleted_by_hand["_id"] / "raw.mp4").unlink()
+    r = client.post("/api/clips/render", json={"clip_ids": [a["_id"], no_raw["_id"], b["_id"], a["_id"], "hilang",
+                                                            deleted_by_hand["_id"]]})
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert [j["clip_id"] for j in data["render_jobs"]] == [a["_id"], b["_id"]] and len(submitted) == 2
+    assert [s["clip_id"] for s in data["skipped"]] == [no_raw["_id"], "hilang", deleted_by_hand["_id"]]
+    assert data["skipped"][2]["reason"] == "File video mentah klip ini tidak ada di folder data"
+    # Asking again keeps the queued renders instead of adding more
+    again = client.post("/api/clips/render", json={"clip_ids": [a["_id"]]}).json()
+    assert again["render_jobs"][0]["id"] == data["render_jobs"][0]["id"] and len(submitted) == 2
+
+    cancelled: list[str] = []
+    monkeypatch.setattr(clips_route.runner, "cancel_render", cancelled.append)
+    folder = paths.library_dir / "podcast" / a["_id"]
+    r = client.post("/api/clips/delete", json={"clip_ids": [a["_id"], b["_id"], "hilang"]})
+    assert r.json() == {"deleted": [a["_id"], b["_id"]], "missing": ["hilang"]}
+    assert db.clips.count_documents({"_id": {"$in": [a["_id"], b["_id"]]}}) == 0 and not folder.exists()
+    assert sorted(cancelled) == sorted(j["id"] for j in data["render_jobs"])
+    assert client.post("/api/clips/delete", json={"clip_ids": []}).status_code == 422
+
+
+def test_a_full_disk_stops_queueing_the_rest(client, db, paths, monkeypatch):
+    from backend.api.routes import clips as clips_route
+    from backend.core import disk
+
+    monkeypatch.setattr(clips_route.runner, "submit_render", lambda rid: None)
+    clips = [_ready(db, paths, f"K{i}") for i in range(3)]
+
+    def full(need: int = 0):
+        raise disk.DiskFull("Ruang disk hampir habis")
+
+    monkeypatch.setattr(clips_route.disk, "check", full)
+    data = client.post("/api/clips/render", json={"clip_ids": [c["_id"] for c in clips]}).json()
+    assert data["render_jobs"] == [] and [s["clip_id"] for s in data["skipped"]] == [c["_id"] for c in clips]
+    assert {s["reason"] for s in data["skipped"]} == {"Ruang disk hampir habis"}

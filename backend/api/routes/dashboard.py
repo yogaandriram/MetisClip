@@ -15,5 +15,7 @@ def dashboard_stats(campaign_id: Optional[str] = None):
     """Numbers for Beranda: one campaign's, or all of them."""
     db = get_db()
     videos = db.discovery_jobs.count_documents({"campaign_ids": campaign_id} if campaign_id else {})
-    clips = db.clips.count_documents({"campaign_id": campaign_id} if campaign_id else {})
-    return {"videosProcessed": videos, "clipsGenerated": clips, "potentialViews": clips * 1250}
+    scope = {"campaign_id": campaign_id} if campaign_id else {}
+    clips = db.clips.count_documents(scope)
+    ready = db.clips.count_documents({**scope, "status": "ready"})
+    return {"videosProcessed": videos, "clipsGenerated": clips, "clipsReady": ready, "potentialViews": clips * 1250}

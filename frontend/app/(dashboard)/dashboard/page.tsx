@@ -61,7 +61,7 @@ export default function DashboardOverview() {
   const load = useCallback(async (id: string) => {
     setError(null)
     try {
-      const [s, j, c] = await Promise.all([api.dashboard.stats(id), api.jobs.list({ campaign_id: id, limit: 5 }), api.clips.list({ campaign_id: id })])
+      const [s, j, c] = await Promise.all([api.dashboard.stats(id), api.jobs.list({ campaign_id: id, limit: 5 }), api.clips.list({ campaign_id: id, limit: LATEST_CLIPS })])
       setStats(s)
       setJobs(j.jobs.slice(0, 5))
       setClips(c.clips)
@@ -107,7 +107,7 @@ export default function DashboardOverview() {
     )
   }
 
-  const readyCount = clips ? clips.filter((c) => c.status === 'ready').length : null
+  const readyCount = stats ? stats.clipsReady : null
   const activeJobs = jobs ? jobs.filter((j) => ACTIVE_JOB_STATUSES.includes(j.status)) : null
   const heroJob = activeJobs ? activeJobs.find((j) => j.status === 'running') || activeJobs[0] || null : null
   const latestClips = clips ? clips.slice(0, LATEST_CLIPS) : null

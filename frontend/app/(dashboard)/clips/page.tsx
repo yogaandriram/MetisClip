@@ -34,6 +34,8 @@ function ClipsAndQueue() {
   const { campaigns, activeCampaign, setActiveCampaign, isCampaignLoading } = useCampaign()
   const view: View = params.get('tab') === 'queue' ? 'queue' : 'clips'
   const linked = params.get('campaign') || ''
+  // `?job=<id>`: only that job's clips (from a finished job's "Lihat klip")
+  const jobId = params.get('job')
   const [allCampaigns, setAllCampaigns] = useState(false)
   const running = shell?.activeJobs ?? 0
 
@@ -110,7 +112,11 @@ function ClipsAndQueue() {
               ]}
             />
           </div>
-          {view === 'queue' ? <JobQueue campaignId={scope} /> : <ClipGallery campaignId={scope} />}
+          {view === 'queue' ? (
+            <JobQueue campaignId={scope} />
+          ) : (
+            <ClipGallery campaignId={scope} jobId={jobId} onJobChange={(id) => replaceQuery((q) => (id ? q.set('job', id) : q.delete('job')))} />
+          )}
         </div>
       )}
     </>
