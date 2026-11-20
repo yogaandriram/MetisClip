@@ -42,7 +42,9 @@ def _today() -> date:
 def check(clip: dict[str, Any], campaign: dict[str, Any], template: dict[str, Any] | None,
           channel: str = "", *, today: date | None = None) -> dict[str, Any]:
     brief = campaign.get("brief") or {}
-    words = (clip.get("subtitle") or {}).get("words") or []
+    sub = clip.get("subtitle") or {}
+    # Words heard in the clip: the spoken ones when the subtitles are a translation (gap analysis B10)
+    words = (sub.get("translation") or {}).get("original_words") or sub.get("words") or []
     text = brief_match.TextIndex(brief_match.words_text(words))
     items: list[dict[str, Any]] = []
 

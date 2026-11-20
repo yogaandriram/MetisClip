@@ -163,6 +163,35 @@ export const editor = {
   reusedStatus: 'Video final disalin lagi',
   /** The sound leveled after the render (values already formatted) */
   loudness: (before: string, after: string) => `Volume suara disamakan: ${before} → ${after} LUFS.`,
+  /** Subtitle translation: the words and title as spoken are kept */
+  translate: {
+    title: 'Terjemahan',
+    to: 'Terjemahkan ke',
+    hint: 'AI menerjemahkan subtitle dan judul per frasa, dan waktunya mengikuti ucapan. Nama, merek, angka, dan hashtag tidak diubah. Hasilnya bisa dibatalkan dengan Ctrl+Z, dan baru tersimpan setelah Simpan.',
+    run: 'Terjemahkan',
+    again: 'Terjemahkan lagi',
+    current: (language: string) => `Subtitle dalam bahasa ${language}`,
+    kept: 'Teks aslinya tetap tersimpan, dan checklist brief memeriksa kata yang benar-benar diucapkan.',
+    partial: 'Ubah potongan menambah kata yang masih dalam bahasa aslinya. Terjemahkan lagi agar semuanya diterjemahkan.',
+    restore: 'Kembalikan teks asli',
+    restored: 'Subtitle kembali ke teks asli. Klik Simpan untuk menyimpannya.',
+    done: (language: string, kept: number) =>
+      `Subtitle diterjemahkan ke bahasa ${language}${kept ? `; ${kept} frasa dibiarkan seperti aslinya` : ''}. Klik Simpan untuk menyimpannya.`,
+    failed: 'Terjemahan gagal',
+    noWords: 'Clip ini belum punya kata subtitle untuk diterjemahkan',
+    languages: {
+      en: 'Inggris',
+      id: 'Indonesia',
+      ms: 'Melayu',
+      es: 'Spanyol',
+      pt: 'Portugis',
+      fr: 'Prancis',
+      de: 'Jerman',
+      it: 'Italia',
+      nl: 'Belanda',
+      tl: 'Filipino',
+    },
+  },
   /** Output format (1:1 and 16:9 crop the source video per shot) and the export quality */
   format: {
     label: 'Format video',

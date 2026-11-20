@@ -15,6 +15,7 @@ import {
   Quote,
   FolderOpen,
   Keyboard,
+  Languages,
   Maximize,
   Megaphone,
   Palette,
@@ -113,7 +114,17 @@ import { CaptionPositionControls } from '@/components/captions/CaptionPositionCo
 import { SUPPORTED_FONTS, FONT_WEIGHTS_MAP } from '@/lib/constants'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
-import { api, type BrandTemplate, type ClipDetail, type Job, type RenderJob, type SourceVideoInfo, type SubtitleWord } from '@/lib/engine'
+import {
+  api,
+  TRANSLATE_LANGUAGES,
+  type BrandTemplate,
+  type ClipDetail,
+  type Job,
+  type RenderJob,
+  type SourceVideoInfo,
+  type SubtitleWord,
+  type TranslateLanguage,
+} from '@/lib/engine'
 import { assetUrl, isDesktop, mediaUrl } from '@/lib/media'
 import { RENDER_STATUS, errorMessage, formatClock, formatLufs, splitPath } from '@/lib/format'
 import { useI18n, useT } from '@/lib/i18n/I18nProvider'
@@ -131,7 +142,10 @@ type Snapshot = {
   templateId: string | null
   layout: LayoutPatch
   title: string
+  /** Translated subtitles: the language and the words and title as spoken (null: spoken language) */
+  translation: Translated | null
 }
+type Translated = { language: TranslateLanguage; original: SubtitleWord[]; originalTitle: string; partial: boolean }
 
 // Option ids; their labels are in the `editor` dictionary (looked up while rendering)
 const LAYOUT_MODES: LayoutMode[] = ['full', 'podcast', 'card', 'split', 'duo', 'auto']
@@ -273,6 +287,9 @@ function ClipEditor() {
   const [recutOpen, setRecutOpen] = useState(false)
   const [recutJob, setRecutJob] = useState<Job | null>(null)
   const [recutReady, setRecutReady] = useState(false)
+  /** Subtitle translation: the language to translate into, and the request in flight */
+  const [translateTo, setTranslateTo] = useState<TranslateLanguage>('en')
+  const [translating, setTranslating] = useState(false)
 
   // ---- loading ------------------------------------------------------------
 
@@ -284,12 +301,21 @@ function ClipEditor() {
       templateId: d.brand_template?.id ?? null,
       layout: (d.clip.layout_style || {}) as LayoutPatch,
       title: d.clip.hook_text || '',
+      translation: d.clip.subtitle_data?.translation
+        ? {
+            language: d.clip.subtitle_data.translation.language,
+            original: d.clip.subtitle_data.translation.original_words.map((w) => ({ ...w })),
+            originalTitle: d.clip.subtitle_data.translation.original_title,
+            partial: d.clip.subtitle_data.translation.partial,
+          }
+        : null,
     }
     setDetail(d)
     setPresent(snap)
     setSavedJson(JSON.stringify(snap))
     setRecutJob(d.recut_job ?? null)
     setRecutReady(false)
+    setTranslateTo(d.clip.subtitle_data?.translation?.language ?? 'en')
     history.current = { past: [], future: [], lastKey: null, lastAt: 0 }
   }, [])
 
@@ -607,8 +633,12 @@ function ClipEditor() {
       const saved = savedJson ? (JSON.parse(savedJson) as Snapshot) : null
       const savedTemplateId = saved ? saved.templateId : null
       const title = present.title.replace(/\s+/g, ' ').trim()
+      const tr = present.translation
       const { clip } = await api.clips.updateSubtitles(clipId, {
         words: cleanWords,
+        translation: tr
+          ? { language: tr.language, original_words: tr.original, original_title: tr.originalTitle, partial: tr.partial }
+          : null,
         style: { ...styleOverrides(present.style, tpl), ...(Object.keys(aiDiff).length ? { ai: aiDiff } : {}) },
         layout: present.layout as Record<string, any>,
         ...(title !== (saved?.title ?? '') ? { hook_text: title } : {}),
@@ -756,6 +786,37 @@ function ClipEditor() {
     } finally {
       setEnriching(false)
     }
+  }
+
+  /** Translate the words as spoken (and the title) into `translateTo`; an edit like any other (Ctrl+Z, Simpan) */
+  const translate = async () => {
+    if (!present || !clipId || translating) return
+    const spoken = present.translation?.original ?? present.words
+    const spokenTitle = present.translation ? present.translation.originalTitle : present.title
+    if (!spoken.some((w) => w.word.trim())) {
+      toast.error(m.translate.noWords)
+      return
+    }
+    setTranslating(true)
+    try {
+      const res = await api.clips.translateSubtitles(clipId, { language: translateTo, words: spoken, title: spokenTitle })
+      update({
+        ...present,
+        words: res.words,
+        title: res.title || present.title,
+        translation: { language: translateTo, original: spoken, originalTitle: spokenTitle, partial: false },
+      })
+      toast.success(m.translate.done(m.translate.languages[translateTo], res.kept))
+    } catch (err) {
+      toast.error(errorMessage(err, m.translate.failed))
+    } finally {
+      setTranslating(false)
+    }
+  }
+  const restoreSpoken = () => {
+    if (!present?.translation) return
+    update({ ...present, words: present.translation.original, title: present.translation.originalTitle, translation: null })
+    toast(m.translate.restored)
   }
 
   /** Export: renders, or copies final.mp4 again when nothing changed since its render (force: always render). */
@@ -1818,6 +1879,37 @@ function ClipEditor() {
                     </div>
                   )
                 })}
+              </div>
+            </PanelSection>
+
+            <Divider />
+
+            <PanelSection title={m.translate.title}>
+              {present.translation && (
+                <Alert
+                  tone="info"
+                  title={m.translate.current(m.translate.languages[present.translation.language])}
+                  icon={<Languages size={18} aria-hidden="true" />}
+                  action={
+                    <Button size="sm" variant="secondary" icon={<Undo2 size={16} />} onClick={restoreSpoken}>
+                      {m.translate.restore}
+                    </Button>
+                  }
+                >
+                  {present.translation.partial ? m.translate.partial : m.translate.kept}
+                </Alert>
+              )}
+              <SelectField
+                label={m.translate.to}
+                hint={m.translate.hint}
+                value={translateTo}
+                options={TRANSLATE_LANGUAGES.map((value) => ({ value, label: m.translate.languages[value] }))}
+                onChange={(e) => setTranslateTo(e.target.value as TranslateLanguage)}
+              />
+              <div>
+                <Button variant="secondary" size="sm" loading={translating} onClick={translate} icon={<Languages size={16} />}>
+                  {present.translation ? m.translate.again : m.translate.run}
+                </Button>
               </div>
             </PanelSection>
 

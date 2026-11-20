@@ -92,6 +92,15 @@ def job_dto(doc: dict[str, Any]) -> dict[str, Any]:
     return d
 
 
+def _translation(tr: Any) -> dict[str, Any] | None:
+    """A clip's translated subtitles (gap analysis B10): the language and the words and title as spoken."""
+    if not isinstance(tr, dict) or not tr.get("language"):
+        return None
+    return {"language": tr["language"], "original_words": tr.get("original_words") or [],
+            "original_title": tr.get("original_title") or "", "partial": bool(tr.get("partial")),
+            "at": iso(tr.get("at"))}
+
+
 def clip_dto(doc: dict[str, Any]) -> dict[str, Any]:
     files = doc.get("files") or {}
     return {
@@ -113,7 +122,8 @@ def clip_dto(doc: dict[str, Any]) -> dict[str, Any]:
         "cover_time": doc.get("cover_time"),
         "source_width": doc.get("source_width"),
         "source_height": doc.get("source_height"),
-        "subtitle_data": {"clip_id": doc["_id"], "words": (doc.get("subtitle") or {}).get("words") or []},
+        "subtitle_data": {"clip_id": doc["_id"], "words": (doc.get("subtitle") or {}).get("words") or [],
+                          "translation": _translation((doc.get("subtitle") or {}).get("translation"))},
         "subtitle_style": doc.get("subtitle_style") or {},
         "layout_style": doc.get("layout_style") or {},
         "brand_template_id": doc.get("brand_template_id"),

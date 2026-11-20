@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from backend.api.dto import brand_template_dto, campaign_dto, clip_dto, http_error, job_dto, render_dto
 from backend.api.routes.files import serve_relative
-from backend.agents.tools import caption_ai, ffmpeg_ops, post_copy_ai, speaker_ai
+from backend.agents.tools import caption_ai, ffmpeg_ops, post_copy_ai, speaker_ai, translate_ai
 from backend.agents.tools.caption_ai import valid_emoji
 from backend.core import disk, events, llm
 from backend.core.db import get_db, new_id, utcnow
@@ -94,6 +94,18 @@ M = i18n.messages({
     "suggest_failed": {
         "id": "Usulan nama gagal: {error}",
         "en": "Name suggestions failed: {error}",
+    },
+    "bad_language": {
+        "id": "Bahasa terjemahan tidak dikenal",
+        "en": "Unknown translation language",
+    },
+    "translate_failed": {
+        "id": "Terjemahan subtitle gagal: {error}",
+        "en": "Subtitle translation failed: {error}",
+    },
+    "translate_empty": {
+        "id": "AI tidak mengembalikan terjemahan. Coba lagi, atau pilih model lain di Pengaturan.",
+        "en": "The AI returned no translation. Try again, or pick another model in Settings.",
     },
     "file_not_ready": {
         "id": "File belum tersedia",
@@ -431,8 +443,19 @@ class Word(BaseModel):
     emoji: Optional[str] = Field(default=None, max_length=16)
 
 
+class Translation(BaseModel):
+    """The clip's subtitles are a translation (gap analysis B10): its language, the words and title as
+    spoken (the brief checklist reads those), and whether a recut added untranslated words."""
+    language: str
+    original_words: list[Word] = Field(default_factory=list)
+    original_title: str = Field(default="", max_length=300)
+    partial: bool = False
+
+
 class SubtitleUpdate(BaseModel):
     words: Optional[list[Word]] = None
+    # The translation record (null: the subtitles are in the spoken language again)
+    translation: Optional[Translation] = None
     style: Optional[dict[str, Any]] = None
     reset_style: bool = False
     # Per-clip layout override (patch of the template's layout_settings) and its reset
@@ -458,20 +481,17 @@ def update_subtitles(clip_id: str, body: SubtitleUpdate):
         else:
             raise http_error(400, M("template_not_found"))
     if body.words is not None:
-        words = []
-        for w in body.words:
-            item = {"word": w.word, "start": round(w.start, 3), "end": round(max(w.end, w.start), 3)}
-            if w.confidence is not None:
-                item["confidence"] = w.confidence
-            if w.keyword:
-                item["keyword"] = True
-            emoji = valid_emoji(w.emoji) if w.emoji else None
-            if emoji:
-                item["emoji"] = emoji
-            words.append(item)
-        if len(words) > 20000:
-            raise http_error(400, M("too_many_words"))
-        sets["subtitle.words"] = words
+        sets["subtitle.words"] = _clean_words(body.words)
+    if "translation" in body.model_fields_set:
+        tr = body.translation
+        if tr is None:
+            unsets["subtitle.translation"] = ""
+        elif tr.language not in translate_ai.LANGUAGES:
+            raise http_error(400, M("bad_language"))
+        else:
+            sets["subtitle.translation"] = {"language": tr.language, "original_words": _clean_words(tr.original_words),
+                                            "original_title": " ".join(tr.original_title.split()),
+                                            "partial": tr.partial, "at": utcnow()}
     if body.reset_style:
         sets["subtitle_style"] = {}
     elif body.style is not None:
@@ -493,6 +513,54 @@ def update_subtitles(clip_id: str, body: SubtitleUpdate):
     get_db().clips.update_one({"_id": clip_id}, {"$set": sets, **({"$unset": unsets} if unsets else {})})
     events.publish({"type": "clip.updated", "id": clip_id})
     return {"clip": clip_dto(_get(clip_id))}
+
+
+def _clean_words(items: list[Word]) -> list[dict[str, Any]]:
+    words = []
+    for w in items:
+        item: dict[str, Any] = {"word": w.word, "start": round(w.start, 3), "end": round(max(w.end, w.start), 3)}
+        if w.confidence is not None:
+            item["confidence"] = w.confidence
+        if w.keyword:
+            item["keyword"] = True
+        emoji = valid_emoji(w.emoji) if w.emoji else None
+        if emoji:
+            item["emoji"] = emoji
+        words.append(item)
+    if len(words) > 20000:
+        raise http_error(400, M("too_many_words"))
+    return words
+
+
+class TranslateBody(BaseModel):
+    language: str
+    # The words to translate (the editor's, as spoken); the saved ones when missing
+    words: Optional[list[Word]] = None
+    title: Optional[str] = Field(default=None, max_length=300)
+
+
+@router.post("/api/clips/{clip_id}/subtitles/translate")
+def translate_subtitles(clip_id: str, body: TranslateBody):
+    """The words (and the title) translated by the LLM, timed phrase by phrase (not saved: the editor applies
+    them as an edit, and keeps the spoken words in the clip's translation record when it saves)."""
+    clip = _get(clip_id)
+    if body.language not in translate_ai.LANGUAGES:
+        raise http_error(400, M("bad_language"))
+    sub = clip.get("subtitle") or {}
+    saved = (sub.get("translation") or {}).get("original_words") or sub.get("words") or []
+    words = _clean_words(body.words) if body.words is not None else saved
+    if not words:
+        raise http_error(400, M("no_subtitles"))
+    title = body.title if body.title is not None else (clip.get("hook_text") or "")
+    try:
+        res = translate_ai.translate_words(words, body.language, title)
+    except llm.LLMNotConfigured as exc:
+        raise http_error(400, str(exc))
+    except llm.LLMError as exc:
+        raise http_error(502, M("translate_failed", error=exc))
+    except translate_ai.TranslateError:
+        raise http_error(502, M("translate_empty"))
+    return {"language": body.language, **res}
 
 
 class EnrichBody(BaseModel):

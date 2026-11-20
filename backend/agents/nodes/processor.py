@@ -537,7 +537,8 @@ def recut_segment(ctx: JobContext, seg: dict[str, Any], limits: Limits = (None, 
         clip = db.clips.find_one({"_id": clip_id})  # as it is now: the user may have saved words meanwhile
         if not clip:
             raise PipelineError(M("recut_missing"))
-        old_words = (clip.get("subtitle") or {}).get("words") or []
+        sub = clip.get("subtitle") or {}
+        old_words = sub.get("words") or []
         words, added = merge_recut_words(old_words, float(clip.get("start_time", 0)), float(clip.get("end_time", 0)),
                                          media["words"], media["start"], media["end"])
         if added:
@@ -545,6 +546,19 @@ def recut_segment(ctx: JobContext, seg: dict[str, Any], limits: Limits = (None, 
             marked = _brief_marks(_ai_marks(ctx, [words[i] for i in added], clip.get("brand_template_id")), campaign)
             for i, w in zip(added, marked):
                 words[i] = w
+        # Translated subtitles (gap analysis B10): the spoken words are cut the same way; the added words are
+        # in the spoken language in both lists until the editor translates again
+        translation = sub.get("translation") if isinstance(sub.get("translation"), dict) else None
+        tr_sets: dict[str, Any] = {}
+        if translation:
+            spoken, spoken_added = merge_recut_words(translation.get("original_words") or [],
+                                                     float(clip.get("start_time", 0)), float(clip.get("end_time", 0)),
+                                                     media["words"], media["start"], media["end"])
+            for i, w in zip(spoken_added, (words[j] for j in added)):
+                spoken[i] = w
+            tr_sets = {"subtitle.translation.original_words": spoken}
+            if added:
+                tr_sets["subtitle.translation.partial"] = True
         if not words:
             ctx.error("processing", M("no_words", start=f"{media['start']:.0f}"))
         files = clip.get("files") or {}
@@ -572,6 +586,7 @@ def recut_segment(ctx: JobContext, seg: dict[str, Any], limits: Limits = (None, 
             "source_width": info.get("source_width"),
             "source_height": info.get("source_height"),
             "subtitle.words": words,
+            **tr_sets,
             "cover_time": None,
             "final_render": None,
             "status": "ready",

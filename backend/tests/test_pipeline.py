@@ -400,6 +400,9 @@ def test_a_recut_replaces_the_files_and_keeps_the_users_edits(db, fake_world, mo
     db.clips.update_one({"_id": clip["_id"]}, {"$set": {
         "cover_time": 12.0, "files.cover": clip["files"]["raw"].replace("raw.mp4", "cover.jpg"),
         "subtitle.words": [{"word": "DIEDIT", "start": 0.0, "end": 0.5}],
+        # Translated subtitles: the spoken words are cut the same way (gap analysis B10)
+        "subtitle.translation": {"language": "en", "original_words": [{"word": "DIUCAPKAN", "start": 0.0, "end": 0.5}],
+                                 "original_title": "Judul asli", "partial": False},
         "subtitle_style": {"fontSize": 40}, "hook_text": "Judul saya",
         "files.final": clip["files"]["raw"].replace("raw.mp4", "final.mp4"), "status": "exported"}})
 
@@ -431,6 +434,10 @@ def test_a_recut_replaces_the_files_and_keeps_the_users_edits(db, fake_world, mo
     # The added 5 s at the start come from the transcript; the edited word moved with its moment
     assert [w["word"] for w in words] == ["Ini", "kalimat", "nomor", "23.", "DIEDIT"]
     assert words[-1]["start"] == 5.0 and words[-1]["end"] == 5.5
+    tr = after["subtitle"]["translation"]
+    assert [w["word"] for w in tr["original_words"]] == ["Ini", "kalimat", "nomor", "23.", "DIUCAPKAN"]
+    assert tr["original_words"][-1]["start"] == 5.0 and tr["partial"] is True  # the added words are not translated
+    assert tr["language"] == "en" and tr["original_title"] == "Judul asli"
     assert get_paths().from_relative(after["files"]["raw"]).parent == folder
     # Every status event names the clip, so its editor follows a recut it did not start itself
     [running, done] = [e for e in sent if e["type"] == "job.status" and e["status"] in ("running", "completed")]

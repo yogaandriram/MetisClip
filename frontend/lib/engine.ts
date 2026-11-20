@@ -350,7 +350,7 @@ export interface Clip {
   /** The chosen cover in seconds of raw (null: the middle frame, and no cover is exported) */
   cover_time?: number | null
   /** Only from GET /api/clips/{id}: the list leaves the words out (see `word_count`) */
-  subtitle_data?: { clip_id: string; words: SubtitleWord[] }
+  subtitle_data?: { clip_id: string; words: SubtitleWord[]; translation?: SubtitleTranslation | null }
   /** Only in the list: how many subtitle words the clip has */
   word_count?: number
   /** Only in the list: the source video's title (an upload's file name), '' when unknown */
@@ -436,8 +436,25 @@ export interface SourceVideoInfo {
   duration_seconds: number | null
 }
 
+/** Languages subtitles can be translated into (backend/agents/tools/translate_ai.py LANGUAGES: those the
+ *  bundled fonts' Latin subset can write) */
+export const TRANSLATE_LANGUAGES = ['en', 'id', 'ms', 'es', 'pt', 'fr', 'de', 'it', 'nl', 'tl'] as const
+export type TranslateLanguage = (typeof TRANSLATE_LANGUAGES)[number]
+
+/** The clip's subtitles are a translation: the words and title as spoken are kept (the brief checklist
+ *  reads them); partial = a recut added words that are still in the spoken language */
+export interface SubtitleTranslation {
+  language: TranslateLanguage
+  original_words: SubtitleWord[]
+  original_title: string
+  partial: boolean
+  at?: ISODate | null
+}
+
 export interface SubtitleUpdate {
   words?: SubtitleWord[]
+  /** The translation record; null = the subtitles are in the spoken language again */
+  translation?: Omit<SubtitleTranslation, 'at'> | null
   style?: Record<string, any>
   reset_style?: boolean
   /** Per-clip layout override (replaces the stored one) / back to the template's layout */
@@ -1055,6 +1072,13 @@ export const api = {
     /** One LLM call: mark keywords and/or pick emojis on the saved words (replaces earlier AI marks). */
     enrichSubtitles: (id: string, opts: { keywords: boolean; emojis: boolean }) =>
       request<{ clip: Clip; keywords: number; emojis: number }>('POST', `/api/clips/${id}/subtitles/enrich`, { body: opts }),
+    /** The words (and the title) translated by the AI, timed phrase by phrase; not saved */
+    translateSubtitles: (id: string, body: { language: TranslateLanguage; words?: SubtitleWord[]; title?: string }) =>
+      request<{ language: TranslateLanguage; words: SubtitleWord[]; title: string; kept: number; phrases: number }>(
+        'POST',
+        `/api/clips/${id}/subtitles/translate`,
+        { body },
+      ),
     /** The cover: a frame of raw (seconds) as the thumbnail, taken from the final video by the next render; null = automatic */
     setCover: (id: string, time: number | null) => request<{ clip: Clip }>('PUT', `/api/clips/${id}/cover`, { body: { time } }),
     remove: (id: string, deleteFiles = true) => request<{ ok: true }>('DELETE', `/api/clips/${id}`, { query: { delete_files: deleteFiles } }),
