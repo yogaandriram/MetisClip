@@ -62,7 +62,7 @@ function useSystemNotices(): void {
 }
 
 /**
- * Windows notifications when a job or an export finishes or fails (§9.3), wherever the user is in the app;
+ * Windows notifications when a job or an export finishes or fails, wherever the user is in the app;
  * main shows them only while the window is in the background. A click opens the result.
  */
 function useDesktopNotifications(): void {

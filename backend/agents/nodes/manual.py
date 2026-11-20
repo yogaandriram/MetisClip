@@ -1,4 +1,4 @@
-"""Moments the user chose, in place of the Analyzer (CLAUDE.md §5.2, "Manual clips and recuts").
+"""Moments the user chose, in place of the Analyzer.
 
 - A **manual job** (`config.manual_ranges`) turns every range into one clip for each of the job's campaigns.
   The clips have no viral score (`origin: "manual"`); the Processor titles them from their first sentence.

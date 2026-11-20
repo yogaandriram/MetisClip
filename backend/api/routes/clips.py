@@ -444,7 +444,7 @@ class Word(BaseModel):
 
 
 class Translation(BaseModel):
-    """The clip's subtitles are a translation (gap analysis B10): its language, the words and title as
+    """The clip's subtitles are a translation: its language, the words and title as
     spoken (the brief checklist reads those), and whether a recut added untranslated words."""
     language: str
     original_words: list[Word] = Field(default_factory=list)
@@ -708,7 +708,7 @@ RENDER_NEED_BYTES = 512 * 1024**2
 
 
 class RenderBody(BaseModel):
-    # Copy final.mp4 again instead of rendering when nothing changed since it was rendered (gap analysis B7)
+    # Copy final.mp4 again instead of rendering when nothing changed since it was rendered
     reuse: bool = False
 
 

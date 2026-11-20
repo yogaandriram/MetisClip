@@ -6,7 +6,7 @@ import { ButtonLink } from '@/components/ui'
 import { cx } from '@/lib/cx'
 import { useT } from '@/lib/i18n/I18nProvider'
 
-/** The first-steps guide (gap analysis B11): Beranda shows it after the Setup Wizard, the help page always. */
+/** The first-steps guide: Beranda shows it after the Setup Wizard, the help page always. */
 export const FIRST_STEPS = ['campaign', 'ai', 'job', 'clip', 'export'] as const
 export type FirstStep = (typeof FIRST_STEPS)[number]
 export type FirstStepsState = Record<FirstStep, boolean>

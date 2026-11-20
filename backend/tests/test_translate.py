@@ -1,4 +1,4 @@
-"""Subtitle translation (gap analysis B10): phrases, the LLM answer turned into timed words, the editor's
+"""Subtitle translation: phrases, the LLM answer turned into timed words, the editor's
 endpoint, the saved translation record and the brief checklist reading the spoken words."""
 from __future__ import annotations
 

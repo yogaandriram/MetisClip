@@ -229,7 +229,7 @@ export function registerIpc(
     await shell.openExternal(url.toString())
   })
 
-  // Windows notification (a job or an export finished or failed, §9.3), only while the window is in the
+  // Windows notification (a job or an export finished or failed), only while the window is in the
   // background: in front, the in-app toast says it. A click brings MetisClip back on `route`.
   ipcMain.on(CH.notify, (e, title: unknown, body: unknown, route: unknown) => {
     if (!trusted(e) || typeof title !== 'string') return

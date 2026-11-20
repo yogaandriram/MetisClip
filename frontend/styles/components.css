@@ -1,5 +1,5 @@
 /*
- * Component classes (DESIGN.md §4, §8). React wrappers live in components/ui/.
+ * Component classes. React wrappers live in components/ui/.
  * No raw colors here: everything references tokens.css.
  */
 
@@ -36,8 +36,7 @@
 }
 
 /* Shell notices, bottom left of the content so they never cover the toasts (bottom right) or the engine banner
-   (top center): no network (§9.3) and a downloaded update (§10.4). Pills, sage like other warnings
-   (DESIGN.md §2.3), stacked when both show. */
+   (top center): no network and a downloaded update. Pills, sage like other warnings, stacked when both show. */
 .mc-notices {
   position: fixed;
   left: 120px;
@@ -125,7 +124,7 @@
   height: 48px;
 }
 
-/* The logo image itself (LogoMark): a brand asset, so its own white outline is allowed (§14) */
+/* The logo image itself (LogoMark): a brand asset, so its own white outline is allowed */
 .mc-logo-mark {
   display: block;
   flex: none;
@@ -133,7 +132,7 @@
   -webkit-user-drag: none;
 }
 
-/* The active campaign as the rail's head (DESIGN.md §4.2.8, §5.2): a circle as wide as the rail in the
+/* The active campaign as the rail's head: a circle as wide as the rail in the
    logo's place, joined to the rail by a liquid neck, with the avatar inside and nothing outside it */
 .mc-profile {
   position: relative;
@@ -264,7 +263,7 @@
   width: 64px;
   height: 100%;
   /* Top: the first item's center (56 + 22 = 78) minus the bite's tail (45.3) stays below the
-     32 px rounded cap, so the bite always meets the straight edge (DESIGN.md §4.2.1) */
+     32 px rounded cap, so the bite always meets the straight edge */
   padding: 56px 0 20px;
   border-radius: var(--r-full);
   background: var(--ink);
@@ -2575,7 +2574,7 @@ input[type='color'].mc-input {
   --line: var(--ink-line);
 }
 
-/* Windows High Contrast: fills disappear, so give controls a border back (DESIGN.md §12). */
+/* Windows High Contrast: fills disappear, so give controls a border back. */
 @media (forced-colors: active) {
   .mc-card,
   .mc-tags,
@@ -2600,7 +2599,7 @@ input[type='color'].mc-input {
   }
 }
 
-/* On a leaf card every piece of text is ink (DESIGN.md §2.5) */
+/* On a leaf card every piece of text is ink */
 .mc-card--leaf .mc-muted,
 .mc-card--leaf .mc-subtle {
   color: var(--ink);
@@ -2655,7 +2654,7 @@ input[type='color'].mc-input {
   transform: rotate(180deg);
 }
 
-/* First steps (gap analysis B11): Beranda's guide after the Setup Wizard (row) and the help page (list).
+/* First steps: Beranda's guide after the Setup Wizard (row) and the help page (list).
    Done steps carry a leaf check, the next step an ink marker and its link, later steps stay quiet. */
 .mc-steps {
   list-style: none;
@@ -2738,7 +2737,7 @@ input[type='color'].mc-input {
   line-height: 1.5;
 }
 
-/* Help page topics: a question that opens its answer (gap analysis B11) */
+/* Help page topics: a question that opens its answer */
 .mc-help-topic + .mc-help-topic {
   border-top: 1px solid var(--line);
 }

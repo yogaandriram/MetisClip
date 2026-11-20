@@ -16,7 +16,7 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   as?: 'div' | 'section' | 'article'
 }
 
-/** The base container: 28 px radius, no border, no shadow (DESIGN.md §8.6). */
+/** The base container: 28 px radius, no border, no shadow. */
 export const Card = React.forwardRef<HTMLDivElement, CardProps>(function Card(
   { tone = 'surface', padding = 'md', interactive, selected, as = 'div', className, onClick, onKeyDown, children, ...props },
   ref,
@@ -87,7 +87,7 @@ interface SectionBarProps {
   className?: string
 }
 
-/** Pill header inside a card: title on the left, a real action on the right (DESIGN.md §8.6). */
+/** Pill header inside a card: title on the left, a real action on the right. */
 export function SectionBar({ title, icon, action, className }: SectionBarProps) {
   return (
     <div className={cx('mc-section-bar', className)}>

@@ -1,5 +1,5 @@
 // Tentang MetisClip (Sistem → Tentang): version, release notes, update status, and the system info a user
-// copies when asking for help (§9.2, §10.5).
+// copies when asking for help.
 export const about = {
   title: 'Tentang MetisClip',
   subtitle: 'Versi, catatan rilis, dan info sistem untuk bantuan.',
@@ -9,7 +9,7 @@ export const about = {
   buildDev: 'Build pengembangan',
   buildInstalled: 'Terpasang dari installer',
   tagline: 'Clip pendek dari video panjang, dikerjakan di PC kamu sendiri.',
-  /** App updates from GitHub Releases (desktop/src/main/updater.ts, §10.4) */
+  /** App updates from GitHub Releases (desktop/src/main/updater.ts) */
   update: {
     title: 'Pembaruan',
     dev: 'Build pengembangan tidak memeriksa pembaruan. MetisClip yang dipasang dari installer memeriksa GitHub Releases.',

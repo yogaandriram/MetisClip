@@ -1,4 +1,4 @@
-"""LLM provider registry (CLAUDE.md §8.1).
+"""LLM provider registry.
 
 Pure data with no engine imports, so settings, secrets and core/llm.py can all use it.
 The frontend mirrors the ids, labels and secret names in `frontend/lib/llmProviders.ts`.

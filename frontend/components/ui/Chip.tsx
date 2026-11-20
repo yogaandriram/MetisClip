@@ -96,7 +96,7 @@ interface GooPairProps {
   className?: string
 }
 
-/** Two same-fill pills joined by a liquid neck, read as one label (DESIGN.md §4.2.5). */
+/** Two same-fill pills joined by a liquid neck, read as one label. */
 export function GooPair({ first, second, tone = 'surface', className }: GooPairProps) {
   return (
     <span className={cx('mc-goo', tone === 'leaf' && 'mc-goo--leaf', className)}>

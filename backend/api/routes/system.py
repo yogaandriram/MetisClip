@@ -149,7 +149,7 @@ SERVER_2022_BUILD = 20348
 
 def windows_item(info=None) -> dict | None:
     """The Windows version, flagged when it is older than what MetisClip supports officially (Windows 11; Windows 10
-    may work but is not tested, CLAUDE.md §1.5). None outside Windows."""
+    may work but is not tested). None outside Windows."""
     if info is None:
         if not hasattr(sys, "getwindowsversion"):
             return None

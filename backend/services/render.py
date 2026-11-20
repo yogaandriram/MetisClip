@@ -207,7 +207,7 @@ def loudness_on() -> bool:
     return bool(get_settings()["export"].get("loudness", True))
 
 
-# Export quality (Pengaturan → Penyimpanan lokal, gap analysis B9): x264 CRF, the share of the
+# Export quality (Pengaturan → Penyimpanan lokal): x264 CRF, the share of the
 # composition's size rendered (2/3: 1080x1920 -> 720x1280) and the JPEG quality of the captured frames
 QUALITY: dict[str, dict[str, Any]] = {
     "high": {"crf": 15, "scale": 1, "jpeg": 95},
@@ -279,7 +279,7 @@ def output_frame_at(frames: list[list[int]], total: int, time: float) -> int:
 
 def final_current(clip: dict[str, Any]) -> bool:
     """True when the clip's final.mp4 exists and was rendered from what the clip and its template say
-    now (the cover aside): an export can then copy it instead of rendering again (gap analysis B7)."""
+    now (the cover aside): an export can then copy it instead of rendering again."""
     rel = (clip.get("files") or {}).get("final")
     info = clip.get("final_render") or {}
     if not rel or not info.get("fingerprint") or not get_paths().from_relative(rel).is_file():
@@ -405,7 +405,7 @@ def _finish(render_id: str, clip: dict[str, Any], rendered: Path, done: dict[str
 
 def _level_loudness(render_id: str, clip_id: str, video: Path, work: Path,
                     cancel: procs.CancelToken) -> dict[str, float] | None:
-    """Level the rendered video's sound to about -14 LUFS in place (gap analysis B8): measured on the
+    """Level the rendered video's sound to about -14 LUFS in place: measured on the
     output itself, after cut pauses and filler words. Returns {"before", "after"}, or None when the sound
     was left as it was (silence, already there) or leveling failed: that never fails the render."""
     events.publish({"type": "render.progress", "id": render_id, "clip_id": clip_id, "status": "rendering",
@@ -425,7 +425,7 @@ def _level_loudness(render_id: str, clip_id: str, video: Path, work: Path,
 
 
 def reuse_final(clip: dict[str, Any]) -> dict[str, Any]:
-    """An export without a render (gap analysis B7): nothing changed since final.mp4 was rendered (see
+    """An export without a render: nothing changed since final.mp4 was rendered (see
     `final_current`), so it is copied to the export folder again, with its cover (taken from it now when
     the choice changed) and the current post text. Returns a completed render job marked `reused`, which
     the editor and the gallery show like a finished render."""

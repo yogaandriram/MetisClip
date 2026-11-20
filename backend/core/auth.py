@@ -1,4 +1,4 @@
-"""Per-launch token check for every HTTP and WebSocket route (CLAUDE.md §3.4, rule 7)."""
+"""Per-launch token check for every HTTP and WebSocket route."""
 from __future__ import annotations
 
 import hmac

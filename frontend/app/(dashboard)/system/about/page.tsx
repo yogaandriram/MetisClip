@@ -15,7 +15,7 @@ import { useUpdateStatus } from '@/lib/updates'
 
 const headerIcon = (Icon: React.ElementType) => <Icon size={18} aria-hidden="true" />
 
-/** The update card: what the updater does now, "Periksa sekarang", and "Mulai ulang dan pasang" (§10.4). */
+/** The update card: what the updater does now, "Periksa sekarang", and "Mulai ulang dan pasang". */
 function UpdateCard() {
   const m = useI18n().t.about.update
   const status = useUpdateStatus()
@@ -110,7 +110,7 @@ function UpdateCard() {
   )
 }
 
-/** Tentang MetisClip (§9.2): version, release notes, update status, and the info to copy for support (§10.5). */
+/** Tentang MetisClip: version, release notes, update status, and the info to copy for support. */
 export default function AboutPage() {
   const { t, lang } = useI18n()
   const m = t.about

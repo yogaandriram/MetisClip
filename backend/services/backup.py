@@ -1,4 +1,4 @@
-"""EJSON database backups (CLAUDE.md §6.4): <DATA_ROOT>\\backups\\metisclip-YYYYMMDD-HHMM.json.gz, keep 5.
+"""EJSON database backups: <DATA_ROOT>\\backups\\metisclip-YYYYMMDD-HHMM.json.gz, keep 5.
 
 A restore puts every collection back as it was in a backup. It first writes a backup of the current
 state ("pre-restore"), so a restore can itself be undone.
@@ -158,7 +158,7 @@ def read_backup(path: Path) -> tuple[dict[str, Any], dict[str, list[dict[str, An
 
 def restore_backup(name: str) -> dict[str, Any]:
     """
-    Puts the database back as it was in the backup `name` (CLAUDE.md §6.4): writes a backup of the
+    Puts the database back as it was in the backup `name`: writes a backup of the
     current state, empties every collection and inserts the backup's documents (validators and indexes
     stay), then runs the migrations a backup from an older version needs. Work that was running or
     waiting in the backup becomes interrupted. Media files are not touched.

@@ -13,7 +13,7 @@ interface FieldProps {
   children: React.ReactNode
 }
 
-/** Label above, control, then hint or error below (DESIGN.md §8.2). */
+/** Label above, control, then hint or error below. */
 export function Field({ label, hint, error, htmlFor, className, style, children }: FieldProps) {
   return (
     <div className={cx('mc-field', className)} style={style}>

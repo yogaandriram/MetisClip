@@ -145,7 +145,7 @@ def _env_path(name: str) -> Path | None:
 
 
 def moved_from() -> Path | None:
-    """The previous data folder, on the first start after the desktop shell moved it (CLAUDE.md §6.1)."""
+    """The previous data folder, on the first start after the desktop shell moved it."""
     return _env_path("METISCLIP_MOVED_FROM")
 
 

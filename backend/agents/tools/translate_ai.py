@@ -1,4 +1,4 @@
-"""Subtitle translation (gap analysis B10): a clip's words in another language, timed like the speech.
+"""Subtitle translation: a clip's words in another language, timed like the speech.
 
 The words are grouped into phrases: a sentence end, a pause of at least 0.6 s (the export's pause cut,
 frontend/lib/presets/captions.ts PAUSE_MIN, so pauses are still cut), a filler word, or 12 words. The LLM

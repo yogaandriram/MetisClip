@@ -22,7 +22,7 @@ interface PageHeaderProps {
 }
 
 /**
- * The top bar of every screen (DESIGN.md §5.2): title and subtitle on the left,
+ * The top bar of every screen: title and subtitle on the left,
  * page actions and the global pills on the right.
  */
 export function PageHeader({ title, subtitle, actions, back, showGlobal = true }: PageHeaderProps) {

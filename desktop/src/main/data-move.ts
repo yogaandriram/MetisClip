@@ -1,4 +1,4 @@
-// Moving the data folder ("Pindahkan Lokasi Data", CLAUDE.md §6.1): stop the engine and mongod, copy,
+// Moving the data folder ("Pindahkan Lokasi Data"): stop the engine and mongod, copy,
 // verify (file count and sizes, then mongod and the engine must start on the copy), save the new
 // location in bootstrap.json, keep running there. The old folder stays until the user deletes it.
 // Any failure before the new location is saved goes back to the old folder and removes the copy.
@@ -54,7 +54,7 @@ interface FileEntry {
   rel: string
   size: number
   mtimeMs: number
-  /** dev:ino of a file with more than one hard link (campaign clips share their files, §5.5) */
+  /** dev:ino of a file with more than one hard link (campaign clips share their files) */
   link: string | null
 }
 
@@ -372,7 +372,7 @@ export function forgetPrevious(backend: Backend): void {
   log.info('folder data lama disimpan pengguna; tidak ditawarkan lagi untuk dihapus')
 }
 
-/** Deletes the previous folder after the user confirmed it (CLAUDE.md §6.1). */
+/** Deletes the previous folder after the user confirmed it. */
 export async function deletePrevious(backend: Backend): Promise<{ ok: boolean; error?: string; freedBytes?: number }> {
   const m = tr().dataMove
   const prev = sessionPrevious || readPreviousDataRoot()

@@ -123,7 +123,7 @@ logger = logging.getLogger(__name__)
 MODES = ("full", "podcast", "card", "split", "duo", "auto")
 SOURCE_MODES = ("podcast", "card", "duo", "auto")  # modes that show source.mp4
 SCENE_MODES = ("duo", "auto")  # modes that pick a view per shot of the face scan
-# Output format (gap analysis B9; OUTPUT_FORMATS in frontend/lib/presets/position.ts): 9:16 uses the mode,
+# Output format (OUTPUT_FORMATS in frontend/lib/presets/position.ts): 9:16 uses the mode,
 # 1:1 and 16:9 show source.mp4 cropped per shot of the face scan whatever the mode
 FORMATS = ("vertical", "square", "landscape")
 FORMAT_LABELS = {"vertical": "9:16", "square": "1:1", "landscape": "16:9"}

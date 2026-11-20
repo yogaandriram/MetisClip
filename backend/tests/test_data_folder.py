@@ -327,7 +327,7 @@ def test_a_copied_credentials_file_is_made_private_again(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# The data folder itself: only this Windows account (§6.1 Permissions)
+# The data folder itself: only this Windows account
 # ---------------------------------------------------------------------------
 
 ME = "S-1-5-21-522631399-1311164166-3349481265-1001"

@@ -28,7 +28,7 @@ import { useT } from '@/lib/i18n/I18nProvider'
 
 type PendingAction = { kind: 'cancel' | 'delete'; job: Job } | null
 
-/** Discovery → Analisis → Proses (DESIGN.md §8.9); short labels from the dictionary (jobs.stepShort). */
+/** Discovery → Analisis → Proses; short labels from the dictionary (jobs.stepShort). */
 const STEPS: JobStep[] = ['discovery', 'analysis', 'processing']
 
 const NEEDS_ATTENTION: JobStatus[] = ['failed', 'interrupted']
@@ -156,7 +156,7 @@ export function JobQueue({ campaignId }: { campaignId: string | undefined }) {
     }
   }
 
-  /** The folder of the job's newest exported video, with that video selected (gap analysis B12) */
+  /** The folder of the job's newest exported video, with that video selected */
   const openOutput = async (job: Job) => {
     const file = job.output?.export_file
     if (!file || !window.metis) return

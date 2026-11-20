@@ -1,4 +1,4 @@
-"""MongoDB access (CLAUDE.md §6, rule 18): client, auth bootstrap, migrations, helpers.
+"""MongoDB access: client, auth bootstrap, migrations, helpers.
 
 Packaged builds talk to the bundled mongod started by Electron main on
 127.0.0.1:<METISCLIP_MONGO_PORT> with --auth. The app user's password is kept in
@@ -315,7 +315,7 @@ def _version_tuple(value: str) -> tuple[int, ...]:
 
 
 def ensure_feature_compatibility(client: MongoClient) -> str | None:
-    """Raises the featureCompatibilityVersion to the running mongod's major.minor (CLAUDE.md §6.4).
+    """Raises the featureCompatibilityVersion to the running mongod's major.minor.
 
     A data folder keeps the FCV of the mongod that first created it until it is raised, and a mongod only
     starts on data whose FCV is its own or one major older. Without this step the first app update with a

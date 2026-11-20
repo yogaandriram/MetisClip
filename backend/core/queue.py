@@ -233,7 +233,7 @@ def settle(job_message: str, render_message: str, pending: bool = False) -> None
 
 
 def settle_restored() -> None:
-    """After a backup was restored: its running and pending work did not survive (CLAUDE.md §6.4)."""
+    """After a backup was restored: its running and pending work did not survive."""
     settle(M("restored_while_running"), M("render_restored"), pending=True)
 
 

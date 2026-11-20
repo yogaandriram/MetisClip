@@ -77,7 +77,7 @@ interface ScoreBadgeProps {
   manual?: boolean
 }
 
-/** Viral score: ≥ 80 leaf, 60–79 dew, below 60 outlined (DESIGN.md §8.5). */
+/** Viral score: ≥ 80 leaf, 60–79 dew, below 60 outlined. */
 export function ScoreBadge({ score, size = 'md', className, manual = false }: ScoreBadgeProps) {
   const t = useT()
   if (manual) {

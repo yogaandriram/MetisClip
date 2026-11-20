@@ -143,7 +143,7 @@ export function moveIntoSafeArea(c: PosCfg, emoji: boolean): { positionX: number
 export const POSITION_LIMITS = { x: { min: MIN_CENTER, max: W - MIN_CENTER }, y: { min: 0, max: H - 40 } };
 
 // ---------------------------------------------------------------------------------------------
-// Output formats (gap analysis B9): the 9:16 video, or a 1:1 or 16:9 one for feeds and YouTube
+// Output formats: the 9:16 video, or a 1:1 or 16:9 one for feeds and YouTube
 // ---------------------------------------------------------------------------------------------
 
 /** 'vertical' 9:16 (every layout), 'square' 1:1 and 'landscape' 16:9 (the source video cropped per shot). */

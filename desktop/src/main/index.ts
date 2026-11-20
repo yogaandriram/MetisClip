@@ -209,7 +209,7 @@ function createWindow(): BrowserWindow {
   const p = getPaths()
   const state = loadWindowState(p.windowStateFile)
   const wa = screen.getPrimaryDisplay().workAreaSize
-  // 1280×720 minimum (§9.3), but never larger than a small screen's work area (e.g. 1366×768 at 125 %).
+  // 1280×720 minimum, but never larger than a small screen's work area (e.g. 1366×768 at 125 %).
   const minWidth = Math.min(MIN_WIDTH, wa.width)
   const minHeight = Math.min(MIN_HEIGHT, wa.height)
 

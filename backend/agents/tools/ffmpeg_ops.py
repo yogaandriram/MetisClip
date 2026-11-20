@@ -240,7 +240,7 @@ def normalize_companion(source: Path, out_path: Path, cancel: procs.CancelToken 
     return round(duration, 3)
 
 
-# Loudness of exported videos (gap analysis B8): what YouTube, TikTok and Instagram play short videos at,
+# Loudness of exported videos: what YouTube, TikTok and Instagram play short videos at,
 # with a true peak that survives their own AAC encode
 LOUDNESS_TARGET = -14.0  # LUFS, integrated
 LOUDNESS_TRUE_PEAK = -1.0  # dBTP

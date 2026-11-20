@@ -256,7 +256,7 @@ export function ClipGallery({ campaignId, jobId, onJobChange }: ClipGalleryProps
   const toRender = renderable
   const withFinal = picked.filter((c) => c.files.final)
 
-  // Dragging rendered clips out into Explorer or another app (gap analysis B12): the clip itself, or every
+  // Dragging rendered clips out into Explorer or another app: the clip itself, or every
   // picked clip with a final video when it is one of them. Without a final video nothing is dragged.
   const dragItems = (clip: Clip) => {
     const root = systemInfo?.data_root

@@ -255,7 +255,7 @@ export default function SystemPage() {
     if (!res.ok) toast.error(res.error || m.folderOpenFailed)
   }
 
-  // §10.5: what this page already loaded, plus the AI and transcription settings (never a key)
+  // what this page already loaded, plus the AI and transcription settings (never a key)
   const copySupportInfo = async () => {
     const text = Promise.all([
       api.settings.get().then((r) => r.settings, () => null),

@@ -1,4 +1,4 @@
-// Dragging clips out of the gallery into Explorer or another app (CLAUDE.md §9.3, gap analysis B12).
+// Dragging clips out of the gallery into Explorer or another app.
 // The renderer names each clip's final.mp4 and the name it has in the export folder. A hard link under
 // <DATA_ROOT>\cache\drag\<time>\ gives the file that name without copying it (the cache is on the same
 // drive as the library); the engine clears the cache at its next start and older drags go after an hour.

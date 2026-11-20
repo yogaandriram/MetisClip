@@ -18,7 +18,7 @@ interface SliderProps {
   className?: string
 }
 
-/** Range input with an ink fill and the value in mono beside it (DESIGN.md §8.14). */
+/** Range input with an ink fill and the value in mono beside it. */
 export function Slider({ min, max, step = 1, value, onChange, label, hint, format, disabled, className }: SliderProps) {
   const id = useId()
   const [local, setLocal] = useState(value)

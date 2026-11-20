@@ -8,7 +8,7 @@ export type ButtonVariant = 'primary' | 'accent' | 'secondary' | 'ghost' | 'dang
 export type ButtonSize = 'sm' | 'md' | 'lg'
 
 interface ButtonOwnProps {
-  /** primary = confirm, accent = create something new (one per screen), danger = destructive (DESIGN.md §8.1) */
+  /** primary = confirm, accent = create something new (one per screen), danger = destructive */
   variant?: ButtonVariant
   size?: ButtonSize
   loading?: boolean

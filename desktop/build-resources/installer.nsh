@@ -1,4 +1,4 @@
-; MetisClip: what the uninstaller does besides removing the app (CLAUDE.md §10.2). electron-builder includes
+; MetisClip: what the uninstaller does besides removing the app. electron-builder includes
 ; this file in the installer and the uninstaller; customUnInstall runs in the uninstall section, after
 ; MetisClip was closed and before the app files are removed.
 ;
@@ -10,9 +10,9 @@
 ;     No is the default, and the answer of a silent uninstall (/S). Yes also removes the data folder left from
 ;     before a data move, %APPDATA%\MetisClip (so a new install starts with the setup wizard) and the API keys
 ;     saved in Credential Manager. No keeps bootstrap.json, so a new install uses the same data at once.
-; uninstall-data.ps1 finds the folders and the UI language; the texts below come in both UI languages (§9.4).
+; uninstall-data.ps1 finds the folders and the UI language; the texts below come in both UI languages.
 
-; Only what a data folder holds (§6.1); the folder itself only once it is empty
+; Only what a data folder holds; the folder itself only once it is empty
 !macro metisRemoveDataFolder DIR
   RMDir /r "${DIR}\db"
   RMDir /r "${DIR}\library"

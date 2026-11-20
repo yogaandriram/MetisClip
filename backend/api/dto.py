@@ -62,7 +62,7 @@ def recut_event(job: dict) -> dict:
 
 
 def job_outputs(db: Any, job_ids: list[str]) -> dict[str, dict[str, Any]]:
-    """What each job made (gap analysis B12): its clips, how many of them were exported, and the newest
+    """What each job made: its clips, how many of them were exported, and the newest
     exported video that is still there, whose folder Antrian opens. One query per collection for the
     whole list; at most a few file checks per job."""
     out: dict[str, dict[str, Any]] = {jid: {"clips": 0, "exported": 0, "export_file": None} for jid in job_ids}
@@ -129,7 +129,7 @@ def job_dto(doc: dict[str, Any], output: dict[str, Any] | None = None) -> dict[s
 
 
 def _translation(tr: Any) -> dict[str, Any] | None:
-    """A clip's translated subtitles (gap analysis B10): the language and the words and title as spoken."""
+    """A clip's translated subtitles: the language and the words and title as spoken."""
     if not isinstance(tr, dict) or not tr.get("language"):
         return None
     return {"language": tr["language"], "original_words": tr.get("original_words") or [],

@@ -88,7 +88,7 @@ const ALL_TOPICS = GROUPS.flatMap((g) => g.topics.map((t) => t.id))
 /** Case and accents ignored, like the gallery search */
 const fold = (text: string) => text.toLocaleLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
 
-/** Bantuan (gap analysis B11): the first steps, topics with a search, shortcuts, and where to get more help. */
+/** Bantuan: the first steps, topics with a search, shortcuts, and where to get more help. */
 export default function HelpPage() {
   const t = useT()
   const m = t.help

@@ -17,7 +17,7 @@ function targetFor(picked: string): string {
 }
 
 /**
- * "Pindahkan lokasi data" (CLAUDE.md §6.1): choose and check a destination, then the main process
+ * "Pindahkan lokasi data": choose and check a destination, then the main process
  * stops the engine and MongoDB, copies, verifies and starts MetisClip from the copy. The old folder stays.
  */
 export function MoveDataModal({ isOpen, current, onClose, onMoved }: {

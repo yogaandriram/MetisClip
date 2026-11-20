@@ -18,7 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 /*
- * Memory guard (CLAUDE.md §1.5: 8 GB laptops). Remotion's defaults are about half the CPU threads as
+ * Memory guard (8 GB laptops). Remotion's defaults are about half the CPU threads as
  * parallel Chrome tabs and an OffthreadVideo frame cache of up to half the free RAM, which can push the
  * machine into memory pressure. Cap both. The engine sizes each render to the RAM free when it starts
  * (backend/core/resources.py) and passes --concurrency, --media-cache-mb and --encoder-threads.

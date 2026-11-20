@@ -1,4 +1,4 @@
-// "Salin info sistem" (§10.5): a plain-text summary a user pastes when asking for help. API keys are never
+// "Salin info sistem": a plain-text summary a user pastes when asking for help. API keys are never
 // part of it (the engine does not hand them out), and the Windows account name in paths is replaced.
 import type { Settings, StorageInfo, SystemCheck, SystemInfo } from '@/lib/engine'
 import { formatBytes, formatDateTime } from '@/lib/format'

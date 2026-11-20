@@ -546,7 +546,7 @@ def recut_segment(ctx: JobContext, seg: dict[str, Any], limits: Limits = (None, 
             marked = _brief_marks(_ai_marks(ctx, [words[i] for i in added], clip.get("brand_template_id")), campaign)
             for i, w in zip(added, marked):
                 words[i] = w
-        # Translated subtitles (gap analysis B10): the spoken words are cut the same way; the added words are
+        # Translated subtitles: the spoken words are cut the same way; the added words are
         # in the spoken language in both lists until the editor translates again
         translation = sub.get("translation") if isinstance(sub.get("translation"), dict) else None
         tr_sets: dict[str, Any] = {}

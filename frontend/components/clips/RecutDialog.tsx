@@ -80,7 +80,7 @@ function EdgeField({ label, value, onChange, invalid }: { label: string; value: 
 }
 
 /**
- * Cut a clip again at new edges in its source video (CLAUDE.md §5.2, "Manual clips and recuts"). The engine runs it as a
+ * Cut a clip again at new edges in its source video. The engine runs it as a
  * one-moment job: new download, face tracking and Whisper; the clip keeps its style, template, title and
  * the words the user edited.
  */

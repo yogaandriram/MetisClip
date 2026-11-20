@@ -1,4 +1,4 @@
-"""Free space on the data folder's drive (CLAUDE.md §6.1).
+"""Free space on the data folder's drive.
 
 Below 5 GB the user is warned; below 2 GB no new heavy work starts (a job, a resume, an export, a Whisper
 model download), and a running job stops before its next clip so the database and the clips being written

@@ -88,7 +88,7 @@ M = i18n.messages({
 
 logger = logging.getLogger(__name__)
 
-# Daily update check (CLAUDE.md §10.4): YouTube breaks old builds within weeks
+# Daily update check: YouTube breaks old builds within weeks
 AUTO_EVERY_S = 24 * 3600
 AUTO_RETRY_S = 3 * 3600  # after a failed check (offline, GitHub unreachable)
 STATE_FILE = "yt-dlp-update.json"  # next to the updatable copy, in tools_dir
@@ -281,7 +281,7 @@ def dump_metadata(youtube_id: str, cancel: procs.CancelToken | None = None) -> d
 def download_section(
     youtube_id: str, start: float, end: float, out_path: Path, cancel: procs.CancelToken | None = None
 ) -> Path:
-    """Download only [start, end] (≤1080p mp4). Never the full video (rule 1)."""
+    """Download only [start, end] (≤1080p mp4). Never the full video."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     # Prefer H.264 over plain HTTPS: ffmpeg seeks a range request in seconds, while HLS (m3u8)
     # sections crawl, and AV1/VP9 decode is slower (or missing) in OpenCV for face tracking.
@@ -327,7 +327,7 @@ def version() -> str | None:
 
 
 def self_update() -> dict:
-    """`yt-dlp -U` on the user-writable copy (YouTube breaks old builds; CLAUDE.md §10.4).
+    """`yt-dlp -U` on the user-writable copy (YouTube breaks old builds).
     Waits for a daily check that is already running; raises YtDlpBusy while yt-dlp downloads."""
     with _update_lock:
         return _update(auto=False)

@@ -84,7 +84,7 @@ def test_link_job_clips_its_video_and_resume_is_idempotent(db, fake_world, monke
     camp = _campaign("Agen")
     job_id = _make_job(db, camp)
     static_pipeline.run_job(job_id, procs.CancelToken())
-    # The final status names the video and the clip count (the Windows notification, §9.3)
+    # The final status names the video and the clip count (the Windows notification)
     [done] = [e for e in sent if e["type"] == "job.status" and e["status"] == "completed"]
     assert done["title"] == f"Video {VID}" and done["clips"] == 2 and done["campaign_ids"] == [camp["id"]]
 
@@ -290,7 +290,7 @@ def test_failed_clips_of_a_completed_job_can_be_retried(db, fake_world, monkeypa
 
 
 def test_a_full_disk_stops_the_job_before_its_next_clip_and_refuses_new_work(db, fake_world, monkeypatch):
-    """Below 2 GB free (CLAUDE.md §6.1) a running job fails before its next cut (resumable), and creating,
+    """Below 2 GB free a running job fails before its next cut (resumable), and creating,
     resuming or exporting is refused with 507."""
     from collections import namedtuple
 
@@ -400,7 +400,7 @@ def test_a_recut_replaces_the_files_and_keeps_the_users_edits(db, fake_world, mo
     db.clips.update_one({"_id": clip["_id"]}, {"$set": {
         "cover_time": 12.0, "files.cover": clip["files"]["raw"].replace("raw.mp4", "cover.jpg"),
         "subtitle.words": [{"word": "DIEDIT", "start": 0.0, "end": 0.5}],
-        # Translated subtitles: the spoken words are cut the same way (gap analysis B10)
+        # Translated subtitles: the spoken words are cut the same way
         "subtitle.translation": {"language": "en", "original_words": [{"word": "DIUCAPKAN", "start": 0.0, "end": 0.5}],
                                  "original_title": "Judul asli", "partial": False},
         "subtitle_style": {"fontSize": 40}, "hook_text": "Judul saya",

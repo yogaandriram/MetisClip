@@ -1,4 +1,4 @@
-// Bantuan (gap analysis B11): the first-steps guide on Beranda and the help page. Topic ids are fixed in
+// Bantuan: the first-steps guide on Beranda and the help page. Topic ids are fixed in
 // app/(dashboard)/help/page.tsx (groups, links) and in `?topic=<id>` links.
 export const help = {
   title: 'Bantuan',

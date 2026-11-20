@@ -30,7 +30,7 @@ interface DropdownProps {
   footer?: React.ReactNode
 }
 
-/** Menu popover (DESIGN.md §8.11). */
+/** Menu popover. */
 export function Dropdown({ trigger, triggerLabel, triggerClassName, items, align = 'left', width = 220, header, footer }: DropdownProps) {
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)

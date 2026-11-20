@@ -1,4 +1,4 @@
-"""Exported videos get their sound leveled to about -14 LUFS (gap analysis B8)."""
+"""Exported videos get their sound leveled to about -14 LUFS."""
 from __future__ import annotations
 
 import subprocess

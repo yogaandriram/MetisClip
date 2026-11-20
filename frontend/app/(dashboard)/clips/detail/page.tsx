@@ -2133,7 +2133,7 @@ function ClipEditor() {
 // ---------------------------------------------------------------------------
 
 /**
- * Where the clip comes from (gap analysis B6): the video's title and channel, the clip's place in it, and
+ * Where the clip comes from: the video's title and channel, the clip's place in it, and
  * the YouTube link at the clip's first second to open or copy (with a credit line for the post), or the
  * uploaded file to show in Explorer.
  */
@@ -2211,7 +2211,7 @@ function PanelSection({ title, action, children }: { title: string; action?: Rea
 }
 
 /**
- * Scrub track on the stage (DESIGN.md §8.17): kept ranges in ink-line, cut ranges (fillers, pauses)
+ * Scrub track on the stage: kept ranges in ink-line, cut ranges (fillers, pauses)
  * leave the darker track visible, the playhead is a white line. ← / → seek via the editor shortcuts.
  */
 type TimelineMark = { t: number; kind: 'keyword' | 'match' | 'problem' }

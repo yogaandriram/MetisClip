@@ -13,7 +13,7 @@ interface ToggleSwitchProps {
   style?: React.CSSProperties
 }
 
-/** On = ink track with a leaf knob (DESIGN.md §8.14). */
+/** On = ink track with a leaf knob. */
 export function ToggleSwitch({ checked, onChange, label, hint, disabled = false, className, style }: ToggleSwitchProps) {
   const id = useId()
   const toggle = (

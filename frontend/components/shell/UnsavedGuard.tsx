@@ -25,7 +25,7 @@ type GuardValue = {
 const GuardContext = createContext<GuardValue | null>(null)
 
 /**
- * One place that keeps unsaved edits from being lost (CLAUDE.md §9.3): the open page registers whether
+ * One place that keeps unsaved edits from being lost: the open page registers whether
  * it has unsaved changes (useUnsavedGuard), and then
  * - a click on any link inside the app (nav rail, campaign menu, headers, cards) asks first;
  * - code that navigates (or switches the campaign) goes through `guard`;

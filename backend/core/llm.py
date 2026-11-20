@@ -1,4 +1,4 @@
-"""The single LLM client (CLAUDE.md rule 2).
+"""The single LLM client.
 
 The provider (OpenAI, Anthropic, Gemini, xAI, DeepSeek, Qwen or any OpenAI-compatible endpoint) and
 its model come from settings (`llm`); each provider's key comes from Credential Manager.

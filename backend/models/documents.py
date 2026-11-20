@@ -1,4 +1,4 @@
-"""Pydantic document models, one per collection (CLAUDE.md rule 18).
+"""Pydantic document models, one per collection.
 
 Every insert goes through `<Model>(...).to_mongo()` so documents are validated
 before they are written. Partial updates use `$set` on known fields only.

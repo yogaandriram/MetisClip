@@ -18,7 +18,7 @@ interface StatCardProps {
   footer?: React.ReactNode
 }
 
-/** Big number + label in the bottom-left, notch badge on the top-left corner (DESIGN.md §8.8). */
+/** Big number + label in the bottom-left, notch badge on the top-left corner. */
 export function StatCard({ value, label, icon, notchTone = 'leaf', tone = 'surface', blob, tilt, className, footer }: StatCardProps) {
   const card = (
     <Card tone={tone} className={cx('mc-stat', !tilt && className)}>

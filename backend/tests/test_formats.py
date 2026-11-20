@@ -1,4 +1,4 @@
-"""1:1 and 16:9 exports and the export quality (gap analysis B9): the layout's format, the render props,
+"""1:1 and 16:9 exports and the export quality: the layout's format, the render props,
 the source and face scan a render prepares first, the export's file name, and the quality settings."""
 from __future__ import annotations
 

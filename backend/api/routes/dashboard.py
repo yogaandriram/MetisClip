@@ -23,7 +23,7 @@ def dashboard_stats(campaign_id: Optional[str] = None):
 
 
 def first_steps(db) -> dict[str, bool]:
-    """Beranda's first-steps guide (gap analysis B11), over every campaign: has a job been started, has a clip
+    """Beranda's first-steps guide, over every campaign: has a job been started, has a clip
     been made, has a clip been exported (a render finished, also of a clip deleted since)."""
     return {
         "job": db.discovery_jobs.find_one({}, {"_id": 1}) is not None,

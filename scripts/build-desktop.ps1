@@ -11,7 +11,7 @@
   4. binaries      : scripts\fetch-binaries.ps1 when a pinned binary is missing -> desktop\resources\bin
   5. desktop       : npm ci + tsc + electron-builder (NSIS, or --dir with -Pack)
                      -Publish uploads the installer, its .blockmap and latest.yml to a draft GitHub
-                     release (app updates, CLAUDE.md §10.4); it needs $env:GH_TOKEN (repo scope)
+                     release (app updates); it needs $env:GH_TOKEN (repo scope)
 
   Fails fast on the first error.
 

@@ -6,7 +6,7 @@ import { IconButton } from '@/components/ui'
 import { useT } from '@/lib/i18n/I18nProvider'
 
 /**
- * Shown while the PC has no network (§9.3). Editing and exporting existing clips keep working, because
+ * Shown while the PC has no network. Editing and exporting existing clips keep working, because
  * the engine runs on this PC; YouTube downloads and AI calls do not. Closing it hides it until the
  * network drops again.
  */

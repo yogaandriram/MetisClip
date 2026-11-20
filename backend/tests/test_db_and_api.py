@@ -634,7 +634,7 @@ def test_render_concurrency_applies_without_a_restart(db, monkeypatch):
 
 def test_job_output_in_the_queue(client, db, paths, tmp_path):
     """Antrian shows what a job made and opens the folder of its newest exported video that still exists,
-    and every rendered clip carries its export file name for dragging it out of the gallery (gap analysis B12)."""
+    and every rendered clip carries its export file name for dragging it out of the gallery."""
     from datetime import timedelta
 
     from backend.models.documents import ClipDoc, JobConfig, JobDoc, JobSource

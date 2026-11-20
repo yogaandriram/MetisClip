@@ -1,7 +1,7 @@
 // Bahasa Indonesia: the source dictionary. Add every key in en/jobs.ts too (tsc checks it).
 // Antrian (the queue tab of Hasil Clip, app/(dashboard)/clips) and job texts shared with Beranda and Cari Video.
 export const jobs = {
-  /** Short pipeline step names for the pills (DESIGN.md §8.9) */
+  /** Short pipeline step names for the pills */
   stepShort: {
     discovery: 'Discovery',
     analysis: 'Analisis',
@@ -34,7 +34,7 @@ export const jobs = {
   detailAria: 'Detail job',
   cancel: 'Batalkan',
   delete: 'Hapus job',
-  /** What a finished job made (gap analysis B12) */
+  /** What a finished job made */
   output: (clips: number, exported: number) => (exported ? `${clips} klip, ${exported} sudah diekspor` : `${clips} klip, belum diekspor`),
   viewClips: 'Lihat klip job ini',
   openOutput: 'Buka folder hasil ekspor',

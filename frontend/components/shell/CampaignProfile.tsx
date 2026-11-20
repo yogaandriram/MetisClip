@@ -17,7 +17,7 @@ import { useCampaignSwitchGuard } from './UnsavedGuard'
 /** Opens the create dialog on the campaign library (campaigns/page.tsx reads `?new=1`). */
 
 /**
- * The liquid neck that joins the circle to the rail (DESIGN.md §4.2.8), in the circle's coordinates.
+ * The liquid neck that joins the circle to the rail, in the circle's coordinates.
  * Circle: center (32, 32), r 32. Rail cap: center (32, 108), r 32 (the rail starts 12 px below the
  * circle, styles/components.css .mc-shell__rail). Two cutter circles of r 17.11 at (32 ± 31.11, 70),
  * tangent to both, carve a 28 px waist; the path runs between the four tangent points, and the chords
@@ -27,7 +27,7 @@ const NECK_PATH = 'M11.73 56.76A17.11 17.11 0 0 1 11.73 83.24H52.27A17.11 17.11 
 
 /**
  * The active campaign as the rail's head: a circle at the top of the shell, where the logo was, joined to
- * the rail by a liquid neck (DESIGN.md §5.2). Its menu shows the active campaign, switches to another one
+ * the rail by a liquid neck. Its menu shows the active campaign, switches to another one
  * and leads to the campaign library.
  * Without a campaign (first load, empty library) the circle shows the MetisClip mark.
  */
