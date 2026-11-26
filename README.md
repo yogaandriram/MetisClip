@@ -91,3 +91,36 @@ cd desktop; npx tsc --noEmit -p .; cd ..
 
 Dokumentasi lain: `desktop/README.md` (shell Electron, installer, dan hook untuk pengujian) dan
 `render-engine/README.md` (render worker).
+
+## Lisensi dan kredit
+
+MetisClip dirilis dengan lisensi MIT (`LICENSE`). Installer-nya juga membawa perangkat lunak pihak ketiga,
+masing-masing dengan lisensinya sendiri. Daftar lengkapnya ada di `THIRD_PARTY_NOTICES.md`,
+dan teks lisensinya bisa dibaca di aplikasi lewat Sistem → Tentang MetisClip → Lisensi pihak ketiga.
+
+MetisClip dibangun di atas proyek open source berikut. Terima kasih kepada para pembuatnya. Nama-nama di
+bawah disebut sebagai kredit, bukan sebagai dukungan dari pemilik proyek tersebut.
+
+| Proyek | Dipakai untuk | Lisensi |
+|---|---|---|
+| [Remotion](https://www.remotion.dev) | Render video dengan subtitle dan layout | Remotion License |
+| [FFmpeg](https://ffmpeg.org) | Memotong dan meng-encode video, menyamakan volume suara | GPL v3 (build [gyan.dev](https://www.gyan.dev/ffmpeg/builds/)); GPL v2 atau lebih baru (build Remotion) |
+| [fdk-aac-free](https://src.fedoraproject.org/rpms/fdk-aac-free) (Fraunhofer FDK AAC) | Audio AAC di FFmpeg milik Remotion | FDK AAC License |
+| [MongoDB Community Server](https://www.mongodb.com) | Database lokal | SSPL |
+| [yt-dlp](https://github.com/yt-dlp/yt-dlp) dan [Deno](https://deno.com) | Metadata dan unduhan YouTube | Unlicense, MIT |
+| [whisper.cpp](https://github.com/ggml-org/whisper.cpp) | Transkripsi tanpa internet | MIT |
+| [MediaPipe](https://ai.google.dev/edge/mediapipe) dan [OpenCV](https://opencv.org) | Deteksi wajah untuk crop | Apache 2.0 |
+| [Electron](https://www.electronjs.org) dan [Chrome Headless Shell](https://developer.chrome.com/blog/chrome-headless-shell) | Aplikasi desktop, browser untuk render | MIT, BSD-3-Clause dan lainnya |
+| [Next.js](https://nextjs.org) dan [React](https://react.dev) | Tampilan aplikasi | MIT |
+| [FastAPI](https://fastapi.tiangolo.com), [PyMongo](https://pymongo.readthedocs.io), [Python](https://www.python.org) dan [PyInstaller](https://pyinstaller.org) | Engine lokal | MIT, Apache 2.0, PSF, GPL v2 dengan pengecualian bootloader |
+
+Yang perlu diketahui:
+
+- **Remotion License** gratis untuk perorangan, perusahaan dengan paling banyak 3 karyawan, dan organisasi
+  nirlaba. Perusahaan yang lebih besar dan merender dengan MetisClip memerlukan
+  [Company License](https://www.remotion.pro/license) dari Remotion.
+- **FFmpeg** ikut dalam dua build: `ffmpeg.exe` dari gyan.dev (GPL v3) yang dijalankan MetisClip, dan build
+  milik Remotion di dalam paket compositor-nya (GPL v2 atau lebih baru, dengan fdk-aac-free untuk AAC).
+  Keduanya program terpisah yang tidak ditautkan ke kode MetisClip. Lokasi kode sumber masing-masing ada di
+  `THIRD_PARTY_NOTICES.md`. Lisensi FDK AAC tidak memberi hak paten apa pun.
+- **MongoDB** dibundel tanpa diubah, bersama teks lisensinya.

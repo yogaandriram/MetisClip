@@ -8,7 +8,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider'
 
 /** frontend/public/third-party/licenses.json, written by scripts/gen-licenses.py from what the build ships */
 type GroupId = 'programs' | 'engine' | 'ui' | 'render' | 'desktop'
-type NoteKey = 'ffmpeg' | 'electron' | 'remotion_ffmpeg'
+type NoteKey = 'ffmpeg' | 'electron' | 'remotion_ffmpeg' | 'fdk_aac' | 'remotion_compositor'
 interface LicenseComponent {
   name: string
   version: string
@@ -181,6 +181,7 @@ export default function LicensesPage() {
               <div className="mc-stack mc-gap-12">
                 <p style={{ margin: 0 }}>{m.remotion}</p>
                 <p style={{ margin: 0 }}>{m.ffmpeg}</p>
+                <p style={{ margin: 0 }}>{m.ffmpegRemotion}</p>
               </div>
             </Card>
           </div>

@@ -11,7 +11,8 @@ static export, so an installer always carries the list of the build it was made 
 Sources, all read from what the build ships:
 - programs shipped as their own executables: the license files next to them in desktop/resources/bin
   (fetched with pinned SHA256 by fetch-binaries.ps1), Chrome Headless Shell's own license, Electron's,
-  and the texts kept in licenses/ (GPLv3 for FFmpeg, the Remotion License, which its npm packages leave out);
+  and the texts kept in licenses/ (GPLv3 for FFmpeg; GPLv2 and the FDK AAC license for the FFmpeg inside
+  Remotion's compositor package; the Remotion License, which its npm packages leave out);
 - the engine: the Python runtime, the PyInstaller bootloader and every package backend/requirements.txt pulls
   in that the frozen engine contains;
 - the UI, the render worker and the desktop shell: their production npm dependencies (npm ls --omit=dev).
@@ -149,8 +150,7 @@ def chrome_dir() -> tuple[Path, str]:
     sys.exit("gen-licenses: Chrome Headless Shell not found (npm run browser:ensure in render-engine, or build-desktop.ps1)")
 
 
-def ffmpeg_version() -> str:
-    exe = BIN / "ffmpeg.exe"
+def ffmpeg_version(exe: Path) -> str:
     try:
         out = subprocess.run([str(exe), "-hide_banner", "-version"], capture_output=True, text=True, timeout=30,
                              creationflags=0x08000000 if sys.platform == "win32" else 0).stdout
@@ -160,14 +160,36 @@ def ffmpeg_version() -> str:
         return ""
 
 
+# Remotion's compositor package carries its own FFmpeg (ffmpeg.exe, ffprobe.exe and the av*.dll the compositor
+# loads). Remotion builds it with the scripts of rust-ffmpeg-splitter (archived; now in the Remotion repository
+# under packages/compositor/ffmpeg/build): FFmpeg n7.1 with Remotion's patches, under the GPL version 2 or later,
+# and for AAC fdk-aac-free 2.0.0 (compile-fdkaac.mjs), whose version the binary does not print.
+COMPOSITOR = REPO / "render-engine" / "node_modules" / "@remotion" / "compositor-win32-x64-msvc"
+REMOTION_FFMPEG_SCRIPTS = "https://github.com/remotion-dev/rust-ffmpeg-splitter"
+REMOTION_FFMPEG_DOC = "https://www.remotion.dev/docs/miscellaneous/ffmpeg-license"
+FDK_AAC_FREE = ("2.0.0", "https://people.freedesktop.org/~wtay/fdk-aac-free-2.0.0.tar.gz")
+
+
+def remotion_ffmpeg(t: Texts) -> list[dict]:
+    exe = require(COMPOSITOR / "ffmpeg.exe", "Remotion's ffmpeg.exe (npm install in render-engine)")
+    version = ffmpeg_version(exe).removeprefix("n")
+    return [
+        component("FFmpeg (Remotion's build)", version, "GPL-2.0-or-later", REMOTION_FFMPEG_SCRIPTS,
+                  [t.add_file(require(LICENSES / "GPL-2.0.txt", "GPLv2 text"))], note_key="remotion_ffmpeg"),
+        component("fdk-aac-free (in Remotion's FFmpeg)", FDK_AAC_FREE[0], "FDK-AAC", "https://src.fedoraproject.org/rpms/fdk-aac-free",
+                  [t.add_file(require(LICENSES / "fdk-aac-free-NOTICE", "FDK AAC license"))], note_key="fdk_aac"),
+    ]
+
+
 def programs(t: Texts) -> list[dict]:
     v = bin_versions()
     out = []
     mongo = [t.add_file(require(BIN / f, "MongoDB license")) for f in ("mongod-LICENSE-Community.txt", "mongod-MPL-2", "mongod-THIRD-PARTY-NOTICES")]
     out.append(component("MongoDB Community Server", v.get("mongod"), "SSPL-1.0", "https://www.mongodb.com", mongo))
     require(BIN / "ffmpeg.exe", "ffmpeg.exe")
-    out.append(component("FFmpeg (gyan.dev essentials build)", ffmpeg_version(), "GPL-3.0-or-later", "https://ffmpeg.org",
-                         [t.add_file(require(LICENSES / "GPL-3.0.txt", "GPLv3 text"))], note_key="ffmpeg"))
+    out.append(component("FFmpeg (gyan.dev essentials build)", ffmpeg_version(BIN / "ffmpeg.exe"), "GPL-3.0-or-later",
+                         "https://ffmpeg.org", [t.add_file(require(LICENSES / "GPL-3.0.txt", "GPLv3 text"))], note_key="ffmpeg"))
+    out += remotion_ffmpeg(t)
     out.append(component("yt-dlp", v.get("yt-dlp"), "Unlicense", "https://github.com/yt-dlp/yt-dlp",
                          [t.add_file(require(BIN / "yt-dlp-LICENSE", "yt-dlp license"))]))
     out.append(component("Deno", v.get("deno"), "MIT", "https://deno.com",
@@ -334,7 +356,7 @@ def npm(folder: str, t: Texts) -> list[dict]:
                 lic = "Remotion License"
             if name.startswith("@remotion/compositor-"):
                 out[(name, version)] = component(name, version, lic or "Remotion License", npm_url(pkg),
-                                                 ids or [t.add_file(LICENSES / "remotion-LICENSE.md")], note_key="remotion_ffmpeg")
+                                                 ids or [t.add_file(LICENSES / "remotion-LICENSE.md")], note_key="remotion_compositor")
                 continue
             if not ids and lic.upper() == "MIT":
                 ids = [t.add(mit_text(pkg))]
@@ -361,6 +383,7 @@ GROUPS = [
 
 
 def notices_md(groups: list[dict]) -> str:
+    rff = next(c["version"] for g in groups for c in g["components"] if c.get("note") == "remotion_ffmpeg")
     lines = [
         "# Third-party notices",
         "",
@@ -369,7 +392,7 @@ def notices_md(groups: list[dict]) -> str:
         "`frontend/public/third-party/licenses.json`, shown in the app under Sistem → Tentang MetisClip →",
         "Lisensi pihak ketiga. This file is generated by `scripts/gen-licenses.py`; do not edit it by hand.",
         "",
-        "## FFmpeg",
+        "## FFmpeg (gyan.dev build)",
         "",
         "`ffmpeg.exe` is the FFmpeg 7.1 essentials build by gyan.dev (the one imageio-ffmpeg 0.6.0 ships), licensed",
         "under the GNU GPL version 3. The installer puts the license text next to it (`bin/ffmpeg-GPL-3.0.txt`, the",
@@ -384,8 +407,21 @@ def notices_md(groups: list[dict]) -> str:
         "individuals, for-profit organizations with up to 3 employees and non-profit organizations; larger companies",
         "that render with MetisClip need a Remotion Company License (https://www.remotion.pro/license).",
         "",
-        "`@remotion/compositor-win32-x64-msvc` contains Remotion's own FFmpeg build, which Remotion uses to put the",
-        "rendered frames together (configured with `--enable-gpl --enable-nonfree`, libx264 and libfdk-aac).",
+        "## FFmpeg (Remotion's build)",
+        "",
+        "`@remotion/compositor-win32-x64-msvc` also carries Remotion's own FFmpeg build (`ffmpeg.exe`, `ffprobe.exe`",
+        "and the `av*.dll` libraries), which Remotion uses to put the rendered frames together. Remotion distributes it",
+        "under the GNU GPL version 2 or later (`licenses/GPL-2.0.txt`). It is built with libx264 and libx265 (GPL),",
+        "libmp3lame, libopus, libvpx, dav1d, zimg and zlib, and for AAC audio with fdk-aac-free 2.0.0: Fedora's version",
+        "of the Fraunhofer FDK AAC library with only the AAC-LC profile, under the FDK AAC license",
+        "(`licenses/fdk-aac-free-NOTICE`). FFmpeg's configure asks for `--enable-nonfree` for any FDK AAC build, so",
+        "`ffmpeg -L` calls the binary nonfree; Remotion's position is that fdk-aac-free has no licensing concerns",
+        f"({REMOTION_FFMPEG_DOC}). The FDK AAC license grants no patent rights.",
+        "",
+        f"Corresponding source: FFmpeg n{rff} (https://github.com/FFmpeg/FFmpeg/tree/n{rff}) with the patches and build",
+        f"scripts in {REMOTION_FFMPEG_SCRIPTS} (now in the Remotion repository under",
+        f"`packages/compositor/ffmpeg/build`), and fdk-aac-free {FDK_AAC_FREE[0]} at",
+        f"{FDK_AAC_FREE[1]}.",
         "",
     ]
     for g in groups:

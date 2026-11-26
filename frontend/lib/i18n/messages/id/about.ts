@@ -81,7 +81,9 @@ export const about = {
     remotion:
       'Render video memakai Remotion. Lisensinya gratis untuk perorangan, perusahaan dengan paling banyak 3 karyawan, dan organisasi nirlaba. Perusahaan yang lebih besar memerlukan Company License dari remotion.pro.',
     ffmpeg:
-      'FFmpeg dilisensikan dengan GNU GPL versi 3, dan MetisClip menjalankannya sebagai program terpisah. Kode sumbernya adalah FFmpeg 7.1 dari ffmpeg.org (ffmpeg-7.1.tar.xz). Pustaka yang ikut di build ini beserta versinya tercantum di gyan.dev/ffmpeg/builds dan di keluaran "ffmpeg -version".',
+      'ffmpeg.exe (build gyan.dev) dilisensikan dengan GNU GPL versi 3, dan MetisClip menjalankannya sebagai program terpisah. Kode sumbernya adalah FFmpeg 7.1 dari ffmpeg.org (ffmpeg-7.1.tar.xz). Pustaka yang ikut di build ini beserta versinya tercantum di gyan.dev/ffmpeg/builds dan di keluaran "ffmpeg -version".',
+    ffmpegRemotion:
+      'Remotion membawa FFmpeg-nya sendiri, dengan lisensi GNU GPL versi 2 atau lebih baru. Untuk audio AAC, FFmpeg ini memakai fdk-aac-free, versi pustaka Fraunhofer FDK AAC dari Fedora yang hanya berisi profil AAC-LC. Lisensi FDK AAC tidak memberi hak paten apa pun. Kode sumber dan skrip build-nya ada di github.com/remotion-dev/rust-ffmpeg-splitter; rinciannya di THIRD_PARTY_NOTICES.md.',
     searchLabel: 'Cari komponen',
     searchPlaceholder: 'Cari nama atau lisensi, misalnya MIT',
     clearSearch: 'Hapus pencarian',
@@ -100,8 +102,10 @@ export const about = {
     notes: {
       ffmpeg: 'Lisensi GPL versi 3. Kode sumber dan daftar pustakanya: lihat catatan di atas.',
       electron: 'Electron membawa Chromium. Lisensi komponen Chromium ada di LICENSES.chromium.html di folder instalasi MetisClip.',
-      remotion_ffmpeg: 'Berisi build FFmpeg milik Remotion (dengan libx264 dan libfdk-aac), yang dipakai Remotion untuk menyusun frame hasil render menjadi video.',
-    } as Record<'ffmpeg' | 'electron' | 'remotion_ffmpeg', string>,
+      remotion_ffmpeg: 'Lisensi GPL versi 2 atau lebih baru. Remotion memakai FFmpeg ini untuk menyusun frame hasil render menjadi video. Kode sumbernya: lihat catatan di atas.',
+      fdk_aac: 'Pustaka audio AAC di dalam FFmpeg milik Remotion: versi Fraunhofer FDK AAC dari Fedora yang hanya berisi profil AAC-LC. Lisensi ini tidak memberi hak paten apa pun.',
+      remotion_compositor: 'Compositor Remotion (remotion.exe), dengan Remotion License. FFmpeg yang ikut di paket ini tercantum terpisah di Program yang ikut terpasang.',
+    } as Record<'ffmpeg' | 'electron' | 'remotion_ffmpeg' | 'fdk_aac' | 'remotion_compositor', string>,
     loadFailed: 'Daftar lisensi tidak dapat dimuat',
     loadFailedHint: 'Ringkasan yang sama ada di THIRD_PARTY_NOTICES.md di folder instalasi MetisClip.',
     retry: 'Coba lagi',

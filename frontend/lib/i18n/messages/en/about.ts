@@ -79,7 +79,9 @@ export const about: Messages['about'] = {
     remotion:
       'Video rendering uses Remotion. Its license is free for individuals, companies with up to 3 employees and non-profit organizations. Larger companies need a Company License from remotion.pro.',
     ffmpeg:
-      'FFmpeg is licensed under the GNU GPL version 3, and MetisClip runs it as a separate program. Its source code is FFmpeg 7.1 from ffmpeg.org (ffmpeg-7.1.tar.xz). The libraries in this build and their versions are listed at gyan.dev/ffmpeg/builds and in the output of "ffmpeg -version".',
+      'ffmpeg.exe (the gyan.dev build) is licensed under the GNU GPL version 3, and MetisClip runs it as a separate program. Its source code is FFmpeg 7.1 from ffmpeg.org (ffmpeg-7.1.tar.xz). The libraries in this build and their versions are listed at gyan.dev/ffmpeg/builds and in the output of "ffmpeg -version".',
+    ffmpegRemotion:
+      "Remotion brings its own FFmpeg, under the GNU GPL version 2 or later. For AAC audio it uses fdk-aac-free, Fedora's version of the Fraunhofer FDK AAC library with only the AAC-LC profile. The FDK AAC license grants no patent rights. Its source code and build scripts are at github.com/remotion-dev/rust-ffmpeg-splitter; the details are in THIRD_PARTY_NOTICES.md.",
     searchLabel: 'Search components',
     searchPlaceholder: 'Search a name or license, e.g. MIT',
     clearSearch: 'Clear search',
@@ -98,7 +100,9 @@ export const about: Messages['about'] = {
     notes: {
       ffmpeg: 'GPL version 3. For its source code and libraries, see the note above.',
       electron: 'Electron includes Chromium. The licenses of the Chromium components are in LICENSES.chromium.html in the MetisClip install folder.',
-      remotion_ffmpeg: "Contains Remotion's own FFmpeg build (with libx264 and libfdk-aac), which Remotion uses to put the rendered frames together into a video.",
+      remotion_ffmpeg: 'GPL version 2 or later. Remotion uses this FFmpeg to put the rendered frames together into a video. For its source code, see the note above.',
+      fdk_aac: "The AAC audio library inside Remotion's FFmpeg: Fedora's version of the Fraunhofer FDK AAC library with only the AAC-LC profile. This license grants no patent rights.",
+      remotion_compositor: "Remotion's compositor (remotion.exe), under the Remotion License. The FFmpeg in this package is listed separately under Programs installed with MetisClip.",
     },
     loadFailed: 'The license list could not be loaded',
     loadFailedHint: 'The same summary is in THIRD_PARTY_NOTICES.md in the MetisClip install folder.',
