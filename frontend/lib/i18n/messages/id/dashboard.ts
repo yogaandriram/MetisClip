@@ -17,6 +17,8 @@ export const dashboard = {
     openSettings: 'Buka Pengaturan',
     groq: 'API key Groq',
     llm: (provider: string) => `API key ${provider}`,
+    /** No LLM provider chosen yet */
+    noProvider: 'API key penyedia LLM',
     /** names: e.g. ["API key OpenAI", "API key Groq"] */
     missing: (names: string[]) => `${names.join(' dan ')} belum diisi. Pipeline AI tidak akan berjalan tanpa key ini.`,
   },

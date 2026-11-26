@@ -1,6 +1,7 @@
 """Mongo documents -> API DTOs (shapes defined by frontend/lib/engine.ts)."""
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from fastapi import HTTPException
@@ -53,8 +54,57 @@ def brand_template_dto(
     return out
 
 
-def job_dto(doc: dict[str, Any]) -> dict[str, Any]:
+def recut_event(job: dict) -> dict:
+    """The fields a recut's job.status events carry, so the clip's editor follows it (also when it started
+    elsewhere): {kind: "recut", clip_id}; empty for other jobs."""
+    recut = (job.get("config") or {}).get("recut")
+    return {"kind": "recut", "clip_id": recut.get("clip_id")} if recut else {}
+
+
+def job_outputs(db: Any, job_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """What each job made: its clips, how many of them were exported, and the newest
+    exported video that is still there, whose folder Antrian opens. One query per collection for the
+    whole list; at most a few file checks per job."""
+    out: dict[str, dict[str, Any]] = {jid: {"clips": 0, "exported": 0, "export_file": None} for jid in job_ids}
+    if not out:
+        return out
+    clip_job: dict[str, str] = {}
+    for c in db.clips.find({"job_id": {"$in": list(out)}}, {"job_id": 1}):
+        clip_job[c["_id"]] = c["job_id"]
+        out[c["job_id"]]["clips"] += 1
+    if not clip_job:
+        return out
+    exported: dict[str, set[str]] = {}
+    paths: dict[str, list[str]] = {}
+    renders = db.render_jobs.find(
+        {"clip_id": {"$in": list(clip_job)}, "status": "completed", "exported_path": {"$type": "string"}},
+        {"clip_id": 1, "exported_path": 1},
+    ).sort("finished_at", -1)
+    for r in renders:
+        jid = clip_job[r["clip_id"]]
+        exported.setdefault(jid, set()).add(r["clip_id"])
+        paths.setdefault(jid, []).append(r["exported_path"])
+    for jid, files in paths.items():
+        out[jid]["exported"] = len(exported[jid])
+        # The newest copy that still exists (the user may have moved or deleted it since)
+        for f in list(dict.fromkeys(files))[:5]:
+            if os.path.isfile(f):
+                out[jid]["export_file"] = f
+                break
+    return out
+
+
+def job_dto(doc: dict[str, Any], output: dict[str, Any] | None = None) -> dict[str, Any]:
+    """`output` (job_outputs) only where a page shows it: the jobs list and one job's detail."""
+    from backend.agents.context import failed_segments
+
     d = to_api(doc) or {}
+    # A completed job whose clips partly failed can retry them (POST /api/jobs/{id}/resume)
+    d["failed_clips"] = failed_segments(doc) if doc.get("status") == "completed" else 0
+    # "ai" (the Analyzer chose), "manual" (the user's moments) or "recut" (an existing clip cut again)
+    cfg = doc.get("config") or {}
+    d["kind"] = "recut" if cfg.get("recut") else "manual" if cfg.get("manual_ranges") else "ai"
+    d["recut_clip_id"] = (cfg.get("recut") or {}).get("clip_id")
     d.pop("checkpoint", None)
     src = d.get("source") or {}
     d["source"] = {
@@ -74,10 +124,22 @@ def job_dto(doc: dict[str, Any]) -> dict[str, Any]:
     # What a running job does or waits for now (its last job.progress message); only while it runs
     act = d.get("activity")
     d["activity"] = act if d.get("status") == "running" and isinstance(act, dict) and act.get("message") else None
+    d["output"] = output
     return d
 
 
+def _translation(tr: Any) -> dict[str, Any] | None:
+    """A clip's translated subtitles: the language and the words and title as spoken."""
+    if not isinstance(tr, dict) or not tr.get("language"):
+        return None
+    return {"language": tr["language"], "original_words": tr.get("original_words") or [],
+            "original_title": tr.get("original_title") or "", "partial": bool(tr.get("partial")),
+            "at": iso(tr.get("at"))}
+
+
 def clip_dto(doc: dict[str, Any]) -> dict[str, Any]:
+    from backend.services.exports import file_name
+
     files = doc.get("files") or {}
     return {
         "id": doc["_id"],
@@ -91,12 +153,17 @@ def clip_dto(doc: dict[str, Any]) -> dict[str, Any]:
         "hook_text": doc.get("hook_text", ""),
         "tags": doc.get("tags") or [],
         "rationale": doc.get("rationale", ""),
+        "origin": doc.get("origin") or "ai",
         "status": doc.get("status", "ready"),
         "files": {"raw": files.get("raw"), "final": files.get("final"), "thumbnail": files.get("thumbnail"),
-                  "source": files.get("source"), "faces": files.get("faces")},
+                  "source": files.get("source"), "faces": files.get("faces"), "cover": files.get("cover")},
+        # The rendered video's name in the export folder; dragging the clip out of the gallery uses it
+        "export_name": file_name(doc) if files.get("final") else None,
+        "cover_time": doc.get("cover_time"),
         "source_width": doc.get("source_width"),
         "source_height": doc.get("source_height"),
-        "subtitle_data": {"clip_id": doc["_id"], "words": (doc.get("subtitle") or {}).get("words") or []},
+        "subtitle_data": {"clip_id": doc["_id"], "words": (doc.get("subtitle") or {}).get("words") or [],
+                          "translation": _translation((doc.get("subtitle") or {}).get("translation"))},
         "subtitle_style": doc.get("subtitle_style") or {},
         "layout_style": doc.get("layout_style") or {},
         "brand_template_id": doc.get("brand_template_id"),
@@ -131,6 +198,10 @@ def render_dto(doc: dict[str, Any]) -> dict[str, Any]:
         "exported_path": doc.get("exported_path"),
         "export_dir": doc.get("export_dir"),
         "export_error": doc.get("export_error"),
+        "reused": bool(doc.get("reused")),
+        "loudness": doc.get("loudness"),
+        "format": doc.get("format"),
+        "quality": doc.get("quality"),
         "error": doc.get("error"),
         "created_at": iso(doc.get("created_at")),
         "finished_at": iso(doc.get("finished_at")),

@@ -143,3 +143,18 @@ def secrets():
     sec._backend = None  # fresh memory backend
     yield sec
     sec._backend = None
+
+
+@pytest.fixture()
+def use_llm(db, secrets):
+    """Points the LLM at an OpenAI-compatible test endpoint with a key. No provider is chosen by default
+    (llm_providers.DEFAULT_PROVIDER), so a test that needs a configured LLM calls this; the calls
+    themselves are faked by each test."""
+    from backend.core.settings_store import update_settings
+
+    def apply(key: str = "sk-test-0000000000") -> None:
+        update_settings({"llm": {"provider": "openai_compatible", "base_url": "https://llm.test/v1",
+                                 "models": {"openai_compatible": "test-model"}}})
+        secrets.set_secret("llm_api_key", key)
+
+    return apply

@@ -9,7 +9,7 @@ import { useT } from '@/lib/i18n/I18nProvider'
 import { useUpdateStatus } from '@/lib/updates'
 
 /**
- * A downloaded MetisClip version waits to be installed (§10.4). It installs by itself when MetisClip closes;
+ * A downloaded MetisClip version waits to be installed. It installs by itself when MetisClip closes;
  * "Mulai ulang sekarang" installs at once (main asks first while work runs). Closing the banner hides it
  * for that version until the next start.
  */

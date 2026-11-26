@@ -34,14 +34,14 @@ function isActive(pathname: string, href: string) {
 }
 
 /**
- * The bite (DESIGN.md §4.2.1): a hole of radius 26 around the active item, joined to the rail's
+ * The bite: a hole of radius 26 around the active item, joined to the rail's
  * straight edge (x = 64) by two fillet arcs of radius 20 that are tangent to both. The tails end at
  * y = ±45.3 with a vertical tangent. The rail's top padding keeps them below the rounded cap.
  */
 const BITE_PATH = 'M66 45.3H64A20 20 0 0 0 40.52 25.6A26 26 0 1 1 40.52 -25.6A20 20 0 0 0 64 -45.3H66Z'
 
 /**
- * Ink rail with the liquid "bite" that marks the active item (DESIGN.md §4.2.1, §5.2).
+ * Ink rail with the liquid "bite" that marks the active item.
  * Sistem sits alone at the bottom as a white circle.
  */
 export function NavRail({ items, pathname, systemHint, systemProblem }: NavRailProps) {

@@ -1,9 +1,9 @@
 'use client'
 
 import React, { useCallback, useEffect, useState } from 'react'
-import { Copy, ExternalLink, FolderOpen, LifeBuoy, ScrollText, RefreshCw } from 'lucide-react'
+import { ArrowRight, Copy, ExternalLink, FolderOpen, LifeBuoy, RefreshCw, Scale, ScrollText } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { Alert, Badge, Button, Card, CardHeader, PageHeader, ProgressBar, Skeleton } from '@/components/ui'
+import { Alert, Badge, Button, ButtonLink, Card, CardHeader, PageHeader, ProgressBar, Skeleton } from '@/components/ui'
 import { LogoMark } from '@/components/ui/Logo'
 import { useEngine } from '@/contexts/EngineContext'
 import { api, type Settings, type StorageInfo, type SystemCheck } from '@/lib/engine'
@@ -15,7 +15,7 @@ import { useUpdateStatus } from '@/lib/updates'
 
 const headerIcon = (Icon: React.ElementType) => <Icon size={18} aria-hidden="true" />
 
-/** The update card: what the updater does now, "Periksa sekarang", and "Mulai ulang dan pasang" (§10.4). */
+/** The update card: what the updater does now, "Periksa sekarang", and "Mulai ulang dan pasang". */
 function UpdateCard() {
   const m = useI18n().t.about.update
   const status = useUpdateStatus()
@@ -110,7 +110,7 @@ function UpdateCard() {
   )
 }
 
-/** Tentang MetisClip (§9.2): version, release notes, update status, and the info to copy for support (§10.5). */
+/** Tentang MetisClip: version, release notes, update status, and the info to copy for support. */
 export default function AboutPage() {
   const { t, lang } = useI18n()
   const m = t.about
@@ -232,6 +232,20 @@ export default function AboutPage() {
                     {m.support.openLogs}
                   </Button>
                 )}
+              </div>
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader size="sm" icon={headerIcon(Scale)} title={m.licenses.cardTitle} />
+            <div className="mc-stack mc-gap-12">
+              <p className="mc-muted" style={{ margin: 0 }}>
+                {m.licenses.cardText}
+              </p>
+              <div>
+                <ButtonLink href="/system/licenses/" variant="secondary" size="sm" iconRight={<ArrowRight size={16} aria-hidden="true" />}>
+                  {m.licenses.open}
+                </ButtonLink>
               </div>
             </div>
           </Card>

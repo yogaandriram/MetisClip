@@ -14,10 +14,27 @@ const MAX_START_ATTEMPTS = 3
 const MAX_CRASH_RESTARTS = 3
 const CRASH_WINDOW_MS = 5 * 60 * 1000
 
+export const DEFAULT_CACHE_GB = 0.25
+
+/**
+ * The WiredTiger cache size chosen in Pengaturan. The engine writes it to <DATA_ROOT>/.metisclip/mongod.json
+ * (the database itself is not readable before mongod runs); missing or bad values mean the default.
+ */
+export function readCacheSizeGb(dataRoot: string): number {
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(dataRoot, '.metisclip', 'mongod.json'), 'utf8'))
+    const gb = Number(raw?.wiredtiger_cache_gb)
+    return Number.isFinite(gb) ? Math.min(4, Math.max(0.25, gb)) : DEFAULT_CACHE_GB
+  } catch {
+    return DEFAULT_CACHE_GB
+  }
+}
+
 export interface MongodOptions {
   exe: string
   dataRoot: string
   logsDir: string
+  /** fixed cache size (tests); otherwise read from mongod.json at every start */
   cacheSizeGb?: number
   /** called when mongod died and could not be brought back */
   onFatal: (message: string) => void
@@ -119,7 +136,7 @@ export class MongodManager {
       '--bind_ip', '127.0.0.1',
       '--port', String(port),
       '--auth',
-      '--wiredTigerCacheSizeGB', String(this.opts.cacheSizeGb ?? 0.25),
+      '--wiredTigerCacheSizeGB', String(this.opts.cacheSizeGb ?? readCacheSizeGb(this.opts.dataRoot)),
       '--logpath', this.logPath,
       '--logappend',
       '--setParameter', 'diagnosticDataCollectionEnabled=false',

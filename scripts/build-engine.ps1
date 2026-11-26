@@ -2,7 +2,7 @@
 .SYNOPSIS
   Builds the MetisClip engine sidecar with PyInstaller (onedir).
   Output: backend\dist\metisclip-engine\metisclip-engine.exe
-  Also places ffmpeg.exe (from imageio-ffmpeg) into desktop\resources\bin when it is missing.
+  Also places ffmpeg.exe (from imageio-ffmpeg, SHA256-checked) into desktop\resources\bin.
 #>
 [CmdletBinding()]
 param(
@@ -16,14 +16,25 @@ if (-not (Test-Path $Python)) { throw "venv not found: $Python (python -m venv v
 $Bin = Join-Path $Repo 'desktop\resources\bin'
 New-Item -ItemType Directory -Force $Bin | Out-Null
 
-# ffmpeg: the engine prefers bin\ffmpeg.exe; packaged builds do not include imageio-ffmpeg
+# ffmpeg: the engine prefers bin\ffmpeg.exe; packaged builds do not include imageio-ffmpeg. The exe is FFmpeg 7.1
+# "essentials" by gyan.dev (GPLv3) as shipped in imageio-ffmpeg 0.6.0 (pinned in backend\requirements.txt), checked
+# against its SHA256 like the downloads in fetch-binaries.ps1. A new imageio-ffmpeg needs a new hash here.
+$FfmpegSha256 = '2ce797a0f88d7f067180338fb227f7b1928ea727bd9a4d7a1d022f7c52af71a3'
 $Ffmpeg = Join-Path $Bin 'ffmpeg.exe'
-if (-not (Test-Path $Ffmpeg)) {
+function Get-Sha256([string]$Path) { (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant() }
+if (-not (Test-Path $Ffmpeg) -or (Get-Sha256 $Ffmpeg) -ne $FfmpegSha256) {
   $src = & $Python -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())"
   if (-not $src -or -not (Test-Path $src)) { throw 'imageio-ffmpeg binary not found' }
-  Copy-Item $src $Ffmpeg
+  $hash = Get-Sha256 $src
+  if ($hash -ne $FfmpegSha256) {
+    throw ("SHA256 mismatch for ffmpeg from imageio-ffmpeg ({0}): expected {1}, got {2}" -f $src, $FfmpegSha256, $hash)
+  }
+  Copy-Item $src $Ffmpeg -Force
   Write-Host "ffmpeg.exe copied from imageio-ffmpeg ($src)"
 }
+Write-Host 'ffmpeg.exe: sha256 verified'
+# GPLv3 travels with the binary (THIRD_PARTY_NOTICES.md says where its source is)
+Copy-Item (Join-Path $Repo 'licenses\GPL-3.0.txt') (Join-Path $Bin 'ffmpeg-GPL-3.0.txt') -Force
 
 Push-Location (Join-Path $Repo 'backend')
 try {

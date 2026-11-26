@@ -1,5 +1,5 @@
 // Tentang MetisClip (Sistem → Tentang): version, release notes, update status, and the system info a user
-// copies when asking for help (§9.2, §10.5).
+// copies when asking for help.
 export const about = {
   title: 'Tentang MetisClip',
   subtitle: 'Versi, catatan rilis, dan info sistem untuk bantuan.',
@@ -9,7 +9,7 @@ export const about = {
   buildDev: 'Build pengembangan',
   buildInstalled: 'Terpasang dari installer',
   tagline: 'Clip pendek dari video panjang, dikerjakan di PC kamu sendiri.',
-  /** App updates from GitHub Releases (desktop/src/main/updater.ts, §10.4) */
+  /** App updates from GitHub Releases (desktop/src/main/updater.ts) */
   update: {
     title: 'Pembaruan',
     dev: 'Build pengembangan tidak memeriksa pembaruan. MetisClip yang dipasang dari installer memeriksa GitHub Releases.',
@@ -67,6 +67,49 @@ export const about = {
     loadFailed: 'Sebagian info sistem tidak dapat dimuat',
     openLogs: 'Buka folder log',
   },
+  /** Sistem -> Tentang -> Lisensi pihak ketiga (scripts/gen-licenses.py writes the list) */
+  licenses: {
+    cardTitle: 'Lisensi',
+    cardText: 'MetisClip dirilis dengan lisensi MIT dan membawa perangkat lunak pihak ketiga, masing-masing dengan lisensinya sendiri.',
+    open: 'Lihat lisensi pihak ketiga',
+    title: 'Lisensi pihak ketiga',
+    subtitle: 'Perangkat lunak lain yang ikut terpasang bersama MetisClip, beserta lisensinya.',
+    back: 'Kembali ke Tentang MetisClip',
+    appText: 'MetisClip sendiri dirilis dengan lisensi MIT: boleh dipakai, diubah, dan dibagikan, selama teks lisensinya ikut.',
+    appLicense: 'Teks lisensi MIT',
+    notesTitle: 'Yang perlu kamu tahu',
+    remotion:
+      'Render video memakai Remotion. Lisensinya gratis untuk perorangan, perusahaan dengan paling banyak 3 karyawan, dan organisasi nirlaba. Perusahaan yang lebih besar memerlukan Company License dari remotion.pro.',
+    ffmpeg:
+      'ffmpeg.exe (build gyan.dev) dilisensikan dengan GNU GPL versi 3, dan MetisClip menjalankannya sebagai program terpisah. Kode sumbernya adalah FFmpeg 7.1 dari ffmpeg.org (ffmpeg-7.1.tar.xz). Pustaka yang ikut di build ini beserta versinya tercantum di gyan.dev/ffmpeg/builds dan di keluaran "ffmpeg -version".',
+    ffmpegRemotion:
+      'Remotion membawa FFmpeg-nya sendiri, dengan lisensi GNU GPL versi 2 atau lebih baru. Untuk audio AAC, FFmpeg ini memakai fdk-aac-free, versi pustaka Fraunhofer FDK AAC dari Fedora yang hanya berisi profil AAC-LC. Lisensi FDK AAC tidak memberi hak paten apa pun. Kode sumber dan skrip build-nya ada di github.com/remotion-dev/rust-ffmpeg-splitter; rinciannya di THIRD_PARTY_NOTICES.md.',
+    searchLabel: 'Cari komponen',
+    searchPlaceholder: 'Cari nama atau lisensi, misalnya MIT',
+    clearSearch: 'Hapus pencarian',
+    count: (shown: number, total: number) => `${shown} dari ${total} komponen`,
+    empty: (query: string) => `Tidak ada komponen yang cocok dengan "${query}".`,
+    groups: {
+      programs: 'Program yang ikut terpasang',
+      engine: 'Engine (Python)',
+      ui: 'Tampilan aplikasi (npm)',
+      render: 'Render video (npm)',
+      desktop: 'Aplikasi desktop (npm)',
+    } as Record<'programs' | 'engine' | 'ui' | 'render' | 'desktop', string>,
+    components: (n: number) => `${n} komponen`,
+    noLicenseName: 'lihat teks lisensinya',
+    website: 'Buka situs proyek',
+    notes: {
+      ffmpeg: 'Lisensi GPL versi 3. Kode sumber dan daftar pustakanya: lihat catatan di atas.',
+      electron: 'Electron membawa Chromium. Lisensi komponen Chromium ada di LICENSES.chromium.html di folder instalasi MetisClip.',
+      remotion_ffmpeg: 'Lisensi GPL versi 2 atau lebih baru. Remotion memakai FFmpeg ini untuk menyusun frame hasil render menjadi video. Kode sumbernya: lihat catatan di atas.',
+      fdk_aac: 'Pustaka audio AAC di dalam FFmpeg milik Remotion: versi Fraunhofer FDK AAC dari Fedora yang hanya berisi profil AAC-LC. Lisensi ini tidak memberi hak paten apa pun.',
+      remotion_compositor: 'Compositor Remotion (remotion.exe), dengan Remotion License. FFmpeg yang ikut di paket ini tercantum terpisah di Program yang ikut terpasang.',
+    } as Record<'ffmpeg' | 'electron' | 'remotion_ffmpeg' | 'fdk_aac' | 'remotion_compositor', string>,
+    loadFailed: 'Daftar lisensi tidak dapat dimuat',
+    loadFailedHint: 'Ringkasan yang sama ada di THIRD_PARTY_NOTICES.md di folder instalasi MetisClip.',
+    retry: 'Coba lagi',
+  },
   /** Labels inside the copied text */
   info: {
     engine: 'Engine',
@@ -83,6 +126,7 @@ export const about = {
     accessShared: 'akun lain juga bisa membuka',
     nonAscii: 'path berisi karakter non-ASCII',
     llm: 'LLM',
+    noProvider: 'belum dipilih',
     transcription: 'Transkripsi',
     localModel: (model: string) => `model lokal ${model}`,
     language: 'Bahasa tampilan',

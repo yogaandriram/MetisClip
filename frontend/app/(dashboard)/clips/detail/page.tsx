@@ -8,23 +8,25 @@ import {
   CheckCircle2,
   ChevronDown,
   Download,
+  Copy,
+  ExternalLink,
   Film,
+  ImagePlus,
+  Quote,
   FolderOpen,
   Keyboard,
+  Languages,
   Maximize,
   Megaphone,
   Palette,
   Pause,
   PenLine,
   Play,
-  Plus,
   Redo2,
   RotateCcw,
   Save,
   ScanText,
   Scissors,
-  Star,
-  Trash2,
   Type,
   Undo2,
   UserRound,
@@ -35,7 +37,8 @@ import toast from 'react-hot-toast'
 import { presets } from '@/lib/presets'
 import { CaptionLayer } from '@/lib/presets/CaptionLayer'
 import { LogoOverlay } from '@/lib/presets/BrandOverlay'
-import { LayoutStage } from '@/lib/presets/LayoutStage'
+import { FormatBox, LayoutStage } from '@/lib/presets/LayoutStage'
+import { FORMAT_SIZE, OUTPUT_FORMATS, type OutputFormat, formatCaptionY } from '@/lib/presets/position'
 import {
   type DuoTop,
   type FrameRatio,
@@ -47,6 +50,7 @@ import {
   companionStart,
   companionTime,
   mergeLayout,
+  outputFormat,
   resolveLayout,
   type Scene,
   SCENE_VIEWS,
@@ -64,7 +68,6 @@ import {
   DEFAULT_AI_SETTINGS,
   computeKeepSegments,
   isCut,
-  isFiller,
   keptDuration,
   nextKeptTime,
   outputTimeAt,
@@ -81,7 +84,6 @@ import {
   ConfirmModal,
   Divider,
   Dropdown,
-  EmptyState,
   Field,
   IconButton,
   InputField,
@@ -103,14 +105,29 @@ import {
   Tooltip,
 } from '@/components/ui'
 import { CampaignPanel, mergeBriefDetail } from '@/components/brief/CampaignPanel'
+import { RecutDialog } from '@/components/clips/RecutDialog'
+import { WordPanel } from '@/components/editor/WordPanel'
+import { findWords, wordProblems } from '@/lib/wordEdit'
+import { editorShortcuts } from '@/lib/shortcuts'
+import { useUnsavedGuard } from '@/components/shell/UnsavedGuard'
 import { cx } from '@/lib/cx'
 import { CaptionPositionControls } from '@/components/captions/CaptionPositionControls'
 import { SUPPORTED_FONTS, FONT_WEIGHTS_MAP } from '@/lib/constants'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
-import { api, type BrandTemplate, type ClipDetail, type RenderJob, type SubtitleWord } from '@/lib/engine'
+import {
+  api,
+  TRANSLATE_LANGUAGES,
+  type BrandTemplate,
+  type ClipDetail,
+  type Job,
+  type RenderJob,
+  type SourceVideoInfo,
+  type SubtitleWord,
+  type TranslateLanguage,
+} from '@/lib/engine'
 import { assetUrl, isDesktop, mediaUrl } from '@/lib/media'
-import { RENDER_STATUS, errorMessage, formatClock, splitPath } from '@/lib/format'
+import { RENDER_STATUS, errorMessage, formatClock, formatLufs, splitPath } from '@/lib/format'
 import { useI18n, useT } from '@/lib/i18n/I18nProvider'
 import { tm } from '@/lib/i18n'
 
@@ -126,7 +143,10 @@ type Snapshot = {
   templateId: string | null
   layout: LayoutPatch
   title: string
+  /** Translated subtitles: the language and the words and title as spoken (null: spoken language) */
+  translation: Translated | null
 }
+type Translated = { language: TranslateLanguage; original: SubtitleWord[]; originalTitle: string; partial: boolean }
 
 // Option ids; their labels are in the `editor` dictionary (looked up while rendering)
 const LAYOUT_MODES: LayoutMode[] = ['full', 'podcast', 'card', 'split', 'duo', 'auto']
@@ -160,6 +180,18 @@ const isTypingTarget = (t: EventTarget | null) => {
   const tag = el.tagName
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable
 }
+
+/** Controls that Space activates themselves (buttons, switches, chips, tabs, menu items, links) */
+const SPACE_CONTROLS = 'button, a[href], summary, [role="button"], [role="switch"], [role="checkbox"], [role="radio"], [role="tab"], [role="menuitem"], [role="menuitemradio"], [role="option"]'
+/** Controls the arrow keys move within (sliders, tab lists, radio groups, menus) */
+const ARROW_CONTROLS = '[role="slider"], [role="tab"], [role="radio"], [role="menuitem"], [role="menuitemradio"], [role="option"], [role="listbox"]'
+
+const handlesKey = (t: EventTarget | null, selector: string) => t instanceof Element && !!t.closest(selector)
+/** A modal is open: the editor's shortcuts stay out of its way */
+const modalOpen = () => typeof document !== 'undefined' && !!document.querySelector('[aria-modal="true"]')
+
+/** One frame of the 30 fps clip (the arrow keys; Shift steps 1 s) */
+const FRAME_S = 1 / 30
 
 // ---------------------------------------------------------------------------
 
@@ -238,8 +270,10 @@ function ClipEditor() {
   const [justSaved, setJustSaved] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
   /** Where to go after the unsaved-changes prompt (null = no prompt) */
-  const [leaveTo, setLeaveTo] = useState<string | null>(null)
   const [showShortcuts, setShowShortcuts] = useState(false)
+  /** The word list's search (Ctrl+F focuses it) */
+  const [find, setFind] = useState('')
+  const findRef = useRef<HTMLInputElement>(null)
 
   /** Left column: the subtitle words, or the clip's campaign (checklist and post text) */
   // `?tab=brief` opens the campaign tab (from the gallery's brief badge)
@@ -249,6 +283,14 @@ function ClipEditor() {
   const [renderOpen, setRenderOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportedPath, setExportedPath] = useState<string | null>(null)
+  // "Ubah potongan": the recut job of this clip while it runs; ready = it finished while the editor had
+  // unsaved edits on the old timeline (they must not be saved over the new words)
+  const [recutOpen, setRecutOpen] = useState(false)
+  const [recutJob, setRecutJob] = useState<Job | null>(null)
+  const [recutReady, setRecutReady] = useState(false)
+  /** Subtitle translation: the language to translate into, and the request in flight */
+  const [translateTo, setTranslateTo] = useState<TranslateLanguage>('en')
+  const [translating, setTranslating] = useState(false)
 
   // ---- loading ------------------------------------------------------------
 
@@ -260,10 +302,21 @@ function ClipEditor() {
       templateId: d.brand_template?.id ?? null,
       layout: (d.clip.layout_style || {}) as LayoutPatch,
       title: d.clip.hook_text || '',
+      translation: d.clip.subtitle_data?.translation
+        ? {
+            language: d.clip.subtitle_data.translation.language,
+            original: d.clip.subtitle_data.translation.original_words.map((w) => ({ ...w })),
+            originalTitle: d.clip.subtitle_data.translation.original_title,
+            partial: d.clip.subtitle_data.translation.partial,
+          }
+        : null,
     }
     setDetail(d)
     setPresent(snap)
     setSavedJson(JSON.stringify(snap))
+    setRecutJob(d.recut_job ?? null)
+    setRecutReady(false)
+    setTranslateTo(d.clip.subtitle_data?.translation?.language ?? 'en')
     history.current = { past: [], future: [], lastKey: null, lastAt: 0 }
   }, [])
 
@@ -311,6 +364,47 @@ function ClipEditor() {
   }, [epoch])
 
   useEngineEvents((e) => {
+    // A recut of this clip: the one started here, or one the editor learns about from its events
+    const ownRecut = (e.type === 'job.progress' || e.type === 'job.status') && !!recutJob && e.id === recutJob.id
+    const otherRecut = e.type === 'job.status' && e.kind === 'recut' && e.clip_id === clipId && !ownRecut
+    if (otherRecut && (e.status === 'pending' || e.status === 'running')) {
+      api.jobs
+        .get(e.id)
+        .then(({ job }) => setRecutJob(job))
+        .catch(() => undefined)
+      return
+    }
+    if (ownRecut || otherRecut) {
+      const mr = tm().editor.recut
+      if (e.type === 'job.progress') {
+        setRecutJob((j) =>
+          j && j.id === e.id
+            ? {
+                ...j,
+                status: e.status,
+                progress_pct: e.progress_pct,
+                current_step: e.current_step,
+                activity: e.message ? { message: e.message, at: new Date().toISOString() } : j.activity,
+              }
+            : j,
+        )
+      } else if (e.status === 'completed') {
+        setRecutJob(null)
+        if (dirty) {
+          setRecutReady(true)
+        } else {
+          toast.success(mr.done)
+          api.clips.get(clipId).then(applyDetail).catch(() => undefined)
+        }
+      } else if (e.status === 'failed' || e.status === 'cancelled' || e.status === 'interrupted') {
+        setRecutJob(null)
+        if (e.status === 'cancelled') toast(mr.cancelled)
+        else toast.error(e.error ? `${mr.failedRun} ${e.error}` : mr.failedRun, { duration: 8000 })
+      } else {
+        setRecutJob((j) => (j && j.id === e.id ? { ...j, status: e.status } : j))
+      }
+      return
+    }
     if (e.type === 'render.progress' && e.clip_id === clipId) {
       setRender((prev) =>
         prev && prev.id === e.id ? { ...prev, status: e.status, progress_pct: e.progress_pct, message: e.message ?? null } : prev || null,
@@ -325,6 +419,10 @@ function ClipEditor() {
               exported_path: e.exported_path ?? prev.exported_path,
               export_dir: e.export_dir ?? prev.export_dir,
               export_error: e.export_error ?? prev.export_error,
+              reused: e.reused ?? prev.reused,
+              loudness: e.loudness ?? prev.loudness,
+              format: e.format ?? prev.format,
+              quality: e.quality ?? prev.quality,
               error: e.error ?? prev.error,
             }
           : prev,
@@ -334,7 +432,7 @@ function ClipEditor() {
           const [folder] = splitPath(e.exported_path)
           toast.success(
             <span>
-              {m.renderDoneSavedIn}{' '}
+              {e.reused ? m.copiedAgainIn : m.renderDoneSavedIn}{' '}
               <span className="mc-mono" style={{ wordBreak: 'break-all' }}>
                 {folder}
               </span>
@@ -503,10 +601,29 @@ function ClipEditor() {
   const adjustedTime = currentTime - style.offsetTime / 1000
   const activeWordIndex = useMemo(() => words.findIndex((w) => adjustedTime >= w.start && adjustedTime <= w.end), [words, adjustedTime])
 
+  // The word list's search and timing checks, also marked on the timeline
+  const matches = useMemo(() => findWords(words, find), [words, find])
+  const wordIssues = useMemo(() => wordProblems(words, sourceDuration), [words, sourceDuration])
+  const marks = useMemo(() => {
+    const matched = new Set(matches)
+    const out: TimelineMark[] = []
+    words.forEach((w, i) => {
+      const t = w.start + style.offsetTime / 1000
+      if (wordIssues[i]) out.push({ t, kind: 'problem' })
+      else if (matched.has(i)) out.push({ t, kind: 'match' })
+      else if (w.keyword && ai.keywords) out.push({ t, kind: 'keyword' })
+    })
+    return out
+  }, [words, matches, wordIssues, style.offsetTime, ai.keywords])
+
   // ---- actions ------------------------------------------------------------
 
   const save = async (silent = false): Promise<boolean> => {
     if (!present || !clipId) return false
+    if (recutReady) {
+      toast.error(m.recut.saveLocked)
+      return false
+    }
     setSaving(true)
     try {
       const cleanWords = present.words
@@ -517,8 +634,12 @@ function ClipEditor() {
       const saved = savedJson ? (JSON.parse(savedJson) as Snapshot) : null
       const savedTemplateId = saved ? saved.templateId : null
       const title = present.title.replace(/\s+/g, ' ').trim()
+      const tr = present.translation
       const { clip } = await api.clips.updateSubtitles(clipId, {
         words: cleanWords,
+        translation: tr
+          ? { language: tr.language, original_words: tr.original, original_title: tr.originalTitle, partial: tr.partial }
+          : null,
         style: { ...styleOverrides(present.style, tpl), ...(Object.keys(aiDiff).length ? { ai: aiDiff } : {}) },
         layout: present.layout as Record<string, any>,
         ...(title !== (saved?.title ?? '') ? { hook_text: title } : {}),
@@ -607,6 +728,22 @@ function ClipEditor() {
       setPreparing(false)
     }
   }
+  const [coverBusy, setCoverBusy] = useState(false)
+  /** The cover: the frame at the playhead (null: back to the middle frame). Saved at once, outside undo. */
+  const chooseCover = async (time: number | null) => {
+    if (!clipId || coverBusy) return
+    setCoverBusy(true)
+    try {
+      const { clip } = await api.clips.setCover(clipId, time === null ? null : Math.round(time * 1000) / 1000)
+      // Only the cover fields: unsaved edits stay as they are
+      setDetail((d) => (d ? { ...d, clip: { ...d.clip, files: clip.files, cover_time: clip.cover_time, updated_at: clip.updated_at } } : d))
+      toast.success(time !== null && detail?.clip.files.final ? m.cover.savedExportAgain : m.cover.saved)
+    } catch (err) {
+      toast.error(errorMessage(err, m.cover.failed))
+    } finally {
+      setCoverBusy(false)
+    }
+  }
   const [analyzing, setAnalyzing] = useState(false)
   /** Face scan for the duo and auto layouts, for a clip made before it was kept (fetches source.mp4 too). */
   const prepareFaces = async () => {
@@ -652,8 +789,44 @@ function ClipEditor() {
     }
   }
 
-  const startRender = async () => {
+  /** Translate the words as spoken (and the title) into `translateTo`; an edit like any other (Ctrl+Z, Simpan) */
+  const translate = async () => {
+    if (!present || !clipId || translating) return
+    const spoken = present.translation?.original ?? present.words
+    const spokenTitle = present.translation ? present.translation.originalTitle : present.title
+    if (!spoken.some((w) => w.word.trim())) {
+      toast.error(m.translate.noWords)
+      return
+    }
+    setTranslating(true)
+    try {
+      const res = await api.clips.translateSubtitles(clipId, { language: translateTo, words: spoken, title: spokenTitle })
+      update({
+        ...present,
+        words: res.words,
+        title: res.title || present.title,
+        translation: { language: translateTo, original: spoken, originalTitle: spokenTitle, partial: false },
+      })
+      toast.success(m.translate.done(m.translate.languages[translateTo], res.kept))
+    } catch (err) {
+      toast.error(errorMessage(err, m.translate.failed))
+    } finally {
+      setTranslating(false)
+    }
+  }
+  const restoreSpoken = () => {
+    if (!present?.translation) return
+    update({ ...present, words: present.translation.original, title: present.translation.originalTitle, translation: null })
+    toast(m.translate.restored)
+  }
+
+  /** Export: renders, or copies final.mp4 again when nothing changed since its render (force: always render). */
+  const startRender = async (force = false) => {
     if (!clipId) return
+    if (recutJob || recutReady) {
+      toast(recutJob ? m.recut.locked : m.recut.saveLocked)
+      return
+    }
     if (render && (render.status === 'queued' || render.status === 'rendering')) {
       setRenderOpen(true)
       return
@@ -661,12 +834,25 @@ function ClipEditor() {
     if (dirty && !(await save(true))) return
     setExportedPath(null)
     try {
-      const { render_job } = await api.clips.render(clipId)
+      const { render_job } = await api.clips.render(clipId, { reuse: !force })
       setRender(render_job)
       setRenderOpen(true)
     } catch (err) {
       toast.error(errorMessage(err, m.renderStartFailed))
     }
+  }
+
+  const cancelRecut = async () => {
+    if (!recutJob) return
+    try {
+      await api.jobs.cancel(recutJob.id)
+    } catch (err) {
+      toast.error(errorMessage(err))
+    }
+  }
+
+  const reloadClip = () => {
+    if (clipId) api.clips.get(clipId).then(applyDetail).catch((err) => toast.error(errorMessage(err)))
   }
 
   const cancelRender = async () => {
@@ -702,10 +888,9 @@ function ClipEditor() {
     }
   }
 
-  const leave = (to: string) => {
-    if (dirty) setLeaveTo(to)
-    else router.push(to)
-  }
+  // Unsaved edits: every link in the app and closing MetisClip ask first (components/shell/UnsavedGuard.tsx)
+  const guardLeave = useUnsavedGuard(dirty, () => save(true))
+  const leave = (to: string) => guardLeave(() => router.push(to))
 
   // ---- keyboard shortcuts -------------------------------------------------
 
@@ -713,6 +898,7 @@ function ClipEditor() {
   keyHandler.current = (e: KeyboardEvent) => {
     const ctrl = e.ctrlKey || e.metaKey
     const key = e.key.toLowerCase()
+    if (modalOpen()) return
     if (ctrl && key === 's') {
       e.preventDefault()
       if (!saving) save()
@@ -723,6 +909,15 @@ function ClipEditor() {
       startRender()
       return
     }
+    if (ctrl && key === 'f') {
+      e.preventDefault()
+      setLeftTab('words')
+      requestAnimationFrame(() => {
+        findRef.current?.focus()
+        findRef.current?.select()
+      })
+      return
+    }
     if (isTypingTarget(e.target)) return
     if (ctrl && key === 'z' && !e.shiftKey) {
       e.preventDefault()
@@ -731,11 +926,14 @@ function ClipEditor() {
       e.preventDefault()
       redo()
     } else if (e.key === ' ' || e.code === 'Space') {
+      // A focused button, switch or chip keeps its own Space (keyboard users activate it with Space)
+      if (handlesKey(e.target, SPACE_CONTROLS)) return
       e.preventDefault()
       togglePlay()
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      if (handlesKey(e.target, ARROW_CONTROLS)) return
       e.preventDefault()
-      const step = e.shiftKey ? 1 : 0.1
+      const step = e.shiftKey ? 1 : FRAME_S
       seekTo((videoRef.current?.currentTime || 0) + (e.key === 'ArrowLeft' ? -step : step))
     }
   }
@@ -788,16 +986,27 @@ function ClipEditor() {
   const smartOn = baseLayout.smart.enabled
   const layout = applySmart(baseLayout, content)
   const hasSource = !!clip.files.source
+  // 1:1 and 16:9: source.mp4 cropped per shot, whatever the mode (until the clip has it, the preview is 9:16)
+  const format = outputFormat(layout, hasSource)
+  const formatted = format !== 'vertical'
   // Podcast and card show source.mp4; until it exists the preview stays full
-  const sourceView = usesSource(layout.mode) && hasSource
-  const split = layout.mode === 'split'
+  const sourceView = !formatted && usesSource(layout.mode) && hasSource
+  const split = !formatted && layout.mode === 'split'
   // Duo and auto: a view per scene of the face scan; needs the source and the scan
   const sceneData = detail.scenes || null
-  const scenesView = usesScenes(layout.mode) && hasSource && !!sceneData
+  const scenesView = !formatted && usesScenes(layout.mode) && hasSource && !!sceneData
+  /** The main video is source.mp4 (podcast, card, 1:1, 16:9) rather than raw.mp4 */
+  const showsSource = sourceView || formatted
+  const stageLayout = formatted
+    ? layout
+    : { ...layout, format: 'vertical' as const, ...(sourceView || split || scenesView ? {} : { mode: 'full' as const }) }
+  const stageRatio = FORMAT_SIZE[format].width / FORMAT_SIZE[format].height
   const plan = scenePlan(sceneData, layout)
   const companionSrc = split ? assetUrl(layout.companion.videoUrl) : ''
   compLoop.current = { start: companionStart(clip.id, layout.companion.duration), duration: layout.companion.duration }
   const aspect = sourceAspect(clip.source_width, clip.source_height)
+  /** Changes when the clip is cut again (its media files are replaced) */
+  const cutVersion = `${clip.start_time}-${clip.end_time}`
   const layoutOverridden = Object.keys(present.layout).length > 0
   const keywordCount = words.filter((w) => w.keyword).length
   const emojiCount = words.filter((w) => w.emoji).length
@@ -811,25 +1020,7 @@ function ClipEditor() {
   const fontWeights = FONT_WEIGHTS_MAP[style.fontFamily] || ['Regular']
   const weightOptions = (fontWeights.includes(style.fontWeight) ? fontWeights : [style.fontWeight, ...fontWeights]).map((w) => ({ value: w, label: w }))
   const fullOrFramedOptions = FULL_OR_FRAMED.map((value) => ({ value, label: m.views[value] }))
-  const shortcuts: [string, string][] = [
-    [m.shortcuts.spaceKey, m.shortcuts.playPause],
-    ['← / →', m.shortcuts.step],
-    ['Shift + ← / →', m.shortcuts.stepLong],
-    ['Ctrl + S', m.shortcuts.save],
-    ['Ctrl + Z', m.shortcuts.undo],
-    ['Ctrl + Y', m.shortcuts.redo],
-    ['Ctrl + E', m.shortcuts.export],
-  ]
-
-  /** Header links (back, "+ Klip baru", the jobs pill) ask first while there are unsaved edits. */
-  const guardHeaderLinks = (e: React.MouseEvent) => {
-    if (!dirty) return
-    const href = (e.target as Element).closest('a[href]')?.getAttribute('href')
-    if (!href || !href.startsWith('/')) return
-    e.preventDefault()
-    e.stopPropagation()
-    setLeaveTo(href)
-  }
+  const shortcuts = editorShortcuts(t)
 
   const saveState = saving ? (
     <span className="mc-row mc-gap-4 mc-caption">
@@ -852,6 +1043,11 @@ function ClipEditor() {
   ) : render.status === 'completed' ? (
     isDesktop() ? (
       <>
+        {render.reused && (
+          <Button variant="ghost" icon={<RotateCcw size={16} />} onClick={() => startRender(true)}>
+            {m.renderAgain}
+          </Button>
+        )}
         <Button
           variant="secondary"
           icon={<FolderOpen size={16} />}
@@ -884,7 +1080,7 @@ function ClipEditor() {
 
   return (
     <div style={PAGE_STYLE}>
-      <div onClickCapture={guardHeaderLinks}>
+      <div>
         <PageHeader
           back={back}
           title={
@@ -894,7 +1090,7 @@ function ClipEditor() {
           }
           subtitle={
             <span className="mc-row mc-row--wrap mc-gap-8">
-              <ScoreBadge score={clip.viral_score} size="sm" />
+              <ScoreBadge score={clip.viral_score} size="sm" manual={clip.origin === 'manual'} />
               <span>
                 <span className="mc-mono">{formatClock(clip.duration_seconds)}</span> · {m.wordCount(words.length)}
               </span>
@@ -903,15 +1099,70 @@ function ClipEditor() {
           }
           actions={
             <>
-              <Button variant="secondary" onClick={() => save()} loading={saving} icon={justSaved ? <Check size={16} /> : <Save size={16} />}>
+              <Tooltip label={m.recut.buttonTip}>
+                <Button
+                  variant="secondary"
+                  onClick={() => setRecutOpen(true)}
+                  disabled={!!recutJob || recutReady || renderActive}
+                  icon={recutJob ? <Spinner size="sm" /> : <Scissors size={16} />}
+                >
+                  {m.recut.button}
+                </Button>
+              </Tooltip>
+              <Button
+                variant="secondary"
+                onClick={() => save()}
+                loading={saving}
+                disabled={recutReady}
+                icon={justSaved ? <Check size={16} /> : <Save size={16} />}
+              >
                 {justSaved ? t.common.saved : t.common.save}
               </Button>
-              <Button variant="primary" onClick={startRender} icon={renderActive ? <Spinner size="sm" /> : <Download size={16} />}>
+              <Button
+                variant="primary"
+                onClick={() => startRender()}
+                disabled={!!recutJob || recutReady}
+                icon={renderActive ? <Spinner size="sm" /> : <Download size={16} />}
+              >
                 {renderActive ? m.renderProgress(Math.round(render?.progress_pct || 0)) : m.export}
               </Button>
             </>
           }
         />
+        {recutJob && (
+          <Alert
+            tone="info"
+            title={m.recut.running}
+            style={{ marginBottom: 16 }}
+            action={
+              <Button variant="secondary" size="sm" icon={<X size={16} aria-hidden="true" />} onClick={cancelRecut}>
+                {m.recut.cancel}
+              </Button>
+            }
+          >
+            <div className="mc-stack mc-gap-8" aria-live="polite">
+              <ProgressBar value={recutJob.status === 'pending' ? null : recutJob.progress_pct} label={m.recut.running} />
+              <span className="mc-caption">
+                {recutJob.status === 'pending' ? m.recut.waiting : recutJob.activity?.message || m.recut.waiting}
+              </span>
+              <span className="mc-caption mc-muted">{m.recut.locked}</span>
+            </div>
+          </Alert>
+        )}
+        {recutReady && (
+          <Alert
+            tone="success"
+            title={m.recut.done}
+            style={{ marginBottom: 16 }}
+            action={
+              <Button variant="primary" size="sm" icon={<RotateCcw size={16} aria-hidden="true" />} onClick={reloadClip}>
+                {m.recut.reload}
+              </Button>
+            }
+          >
+            {m.recut.readyDirty}
+          </Alert>
+        )}
       </div>
 
       <div style={GRID_STYLE}>
@@ -935,123 +1186,28 @@ function ClipEditor() {
               <CardHeader size="sm" icon={<Type size={18} />} title={m.captionTitle} subtitle={m.captionSubtitle} />
             )}
           </div>
-          <div style={{ ...COLUMN_BODY, padding: leftTab === 'brief' ? '4px 20px 20px' : '4px 12px 16px' }}>
-            {leftTab === 'brief' ? (
+          {leftTab === 'brief' ? (
+            <div style={{ ...COLUMN_BODY, padding: '4px 20px 20px' }}>
               <CampaignPanel detail={detail} dirty={dirty} onDetail={(fn) => setDetail((d) => (d ? fn(d) : d))} onNavigate={leave} />
-            ) : words.length === 0 ? (
-              <EmptyState
-                icon={Type}
-                title={m.noSubtitles}
-                description={m.noSubtitlesBody}
-                action={
-                  <Button variant="secondary" size="sm" icon={<Plus size={16} />} onClick={() => setWords([{ word: m.firstWordText, start: 0, end: 0.5 }])}>
-                    {m.addWord}
-                  </Button>
-                }
-              />
-            ) : (
-              <div className="mc-stack mc-gap-8">
-                {words.map((item, index) => {
-                  const active = activeWordIndex === index
-                  const filler = ai.fillerWords && isFiller(item.word)
-                  const keyword = !!item.keyword && ai.keywords
-                  return (
-                    <div
-                      key={index}
-                      className={cx('mc-card', 'mc-card--pad-none', active ? 'mc-card--leaf' : 'mc-card--dew', active && 'mc-card--selected')}
-                      aria-current={active || undefined}
-                      onClick={(e) => {
-                        if (!isTypingTarget(e.target)) seekTo(item.start + style.offsetTime / 1000)
-                      }}
-                      style={{ padding: '10px 10px 10px 12px', borderRadius: 'var(--r-md)', cursor: 'pointer' }}
-                    >
-                      <div className="mc-row mc-gap-4">
-                        <input
-                          type="text"
-                          className="mc-input mc-input--sm mc-grow"
-                          aria-label={m.wordAria(index + 1)}
-                          value={item.word}
-                          onChange={(e) => setWords(words.map((w, i) => (i === index ? { ...w, word: e.target.value } : w)), `word-${index}`)}
-                          style={{
-                            padding: '0 12px',
-                            fontWeight: active || item.keyword ? 600 : 400,
-                            color: filler ? 'var(--text-subtle)' : keyword ? 'var(--moss)' : undefined,
-                            textDecoration: filler ? 'line-through' : undefined,
-                          }}
-                        />
-                        {filler && (
-                          <Badge tone="quiet" size="sm" title={m.fillerTitle}>
-                            {m.fillerBadge}
-                          </Badge>
-                        )}
-                        <IconButton
-                          size="sm"
-                          variant={item.keyword ? 'ink' : 'surface'}
-                          tooltip="end"
-                          label={item.keyword ? m.keywordOn : m.keywordOff}
-                          aria-pressed={!!item.keyword}
-                          icon={<Star size={16} fill={item.keyword ? 'currentColor' : 'none'} />}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setWords(words.map((w, i) => (i === index ? { ...w, keyword: !w.keyword } : w)))
-                          }}
-                        />
-                        <IconButton
-                          size="sm"
-                          tooltip="end"
-                          label={m.deleteWord}
-                          icon={<Trash2 size={16} />}
-                          onClick={() => setWords(words.filter((_, i) => i !== index))}
-                        />
-                      </div>
-                      <div className="mc-row mc-gap-4" style={{ marginTop: 8 }}>
-                        <TimeInput
-                          label={m.wordStart(index + 1)}
-                          value={item.start}
-                          onCommit={(v) => setWords(words.map((w, i) => (i === index ? { ...w, start: v } : w)), `start-${index}`)}
-                        />
-                        <span className="mc-caption mc-muted" aria-hidden="true">
-                          –
-                        </span>
-                        <TimeInput
-                          label={m.wordEnd(index + 1)}
-                          value={item.end}
-                          onCommit={(v) => setWords(words.map((w, i) => (i === index ? { ...w, end: v } : w)), `end-${index}`)}
-                        />
-                        <input
-                          type="text"
-                          className="mc-input mc-input--sm"
-                          value={item.emoji || ''}
-                          placeholder={m.emojiPlaceholder}
-                          aria-label={m.emojiAria(index + 1)}
-                          title={m.emojiTitle}
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={(e) => {
-                            const v = Array.from(e.target.value.trim()).slice(-2).join('')
-                            setWords(words.map((w, i) => (i === index ? { ...w, emoji: v || null } : w)), `emoji-${index}`)
-                          }}
-                          style={{ width: 64, padding: '0 8px', textAlign: 'center' }}
-                        />
-                        <span className="mc-grow" />
-                        <IconButton
-                          size="sm"
-                          tooltip="end"
-                          label={m.insertWord}
-                          icon={<Plus size={16} />}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            const next = [...words]
-                            next.splice(index + 1, 0, { word: m.insertedWordText, start: item.end, end: item.end + 0.5 })
-                            setWords(next)
-                          }}
-                        />
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <WordPanel
+              words={words}
+              setWords={setWords}
+              ai={ai}
+              offsetS={style.offsetTime / 1000}
+              activeIndex={activeWordIndex}
+              isPlaying={isPlaying}
+              duration={sourceDuration}
+              problems={wordIssues}
+              find={find}
+              onFindChange={setFind}
+              matches={matches}
+              onSeek={seekTo}
+              findRef={findRef}
+              bodyStyle={COLUMN_BODY}
+            />
+          )}
         </Card>
 
         {/* Preview */}
@@ -1078,14 +1234,14 @@ function ClipEditor() {
             />
           </div>
 
-          <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {/* A size container: the video box takes the largest size of its format that fits it */}
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', containerType: 'size' }}>
             <div
               ref={containerRef}
               onClick={togglePlay}
               style={{
-                height: '100%',
-                maxWidth: '100%',
-                aspectRatio: '9 / 16',
+                width: `min(100cqw, ${stageRatio} * 100cqh)`,
+                aspectRatio: String(stageRatio),
                 position: 'relative',
                 containerType: 'inline-size',
                 borderRadius: 'var(--r-md)',
@@ -1097,8 +1253,8 @@ function ClipEditor() {
               {clip.files.raw ? (
                 // Same layout component as the Remotion render (lib/presets/LayoutStage.tsx): preview == render
                 <LayoutStage
-                  layout={sourceView || split || scenesView ? layout : { ...layout, mode: 'full' }}
-                  scenes={scenesView ? sceneData : null}
+                  layout={stageLayout}
+                  scenes={scenesView || formatted ? sceneData : null}
                   aspect={aspect}
                   title={present.title}
                   channel={detail.channel}
@@ -1112,7 +1268,7 @@ function ClipEditor() {
                     role === 'duoTop' || role === 'duoBottom' || role === 'framed' ? (
                       <video
                         ref={role === 'duoTop' ? duoTopRef : role === 'duoBottom' ? duoBottomRef : framedRef}
-                        src={mediaUrl(clip.id, 'source')}
+                        src={mediaUrl(clip.id, 'source', cutVersion)}
                         muted
                         playsInline
                         preload="auto"
@@ -1150,10 +1306,10 @@ function ClipEditor() {
                       )
                     ) : role === 'main' ? (
                       <video
-                        key={sourceView ? 'source' : 'raw'}
+                        key={showsSource ? 'source' : 'raw'}
                         ref={videoRef}
-                        src={sourceView ? mediaUrl(clip.id, 'source') : mediaUrl(clip.id, 'raw', clip.updated_at)}
-                        poster={!sourceView && clip.files.thumbnail ? mediaUrl(clip.id, 'thumbnail', clip.updated_at) : undefined}
+                        src={showsSource ? mediaUrl(clip.id, 'source', cutVersion) : mediaUrl(clip.id, 'raw', clip.updated_at)}
+                        poster={!showsSource && clip.files.thumbnail ? mediaUrl(clip.id, 'thumbnail', clip.updated_at) : undefined}
                         onLoadedMetadata={(e) => {
                           const v = e.currentTarget
                           setDuration(v.duration || clip.duration_seconds)
@@ -1190,7 +1346,7 @@ function ClipEditor() {
                     ) : (
                       <video
                         ref={bgRef}
-                        src={mediaUrl(clip.id, 'source')}
+                        src={mediaUrl(clip.id, 'source', cutVersion)}
                         muted
                         playsInline
                         preload="auto"
@@ -1212,10 +1368,17 @@ function ClipEditor() {
                 </div>
               )}
 
-              <LogoOverlay src={overlaySrc} brand={brand} />
+              <LogoOverlay src={overlaySrc} brand={brand} format={format} />
 
               {/* Same component as the Remotion render (lib/presets/CaptionLayer.tsx): preview == render */}
-              <CaptionLayer words={words} time={currentTime} style={style} ai={ai} />
+              <FormatBox format={format}>
+                <CaptionLayer
+                  words={words}
+                  time={currentTime}
+                  style={formatted ? { ...style, positionY: formatCaptionY(style, ai.emojis, format) } : style}
+                  ai={ai}
+                />
+              </FormatBox>
             </div>
           </div>
 
@@ -1229,8 +1392,9 @@ function ClipEditor() {
             <span className="mc-mono" style={{ whiteSpace: 'nowrap' }}>
               {formatClock(currentTime)} <span className="mc-muted">/ {formatClock(sourceDuration)}</span>
             </span>
-            <Timeline time={currentTime} duration={sourceDuration} segments={segments} onSeek={seekTo} />
+            <Timeline time={currentTime} duration={sourceDuration} segments={segments} marks={marks} onSeek={seekTo} />
           </div>
+          {marks.length > 0 && <MarkLegend marks={marks} />}
         </Stage>
 
         {/* Style panel */}
@@ -1270,6 +1434,47 @@ function ClipEditor() {
 
             <Divider />
 
+            <PanelSection title={m.cover.title}>
+              <div className="mc-row mc-gap-12" style={{ alignItems: 'flex-start' }}>
+                {clip.files.thumbnail && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={mediaUrl(clip.id, 'thumbnail', clip.updated_at)}
+                    alt={m.cover.imageAlt}
+                    style={{ width: 54, aspectRatio: '9 / 16', objectFit: 'cover', borderRadius: 'var(--r-xs)', background: 'var(--ink)', flexShrink: 0 }}
+                  />
+                )}
+                <div className="mc-stack mc-gap-8 mc-grow" style={{ minWidth: 0 }}>
+                  <span className="mc-label">{clip.cover_time != null ? m.cover.chosen(formatClock(clip.cover_time)) : m.cover.auto}</span>
+                  <div className="mc-row mc-gap-4" style={{ flexWrap: 'wrap' }}>
+                    <Button size="sm" variant="secondary" icon={<ImagePlus size={16} />} loading={coverBusy} onClick={() => chooseCover(videoRef.current?.currentTime ?? currentTime)}>
+                      {m.cover.useFrame(formatClock(currentTime))}
+                    </Button>
+                    {clip.cover_time != null && (
+                      <>
+                        <Button size="sm" variant="ghost" onClick={() => seekTo(clip.cover_time ?? 0)}>
+                          {m.cover.show}
+                        </Button>
+                        <Button size="sm" variant="ghost" disabled={coverBusy} onClick={() => chooseCover(null)}>
+                          {m.cover.reset}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <p className="mc-caption mc-muted">{m.cover.hint}</p>
+            </PanelSection>
+
+            {detail.source_video && (
+              <>
+                <Divider />
+                <SourceSection info={detail.source_video} start={clip.start_time} end={clip.end_time} />
+              </>
+            )}
+
+            <Divider />
+
             <PanelSection
               title={m.layoutTitle}
               action={
@@ -1284,6 +1489,56 @@ function ClipEditor() {
                 )
               }
             >
+              <Field label={m.format.label} hint={m.format.hints[layout.format]}>
+                <ChoiceChips<OutputFormat>
+                  ariaLabel={m.format.label}
+                  size="sm"
+                  options={OUTPUT_FORMATS.map((value) => ({ value, label: m.format.names[value] }))}
+                  value={layout.format}
+                  onChange={(value) => setLayout({ format: value })}
+                />
+              </Field>
+              {layout.format !== 'vertical' && (
+                <>
+                  {!hasSource ? (
+                    <Alert
+                      tone="info"
+                      title={m.sourceMissingTitle}
+                      icon={<Film size={18} aria-hidden="true" />}
+                      action={
+                        <Button size="sm" variant="secondary" loading={preparing} onClick={prepareSource}>
+                          {m.prepareNow}
+                        </Button>
+                      }
+                    >
+                      {m.format.sourceMissing}
+                    </Alert>
+                  ) : (
+                    !sceneData && (
+                      <Alert
+                        tone="info"
+                        title={m.facesMissingTitle}
+                        icon={<Film size={18} aria-hidden="true" />}
+                        action={
+                          <Button size="sm" variant="secondary" loading={analyzing} onClick={prepareFaces}>
+                            {m.analyzeNow}
+                          </Button>
+                        }
+                      >
+                        {m.format.facesMissing}
+                      </Alert>
+                    )
+                  )}
+                  <ToggleSwitch
+                    label={m.format.credit}
+                    hint={m.format.creditHint}
+                    checked={layout.credit.enabled}
+                    onChange={(enabled) => setLayout({ credit: { enabled } })}
+                  />
+                </>
+              )}
+              {layout.format === 'vertical' && (
+              <>
               <ToggleSwitch
                 label={m.smart.toggle}
                 hint={m.smart.hint}
@@ -1519,6 +1774,8 @@ function ClipEditor() {
                   />
                 </>
               )}
+              </>
+              )}
               <ToggleSwitch
                 label={m.zoom}
                 hint={m.zoomHint}
@@ -1619,6 +1876,37 @@ function ClipEditor() {
 
             <Divider />
 
+            <PanelSection title={m.translate.title}>
+              {present.translation && (
+                <Alert
+                  tone="info"
+                  title={m.translate.current(m.translate.languages[present.translation.language])}
+                  icon={<Languages size={18} aria-hidden="true" />}
+                  action={
+                    <Button size="sm" variant="secondary" icon={<Undo2 size={16} />} onClick={restoreSpoken}>
+                      {m.translate.restore}
+                    </Button>
+                  }
+                >
+                  {present.translation.partial ? m.translate.partial : m.translate.kept}
+                </Alert>
+              )}
+              <SelectField
+                label={m.translate.to}
+                hint={m.translate.hint}
+                value={translateTo}
+                options={TRANSLATE_LANGUAGES.map((value) => ({ value, label: m.translate.languages[value] }))}
+                onChange={(e) => setTranslateTo(e.target.value as TranslateLanguage)}
+              />
+              <div>
+                <Button variant="secondary" size="sm" loading={translating} onClick={translate} icon={<Languages size={16} />}>
+                  {present.translation ? m.translate.again : m.translate.run}
+                </Button>
+              </div>
+            </PanelSection>
+
+            <Divider />
+
             <PanelSection title={m.aiTitle}>
               <p className="mc-caption mc-muted">{m.aiHint}</p>
               <ToggleSwitch label={m.fillerToggle} checked={ai.fillerWords} onChange={(v) => setAi({ fillerWords: v })} />
@@ -1702,6 +1990,7 @@ function ClipEditor() {
 
             <PanelSection title={m.positionTitle}>
               <CaptionPositionControls style={style} emoji={ai.emojis} onChange={(patch, key) => setStyle(patch, key)} />
+              {layout.format !== 'vertical' && <p className="mc-caption mc-muted">{m.format.positionNote}</p>}
             </PanelSection>
 
             <Divider />
@@ -1755,8 +2044,15 @@ function ClipEditor() {
               ) : (
                 <Spinner />
               )}
-              <span className="mc-label">{RENDER_STATUS[render.status]}</span>
+              <span className="mc-label">{render.reused && render.status === 'completed' ? m.reusedStatus : RENDER_STATUS[render.status]}</span>
             </div>
+            {render.reused && render.status === 'completed' && <p className="mc-caption mc-muted">{m.reusedNote}</p>}
+            {render.status === 'completed' && render.loudness && (
+              <p className="mc-caption mc-muted">{m.loudness(formatLufs(render.loudness.before), formatLufs(render.loudness.after))}</p>
+            )}
+            {render.status === 'completed' && render.format && render.quality && (
+              <p className="mc-caption mc-muted">{m.format.made(m.format.names[render.format], m.format.qualities[render.quality])}</p>
+            )}
             {renderActive && (
               <>
                 <ProgressBar value={render.progress_pct} label={m.renderProgressLabel} showValue />
@@ -1804,6 +2100,15 @@ function ClipEditor() {
         )}
       </Modal>
 
+      <RecutDialog
+        isOpen={recutOpen}
+        clip={clip}
+        sourceDuration={detail.source_video?.duration_seconds}
+        saveFirst={dirty ? () => save(true) : undefined}
+        onClose={() => setRecutOpen(false)}
+        onStarted={(job) => setRecutJob(job)}
+      />
+
       <Modal isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} title={m.shortcuts.title}>
         <KeyValueList items={shortcuts.map(([k, v]) => ({ id: k, key: v, value: <Kbd>{k}</Kbd> }))} />
       </Modal>
@@ -1819,25 +2124,6 @@ function ClipEditor() {
         onClose={() => setConfirmReset(false)}
       />
 
-      <ConfirmModal
-        isOpen={!!leaveTo}
-        title={m.unsavedTitle}
-        message={m.unsavedBody}
-        confirmLabel={m.saveAndLeave}
-        confirmIcon={<Save size={16} />}
-        cancelLabel={t.common.cancel}
-        loading={saving}
-        onConfirm={async () => {
-          if (await save(true)) router.push(leaveTo || '/clips/')
-        }}
-        onClose={() => setLeaveTo(null)}
-      >
-        <div>
-          <Button variant="danger" size="sm" icon={<Trash2 size={16} />} onClick={() => router.push(leaveTo || '/clips/')}>
-            {m.leaveWithoutSaving}
-          </Button>
-        </div>
-      </ConfirmModal>
     </div>
   )
 }
@@ -1845,6 +2131,72 @@ function ClipEditor() {
 // ---------------------------------------------------------------------------
 // Small editor parts
 // ---------------------------------------------------------------------------
+
+/**
+ * Where the clip comes from: the video's title and channel, the clip's place in it, and
+ * the YouTube link at the clip's first second to open or copy (with a credit line for the post), or the
+ * uploaded file to show in Explorer.
+ */
+function SourceSection({ info, start, end }: { info: SourceVideoInfo; start: number; end: number }) {
+  const m = useT().editor.source
+  const link = info.youtube_url_at || info.youtube_url
+  const copy = async (text: string, done: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success(done)
+    } catch {
+      toast.error(m.copyFailed)
+    }
+  }
+  const open = (url: string) => {
+    if (window.metis) window.metis.openExternal(url).catch(() => toast.error(m.openFailed))
+    else window.open(url, '_blank', 'noopener')
+  }
+  const name = info.title || (link ? m.untitled : m.uploaded)
+  return (
+    <PanelSection title={m.title}>
+      <div className="mc-stack mc-gap-4" style={{ minWidth: 0 }}>
+        <span className="mc-label" style={{ overflowWrap: 'anywhere' }}>
+          {name}
+        </span>
+        {info.channel && <span className="mc-caption mc-muted">{info.channel}</span>}
+        <span className="mc-caption mc-muted">
+          {m.range(formatClock(start), formatClock(end), info.duration_seconds ? formatClock(info.duration_seconds) : null)}
+        </span>
+      </div>
+      {link ? (
+        <div className="mc-row mc-gap-4" style={{ flexWrap: 'wrap' }}>
+          <Button size="sm" variant="secondary" icon={<ExternalLink size={16} />} onClick={() => open(link)}>
+            {m.openYoutube}
+          </Button>
+          <Button size="sm" variant="ghost" icon={<Copy size={16} />} onClick={() => copy(link, m.linkCopied)}>
+            {m.copyLink}
+          </Button>
+          <Button size="sm" variant="ghost" icon={<Quote size={16} />} onClick={() => copy(m.credit(info.channel || name, link), m.creditCopied)}>
+            {m.copyCredit}
+          </Button>
+        </div>
+      ) : info.file_path ? (
+        <div className="mc-stack mc-gap-8">
+          <span className="mc-caption mc-mono" style={{ overflowWrap: 'anywhere' }}>
+            {info.file_path}
+          </span>
+          {info.file_exists === false ? (
+            <span className="mc-caption mc-muted">{m.fileMissing}</span>
+          ) : (
+            isDesktop() && (
+              <div>
+                <Button size="sm" variant="secondary" icon={<FolderOpen size={16} />} onClick={() => window.metis?.showItemInFolder(info.file_path || '')}>
+                  {m.showFile}
+                </Button>
+              </div>
+            )
+          )}
+        </div>
+      ) : null}
+    </PanelSection>
+  )
+}
 
 function PanelSection({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
@@ -1859,10 +2211,51 @@ function PanelSection({ title, action, children }: { title: string; action?: Rea
 }
 
 /**
- * Scrub track on the stage (DESIGN.md §8.17): kept ranges in ink-line, cut ranges (fillers, pauses)
+ * Scrub track on the stage: kept ranges in ink-line, cut ranges (fillers, pauses)
  * leave the darker track visible, the playhead is a white line. ← / → seek via the editor shortcuts.
  */
-function Timeline({ time, duration, segments, onSeek }: { time: number; duration: number; segments: Segment[]; onSeek: (t: number) => void }) {
+type TimelineMark = { t: number; kind: 'keyword' | 'match' | 'problem' }
+
+/** One mark on the timeline: keywords as dots on top, search matches as bars, words to check as diamonds below */
+function MarkShape({ kind, style }: { kind: TimelineMark['kind']; style?: React.CSSProperties }) {
+  const shape: React.CSSProperties =
+    kind === 'keyword'
+      ? { width: 6, height: 6, borderRadius: 'var(--r-full)', background: 'var(--leaf)' }
+      : kind === 'match'
+        ? { width: 3, height: 16, borderRadius: 2, background: 'var(--sage)' }
+        : { width: 7, height: 7, transform: 'rotate(45deg)', boxShadow: 'inset 0 0 0 2px var(--on-ink)' }
+  return <span aria-hidden="true" style={{ display: 'inline-block', flexShrink: 0, ...shape, ...style }} />
+}
+
+/** What the timeline's marks mean (only the kinds it shows) */
+function MarkLegend({ marks }: { marks: TimelineMark[] }) {
+  const m = useT().editor
+  const kinds = (['keyword', 'match', 'problem'] as const).filter((k) => marks.some((x) => x.kind === k))
+  return (
+    <div className="mc-row mc-gap-16 mc-caption" style={{ justifyContent: 'flex-end', flexWrap: 'wrap', color: 'var(--on-ink-muted)' }}>
+      {kinds.map((k) => (
+        <span key={k} className="mc-row mc-gap-8">
+          <MarkShape kind={k} />
+          {m.marks[k]}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function Timeline({
+  time,
+  duration,
+  segments,
+  marks,
+  onSeek,
+}: {
+  time: number
+  duration: number
+  segments: Segment[]
+  marks: TimelineMark[]
+  onSeek: (t: number) => void
+}) {
   const m = useT().editor
   const track = useRef<HTMLDivElement>(null)
   const dragging = useRef(false)
@@ -1905,6 +2298,18 @@ function Timeline({ time, duration, segments, onSeek }: { time: number; duration
           key={`${s.start}-${s.end}`}
           aria-hidden="true"
           style={{ position: 'absolute', top: 0, bottom: 0, left: `${pct(s.start)}%`, width: `${pct(s.end) - pct(s.start)}%`, background: 'var(--ink-line)' }}
+        />
+      ))}
+      {marks.map((mk, i) => (
+        <MarkShape
+          key={`${mk.kind}-${i}`}
+          kind={mk.kind}
+          style={{
+            position: 'absolute',
+            left: `${pct(mk.t)}%`,
+            marginLeft: mk.kind === 'match' ? -1.5 : mk.kind === 'keyword' ? -3 : -3.5,
+            ...(mk.kind === 'keyword' ? { top: 5 } : mk.kind === 'match' ? { top: 12 } : { bottom: 5 }),
+          }}
         />
       ))}
       <span aria-hidden="true" style={{ position: 'absolute', top: 0, bottom: 0, left: `${pct(time)}%`, width: 2, marginLeft: -1, background: 'var(--on-ink)' }}>
@@ -1968,36 +2373,5 @@ function SceneStrip({ plan, duration, time, onSeek }: { plan: Scene[]; duration:
         ))}
       </div>
     </div>
-  )
-}
-
-/** Seconds input (2 decimals) committed on every valid value. */
-function TimeInput({ value, onCommit, label }: { value: number; onCommit: (v: number) => void; label: string }) {
-  const [text, setText] = useState(value.toFixed(2))
-  const focused = useRef(false)
-  useEffect(() => {
-    if (!focused.current) setText(Number(value).toFixed(2))
-  }, [value])
-  return (
-    <input
-      type="number"
-      className="mc-input mc-input--sm mc-input--mono"
-      aria-label={label}
-      step={0.05}
-      min={0}
-      value={text}
-      onClick={(e) => e.stopPropagation()}
-      onFocus={() => (focused.current = true)}
-      onBlur={() => {
-        focused.current = false
-        setText(Number(value).toFixed(2))
-      }}
-      onChange={(e) => {
-        setText(e.target.value)
-        const n = parseFloat(e.target.value)
-        if (isFinite(n) && n >= 0) onCommit(Math.round(n * 1000) / 1000)
-      }}
-      style={{ width: 80, padding: '0 8px 0 12px' }}
-    />
   )
 }

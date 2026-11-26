@@ -77,12 +77,21 @@ def strict_server():
     server.shutdown()
 
 
-def test_default_settings_have_every_provider(db):
+def test_default_settings_have_every_provider(db, secrets):
     s = get_settings()["llm"]
-    assert s["provider"] == "openai_compatible"
+    # No provider, endpoint or compatible model until the user chooses (owner decision 2026-11-20)
+    assert s["provider"] == "" and s["base_url"] == "" and s["models"]["openai_compatible"] == ""
     assert set(s["models"]) == {"openai", "anthropic", "gemini", "xai", "deepseek", "qwen", "openai_compatible"}
+    secrets.set_secret("llm_api_key", "sk-fake")
+    with pytest.raises(llm.LLMNotConfigured, match="Penyedia LLM belum dipilih"):
+        llm.target()
+    assert not llm.is_configured()
+    # The other settings save without a provider
+    assert update_settings({"cache_limit_gb": 5})["llm"]["provider"] == ""
     with pytest.raises(ValueError):
         update_settings({"llm": {"provider": "nope"}})
+    with pytest.raises(ValueError, match="Model LLM wajib diisi"):
+        update_settings({"llm": {"provider": "openai_compatible", "base_url": "https://llm.test/v1"}})
     with pytest.raises(ValueError):
         update_settings({"llm": {"provider": "openai_compatible", "base_url": "ftp://x"}})
     # Hosted providers ignore the base URL, so an empty one is fine there
@@ -132,7 +141,8 @@ def test_openai_format_adapts_refused_parameters(client, secrets, strict_server)
 
 
 def test_model_list_filters_and_sorts(client, secrets, strict_server):
-    client.put("/api/settings", json={"llm": {"provider": "openai_compatible", "base_url": strict_server}})
+    client.put("/api/settings", json={"llm": {"provider": "openai_compatible", "base_url": strict_server,
+                                              "models": {"openai_compatible": "strict-1"}}})
     secrets.set_secret("llm_api_key", "sk-fake")
     assert client.post("/api/llm/models", json={"provider": "openai_compatible"}).json() == {"models": ["model-b", "model-a"]}
     # An unsaved key / base URL from the form can be used before saving

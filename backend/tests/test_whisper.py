@@ -499,3 +499,66 @@ def test_migration_012_removes_speaker_marks_from_clips(mongo):
     finally:
         mongo.drop_database(name)
         dbm.set_db(None, None)  # type: ignore[arg-type]
+
+
+# -- Groq over HTTP (no Groq SDK is bundled) ------------------------------------------------------------
+
+
+class _GroqResp:
+    def __init__(self, status: int, body=None, text: str = ""):
+        self.status_code, self._body, self.text = status, body, text
+
+    def json(self):
+        if self._body is None:
+            raise ValueError("not json")
+        return self._body
+
+
+def test_groq_is_called_over_http_without_its_sdk(monkeypatch, db, secrets, tmp_path):
+    import importlib.util
+
+    import requests
+
+    assert importlib.util.find_spec("groq") is None  # not a requirement: the engine must not need it
+    secrets.set_secret("groq_api_key", "gsk_test")
+    audio = tmp_path / "a.mp3"
+    audio.write_bytes(b"ID3")
+    sent: list[dict] = []
+    replies: list = []
+
+    def fake_post(url, headers=None, data=None, files=None, timeout=None):
+        sent.append({"url": url, "auth": headers["Authorization"], "data": list(data), "file": files["file"][0]})
+        reply = replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setattr(whisper.time, "sleep", lambda s: None)
+    payload = {"text": "halo", "segments": [], "words": [{"word": "halo", "start": 0.0, "end": 0.4}]}
+
+    replies[:] = [_GroqResp(200, payload)]
+    assert whisper._groq_transcribe(audio, words=True) == payload
+    [req] = sent
+    assert req["url"] == whisper.GROQ_TRANSCRIBE_URL and req["auth"] == "Bearer gsk_test" and req["file"] == "a.mp3"
+    assert ("response_format", "verbose_json") in req["data"] and ("model", "whisper-large-v3-turbo") in req["data"]
+    assert [v for k, v in req["data"] if k == "timestamp_granularities[]"] == ["word", "segment"]
+
+    replies[:] = [_GroqResp(401, {"error": {}})]
+    with pytest.raises(whisper.GroqError) as err:
+        whisper._groq_transcribe(audio, words=False)
+    assert err.value.pause == 3600
+    replies[:] = [_GroqResp(429, text="rate limit")] * 4
+    with pytest.raises(whisper.GroqError) as err:
+        whisper._groq_transcribe(audio, words=False)
+    assert err.value.pause == 900 and "Kuota" in str(err.value)
+    replies[:] = [_GroqResp(413, text="too large")]
+    with pytest.raises(whisper.GroqError, match="HTTP 413"):
+        whisper._groq_transcribe(audio, words=False)
+    # A network error, then a server error, then success: retried
+    replies[:] = [requests.ConnectionError("offline"), _GroqResp(503, text="busy"), _GroqResp(200, payload)]
+    assert whisper._groq_transcribe(audio, words=False) == payload
+    replies[:] = [requests.ConnectionError("offline")] * 2
+    with pytest.raises(whisper.GroqError) as err:
+        whisper._groq_transcribe(audio, words=False, retries=1)
+    assert err.value.pause == 120 and "tidak dapat dihubungi" in str(err.value)

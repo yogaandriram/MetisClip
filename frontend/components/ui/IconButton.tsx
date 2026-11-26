@@ -31,7 +31,7 @@ export function iconButtonClass(
 
 export interface IconButtonProps extends IconButtonOwnProps, Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {}
 
-/** Round icon-only button with an aria-label and a tooltip (DESIGN.md §8.1, §8.10). */
+/** Round icon-only button with an aria-label and a tooltip. */
 export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
   { label, icon, variant, size, tooltip = 'top', className, type = 'button', ...props },
   ref,

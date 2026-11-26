@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { DESIGN_CANVAS } from './position';
+import { DESIGN_CANVAS, formatCanvas, formatTagTop, type OutputFormat } from './position';
 import { r4 } from './anim';
 import { cssWeight, primaryFamily } from './style';
 import type { CaptionWord } from './types';
@@ -8,6 +8,8 @@ import {
   HEADER_LINE_HEIGHT,
   HEADER_PAD,
   CREDIT_INSET,
+  FORMAT_BLUR,
+  FORMAT_DIM,
   SPEAKER_ROLE_SCALE,
   SPEAKER_SIDE,
   type DuoFace,
@@ -22,6 +24,8 @@ import {
   duoCrop,
   duoFaces,
   duoGeometry,
+  formatCrop,
+  formatFocus,
   podcastGeometry,
   sceneAt,
   scenePlan,
@@ -99,6 +103,20 @@ export const LayoutStage: React.FC<LayoutStageProps> = (props) => {
   const zoomed = (originX: number): React.CSSProperties =>
     scale > 1.0001 ? { transform: `scale(${r4(scale)})`, transformOrigin: `${r4(originX * 100)}% 40%` } : {};
 
+  // 1:1 and 16:9: the source cropped per shot, whatever the mode; the tag in the format's overlay box
+  if (layout.format !== 'vertical') {
+    return (
+      <>
+        <FormatBody {...props} zoom={scale} />
+        {speaker && (
+          <FormatBox format={layout.format} zIndex={3}>
+            <SpeakerTag sp={{ ...layout.speaker, y: formatTagTop(layout.speaker.y, layout.format) }} f={speaker} />
+          </FormatBox>
+        )}
+      </>
+    );
+  }
+
   let body: React.ReactNode;
   if (layout.mode === 'podcast') body = <PodcastBody {...props} zoomStyle={zoomed(layout.frame.focusX)} />;
   else if (layout.mode === 'card') body = <CardBody {...props} zoomStyle={zoomed(layout.frame.focusX)} />;
@@ -116,6 +134,107 @@ export const LayoutStage: React.FC<LayoutStageProps> = (props) => {
 };
 
 type BodyProps = LayoutStageProps & { zoomStyle: React.CSSProperties };
+
+/**
+ * A 1:1 or 16:9 canvas: source.mp4 covering it around the faces of the current shot (formatCrop), or whole
+ * over its blurred copy when the source's shape is too far from the canvas's, zoomed around the faces,
+ * with the credit in the top-left corner (the caption sits low, the logo usually top right, the speaker
+ * tag low on the left). Sizes are in design px of the format's canvas (formatCanvas).
+ */
+const FormatBody: React.FC<LayoutStageProps & { zoom: number }> = ({ layout, aspect, scenes, time = 0, channel, renderVideo, zoom }) => {
+  const canvas = formatCanvas(layout.format);
+  const unit = (px: number) => `${r4((px / canvas.width) * 100)}cqw`;
+  const focus = formatFocus(scenes, time);
+  const { rect, contain } = formatCrop(focus, aspect, layout.format);
+  const credit = creditText(layout, channel);
+  const growth = BG_OVERSCAN / BG_SCALE;
+  const zoomStyle: React.CSSProperties =
+    zoom > 1.0001 ? { transform: `scale(${r4(zoom)})`, transformOrigin: `${r4(focus.x * 100)}% ${r4(focus.y * 100)}%` } : {};
+  return (
+    <>
+      {contain && (
+        <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: '#000' }}>
+          <div
+            style={{
+              position: 'absolute',
+              left: '50%',
+              top: '50%',
+              width: `${BG_SCALE * 100}%`,
+              height: `${BG_SCALE * 100}%`,
+              transform: `translate(-50%, -50%) scale(${r4(growth)})`,
+              filter: `blur(${unit(FORMAT_BLUR / growth)})`,
+            }}
+          >
+            {renderVideo('background', COVER)}
+          </div>
+          <div style={{ position: 'absolute', inset: 0, background: `rgba(0,0,0,${FORMAT_DIM})` }} />
+        </div>
+      )}
+      <div
+        style={{
+          position: 'absolute',
+          left: `${r4((rect.left / canvas.width) * 100)}%`,
+          top: `${r4((rect.top / canvas.height) * 100)}%`,
+          width: `${r4((rect.width / canvas.width) * 100)}%`,
+          height: `${r4((rect.height / canvas.height) * 100)}%`,
+          overflow: contain ? 'hidden' : undefined,
+        }}
+      >
+        {renderVideo('main', { ...COVER, ...zoomStyle })}
+      </div>
+      {credit && (
+        <div
+          style={{
+            position: 'absolute',
+            left: unit(CREDIT_INSET.x),
+            top: unit(CREDIT_INSET.y),
+            fontFamily: '"Plus Jakarta Sans", sans-serif',
+            fontWeight: 600,
+            fontSize: unit(layout.credit.fontSize / 2),
+            lineHeight: 1.2,
+            color: layout.credit.color,
+            padding: '0.2em 0.5em',
+            borderRadius: '0.6em',
+            background: 'rgba(0,0,0,0.45)',
+            ...ELLIPSIS,
+            maxWidth: unit(canvas.width * 0.45),
+            boxSizing: 'border-box',
+            zIndex: 2,
+          }}
+        >
+          {credit}
+        </div>
+      )}
+    </>
+  );
+};
+
+/**
+ * The overlay box of a 1:1 or 16:9 canvas for the caption and the speaker tag: 300 design px wide
+ * (centered) and as tall as the 9:16 video, standing on the canvas's bottom edge (above the canvas top it
+ * is cut off). They lay out in it exactly as on 9:16 (same sizes, line widths and pages), at heights
+ * mapped by formatCaptionY and formatTagTop. 9:16: the children as they are.
+ */
+export const FormatBox: React.FC<{ format: OutputFormat; zIndex?: number; children: React.ReactNode }> = ({ format, zIndex = 10, children }) => {
+  if (format === 'vertical') return <>{children}</>;
+  const canvas = formatCanvas(format);
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left: `${r4(((canvas.width - W) / 2 / canvas.width) * 100)}%`,
+        bottom: 0,
+        width: `${r4((W / canvas.width) * 100)}%`,
+        height: `${r4((H / canvas.height) * 100)}%`,
+        containerType: 'inline-size',
+        pointerEvents: 'none',
+        zIndex,
+      }}
+    >
+      {children}
+    </div>
+  );
+};
 
 /** Background of the podcast and card modes: blurred video, image, color or gradient, then the dim. */
 const Backdrop: React.FC<BodyProps> = ({ layout, backgroundImageUrl, renderVideo, ImgComponent }) => {

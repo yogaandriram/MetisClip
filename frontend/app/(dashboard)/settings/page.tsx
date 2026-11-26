@@ -3,18 +3,20 @@
 import React, { useCallback, useEffect, useId, useState } from 'react'
 import { AppWindow, Cpu, Download, FolderOpen, HardDrive, KeyRound, Mic, Save } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { Alert, Button, Card, CardHeader, Field, IconButton, InputField, LanguageSwitch, PageHeader, SelectField, Skeleton, ToggleSwitch } from '@/components/ui'
+import { Alert, Button, Card, CardHeader, ChoiceChips, Field, IconButton, InputField, LanguageSwitch, PageHeader, SelectField, Skeleton, ToggleSwitch } from '@/components/ui'
 import { LlmSection } from '@/components/settings/LlmFields'
 import { WhisperSection } from '@/components/settings/WhisperFields'
 import { useEngine } from '@/contexts/EngineContext'
-import { api, type EncoderSetting, type ResourceStatus, type SecretName, type Settings } from '@/lib/engine'
+import { api, type EncoderSetting, type ExportQuality, type ResourceStatus, type SecretName, type Settings } from '@/lib/engine'
 import { errorMessage } from '@/lib/format'
 import { isDesktop } from '@/lib/media'
 import { getLang, localeTag, tm } from '@/lib/i18n'
 import { useT } from '@/lib/i18n/I18nProvider'
 import { useUpdateStatus } from '@/lib/updates'
+import { useUnsavedGuard } from '@/components/shell/UnsavedGuard'
 
 const ENCODERS: EncoderSetting[] = ['auto', 'libx264', 'h264_nvenc', 'h264_qsv', 'h264_amf']
+const EXPORT_QUALITIES: ExportQuality[] = ['high', 'standard', 'small']
 
 /** Fixed choices for "Keep RAM free for other apps" (0 = automatic, backend/core/resources.py) */
 const RESERVE_GB = [1, 1.5, 2, 3, 4, 6]
@@ -177,8 +179,8 @@ export default function SettingsPage() {
 
   const patch = <K extends keyof Settings>(key: K, value: Settings[K]) => setSettings((s) => (s ? { ...s, [key]: value } : s))
 
-  const saveSettings = async () => {
-    if (!settings) return
+  const saveSettings = async (): Promise<boolean> => {
+    if (!settings) return false
     setSaving(true)
     try {
       const { settings: next } = await api.settings.update({ ...settings, app: { ...settings.app, language: getLang() } })
@@ -186,12 +188,16 @@ export default function SettingsPage() {
       setSavedSettings(JSON.stringify(next))
       refreshSystemInfo()
       toast.success(m.saved)
+      return true
     } catch (err) {
       toast.error(errorMessage(err, m.saveFailed))
+      return false
     } finally {
       setSaving(false)
     }
   }
+
+  useUnsavedGuard(dirty, saveSettings)
 
   const saveLlmOnly = async () => {
     if (!settings) return
@@ -319,7 +325,7 @@ export default function SettingsPage() {
               </div>
               <SelectField
                 label={m.processing.encoder}
-                hint={encoders.length ? m.processing.encoderDetected(encoders.join(', ')) : m.processing.encoderHint}
+                hint={encoders.length ? `${m.processing.encoderHint} ${m.processing.encoderDetected(encoders.join(', '))}` : m.processing.encoderHint}
                 value={settings.processing.encoder}
                 options={encoderOptions}
                 onChange={(e) => patch('processing', { ...settings.processing, encoder: e.target.value as EncoderSetting })}
@@ -375,6 +381,17 @@ export default function SettingsPage() {
                   </button>
                 </div>
               )}
+              <InputField
+                label={m.ytdlp.playerClient}
+                hint={m.ytdlp.playerClientHint}
+                placeholder="default"
+                value={settings.ytdlp.player_client === 'default' ? '' : settings.ytdlp.player_client}
+                mono
+                spellCheck={false}
+                autoComplete="off"
+                maxLength={80}
+                onChange={(e) => patch('ytdlp', { ...settings.ytdlp, player_client: e.target.value.trim() || 'default' })}
+              />
             </div>
           )}
         </Card>
@@ -411,6 +428,21 @@ export default function SettingsPage() {
                 checked={settings.export?.post_text ?? true}
                 onChange={(v) => patch('export', { ...settings.export, post_text: v })}
               />
+              <ToggleSwitch
+                label={m.storage.loudness}
+                hint={m.storage.loudnessHint}
+                checked={settings.export?.loudness ?? true}
+                onChange={(v) => patch('export', { ...settings.export, loudness: v })}
+              />
+              <Field label={m.storage.quality} hint={m.storage.qualityHint}>
+                <ChoiceChips<ExportQuality>
+                  ariaLabel={m.storage.quality}
+                  size="sm"
+                  options={EXPORT_QUALITIES.map((value) => ({ value, label: m.storage.qualities[value] }))}
+                  value={settings.export?.quality ?? 'standard'}
+                  onChange={(v) => patch('export', { ...settings.export, quality: v })}
+                />
+              </Field>
               <div className="mc-grid">
                 <InputField
                   containerClassName="mc-col-6"
@@ -427,13 +459,13 @@ export default function SettingsPage() {
                   containerClassName="mc-col-6"
                   type="number"
                   min={0.25}
-                  max={8}
+                  max={4}
                   step={0.25}
                   label={m.storage.mongoCache}
                   hint={m.storage.mongoCacheHint}
                   value={settings.db.wiredtiger_cache_gb}
                   mono
-                  onChange={(e) => patch('db', { wiredtiger_cache_gb: Math.max(0.25, Number(e.target.value) || 0.25) })}
+                  onChange={(e) => patch('db', { wiredtiger_cache_gb: Math.min(4, Math.max(0.25, Number(e.target.value) || 0.25)) })}
                 />
               </div>
             </div>

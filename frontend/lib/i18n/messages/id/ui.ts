@@ -10,6 +10,8 @@ export const ui = {
   progress: 'Progres',
   viralScore: 'Skor viral',
   viralScoreValue: (n: number) => `Skor viral ${n}`,
+  manualClip: 'Manual',
+  manualClipTip: 'Momen pilihan sendiri, tanpa skor viral',
   recentColors: 'Terakhir dipakai',
   stepDone: 'Selesai',
   /** Top bar pill: "<n> proses berjalan" (the number is shown separately) */

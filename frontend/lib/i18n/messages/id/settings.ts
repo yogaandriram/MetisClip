@@ -22,12 +22,12 @@ export const settings = {
     title: 'Pemrosesan video',
     subtitle: 'Atur seberapa banyak sumber daya komputer yang dipakai.',
     workers: 'Worker pemrosesan paralel',
-    workersHint: 'Batas clip yang dipotong bersamaan. Naikkan jika CPU kuat.',
+    workersHint: 'Batas clip yang dipotong bersamaan. Naikkan jika CPU kuat. Berlaku untuk job berikutnya.',
     renders: 'Render paralel',
-    rendersHint: 'Jumlah render subtitle (Remotion) yang berjalan bersamaan.',
+    rendersHint: 'Jumlah ekspor video yang berjalan bersamaan. Berlaku langsung untuk ekspor yang masih menunggu. Tiap ekspor butuh 2,5 GB RAM atau lebih.',
     encoder: 'Encoder video',
     encoderDetected: (list: string) => `Terdeteksi: ${list}`,
-    encoderHint: 'Encoder hardware dipakai jika tersedia.',
+    encoderHint: 'Dipakai saat memotong dan meng-crop clip. Ekspor video dengan subtitle selalu memakai encoder CPU.',
     encoders: {
       auto: 'Otomatis (pilih yang tercepat)',
       libx264: 'CPU (libx264)',
@@ -53,6 +53,9 @@ export const settings = {
     notUsed: 'Tidak dipakai',
     pickCookies: 'Pilih file cookies.txt',
     stopCookies: 'Jangan pakai file cookies',
+    playerClient: 'Player client YouTube (lanjutan)',
+    playerClientHint:
+      'Kosongkan untuk bawaan yt-dlp. Isi jika unduhan gagal membaca format video, misalnya tv atau tv,web_safari (beberapa dipisah koma).',
   },
   storage: {
     title: 'Penyimpanan lokal',
@@ -62,6 +65,13 @@ export const settings = {
     exportFolderHint: 'Setiap hasil render otomatis disalin ke sini. Juga tujuan default saat mengekspor clip.',
     pickExport: 'Pilih folder ekspor',
     postText: 'Simpan teks posting untuk clip campaign',
+    loudness: 'Samakan volume suara (−14 LUFS)',
+    loudnessHint:
+      'Setelah render, volume tiap video disamakan dengan yang dipakai TikTok, Reels dan Shorts, jadi clip yang pelan tidak tenggelam dan yang keras tidak pecah. Gambarnya tidak diubah. Mengubah pilihan ini membuat ekspor berikutnya dirender ulang.',
+    quality: 'Kualitas ekspor',
+    qualityHint:
+      'Tinggi: file lebih besar, detail paling tajam. Standar: seimbang. Hemat: 720p, render lebih cepat dan file lebih kecil. Mengubah pilihan ini membuat ekspor berikutnya dirender ulang.',
+    qualities: { high: 'Tinggi', standard: 'Standar', small: 'Hemat (720p)' },
     postTextHint: 'Saat clip campaign diekspor, file .txt berisi judul, caption, mention, hashtag, dan label kerja sama ikut disimpan di sebelah videonya.',
     cacheLimit: 'Batas cache (GB)',
     cacheLimitHint: 'Sisa file sementara dihapus setiap MetisClip dibuka dan saat cache melebihi batas ini. File pekerjaan yang sedang berjalan tidak ikut dihapus.',
@@ -95,6 +105,8 @@ export const settings = {
   /** components/settings/LlmFields.tsx */
   llm: {
     provider: 'Penyedia LLM',
+    /** No provider is chosen by default */
+    chooseProvider: 'Pilih penyedia LLM yang kamu pakai. Kolom API key dan model muncul setelah itu.',
     /** The provider hint has an inline key icon between these two parts */
     providerHintBefore: 'Dipakai untuk menganalisis transkrip, memilih momen viral, dan menandai kata kunci/emoji. Tanda',
     providerHintAfter: 'berarti API key penyedia itu sudah tersimpan.',

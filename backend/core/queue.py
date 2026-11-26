@@ -35,6 +35,19 @@ M = i18n.messages({
 
 logger = logging.getLogger(__name__)
 
+MAX_RENDER_CONCURRENCY = 4  # the settings' upper bound (core/settings_store.py)
+GATE_RECHECK_S = 2.0  # a waiting render re-reads render.concurrency this often
+
+
+def render_limit() -> int:
+    """render.concurrency as it is set now, so a change in Pengaturan applies without a restart."""
+    try:
+        from backend.core.settings_store import get_settings
+
+        return max(1, min(MAX_RENDER_CONCURRENCY, int(get_settings()["render"]["concurrency"])))
+    except Exception:  # noqa: BLE001 - the database being briefly unreachable must not stop renders
+        return 1
+
 
 class JobRunner:
     def __init__(self) -> None:
@@ -44,12 +57,18 @@ class JobRunner:
         self._pipeline: ThreadPoolExecutor | None = None
         self._render: ThreadPoolExecutor | None = None
         self._stopping = False
+        # Renders start in the order they were queued, at most render_limit() at once
+        self._gate = threading.Condition()
+        self._render_queue: list[int] = []
+        self._render_active = 0
+        self._next_ticket = 0
 
     # -- lifecycle -------------------------------------------------------------
 
-    def start(self, render_concurrency: int = 1) -> None:
+    def start(self) -> None:
         self._pipeline = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pipeline")
-        self._render = ThreadPoolExecutor(max_workers=max(1, render_concurrency), thread_name_prefix="render")
+        # Threads for the most renders the settings allow; the gate holds them to render.concurrency
+        self._render = ThreadPoolExecutor(max_workers=MAX_RENDER_CONCURRENCY, thread_name_prefix="render")
         self._recover()
 
     def _recover(self) -> None:
@@ -64,6 +83,7 @@ class JobRunner:
             tokens = list(self._tokens.values()) + list(self._render_tokens.values())
         for t in tokens:
             t.cancel("shutdown")
+        self._wake_renders()
         threads = []
         for ex in (self._pipeline, self._render):
             if ex is not None:
@@ -114,11 +134,6 @@ class JobRunner:
         with self._lock:
             return job_id in self._tokens
 
-    def has_active_jobs(self) -> bool:
-        """True while a pipeline job is queued in this process or running."""
-        with self._lock:
-            return bool(self._tokens)
-
     # -- renders -------------------------------------------------------------------
 
     def submit_render(self, render_id: str) -> None:
@@ -129,11 +144,36 @@ class JobRunner:
             self._render_tokens[render_id] = token
         self._render.submit(self._run_render, render_id, token)
 
+    def _wait_for_render_slot(self, token: CancelToken) -> bool:
+        """Waits until this render is the oldest waiting one and fewer than render_limit() run. False when
+        it was cancelled (or the engine stops) while waiting."""
+        with self._gate:
+            ticket = self._next_ticket
+            self._next_ticket += 1
+            self._render_queue.append(ticket)
+            try:
+                while not (token.cancelled or self._stopping):
+                    if self._render_queue[0] == ticket and self._render_active < render_limit():
+                        self._render_active += 1
+                        return True
+                    self._gate.wait(GATE_RECHECK_S)
+                return False
+            finally:
+                self._render_queue.remove(ticket)
+                self._gate.notify_all()
+
     def _run_render(self, render_id: str, token: CancelToken) -> None:
         try:
-            from backend.services.render import run_render
+            if not self._wait_for_render_slot(token):
+                return
+            try:
+                from backend.services.render import run_render
 
-            run_render(render_id, token)
+                run_render(render_id, token)
+            finally:
+                with self._gate:
+                    self._render_active -= 1
+                    self._gate.notify_all()
         except Exception:
             logger.exception("Render crashed for %s", render_id)
         finally:
@@ -153,6 +193,12 @@ class JobRunner:
             token = self._render_tokens.get(render_id)
         if token:
             token.cancel("cancelled")
+            self._wake_renders()
+
+    def _wake_renders(self) -> None:
+        """Renders waiting for a slot look again now (one was cancelled, or the engine stops)."""
+        with self._gate:
+            self._gate.notify_all()
 
 
 def settle(job_message: str, render_message: str, pending: bool = False) -> None:
@@ -187,7 +233,7 @@ def settle(job_message: str, render_message: str, pending: bool = False) -> None
 
 
 def settle_restored() -> None:
-    """After a backup was restored: its running and pending work did not survive (CLAUDE.md §6.4)."""
+    """After a backup was restored: its running and pending work did not survive."""
     settle(M("restored_while_running"), M("render_restored"), pending=True)
 
 

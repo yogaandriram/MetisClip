@@ -23,6 +23,7 @@ import { presets } from './presets'
 import { campaign } from './campaign'
 import { brief } from './brief'
 import { about } from './about'
+import { help } from './help'
 
 export const id = {
   common,
@@ -43,6 +44,7 @@ export const id = {
   campaign,
   brief,
   about,
+  help,
 }
 
 export type Messages = typeof id

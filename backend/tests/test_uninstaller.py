@@ -1,4 +1,4 @@
-"""The uninstaller helper (desktop/build-resources/uninstall-data.ps1, CLAUDE.md §10.2).
+"""The uninstaller helper (desktop/build-resources/uninstall-data.ps1).
 
 It runs in Windows PowerShell 5.1 against temporary folders and a throwaway Credential Manager service,
 through the same test hooks the uninstaller honors, so the real data and keys are never reached.

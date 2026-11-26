@@ -141,3 +141,87 @@ export function moveIntoSafeArea(c: PosCfg, emoji: boolean): { positionX: number
 
 /** Limits for the position controls and dragging (design px). */
 export const POSITION_LIMITS = { x: { min: MIN_CENTER, max: W - MIN_CENTER }, y: { min: 0, max: H - 40 } };
+
+// ---------------------------------------------------------------------------------------------
+// Output formats: the 9:16 video, or a 1:1 or 16:9 one for feeds and YouTube
+// ---------------------------------------------------------------------------------------------
+
+/** 'vertical' 9:16 (every layout), 'square' 1:1 and 'landscape' 16:9 (the source video cropped per shot). */
+export type OutputFormat = 'vertical' | 'square' | 'landscape';
+export const OUTPUT_FORMATS: OutputFormat[] = ['vertical', 'square', 'landscape'];
+
+/** Output size of each format in px (the "Hemat" quality renders at 2/3 of it). */
+export const FORMAT_SIZE: Record<OutputFormat, { width: number; height: number }> = {
+  vertical: { width: 1080, height: 1920 },
+  square: { width: 1080, height: 1080 },
+  landscape: { width: 1920, height: 1080 },
+};
+
+/** CSS aspect-ratio of a format's preview box. */
+export const FORMAT_ASPECT: Record<OutputFormat, string> = { vertical: '9 / 16', square: '1 / 1', landscape: '16 / 9' };
+
+/**
+ * A format's canvas in design px, at the same px per design px as the 9:16 video (1080 / 300): text,
+ * the logo and the speaker tag keep their size in px in every format. 9:16 is DESIGN_CANVAS itself.
+ */
+export function formatCanvas(format: OutputFormat): { width: number; height: number } {
+  if (format === 'vertical') return DESIGN_CANVAS;
+  const k = W / VIDEO.width;
+  return { width: Math.round(FORMAT_SIZE[format].width * k), height: Math.round(FORMAT_SIZE[format].height * k) };
+}
+
+/** Room kept at the top and the bottom of a 1:1 or 16:9 video (share of its height). */
+export const FORMAT_MARGIN = 0.07;
+
+/**
+ * Where a height above the bottom of the 9:16 video (design px) lands in another format. The band every
+ * platform leaves free on 9:16 (from the default caption position up to the top UI line) maps onto the
+ * format's height less FORMAT_MARGIN at both ends, so the default caption sits low, a caption placed at
+ * the top stays at the top, and the space between the caption and the speaker tag is kept. 9:16: as is.
+ */
+export function formatFromBottom(d: number, format: OutputFormat): number {
+  if (format === 'vertical') return d;
+  const fh = formatCanvas(format).height;
+  const lo = DEFAULT_POSITION_Y;
+  const hi = H - SAFE.top;
+  const lo2 = FORMAT_MARGIN * fh;
+  const hi2 = fh - FORMAT_MARGIN * fh;
+  if (d <= lo) return (Math.max(0, d) / lo) * lo2;
+  if (d >= hi) return hi2 + ((Math.min(H, d) - hi) / (H - hi)) * (fh - hi2);
+  return lo2 + ((d - lo) / (hi - lo)) * (hi2 - lo2);
+}
+
+/**
+ * The caption's `positionY` inside a format's overlay box (FormatBox: 300 design px wide, as tall as the
+ * 9:16 video, standing on the format's bottom edge): its bottom edge mapped by formatFromBottom and kept
+ * under the format's top margin.
+ */
+export function formatCaptionY(c: PosCfg, emoji: boolean, format: OutputFormat): number {
+  const y = Number(c.positionY) || 0;
+  if (format === 'vertical') return y;
+  const fh = formatCanvas(format).height;
+  const top = fh - FORMAT_MARGIN * fh - captionHeight(c, emoji);
+  return Math.round(Math.max(0, Math.min(top, formatFromBottom(y, format))) * 100) / 100;
+}
+
+/** The top of a speaker tag (design px from the top of the 9:16 video) inside a format's overlay box. */
+export function formatTagTop(y: number, format: OutputFormat): number {
+  if (format === 'vertical') return y;
+  const fh = formatCanvas(format).height;
+  const fromBottom = Math.min(fh - FORMAT_MARGIN * fh, formatFromBottom(H - y, format));
+  return Math.round((H - fromBottom) * 100) / 100;
+}
+
+/**
+ * The logo's top-left in a format's canvas (design px): it keeps its distance to the nearest side and
+ * to the nearest of the top and the bottom edge, so a corner logo stays in its corner. `width` is the
+ * logo's width; its height is the same in every format, so keeping its top edge's distance to the
+ * bottom keeps its bottom edge's too.
+ */
+export function formatLogoPosition(pos: { x: number; y: number }, width: number, format: OutputFormat): { x: number; y: number } {
+  if (format === 'vertical') return pos;
+  const f = formatCanvas(format);
+  const x = pos.x + width / 2 <= W / 2 ? pos.x : f.width - (W - pos.x);
+  const y = pos.y + width / 2 <= H / 2 ? pos.y : f.height - (H - pos.y);
+  return { x: Math.max(0, Math.min(f.width - width, x)), y: Math.max(0, y) };
+}

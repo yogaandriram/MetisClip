@@ -3,7 +3,7 @@
 import React from 'react'
 import { Toaster } from 'react-hot-toast'
 
-/** Ink toasts, bottom-right (DESIGN.md §8.13). Errors stay until closed or replaced. */
+/** Ink toasts, bottom-right. Errors stay until closed or replaced. */
 export function ToastProvider() {
   return (
     <Toaster

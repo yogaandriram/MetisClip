@@ -42,7 +42,9 @@ def _today() -> date:
 def check(clip: dict[str, Any], campaign: dict[str, Any], template: dict[str, Any] | None,
           channel: str = "", *, today: date | None = None) -> dict[str, Any]:
     brief = campaign.get("brief") or {}
-    words = (clip.get("subtitle") or {}).get("words") or []
+    sub = clip.get("subtitle") or {}
+    # Words heard in the clip: the spoken ones when the subtitles are a translation
+    words = (sub.get("translation") or {}).get("original_words") or sub.get("words") or []
     text = brief_match.TextIndex(brief_match.words_text(words))
     items: list[dict[str, Any]] = []
 
@@ -70,7 +72,8 @@ def check(clip: dict[str, Any], campaign: dict[str, Any], template: dict[str, An
     lay = layout_svc.render_layout(clip, template)  # the mode picked for its content when smart
     credit = lay.get("credit") or {}
     credit_text = str(credit.get("text") or "Sumber: {channel}")
-    credit_shown = bool(credit.get("enabled")) and (lay.get("mode") or "full") != "full" and \
+    shows_credit = (lay.get("mode") or "full") != "full" or layout_svc.output_format(lay) != "vertical"
+    credit_shown = bool(credit.get("enabled")) and shows_credit and \
         ("{channel}" not in credit_text or bool(channel.strip()))
     logo = bool(((template or {}).get("brand_settings") or {}).get("overlayUrl"))
     for kind, need, present, extra in (

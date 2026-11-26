@@ -301,6 +301,12 @@ def _download(model: LocalModel, check: Callable[[], None],
             return
         part.unlink()
         have = 0
+    from backend.core import disk
+
+    try:
+        disk.check(model.size_bytes - have, warn=False)
+    except disk.DiskFull as exc:
+        raise LocalWhisperError(str(exc)) from exc
     headers = {"User-Agent": "MetisClip"}
     if have:
         headers["Range"] = f"bytes={have}-"

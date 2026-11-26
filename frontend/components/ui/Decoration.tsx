@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { cx } from '@/lib/cx'
 
 /*
- * Organic motifs (DESIGN.md §4.2). Each one has a dose cap: blob ≤ 2 per screen, contour ≤ 1,
+ * Organic motifs. Each one has a dose cap: blob ≤ 2 per screen, contour ≤ 1,
  * notch ≤ 4, tilt ≤ 1, and none of them on work screens (editor, settings, tables).
  */
 

@@ -179,6 +179,39 @@ def test_migration_008_moves_the_old_default_caption_position(mongo):
         dbm.set_db(None, None)  # type: ignore[arg-type]
 
 
+def test_feature_compatibility_follows_the_mongod_version(mongo):
+    """After a mongod major upgrade the data keeps the old FCV until it is raised; the engine raises it at start,
+    or the next upgrade would no longer start on this data."""
+    from backend.core import db as dbm
+
+    def fcv():
+        return mongo.admin.command({"getParameter": 1, "featureCompatibilityVersion": 1})["featureCompatibilityVersion"]
+
+    own = ".".join(mongo.server_info()["version"].split(".")[:2])
+    assert dbm.ensure_feature_compatibility(mongo) is None and fcv()["version"] == own  # already current
+    older = f"{int(own.split('.')[0]) - 1}.0"
+    mongo.admin.command({"setFeatureCompatibilityVersion": older, "confirm": True})
+    try:
+        assert fcv()["version"] == older
+        assert dbm.ensure_feature_compatibility(mongo) == own
+        assert fcv()["version"] == own and "targetVersion" not in fcv()
+    finally:
+        mongo.admin.command({"setFeatureCompatibilityVersion": own, "confirm": True})
+
+
+def test_windows_10_is_flagged_as_untested():
+    from types import SimpleNamespace as V
+
+    from backend.api.routes.system import windows_item
+
+    w11 = windows_item(V(major=10, minor=0, build=26100, product_type=1))
+    assert w11["ok"] and w11["version"] == "Windows 11 (build 26100)" and w11["detail"] is None
+    w10 = windows_item(V(major=10, minor=0, build=19045, product_type=1))
+    assert not w10["ok"] and w10["version"] == "Windows 10 (build 19045)" and "Windows 11" in w10["detail"]
+    assert windows_item(V(major=10, minor=0, build=20348, product_type=3))["ok"]  # Windows Server 2022
+    assert not windows_item(V(major=10, minor=0, build=17763, product_type=3))["ok"]  # Server 2019
+
+
 def test_auth_required(db):
     from backend.main import create_app
 
@@ -201,6 +234,7 @@ def test_campaign_is_the_container(client, db, paths):
     templates = client.get("/api/brand-templates").json()["brand_templates"]
     assert len(templates) == 3 and all(t["is_default"] for t in templates)
     assert {t["campaign_id"] for t in templates} == {a["id"], b["id"], other["id"]}
+    assert client.get("/api/dashboard/stats").json()["firstSteps"] == {"job": False, "clip": False, "export": False}
 
     # Clips and jobs: the job that follows only `a` goes with it, the shared one keeps following `other`
     only_a = JobDoc(_id=new_id(), source=JobSource(type="url", youtube_url="https://youtu.be/abcdefghijk"), config=JobConfig(),
@@ -222,6 +256,13 @@ def test_campaign_is_the_container(client, db, paths):
             clip_ids.append(clip_id)
     assert client.get("/api/dashboard/stats", params={"campaign_id": a["id"]}).json()["clipsGenerated"] == 2
     assert client.get("/api/dashboard/stats").json()["clipsGenerated"] == 3
+    # The first-steps guide counts every campaign, and an export is a finished render
+    steps = client.get("/api/dashboard/stats", params={"campaign_id": b["id"]}).json()["firstSteps"]
+    assert steps == {"job": True, "clip": True, "export": False}
+    db.render_jobs.insert_one({"_id": new_id(), "clip_id": clip_ids[0], "status": "completed", "created_at": utcnow()})
+    assert client.get("/api/dashboard/stats").json()["firstSteps"]["export"] is True
+    db.clips.update_one({"_id": clip_ids[0]}, {"$set": {"status": "exported"}})
+    assert client.get("/api/dashboard/stats", params={"campaign_id": a["id"]}).json()["clipsReady"] == 1
     storage = client.get("/api/system/storage").json()
     assert [c["name"] for c in storage["per_campaign"]] == ["Podcast Bisnis", "Podcast Bisnis", "Lain"]
     assert storage["per_campaign"][0]["bytes"] == 2
@@ -339,6 +380,115 @@ def test_job_sources_are_validated(client, tmp_path):
     # Without a transcription engine outside dev: see test_whisper.test_upload_jobs_need_a_transcription_engine
 
 
+def test_a_job_can_take_the_moments_the_user_chose(client, monkeypatch):
+    from backend.api.routes import jobs as jobs_route
+
+    monkeypatch.setattr(jobs_route.runner, "submit_job", lambda job_id: None)
+    camp = client.post("/api/campaigns", json={"name": "Momen"}).json()["campaign"]
+
+    def post(ranges, **extra):
+        return client.post("/api/jobs", json={"campaign_ids": [camp["id"]], "youtube_url": "https://youtu.be/abcdefghijk",
+                                              "manual_ranges": ranges, **extra})
+
+    r = post([{"start": 10, "end": 8}])
+    assert r.status_code == 400 and r.json()["detail"] == "Momen 1: waktu selesai harus setelah waktu mulai"
+    r = post([{"start": 0, "end": 30}, {"start": 40, "end": 42}])
+    assert r.status_code == 400 and "Momen 2: panjang klip harus antara 5 dan 180 detik" == r.json()["detail"]
+    assert post([{"start": 0, "end": 30}] * 21).status_code == 422  # more than the 20 the engine takes
+    r = post([{"start": 75.5, "end": 120}], snap_edges=False)
+    assert r.status_code == 200, r.text
+    job = r.json()["job"]
+    assert job["kind"] == "manual" and job["recut_clip_id"] is None
+    assert job["config"]["manual_ranges"] == [{"start": 75.5, "end": 120.0}] and job["config"]["snap_edges"] is False
+    # Without ranges it is the usual Analyzer job
+    r = client.post("/api/jobs", json={"campaign_ids": [camp["id"]], "youtube_url": "https://youtu.be/abcdefghijk"})
+    assert r.json()["job"]["kind"] == "ai"
+
+
+def test_several_links_make_one_job_per_video(client, monkeypatch):
+    from backend.api.routes import jobs as jobs_route
+
+    monkeypatch.setattr(jobs_route.runner, "submit_job", lambda job_id: None)
+    camp = client.post("/api/campaigns", json={"name": "Banyak"}).json()["campaign"]
+    base = {"campaign_ids": [camp["id"]], "clip_duration": "30-45", "max_clips": 2, "note": "fokus tanya jawab"}
+    links = ["https://youtu.be/aaaaaaaaaaa", "https://www.youtube.com/watch?v=bbbbbbbbbbb&list=PLxyz1234567",
+             "https://www.youtube.com/watch?v=aaaaaaaaaaa"]  # the first video twice
+    r = client.post("/api/jobs", json={**base, "youtube_urls": links})
+    assert r.status_code == 200, r.text
+    jobs = r.json()["jobs"]
+    assert [j["source"]["youtube_url"] for j in jobs] == links[:2] and r.json()["job"]["id"] == jobs[0]["id"]
+    assert all(j["config"]["clip_duration"] == "30-45" and j["note"] == "fokus tanya jawab" for j in jobs)
+    r = client.post("/api/jobs", json={**base, "youtube_urls": [links[0], "https://example.com/x"]})
+    assert r.status_code == 400 and r.json()["detail"] == "Link 2 bukan link video YouTube"
+    r = client.post("/api/jobs", json={**base, "youtube_urls": links[:2], "manual_ranges": [{"start": 0, "end": 30}]})
+    assert r.status_code == 400 and r.json()["detail"].startswith("Momen pilihan sendiri hanya bisa untuk satu video")
+    many = [f"https://youtu.be/{i:011d}" for i in range(51)]
+    assert client.post("/api/jobs", json={**base, "youtube_urls": many}).json()["detail"] == "Maksimal 50 video sekaligus"
+
+
+def test_find_more_clips_starts_the_same_job_again(client, db, monkeypatch):
+    from backend.api.routes import jobs as jobs_route
+
+    monkeypatch.setattr(jobs_route.runner, "submit_job", lambda job_id: None)
+    camp = client.post("/api/campaigns", json={"name": "Lagi"}).json()["campaign"]
+    other = client.post("/api/campaigns", json={"name": "Arsip"}).json()["campaign"]
+    body = {"campaign_ids": [camp["id"], other["id"]], "youtube_url": "https://youtu.be/ccccccccccc",
+            "clip_duration": "60-75", "max_clips": 4, "note": "bagian akhir", "smart_layout": True}
+    first = client.post("/api/jobs", json=body).json()["job"]
+    assert client.post(f"/api/jobs/{first['id']}/again").status_code == 409  # still pending
+    db.discovery_jobs.update_one({"_id": first["id"]}, {"$set": {"status": "completed"}})
+    client.put(f"/api/campaigns/{other['id']}", json={"status": "archived"})
+    r = client.post(f"/api/jobs/{first['id']}/again")
+    assert r.status_code == 200, r.text
+    again = r.json()["job"]
+    assert again["id"] != first["id"] and again["status"] == "pending" and again["kind"] == "ai"
+    assert again["source"]["youtube_url"] == body["youtube_url"] and again["note"] == "bagian akhir"
+    assert again["config"]["clip_duration"] == "60-75" and again["config"]["max_clips_per_video"] == 4
+    assert again["config"]["smart_layout"] is True
+    assert again["campaign_ids"] == [camp["id"]]  # the archived campaign is left out
+    # Not for the moments the user chose
+    manual = client.post("/api/jobs", json={**body, "campaign_ids": [camp["id"]],
+                                           "manual_ranges": [{"start": 10, "end": 40}]}).json()["job"]
+    db.discovery_jobs.update_one({"_id": manual["id"]}, {"$set": {"status": "completed"}})
+    assert client.post(f"/api/jobs/{manual['id']}/again").status_code == 400
+    client.put(f"/api/campaigns/{camp['id']}", json={"status": "archived"})
+    r = client.post(f"/api/jobs/{first['id']}/again")
+    assert r.status_code == 400 and "diarsipkan" in r.json()["detail"]
+
+
+def test_a_playlist_lists_its_videos(client, monkeypatch):
+    import json
+
+    from backend.agents.tools import ytdlp
+
+    calls: list[list[str]] = []
+    entries = [{"id": "ddddddddddd", "title": "Episode 1", "duration": 3600.0, "channel": "Podcast"},
+               {"id": "eeeeeeeeeee", "title": "[Private video]", "duration": None},
+               {"id": "fffffffffff", "title": "Episode 2", "duration": None, "uploader": "Podcast"}]
+
+    def fake_run(args, cancel, timeout):
+        calls.append(args)
+        return json.dumps({"title": "Musim 1", "channel": "Podcast", "entries": entries})
+
+    monkeypatch.setattr(ytdlp, "_run", fake_run)
+    r = client.post("/api/jobs/playlist", json={"url": "https://www.youtube.com/watch?v=ddddddddddd&list=PLabcdefghij12"})
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["playlist_id"] == "PLabcdefghij12" and data["title"] == "Musim 1" and data["more"] is False
+    assert [(e["youtube_id"], e["title"], e["duration_seconds"]) for e in data["entries"]] == [
+        ("ddddddddddd", "Episode 1", 3600.0), ("fffffffffff", "Episode 2", None)]
+    assert data["entries"][1]["youtube_url"] == "https://www.youtube.com/watch?v=fffffffffff"
+    [args] = calls
+    assert "--flat-playlist" in args and "--no-playlist" not in args
+    assert args[-1] == "https://www.youtube.com/playlist?list=PLabcdefghij12"
+    # Only the first 50, and it says there are more
+    entries[:] = [{"id": f"{i:011d}", "title": f"V{i}", "duration": 60} for i in range(60)]
+    data = client.post("/api/jobs/playlist", json={"url": "https://www.youtube.com/playlist?list=PLabcdefghij12"}).json()
+    assert len(data["entries"]) == 50 and data["more"] is True
+    r = client.post("/api/jobs/playlist", json={"url": "https://youtu.be/ddddddddddd"})
+    assert r.status_code == 400 and "bukan link playlist" in r.json()["detail"]
+
+
 def test_files_route_blocks_private_dirs(client, paths):
     (paths.private_dir / "db-credentials.json").write_text("{}")
     (paths.library_dir / "ok.txt").write_text("hi")
@@ -362,6 +512,21 @@ def test_settings_roundtrip(client):
     assert "unknown" not in s
     assert client.put("/api/settings", json={"processing": {"max_workers": 99}}).status_code == 400
 
+
+
+def test_mongod_cache_size_reaches_the_file_electron_reads(client):
+    """Electron starts mongod before the database is readable, so the engine mirrors the cache size into
+    <DATA_ROOT>/.metisclip/mongod.json (capped at 4 GB like the validation)."""
+    import json
+
+    from backend.core.paths import get_paths
+
+    target = get_paths().private_dir / "mongod.json"
+    assert client.put("/api/settings", json={"db": {"wiredtiger_cache_gb": 1.5}}).status_code == 200
+    assert json.loads(target.read_text(encoding="utf-8")) == {"wiredtiger_cache_gb": 1.5}
+    client.put("/api/settings", json={"db": {"wiredtiger_cache_gb": 9}})
+    assert json.loads(target.read_text(encoding="utf-8")) == {"wiredtiger_cache_gb": 4.0}
+    client.put("/api/settings", json={"db": {"wiredtiger_cache_gb": 0.25}})
 
 def test_secret_values_are_only_returned_on_reveal(client):
     assert client.put("/api/secrets/groq_api_key", json={"value": "gsk_abcdefghijklmnop"}).status_code == 200
@@ -411,3 +576,112 @@ def test_system_resources_and_setting(client):
     assert st["auto"] is False and st["reserve_mb"] == 2048
     assert client.put("/api/settings", json={"resources": {"reserve_gb": 99}}).status_code in (400, 422)
     client.put("/api/settings", json={"resources": {"auto": True, "reserve_gb": 0}})
+
+
+def test_ytdlp_player_client_is_validated(client):
+    s = client.put("/api/settings", json={"ytdlp": {"player_client": " TV, web_safari "}}).json()["settings"]
+    assert s["ytdlp"]["player_client"] == "tv,web_safari"
+    s = client.put("/api/settings", json={"ytdlp": {"player_client": ""}}).json()["settings"]
+    assert s["ytdlp"]["player_client"] == "default"
+    for bad in ("tv;rm", "web=1", "a" * 81):
+        assert client.put("/api/settings", json={"ytdlp": {"player_client": bad}}).status_code == 400
+    client.put("/api/settings", json={"ytdlp": {"player_client": "default"}})
+
+
+def test_render_concurrency_applies_without_a_restart(db, monkeypatch):
+    """Renders wait in queue order for a slot; raising render.concurrency in Pengaturan lets a waiting one
+    start at once, and a cancelled waiting render leaves the queue."""
+    import threading
+    import time
+
+    from backend.core import queue as q
+    from backend.core.settings_store import update_settings
+    from backend.services import render as render_service
+
+    started: list[str] = []
+    release = threading.Event()
+
+    def fake_run_render(render_id, token):
+        started.append(render_id)
+        release.wait(10)
+
+    monkeypatch.setattr(render_service, "run_render", fake_run_render)
+    monkeypatch.setattr(q, "GATE_RECHECK_S", 0.05)
+    update_settings({"render": {"concurrency": 1}})
+    r = q.JobRunner()
+    r._render = q.ThreadPoolExecutor(max_workers=q.MAX_RENDER_CONCURRENCY)
+
+    def wait_for(cond, timeout=3.0):
+        end = time.monotonic() + timeout
+        while time.monotonic() < end and not cond():
+            time.sleep(0.02)
+        return cond()
+
+    try:
+        for rid in ("r1", "r2", "r3"):
+            r.submit_render(rid)
+        assert wait_for(lambda: started == ["r1"])
+        time.sleep(0.2)
+        assert started == ["r1"]  # one slot
+        r.cancel_render("r2")  # not in render_jobs: only its token is cancelled
+        update_settings({"render": {"concurrency": 2}})
+        assert wait_for(lambda: started == ["r1", "r3"])
+    finally:
+        release.set()
+        r._render.shutdown(wait=True)
+        update_settings({"render": {"concurrency": 1}})
+
+
+def test_job_output_in_the_queue(client, db, paths, tmp_path):
+    """Antrian shows what a job made and opens the folder of its newest exported video that still exists,
+    and every rendered clip carries its export file name for dragging it out of the gallery."""
+    from datetime import timedelta
+
+    from backend.models.documents import ClipDoc, JobConfig, JobDoc, JobSource
+
+    camp = client.post("/api/campaigns", json={"name": "Keluaran"}).json()["campaign"]
+    slug = db.campaigns.find_one({"_id": camp["id"]})["slug"]
+    job = JobDoc(_id=new_id(), source=JobSource(type="url", youtube_url="https://youtu.be/abcdefghijk"), config=JobConfig(),
+                 campaign_ids=[camp["id"]], status="completed").to_mongo()
+    empty = JobDoc(_id=new_id(), source=JobSource(type="url", youtube_url="https://youtu.be/abcdefghijk"), config=JobConfig(),
+                   campaign_ids=[camp["id"]], status="failed").to_mongo()
+    db.discovery_jobs.insert_many([job, empty])
+    clips = []
+    for i in range(3):
+        clip_id = new_id()
+        folder = paths.clip_dir(slug, clip_id)
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "raw.mp4").write_bytes(b"v")
+        files = {"raw": paths.to_relative(folder / "raw.mp4")}
+        if i < 2:
+            (folder / "final.mp4").write_bytes(b"f")
+            files["final"] = paths.to_relative(folder / "final.mp4")
+        db.clips.insert_one(ClipDoc(_id=clip_id, campaign_id=camp["id"], job_id=job["_id"], source_video_id=None, youtube_id="x",
+                                    start_time=0, end_time=10, duration_seconds=10, status="ready", hook_text=f"Momen {i}?",
+                                    files=files, final_render={"format": "square"} if i == 1 else None).to_mongo())
+        clips.append(clip_id)
+
+    exports = tmp_path / "ekspor"
+    exports.mkdir()
+    old, new = exports / "Momen 0.mp4", exports / "Momen 1 1x1.mp4"
+    old.write_bytes(b"f")
+    t0 = utcnow()
+    db.render_jobs.insert_many([
+        {"_id": new_id(), "clip_id": clips[0], "status": "completed", "exported_path": str(old), "created_at": t0,
+         "finished_at": t0},
+        # A newer export whose copy is gone, a render whose copy failed, and a failed render
+        {"_id": new_id(), "clip_id": clips[1], "status": "completed", "exported_path": str(new), "created_at": t0,
+         "finished_at": t0 + timedelta(minutes=5)},
+        {"_id": new_id(), "clip_id": clips[0], "status": "completed", "exported_path": None, "export_error": "x",
+         "created_at": t0, "finished_at": t0 + timedelta(minutes=9)},
+        {"_id": new_id(), "clip_id": clips[2], "status": "failed", "created_at": t0},
+    ])
+
+    listed = {j["id"]: j["output"] for j in client.get("/api/jobs").json()["jobs"]}
+    assert listed[job["_id"]] == {"clips": 3, "exported": 2, "export_file": str(old)}
+    assert listed[empty["_id"]] == {"clips": 0, "exported": 0, "export_file": None}
+    new.write_bytes(b"f")
+    assert client.get(f"/api/jobs/{job['_id']}").json()["job"]["output"]["export_file"] == str(new)
+
+    names = {c["id"]: c["export_name"] for c in client.get("/api/clips", params={"campaign_id": camp["id"]}).json()["clips"]}
+    assert names == {clips[0]: f"Momen 0 - {clips[0][:8]}.mp4", clips[1]: f"Momen 1 - {clips[1][:8]} 1x1.mp4", clips[2]: None}

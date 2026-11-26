@@ -2,7 +2,8 @@
 
 import React, { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { ArrowRight, ArrowUpRight, Clapperboard, Film, KeyRound, Plus } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, Clapperboard, Film, KeyRound, LifeBuoy, Plus, X } from 'lucide-react'
+import toast from 'react-hot-toast'
 import {
   Alert,
   Badge,
@@ -13,6 +14,7 @@ import {
   Contour,
   EmptyState,
   GooPair,
+  IconButton,
   Notch,
   PageHeader,
   ProgressBar,
@@ -24,6 +26,8 @@ import {
   iconButtonClass,
 } from '@/components/ui'
 import { NoCampaignState } from '@/components/NoCampaignState'
+import { FIRST_STEPS, FirstSteps, firstStepsDone, type FirstStepsState } from '@/components/help/FirstSteps'
+import { useShell } from '@/components/shell/ShellContext'
 import { useCampaign } from '@/contexts/CampaignContext'
 import { useEngine } from '@/contexts/EngineContext'
 import { useEngineEvents } from '@/hooks/useEngineEvents'
@@ -36,6 +40,8 @@ import { tm, type Messages } from '@/lib/i18n'
 import { useT } from '@/lib/i18n/I18nProvider'
 
 const LATEST_CLIPS = 6
+/** Per viewer: the first-steps guide was hidden (the Setup Wizard's end shows it again) */
+const GUIDE_HIDDEN_KEY = 'metisclip.firstStepsHidden'
 
 function summary(t: Messages, ready: number | null, running: number | null, failed: boolean): string {
   const m = t.dashboard
@@ -55,13 +61,42 @@ export default function DashboardOverview() {
   const [jobs, setJobs] = useState<Job[] | null>(null)
   const [clips, setClips] = useState<Clip[] | null>(null)
   const [missingKeys, setMissingKeys] = useState<SecretName[]>([])
-  const [llmLabel, setLlmLabel] = useState('LLM')
+  const [llmLabel, setLlmLabel] = useState('')
+  const [llmReady, setLlmReady] = useState<boolean | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const shell = useShell()
+  // The first-steps guide: hidden until the viewer's choice is read; `?welcome=1` comes from the Setup Wizard
+  const [guideHidden, setGuideHidden] = useState(true)
+  const [welcome, setWelcome] = useState(false)
+
+  useEffect(() => {
+    const isWelcome = new URLSearchParams(window.location.search).get('welcome') === '1'
+    let hidden = false
+    try {
+      if (isWelcome) window.localStorage.removeItem(GUIDE_HIDDEN_KEY)
+      else hidden = window.localStorage.getItem(GUIDE_HIDDEN_KEY) === '1'
+    } catch {
+      // Storage blocked: the guide shows
+    }
+    setWelcome(isWelcome)
+    setGuideHidden(hidden)
+    if (isWelcome) window.history.replaceState(window.history.state, '', window.location.pathname)
+  }, [])
+
+  const hideGuide = () => {
+    try {
+      window.localStorage.setItem(GUIDE_HIDDEN_KEY, '1')
+    } catch {
+      // Hidden for this visit only
+    }
+    setGuideHidden(true)
+    toast(tm().help.firstSteps.hidden)
+  }
 
   const load = useCallback(async (id: string) => {
     setError(null)
     try {
-      const [s, j, c] = await Promise.all([api.dashboard.stats(id), api.jobs.list({ campaign_id: id, limit: 5 }), api.clips.list({ campaign_id: id })])
+      const [s, j, c] = await Promise.all([api.dashboard.stats(id), api.jobs.list({ campaign_id: id, limit: 5 }), api.clips.list({ campaign_id: id, limit: LATEST_CLIPS })])
       setStats(s)
       setJobs(j.jobs.slice(0, 5))
       setClips(c.clips)
@@ -80,13 +115,19 @@ export default function DashboardOverview() {
   useEffect(() => {
     Promise.all([api.secrets.status(), api.settings.get()])
       .then(([{ secrets }, { settings }]) => {
-        const llmKey = providerInfo(settings.llm.provider).secret
-        setLlmLabel(providerInfo(settings.llm.provider).label)
+        // No provider chosen yet: the warning asks for one (its key is the placeholder in the list)
+        const info = providerInfo(settings.llm.provider)
+        const llmKey: SecretName = info?.secret ?? 'llm_api_key'
+        setLlmLabel(info?.label ?? '')
+        setLlmReady(!!info && !!secrets[llmKey])
         // Groq is only required when transcription is set to "Selalu Groq"; otherwise local Whisper covers it
         const required: SecretName[] = settings.whisper.provider === 'groq' ? [llmKey, 'groq_api_key'] : [llmKey]
-        setMissingKeys(required.filter((k) => !secrets[k]))
+        setMissingKeys(required.filter((k) => !secrets[k] || (k === llmKey && !info)))
       })
-      .catch(() => setMissingKeys([]))
+      .catch(() => {
+        setMissingKeys([])
+        setLlmReady(false)
+      })
   }, [epoch])
 
   useEngineEvents((e) => {
@@ -95,6 +136,9 @@ export default function DashboardOverview() {
       setJobs((prev) => prev?.map((j) => (j.id === e.id ? { ...j, status: e.status, current_step: e.current_step, progress_pct: e.progress_pct, total_scenes: e.total_scenes, processed_scenes: e.processed_scenes } : j)) ?? prev)
     } else if (e.type === 'job.status' || e.type === 'clip.created' || e.type === 'clip.deleted') {
       if (e.type === 'clip.deleted' || eventForCampaign(e, campaignId)) load(campaignId)
+    } else if (e.type === 'render.status' && e.status === 'completed' && stats && !stats.firstSteps.export) {
+      // The guide's last step
+      load(campaignId)
     }
   })
 
@@ -107,17 +151,41 @@ export default function DashboardOverview() {
     )
   }
 
-  const readyCount = clips ? clips.filter((c) => c.status === 'ready').length : null
+  const readyCount = stats ? stats.clipsReady : null
   const activeJobs = jobs ? jobs.filter((j) => ACTIVE_JOB_STATUSES.includes(j.status)) : null
   const heroJob = activeJobs ? activeJobs.find((j) => j.status === 'running') || activeJobs[0] || null : null
   const latestClips = clips ? clips.slice(0, LATEST_CLIPS) : null
+
+  const guide: FirstStepsState | null = stats && llmReady !== null ? { campaign: true, ai: llmReady, ...stats.firstSteps } : null
+  const guideDone = guide ? firstStepsDone(guide) : 0
+  const showGuide = !!guide && !guideHidden && guideDone < FIRST_STEPS.length
+  // The guide's "Hubungkan AI" step covers a missing LLM key; the warning stays for the Groq key
+  const showKeys = missingKeys.length > 0 && !(showGuide && missingKeys.every((k) => k !== 'groq_api_key'))
 
   return (
     <>
       <PageHeader title={activeCampaign.name} subtitle={summary(t, readyCount, activeJobs ? activeJobs.length : null, !!error)} />
 
       <div className="mc-stack mc-gap-32">
-        {missingKeys.length > 0 && (
+        {showGuide && guide && (
+          <Card tone="dew">
+            <CardHeader
+              title={welcome ? t.help.firstSteps.welcomeTitle : t.help.firstSteps.title}
+              subtitle={t.help.firstSteps.progress(guideDone, FIRST_STEPS.length)}
+              action={
+                <div className="mc-row mc-gap-8">
+                  <ButtonLink href="/help/" variant="ghost" size="sm" icon={<LifeBuoy size={16} aria-hidden="true" />}>
+                    {t.help.firstSteps.openHelp}
+                  </ButtonLink>
+                  <IconButton variant="ghost" size="sm" tooltip="end" label={t.help.firstSteps.hide} icon={<X size={16} />} onClick={hideGuide} />
+                </div>
+              }
+            />
+            <FirstSteps state={guide} running={(shell?.activeJobs ?? 0) > 0} />
+          </Card>
+        )}
+
+        {showKeys && (
           <Alert
             tone="warning"
             icon={<KeyRound size={18} />}
@@ -128,7 +196,7 @@ export default function DashboardOverview() {
               </ButtonLink>
             }
           >
-            {m.keys.missing(missingKeys.map((k) => (k === 'groq_api_key' ? m.keys.groq : m.keys.llm(llmLabel))))}
+            {m.keys.missing(missingKeys.map((k) => (k === 'groq_api_key' ? m.keys.groq : llmLabel ? m.keys.llm(llmLabel) : m.keys.noProvider)))}
           </Alert>
         )}
 
@@ -213,7 +281,7 @@ export default function DashboardOverview() {
                       <img src={mediaUrl(clip.id, 'thumbnail', clip.updated_at)} alt="" loading="lazy" />
                     )}
                     <span className="mc-thumb__corner mc-thumb__corner--tl">
-                      <ScoreBadge score={clip.viral_score} size="sm" />
+                      <ScoreBadge score={clip.viral_score} size="sm" manual={clip.origin === 'manual'} />
                     </span>
                     <span className="mc-thumb__corner mc-thumb__corner--br">
                       <Badge tone="ink" size="sm">

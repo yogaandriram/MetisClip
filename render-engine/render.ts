@@ -3,7 +3,8 @@
  *
  *   <node|MetisClip.exe> dist/render.js --props <props.json> --out <out.mp4>
  *       [--bundle <dir>] [--browser <chrome-headless-shell.exe>] [--concurrency <n|50%>] [--gl angle]
- *       [--media-cache-mb <n>] [--encoder-threads <n>]
+ *       [--media-cache-mb <n>] [--encoder-threads <n>] [--crf <n>] [--scale <0.25-1>] [--jpeg-quality <n>]
+ *   (--crf, --scale and --jpeg-quality: the export quality Pengaturan picks, backend/services/render.py)
  *   env: ELECTRON_RUN_AS_NODE=1 when the executable is Electron.
  *
  * stdout carries JSON lines ONLY:
@@ -17,7 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 /*
- * Memory guard (CLAUDE.md §1.5: 8 GB laptops). Remotion's defaults are about half the CPU threads as
+ * Memory guard (8 GB laptops). Remotion's defaults are about half the CPU threads as
  * parallel Chrome tabs and an OffthreadVideo frame cache of up to half the free RAM, which can push the
  * machine into memory pressure. Cap both. The engine sizes each render to the RAM free when it starts
  * (backend/core/resources.py) and passes --concurrency, --media-cache-mb and --encoder-threads.
@@ -108,6 +109,9 @@ interface Args {
   gl: string;
   mediaCacheMb: number;
   encoderThreads: number | null;
+  crf: number;
+  scale: number;
+  jpegQuality: number;
 }
 
 const ROOT = path.resolve(__dirname, '..');
@@ -127,7 +131,7 @@ function parseArgs(argv: string[]): Args {
       i++;
     }
   }
-  const known = new Set(['props', 'out', 'bundle', 'browser', 'concurrency', 'gl', 'media-cache-mb', 'encoder-threads']);
+  const known = new Set(['props', 'out', 'bundle', 'browser', 'concurrency', 'gl', 'media-cache-mb', 'encoder-threads', 'crf', 'scale', 'jpeg-quality']);
   for (const k of map.keys()) if (!known.has(k)) throw new Error(`Argumen tidak dikenal: --${k}`);
   if (!map.get('props')) throw new Error('Argumen --props wajib diisi');
   if (!map.get('out')) throw new Error('Argumen --out wajib diisi');
@@ -141,6 +145,13 @@ function parseArgs(argv: string[]): Args {
     if (!/^\d+$/.test(v) || Number(v) < 1) throw new Error(`Argumen --${name} harus bilangan bulat positif`);
     return Number(v);
   };
+  const ranged = (name: string, min: number, max: number, fallback: number): number => {
+    const v = map.get(name);
+    if (v === undefined) return fallback;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < min || n > max) throw new Error(`Argumen --${name} harus angka ${min}-${max}`);
+    return n;
+  };
 
   return {
     props: path.resolve(map.get('props')!),
@@ -151,6 +162,9 @@ function parseArgs(argv: string[]): Args {
     gl: map.get('gl') || 'angle',
     mediaCacheMb: positive('media-cache-mb') ?? DEFAULT_MEDIA_CACHE_MB,
     encoderThreads: positive('encoder-threads'),
+    crf: Math.round(ranged('crf', 1, 51, 18)),
+    scale: ranged('scale', 0.25, 1, 1),
+    jpegQuality: Math.round(ranged('jpeg-quality', 50, 100, 90)),
   };
 }
 
@@ -207,7 +221,7 @@ async function main(): Promise<void> {
   const concurrency = args.concurrency ?? defaultConcurrency();
   const mediaCacheBytes = args.mediaCacheMb * 1024 * 1024;
   process.stderr.write(
-    `[render] concurrency ${concurrency}, media cache ${args.mediaCacheMb} MB, encoder threads ${args.encoderThreads ?? 'auto'}, free RAM ${(os.freemem() / GB).toFixed(1)} GB\n`,
+    `[render] concurrency ${concurrency}, media cache ${args.mediaCacheMb} MB, encoder threads ${args.encoderThreads ?? 'auto'}, crf ${args.crf}, scale ${args.scale}, free RAM ${(os.freemem() / GB).toFixed(1)} GB\n`,
   );
 
   const composition = await selectComposition({
@@ -232,11 +246,13 @@ async function main(): Promise<void> {
     composition,
     serveUrl: args.bundle,
     codec: 'h264',
-    crf: 18,
+    crf: args.crf,
+    // "Hemat": 2/3 of the composition's size (1080x1920 -> 720x1280), fewer pixels to capture and encode
+    scale: args.scale,
     pixelFormat: 'yuv420p',
     colorSpace: 'bt709',
     imageFormat: 'jpeg',
-    jpegQuality: 90,
+    jpegQuality: args.jpegQuality,
     audioCodec: 'aac',
     audioBitrate: '192k',
     outputLocation: args.out,
@@ -260,7 +276,16 @@ async function main(): Promise<void> {
 
   if (!fs.existsSync(args.out) || fs.statSync(args.out).size === 0) throw new Error('File hasil render tidak terbentuk');
   progress('encoding', 1, true);
-  emit({ type: 'done', output: args.out });
+  // The output frame of the chosen cover and the kept frames (calculateMetadata): the engine takes the
+  // cover from the video, now or for a cover chosen later without another render
+  const { coverFrame, keptFrames } = composition.props as { coverFrame?: unknown; keptFrames?: unknown };
+  emit({
+    type: 'done',
+    output: args.out,
+    cover_frame: typeof coverFrame === 'number' ? coverFrame : null,
+    frames: Array.isArray(keptFrames) ? keptFrames : null,
+    total_frames: composition.durationInFrames,
+  });
 }
 
 main().then(

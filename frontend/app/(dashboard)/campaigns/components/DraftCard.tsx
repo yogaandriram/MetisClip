@@ -29,7 +29,7 @@ export function DraftCard({ campaign, inForm, name, client, onLoad, onDiscard, o
   if (!draft) return null
   const parse = campaign.parse || { status: 'idle' }
   const model = parse.provider && parse.model ? parse.model : ''
-  const provider = parse.provider ? providerInfo(parse.provider as LlmProvider).label : ''
+  const provider = parse.provider ? providerInfo(parse.provider as LlmProvider)?.label ?? parse.provider : ''
   const meta = draft.at || model ? m.readMeta(draft.at ? formatDateTime(draft.at) : '', model, provider) : ''
   const suggestedName = draft.name?.trim() && draft.name.trim() !== name.trim() ? draft.name.trim() : ''
   const suggestedClient = draft.client?.trim() && draft.client.trim() !== client.trim() ? draft.client.trim() : ''

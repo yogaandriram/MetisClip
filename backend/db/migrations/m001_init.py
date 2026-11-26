@@ -1,4 +1,4 @@
-"""001_init: collections, $jsonSchema validators (moderate) and indexes (CLAUDE.md §6.3)."""
+"""001_init: collections, $jsonSchema validators (moderate) and indexes."""
 from __future__ import annotations
 
 from pymongo import ASCENDING, DESCENDING

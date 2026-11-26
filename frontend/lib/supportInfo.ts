@@ -1,4 +1,4 @@
-// "Salin info sistem" (§10.5): a plain-text summary a user pastes when asking for help. API keys are never
+// "Salin info sistem": a plain-text summary a user pastes when asking for help. API keys are never
 // part of it (the engine does not hand them out), and the Windows account name in paths is replaced.
 import type { Settings, StorageInfo, SystemCheck, SystemInfo } from '@/lib/engine'
 import { formatBytes, formatDateTime } from '@/lib/format'
@@ -82,9 +82,13 @@ export function supportText({ t, lang, systemInfo, check, storage, settings, now
 
   if (settings) {
     const provider = settings.llm.provider
-    const label = LLM_PROVIDERS.find((p) => p.id === provider)?.label || provider
-    const where = provider === 'openai_compatible' ? host(settings.llm.base_url) : ''
-    lines.push(`${i.llm}: ${label}${where ? ` (${where})` : ''} · ${settings.llm.models[provider] || '-'}`)
+    if (provider) {
+      const label = LLM_PROVIDERS.find((p) => p.id === provider)?.label || provider
+      const where = provider === 'openai_compatible' ? host(settings.llm.base_url) : ''
+      lines.push(`${i.llm}: ${label}${where ? ` (${where})` : ''} · ${settings.llm.models[provider] || '-'}`)
+    } else {
+      lines.push(`${i.llm}: ${i.noProvider}`)
+    }
     lines.push(`${i.transcription}: ${settings.whisper.provider} · ${i.localModel(settings.whisper.local_model)}`)
   }
   lines.push(`${i.language}: ${lang}`)

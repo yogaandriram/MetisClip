@@ -1,4 +1,4 @@
-# MetisClip uninstaller helper, run by build-resources\installer.nsh (customUnInstall; CLAUDE.md section 10.2).
+# MetisClip uninstaller helper, run by build-resources\installer.nsh (customUnInstall).
 # ASCII only: Windows PowerShell 5.1 reads a script without a BOM in the ANSI code page.
 #
 #   -Out <file.ini>  Writes what the uninstaller needs as a UTF-16 INI file (read with ReadINIStr): the UI
@@ -18,7 +18,7 @@ param(
 # backend/core/secrets.py PUBLIC_SECRETS (backend/tests/test_uninstaller.py keeps the two equal)
 $KeyNames = @('openai_api_key', 'anthropic_api_key', 'gemini_api_key', 'xai_api_key', 'deepseek_api_key', 'qwen_api_key', 'llm_api_key', 'groq_api_key')
 
-# What a data folder holds (CLAUDE.md section 6.1). Only these are deleted; the folder itself only when empty.
+# What a data folder holds. Only these are deleted; the folder itself only when empty.
 $Parts = @('db', 'library', 'exports', 'cache', 'backups', 'models', '.metisclip')
 
 if ($DeleteKeys) {

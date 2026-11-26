@@ -7,8 +7,9 @@ import type { AppTray } from './tray'
 import type { AppUpdater } from './updater'
 import { dataRootAvailable, defaultDataRoot, ensureStructure, readBootstrap, validateDataRoot, writeBootstrap } from './data-root'
 import { cancelMove, deletePrevious, forgetPrevious, moveDataRoot, planMove, previousRoot } from './data-move'
+import { checkDragItems, dragIcon, linkDragFiles } from './drag'
 import { createLogger } from './logger'
-import { isTrustedUrl } from './paths'
+import { getPaths, isTrustedUrl } from './paths'
 import { getLanguage, isLang, setLanguage, tr } from './i18n'
 
 const log = createLogger('ipc')
@@ -29,10 +30,14 @@ export const CH = {
   selectFile: 'metis:select-file',
   openPath: 'metis:open-path',
   showItemInFolder: 'metis:show-item-in-folder',
+  startDrag: 'metis:start-drag',
   openExternal: 'metis:open-external',
   notify: 'metis:notify',
   navigate: 'metis:navigate',
   relaunch: 'metis:relaunch',
+  restartBackend: 'metis:restart-backend',
+  openLogs: 'metis:open-logs',
+  setUnsaved: 'metis:set-unsaved',
   getLanguage: 'metis:get-language',
   setLanguage: 'metis:set-language',
   getCloseToTray: 'metis:get-close-to-tray',
@@ -89,7 +94,13 @@ function existingAbsPath(v: unknown): string {
   return resolved
 }
 
-export function registerIpc(backend: Backend, tray: AppTray, updater: AppUpdater, restartToInstall: () => Promise<void>): void {
+export function registerIpc(
+  backend: Backend,
+  tray: AppTray,
+  updater: AppUpdater,
+  restartToInstall: () => Promise<void>,
+  onUnsavedChanges: (dirty: boolean) => void
+): void {
   handle(CH.getEngineInfo, async () => {
     try {
       const info = await backend.waitReady()
@@ -100,6 +111,26 @@ export function registerIpc(backend: Backend, tray: AppTray, updater: AppUpdater
   })
 
   handle(CH.getEngineStatus, () => backend.getStatus())
+
+  // "Coba lagi" on the engine error screen. In the error state waitReady() rejects at once, so the
+  // backend (mongod + engine) is started again from scratch; any other state just keeps going.
+  handle(CH.restartBackend, async () => {
+    if (backend.getStatus().state !== 'error') return { ok: true }
+    const root = readBootstrap()
+    if (!root) return { ok: false, error: tr().engine.failed }
+    if (!dataRootAvailable(root)) {
+      backend.fail(tr().dataRootMissing(root))
+      return { ok: false, error: tr().dataRootMissing(root) }
+    }
+    log.info('UI meminta backend dimulai ulang setelah error')
+    return backend.start(root)
+  })
+
+  // The log folder, also while the engine (which reports logs_dir) is down
+  handle(CH.openLogs, async () => {
+    const error = await shell.openPath(getPaths().logsDir)
+    return error ? { ok: false, error } : { ok: true }
+  })
 
   handle(CH.getDataRoot, () => readBootstrap())
 
@@ -181,13 +212,24 @@ export function registerIpc(backend: Backend, tray: AppTray, updater: AppUpdater
     }
   })
 
+  // Clips dragged out of the gallery (drag.ts): only final.mp4 files inside the data folder's library
+  ipcMain.on(CH.startDrag, (e, items: unknown) => {
+    if (!trusted(e)) return
+    const root = readBootstrap()
+    if (!root) return
+    const files = checkDragItems(root, items)
+    if (!files.length) return
+    const paths = linkDragFiles(root, files)
+    e.sender.startDrag({ file: paths[0], files: paths, icon: dragIcon(files[0].source, getPaths().iconFile) })
+  })
+
   handle(CH.openExternal, async (_e, u: unknown) => {
     const url = new URL(str(u))
     if (!['https:', 'http:', 'mailto:'].includes(url.protocol)) throw new Error(tr().ipc.httpOnly)
     await shell.openExternal(url.toString())
   })
 
-  // Windows notification (a job or an export finished or failed, §9.3), only while the window is in the
+  // Windows notification (a job or an export finished or failed), only while the window is in the
   // background: in front, the in-app toast says it. A click brings MetisClip back on `route`.
   ipcMain.on(CH.notify, (e, title: unknown, body: unknown, route: unknown) => {
     if (!trusted(e) || typeof title !== 'string') return
@@ -248,6 +290,11 @@ export function registerIpc(backend: Backend, tray: AppTray, updater: AppUpdater
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) win.webContents.send(CH.updateStatus, status)
     }
+  })
+
+  ipcMain.on(CH.setUnsaved, (e, dirty: unknown) => {
+    if (!trusted(e)) return
+    onUnsavedChanges(dirty === true)
   })
 
   ipcMain.on(CH.relaunch, (e) => {

@@ -16,6 +16,7 @@ export const dashboard: Messages['dashboard'] = {
     openSettings: 'Open Settings',
     groq: 'Groq API key',
     llm: (provider: string) => `${provider} API key`,
+    noProvider: 'API key of an LLM provider',
     missing: (names: string[]) =>
       names.length > 1
         ? `The ${names.join(' and the ')} are not set yet. The AI pipeline won't run without these keys.`

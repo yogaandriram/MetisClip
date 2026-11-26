@@ -1,4 +1,4 @@
-"""After the desktop shell moved the data folder (CLAUDE.md §6.1, "Pindahkan Lokasi Data").
+"""After the desktop shell moved the data folder ("Pindahkan Lokasi Data").
 
 Media paths in the database are relative to the data folder, so they move with it. A few fields hold
 absolute paths that can point inside it (a custom export folder, a cookies file, an uploaded video that

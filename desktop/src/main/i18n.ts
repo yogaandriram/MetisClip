@@ -110,6 +110,9 @@ Jika MetisClip ditutup sekarang, pekerjaan ini berhenti. Job bisa dilanjutkan da
     quit: 'Tutup sekarang',
     cancel: 'Batal',
     remember: 'Selalu jalankan di tray saat jendela ditutup',
+    unsavedTitle: 'Ada perubahan yang belum disimpan',
+    unsavedDetail: 'Perubahan di halaman yang terbuka hilang bila MetisClip ditutup sekarang. Klik Batal untuk kembali dan menyimpannya.',
+    discard: 'Tutup tanpa menyimpan',
     items: {
       jobs: (n: number) => `${n} job clip`,
       renders: (n: number) => `${n} ekspor video`,
@@ -241,6 +244,9 @@ If MetisClip closes now, this work stops. Jobs can be resumed from the Queue whe
     quit: 'Close now',
     cancel: 'Cancel',
     remember: 'Always keep running in the tray when the window is closed',
+    unsavedTitle: 'You have unsaved changes',
+    unsavedDetail: 'The changes on the open page are lost if MetisClip closes now. Click Cancel to go back and save them.',
+    discard: 'Close without saving',
     items: {
       jobs: (n: number) => `${n} clip job${n === 1 ? '' : 's'}`,
       renders: (n: number) => `${n} video export${n === 1 ? '' : 's'}`,

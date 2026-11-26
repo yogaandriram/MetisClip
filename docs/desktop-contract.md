@@ -9,8 +9,6 @@ This file pins the interfaces between the four parts of the desktop app so they 
 | UI (Next.js static export) | `frontend/` | the engine over HTTP/WS, Electron over `window.metis` |
 | Render worker (Remotion) | `render-engine/` | started by the engine as a child process |
 
-If anything here conflicts with `CLAUDE.md`, this file wins for Phase 1 (CLAUDE.md is updated afterwards).
-
 ---
 
 ## 1. Folders and bootstrap

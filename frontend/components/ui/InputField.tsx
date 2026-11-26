@@ -24,7 +24,7 @@ interface InputFieldProps extends Omit<React.InputHTMLAttributes<HTMLInputElemen
   onRevealToggle?: () => void
 }
 
-/** Pill text input (DESIGN.md §8.2). type="password" gets an eye toggle. */
+/** Pill text input. type="password" gets an eye toggle. */
 export const InputField = React.forwardRef<HTMLInputElement, InputFieldProps>(function InputField(
   {
     label,

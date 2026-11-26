@@ -49,6 +49,8 @@ interface ChoiceChipsProps<T extends string> {
 /** Single choice shown as chips (radio group semantics, arrow keys move the choice). */
 export function ChoiceChips<T extends string>({ options, value, onChange, ariaLabel, size = 'md', className }: ChoiceChipsProps<T>) {
   const enabled = options.filter((o) => !o.disabled)
+  // With nothing chosen yet, the first option takes the focus stop, so the group stays reachable by Tab
+  const focusable = enabled.some((o) => o.value === value) ? value : enabled[0]?.value
   const move = (dir: 1 | -1) => {
     const i = enabled.findIndex((o) => o.value === value)
     const next = enabled[(i + dir + enabled.length) % enabled.length]
@@ -64,7 +66,7 @@ export function ChoiceChips<T extends string>({ options, value, onChange, ariaLa
             type="button"
             role="radio"
             aria-checked={checked}
-            tabIndex={checked ? 0 : -1}
+            tabIndex={opt.value === focusable ? 0 : -1}
             disabled={opt.disabled}
             className={cx('mc-chip', size === 'sm' && 'mc-chip--sm')}
             onClick={() => onChange(opt.value)}
@@ -94,7 +96,7 @@ interface GooPairProps {
   className?: string
 }
 
-/** Two same-fill pills joined by a liquid neck, read as one label (DESIGN.md §4.2.5). */
+/** Two same-fill pills joined by a liquid neck, read as one label. */
 export function GooPair({ first, second, tone = 'surface', className }: GooPairProps) {
   return (
     <span className={cx('mc-goo', tone === 'leaf' && 'mc-goo--leaf', className)}>

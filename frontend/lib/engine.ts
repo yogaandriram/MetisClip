@@ -218,6 +218,13 @@ export interface JobError {
   at: ISODate
 }
 
+/** What a job made */
+export interface JobOutput {
+  clips: number
+  exported: number
+  export_file: string | null
+}
+
 export interface Job {
   id: string
   source: {
@@ -231,7 +238,13 @@ export interface Job {
     max_clips_per_video: number
     /** The automatic layout by content for its clips (null or missing: each campaign's brand template) */
     smart_layout?: boolean | null
+    /** Moments the user chose (seconds of the video), for a manual job */
+    manual_ranges?: ClipRange[]
   }
+  /** 'ai': the Analyzer chose the moments; 'manual': the user did; 'recut': an existing clip cut again */
+  kind: JobKind
+  /** A recut's clip */
+  recut_clip_id: string | null
   /** Campaigns the clips are made for (the brief snapshot stays in the engine) */
   campaign_ids: string[]
   campaigns: { id: string; name: string; version: number }[]
@@ -242,17 +255,42 @@ export interface Job {
   progress_pct: number
   total_scenes: number
   processed_scenes: number
+  /** Completed jobs only: clips that failed; resuming the job processes just those */
+  failed_clips: number
   errors: JobError[]
   /** What a running job does or waits for now (its last job.progress message, in the UI language); null otherwise */
   activity: { message: string; at: ISODate } | null
+  /** What it made (the jobs list and one job's detail only): its clips, how many were exported, and the
+   * newest exported video that still exists (Antrian opens its folder) */
+  output?: JobOutput | null
   created_at: ISODate
   started_at: ISODate | null
   finished_at: ISODate | null
 }
 
-/** Exactly one source: a YouTube link, or a video file on this PC (used in place, never copied). */
+export type JobKind = 'ai' | 'manual' | 'recut'
+
+/** A moment in seconds of the source video */
+export interface ClipRange {
+  start: number
+  end: number
+}
+
+/** A YouTube playlist's videos (POST /api/jobs/playlist): at most 50, private and deleted ones left out */
+export interface PlaylistInfo {
+  playlist_id: string
+  title: string
+  channel: string
+  entries: { youtube_id: string; youtube_url: string; title: string; duration_seconds: number | null; channel: string }[]
+  /** The playlist has more videos than the 50 listed */
+  more: boolean
+}
+
+/** Exactly one source: YouTube link(s), or a video file on this PC (used in place, never copied). */
 export interface JobCreate {
   youtube_url?: string
+  /** Several YouTube links: one job per video (the same video once), with the same settings; at most 50 */
+  youtube_urls?: string[]
   /** Absolute path; the engine checks that it is a readable video with sound */
   local_file_path?: string
   /** '30-45' | '45-60' | '60-75' | '75-90', or a custom 'lo-hi' between 10 and 180 seconds (at least 5 apart) */
@@ -263,6 +301,10 @@ export interface JobCreate {
   note?: string
   /** Turns the automatic layout by content on or off for the job's clips; null or missing follows the brand templates */
   smart_layout?: boolean | null
+  /** Moments the user chose (5 to 180 s each, at most 20): the Analyzer is skipped, each becomes a clip per campaign */
+  manual_ranges?: ClipRange[]
+  /** Move those edges to the nearest sentence boundary (default true) */
+  snap_edges?: boolean
 }
 
 export interface SubtitleWord {
@@ -295,6 +337,8 @@ export interface ClipFiles {
   source?: string | null
   /** Face scan of source (duo and auto layouts); null for clips made before it was kept */
   faces?: string | null
+  /** The chosen cover taken from final by the last render (exported as <video name>.jpg) */
+  cover?: string | null
 }
 
 export interface Clip {
@@ -308,10 +352,21 @@ export interface Clip {
   viral_score: number
   hook_text: string
   tags: string[]
+  /** 'ai': chosen and scored by the Analyzer; 'manual': a moment the user chose (no score) */
+  origin: 'ai' | 'manual'
   rationale: string
   status: ClipStatus
   files: ClipFiles
-  subtitle_data: { clip_id: string; words: SubtitleWord[] }
+  /** The rendered video's file name in the export folder (null until a render); dragging the clip out uses it */
+  export_name?: string | null
+  /** The chosen cover in seconds of raw (null: the middle frame, and no cover is exported) */
+  cover_time?: number | null
+  /** Only from GET /api/clips/{id}: the list leaves the words out (see `word_count`) */
+  subtitle_data?: { clip_id: string; words: SubtitleWord[]; translation?: SubtitleTranslation | null }
+  /** Only in the list: how many subtitle words the clip has */
+  word_count?: number
+  /** Only in the list: the source video's title (an upload's file name), '' when unknown */
+  source_title?: string
   /** Per-clip override of the brand caption settings ({} = inherit) */
   subtitle_style: Record<string, any>
   /** Per-clip override of the brand layout_settings ({} = inherit; lib/presets/layout.ts) */
@@ -374,10 +429,44 @@ export interface ClipDetail {
   /** The clip's campaign (without its brief material) and its checklist; null without one */
   campaign?: Campaign | null
   brief_check?: BriefCheck | null
+  /** A recut of this clip that is pending or running; null otherwise */
+  recut_job?: Job | null
+  /** The video the clip was cut from (null when unknown) */
+  source_video?: SourceVideoInfo | null
+}
+
+export interface SourceVideoInfo {
+  title: string
+  channel: string
+  /** The YouTube watch link, or null for an uploaded file */
+  youtube_url: string | null
+  /** The same link at the clip's first second (`&t=…s`) */
+  youtube_url_at?: string | null
+  file_path: string | null
+  /** The uploaded file is still where it was */
+  file_exists?: boolean
+  duration_seconds: number | null
+}
+
+/** Languages subtitles can be translated into (backend/agents/tools/translate_ai.py LANGUAGES: those the
+ *  bundled fonts' Latin subset can write) */
+export const TRANSLATE_LANGUAGES = ['en', 'id', 'ms', 'es', 'pt', 'fr', 'de', 'it', 'nl', 'tl'] as const
+export type TranslateLanguage = (typeof TRANSLATE_LANGUAGES)[number]
+
+/** The clip's subtitles are a translation: the words and title as spoken are kept (the brief checklist
+ *  reads them); partial = a recut added words that are still in the spoken language */
+export interface SubtitleTranslation {
+  language: TranslateLanguage
+  original_words: SubtitleWord[]
+  original_title: string
+  partial: boolean
+  at?: ISODate | null
 }
 
 export interface SubtitleUpdate {
   words?: SubtitleWord[]
+  /** The translation record; null = the subtitles are in the spoken language again */
+  translation?: Omit<SubtitleTranslation, 'at'> | null
   style?: Record<string, any>
   reset_style?: boolean
   /** Per-clip layout override (replaces the stored one) / back to the template's layout */
@@ -390,6 +479,9 @@ export interface SubtitleUpdate {
 }
 
 export type RenderStatus = 'queued' | 'rendering' | 'completed' | 'failed' | 'cancelled'
+/** Output format of a render (lib/presets/position.ts OutputFormat) and the export quality (Pengaturan) */
+export type OutputFormat = 'vertical' | 'square' | 'landscape'
+export type ExportQuality = 'high' | 'standard' | 'small'
 
 export interface RenderJob {
   id: string
@@ -404,6 +496,13 @@ export interface RenderJob {
   export_dir?: string | null
   /** Why the copy failed (the render itself still completed) */
   export_error?: string | null
+  /** Nothing changed since the last render: final.mp4 was copied again instead of rendered */
+  reused?: boolean
+  /** The sound leveled to about -14 LUFS (LUFS before and after); null: left as it was */
+  loudness?: { before: number; after: number } | null
+  /** The format and quality it was made in */
+  format?: OutputFormat | null
+  quality?: ExportQuality | null
   error: string | null
   created_at: ISODate
   finished_at: ISODate | null
@@ -429,7 +528,8 @@ export interface Settings {
   export_dir: string
   cache_limit_gb: number
   /** base_url is only used by the OpenAI-compatible provider; models holds the chosen model per provider */
-  llm: { provider: LlmProvider; base_url: string; models: Record<LlmProvider, string> }
+  /** provider '' = not chosen yet (no default provider) */
+  llm: { provider: LlmProvider | ''; base_url: string; models: Record<LlmProvider, string> }
   /** provider: auto = Groq while a key is set and Groq answers, else local; model = the Groq model */
   whisper: { provider: WhisperProvider; model: string; local_model: WhisperLocalModelSetting }
   processing: { max_workers: number; encoder: EncoderSetting }
@@ -438,8 +538,9 @@ export interface Settings {
   resources: { auto: boolean; reserve_gb: number }
   /** auto_update: check for a new yt-dlp once a day */
   ytdlp: { player_client: string; cookies_file: string | null; auto_update: boolean }
-  /** post_text: a campaign clip's export gets a .txt with its post text next to the video */
-  export: { post_text: boolean }
+  /** post_text: a campaign clip's export gets a .txt with its post text next to the video;
+   *  loudness: every exported video's sound is leveled to about -14 LUFS; quality: x264 CRF and size */
+  export: { post_text: boolean; loudness: boolean; quality: ExportQuality }
   db: { wiredtiger_cache_gb: number }
   /** language: the UI language, mirrored for the engine's own messages (lib/i18n) */
   /** The engine's copy of the UI language; closing to the tray is a shell setting (window.metis) */
@@ -480,7 +581,7 @@ export interface SystemCheck {
   ram_gb: number
 }
 
-/** POST /api/system/update-ytdlp (409 while a job is running) */
+/** POST /api/system/update-ytdlp (409 while yt-dlp is downloading) */
 export interface YtdlpUpdateResult {
   ok: boolean
   updated: boolean
@@ -490,7 +591,7 @@ export interface YtdlpUpdateResult {
 
 export interface StorageInfo {
   data_root: string
-  /** Who may open the data folder: only this Windows account (plus SYSTEM and Administrators), or more (§6.1) */
+  /** Who may open the data folder: only this Windows account (plus SYSTEM and Administrators), or more */
   access?: 'private' | 'shared' | 'unknown'
   drive_free_bytes: number
   drive_total_bytes: number
@@ -585,7 +686,11 @@ export interface ResourceStatus {
 export interface DashboardStats {
   videosProcessed: number
   clipsGenerated: number
+  /** Clips waiting for an export (status ready) */
+  clipsReady: number
   potentialViews: number
+  /** Beranda's first-steps guide, over every campaign: a job started, a clip made, a render finished */
+  firstSteps: { job: boolean; clip: boolean; export: boolean }
 }
 
 export type EngineEvent =
@@ -609,6 +714,9 @@ export type EngineEvent =
       /** When it finished: the source video's title, and (completed) how many clips it made */
       title?: string | null
       clips?: number
+      /** A recut: the clip it cut again */
+      kind?: 'recut'
+      clip_id?: string
     }
   | { type: 'clip.created'; id: string; job_id: string | null; campaign_id?: string | null }
   | { type: 'clip.updated'; id: string }
@@ -628,6 +736,11 @@ export type EngineEvent =
       exported_path?: string | null
       export_dir?: string | null
       export_error?: string | null
+      /** Copied again without a render (nothing changed since the last one) */
+      reused?: boolean
+      loudness?: { before: number; after: number } | null
+      format?: OutputFormat | null
+      quality?: ExportQuality | null
       error?: string | null
     }
   | { type: 'system.notice'; level: 'info' | 'warning' | 'error'; message: string }
@@ -955,21 +1068,47 @@ export const api = {
   jobs: {
     list: (query: { campaign_id?: string; status?: JobStatus; limit?: number } = {}) => request<{ jobs: Job[] }>('GET', '/api/jobs', { query }),
     get: (id: string) => request<{ job: Job }>('GET', `/api/jobs/${id}`),
-    create: (input: JobCreate) => request<{ job: Job }>('POST', '/api/jobs', { body: input }),
+    /** One job per video: `job` is the first, `jobs` all of them */
+    create: (input: JobCreate) => request<{ job: Job; jobs: Job[] }>('POST', '/api/jobs', { body: input }),
+    /** "Cari klip lagi": the same video, campaigns and settings; moments the campaigns already have are skipped */
+    again: (id: string) => request<{ job: Job }>('POST', `/api/jobs/${id}/again`),
+    playlist: (url: string) => request<PlaylistInfo>('POST', '/api/jobs/playlist', { body: { url } }),
     cancel: (id: string) => request<{ job: Job }>('POST', `/api/jobs/${id}/cancel`),
     resume: (id: string) => request<{ job: Job }>('POST', `/api/jobs/${id}/resume`),
     remove: (id: string) => request<{ ok: true }>('DELETE', `/api/jobs/${id}`),
   },
 
   clips: {
-    list: (query: { campaign_id?: string; job_id?: string; status?: ClipStatus } = {}) => request<{ clips: Clip[] }>('GET', '/api/clips', { query }),
+    /** Newest first; `limit` > 0 returns only that many */
+    list: (query: { campaign_id?: string; job_id?: string; status?: ClipStatus; limit?: number } = {}) =>
+      request<{ clips: Clip[] }>('GET', '/api/clips', { query }),
     get: (id: string) => request<ClipDetail>('GET', `/api/clips/${id}`),
     updateSubtitles: (id: string, update: SubtitleUpdate) => request<{ clip: Clip }>('PUT', `/api/clips/${id}/subtitles`, { body: update }),
     /** One LLM call: mark keywords and/or pick emojis on the saved words (replaces earlier AI marks). */
     enrichSubtitles: (id: string, opts: { keywords: boolean; emojis: boolean }) =>
       request<{ clip: Clip; keywords: number; emojis: number }>('POST', `/api/clips/${id}/subtitles/enrich`, { body: opts }),
+    /** The words (and the title) translated by the AI, timed phrase by phrase; not saved */
+    translateSubtitles: (id: string, body: { language: TranslateLanguage; words?: SubtitleWord[]; title?: string }) =>
+      request<{ language: TranslateLanguage; words: SubtitleWord[]; title: string; kept: number; phrases: number }>(
+        'POST',
+        `/api/clips/${id}/subtitles/translate`,
+        { body },
+      ),
+    /** The cover: a frame of raw (seconds) as the thumbnail, taken from the final video by the next render; null = automatic */
+    setCover: (id: string, time: number | null) => request<{ clip: Clip }>('PUT', `/api/clips/${id}/cover`, { body: { time } }),
     remove: (id: string, deleteFiles = true) => request<{ ok: true }>('DELETE', `/api/clips/${id}`, { query: { delete_files: deleteFiles } }),
-    render: (id: string) => request<{ render_job: RenderJob }>('POST', `/api/clips/${id}/render`),
+    /** Cut the clip again at new edges (seconds of its source video): a one-moment job; style, title and edited words stay */
+    recut: (id: string, range: ClipRange & { snap_edges?: boolean }) => request<{ job: Job }>('POST', `/api/clips/${id}/recut`, { body: range }),
+    /** reuse: copy final.mp4 again when nothing changed since it was rendered (the job comes back completed, `reused`) */
+    render: (id: string, opts: { reuse?: boolean } = {}) =>
+      request<{ render_job: RenderJob }>('POST', `/api/clips/${id}/render`, { body: { reuse: !!opts.reuse } }),
+    /** Queue several renders (run one after another); a clip that cannot render now is skipped with the reason */
+    renderMany: (clipIds: string[], opts: { reuse?: boolean } = {}) =>
+      request<{ render_jobs: RenderJob[]; skipped: { clip_id: string; reason: string }[] }>('POST', '/api/clips/render', {
+        body: { clip_ids: clipIds, reuse: !!opts.reuse },
+      }),
+    removeMany: (clipIds: string[], deleteFiles = true) =>
+      request<{ deleted: string[]; missing: string[] }>('POST', '/api/clips/delete', { body: { clip_ids: clipIds, delete_files: deleteFiles } }),
     /** Fetch the clip's original-ratio video again (clips made before the podcast layout). */
     prepareSource: (id: string) => request<{ clip: Clip }>('POST', `/api/clips/${id}/source`),
     /** Face scan for the duo and auto layouts (fetches the source video first when it is missing too) */
@@ -995,6 +1134,7 @@ export const api = {
   },
 
   dashboard: {
-    stats: (campaignId: string) => request<DashboardStats>('GET', '/api/dashboard/stats', { query: { campaign_id: campaignId } }),
+    /** One campaign's numbers, or every campaign's without an id (firstSteps always covers every campaign) */
+    stats: (campaignId?: string) => request<DashboardStats>('GET', '/api/dashboard/stats', { query: campaignId ? { campaign_id: campaignId } : {} }),
   },
 }

@@ -26,9 +26,11 @@ import { primaryFamily } from '../../frontend/lib/presets/style';
 // @ts-ignore
 import { computeKeepSegments, frameSegments, isCut, resolveAi, sourceTimeAt } from '../../frontend/lib/presets/captions';
 // @ts-ignore
-import { LayoutStage } from '../../frontend/lib/presets/LayoutStage';
+import { FormatBox, LayoutStage } from '../../frontend/lib/presets/LayoutStage';
 // @ts-ignore
-import { companionStart, creditText, headerText, resolveLayout, usesScenes, usesSource } from '../../frontend/lib/presets/layout';
+import { companionStart, creditText, headerText, outputFormat, resolveLayout, usesScenes, usesSource } from '../../frontend/lib/presets/layout';
+// @ts-ignore
+import { formatCaptionY } from '../../frontend/lib/presets/position';
 // Bundled woff2 files (offline, deterministic). See scripts/gen-fonts.cjs.
 import { FONT_WEIGHTS } from './fonts';
 
@@ -54,6 +56,12 @@ export type OverlayProps = {
   clipId?: string;
   /** The clip's shots from its face scan (duo and auto layouts): {width, height, shots}. */
   scenes?: any;
+  /** The chosen cover in seconds of raw.mp4; calculateMetadata adds the output frame that shows it. */
+  coverTime?: number;
+  /** Set by calculateMetadata from coverTime; the render worker reports it so the engine can take the cover. */
+  coverFrame?: number | null
+  /** Set by calculateMetadata: the kept segments as [output from, start frame, end frame] */
+  keptFrames?: number[][];
 };
 
 export const FPS = 30;
@@ -81,24 +89,29 @@ export const SubtitleOverlay: React.FC<OverlayProps> = (props) => {
   const ai = useMemo(() => resolveAi(props.ai), [props.ai]);
   const layout = useMemo(() => resolveLayout(props.layout), [props.layout]);
   const { segments, cut } = useMemo(() => overlaySegments(props, fps), [props, fps]);
+  // 1:1 and 16:9 (Root.tsx sizes the canvas the same way): source.mp4 cropped per shot, whatever the mode
+  const format = outputFormat(layout, !!props.sourceUrl);
+  const formatted = format !== 'vertical';
   // Podcast and card layouts need the original-ratio source and the split layout its companion
   // video; without one the clip stays full-frame (the engine refuses such a render first)
-  const framed = usesSource(layout.mode) && !!props.sourceUrl;
-  const split = layout.mode === 'split' && !!layout.companion.videoUrl && layout.companion.duration > 0;
+  const framed = !formatted && usesSource(layout.mode) && !!props.sourceUrl;
+  const split = !formatted && layout.mode === 'split' && !!layout.companion.videoUrl && layout.companion.duration > 0;
   // Duo and auto: a view per scene, from source.mp4 (panels, frame) or raw.mp4 (full; main stays raw.mp4)
-  const scened = usesScenes(layout.mode) && !!props.sourceUrl;
+  const scened = !formatted && usesScenes(layout.mode) && !!props.sourceUrl;
   const auto = scened && layout.mode === 'auto';
-  const stageLayout = framed || split || scened ? layout : { ...layout, mode: 'full' as const };
+  const stageLayout = formatted
+    ? layout
+    : { ...layout, format: 'vertical' as const, ...(framed || split || scened ? {} : { mode: 'full' as const }) };
 
   // Hold the frame until every font on screen (all bundled weights) is loaded from the local bundle.
   const families = useMemo(() => {
     const list = [primaryFamily(style.fontFamily)];
     const cardRow = layout.mode === 'card' && !!(layout.card.name.trim() || layout.card.handle.trim());
     if ((framed || auto) && (headerText(layout, props.title) || cardRow)) list.push(primaryFamily(layout.header.fontFamily));
-    if ((framed || split || scened) && creditText(layout, props.channel)) list.push('Plus Jakarta Sans');
+    if ((framed || split || scened || formatted) && creditText(layout, props.channel)) list.push('Plus Jakarta Sans');
     if (layout.speaker.enabled && layout.speaker.name.trim()) list.push(primaryFamily(layout.speaker.fontFamily));
     return Array.from(new Set(list));
-  }, [style.fontFamily, framed, split, scened, auto, layout, props.title, props.channel]);
+  }, [style.fontFamily, framed, split, scened, formatted, auto, layout, props.title, props.channel]);
   const familyKey = families.join('|');
   const [handle] = useState(() => delayRender(`Memuat font ${familyKey}`, { timeoutInMilliseconds: 60000 }));
 
@@ -132,7 +145,7 @@ export const SubtitleOverlay: React.FC<OverlayProps> = (props) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [familyKey, handle]);
 
-  const src = resolveSrc(framed ? props.sourceUrl : props.videoUrl);
+  const src = resolveSrc(framed || formatted ? props.sourceUrl : props.videoUrl);
   // Caption time follows the SOURCE timeline, so cut pauses do not shift the subtitles.
   const sourceTime = cut ? sourceTimeAt(segments, frame, fps) : frame / fps;
   const FADE = 2; // frames of audio fade at each cut (avoids clicks)
@@ -221,13 +234,20 @@ export const SubtitleOverlay: React.FC<OverlayProps> = (props) => {
         time={sourceTime}
         words={words}
         offsetMs={style.offsetTime || 0}
-        scenes={scened ? props.scenes : null}
+        scenes={scened || formatted ? props.scenes : null}
       />
       {sceneAudio}
 
-      <LogoOverlay src={brandSettings?.overlayUrl || ''} brand={brandSettings} ImgComponent={Img} />
+      <LogoOverlay src={brandSettings?.overlayUrl || ''} brand={brandSettings} ImgComponent={Img} format={format} />
 
-      <CaptionLayer words={words} time={sourceTime} style={style} ai={ai} />
+      <FormatBox format={format}>
+        <CaptionLayer
+          words={words}
+          time={sourceTime}
+          style={formatted ? { ...style, positionY: formatCaptionY(style, !!ai.emojis, format) } : style}
+          ai={ai}
+        />
+      </FormatBox>
     </AbsoluteFill>
   );
 };

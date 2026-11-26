@@ -17,6 +17,7 @@ import { DraftCard } from '../components/DraftCard'
 import { DetailsCard, ProgressCard, QuestionsCard, detailsOf, sameDetails, type CampaignDetails } from '../components/SideCards'
 import { SourcesCard } from '../components/SourcesCard'
 import { emptyBrief, fullBrief } from '../components/helpers'
+import { useUnsavedGuard } from '@/components/shell/UnsavedGuard'
 
 type FormSource = 'saved' | 'draft'
 type LoadState = 'loading' | 'ready' | 'missing' | 'error'
@@ -204,11 +205,11 @@ function CampaignDetail() {
 
   // ---- Actions ------------------------------------------------------------
 
-  const save = async () => {
-    if (!campaign || saving || !canSave) return
+  const save = async (): Promise<boolean> => {
+    if (!campaign || saving || !canSave) return !canSave
     if (nameError || durationError) {
       toast.error(m.detail.fixErrors)
-      return
+      return false
     }
     setSaving(true)
     try {
@@ -225,12 +226,17 @@ function CampaignDetail() {
       setDetails(detailsOf(c))
       if (patch.brief) loadForm(c, 'saved')
       toast.success(m.detail.saved)
+      return true
     } catch (err) {
       toast.error(errorMessage(err, m.detail.saveFailed))
+      return false
     } finally {
       setSaving(false)
     }
   }
+
+  // Leaving with edits asks first (a waiting AI draft is kept by the engine, so it alone does not count)
+  useUnsavedGuard(detailsChanged || formEdited, save)
 
   // Ctrl+S
   const saveRef = useRef(save)

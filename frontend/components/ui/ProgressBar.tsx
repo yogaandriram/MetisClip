@@ -13,7 +13,7 @@ interface ProgressBarProps {
   className?: string
 }
 
-/** 8 px bar, ink fill; on ink cards the fill turns leaf (DESIGN.md §8.9). Driven by WS events only. */
+/** 8 px bar, ink fill; on ink cards the fill turns leaf. Driven by WS events only. */
 export function ProgressBar({ value, label, showValue = false, className }: ProgressBarProps) {
   const t = useT()
   label = label ?? t.ui.progress
@@ -69,7 +69,7 @@ interface PipelineStepsProps {
   className?: string
 }
 
-/** Discovery → Analisis → Proses as joined pills (DESIGN.md §8.9). */
+/** Discovery → Analisis → Proses as joined pills. */
 export function PipelineSteps({ steps, className }: PipelineStepsProps) {
   return (
     <ol className={cx('mc-steps', className)} style={{ listStyle: 'none' }}>
@@ -95,7 +95,7 @@ interface WizardStepsProps {
   className?: string
 }
 
-/** Numbered circles for the Setup Wizard (DESIGN.md §8.21). */
+/** Numbered circles for the Setup Wizard. */
 export function WizardSteps({ steps, current, className }: WizardStepsProps) {
   const t = useT()
   return (

@@ -14,6 +14,14 @@ from backend.core.procs import CancelToken
 logger = logging.getLogger(__name__)
 
 
+
+def failed_segments(job: dict[str, Any]) -> int:
+    """How many of a job's analysed segments have no finished clip (they failed while processing).
+    Resuming the job processes exactly those; finished segments are skipped."""
+    ck = job.get("checkpoint") or {}
+    done = set(ck.get("done_segment_ids") or [])
+    return sum(1 for seg in ck.get("segments") or [] if isinstance(seg, dict) and seg.get("segment_id") not in done)
+
 class PipelineError(RuntimeError):
     """Expected, user-facing pipeline failure (message in the UI language)."""
 

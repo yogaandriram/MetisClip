@@ -19,6 +19,7 @@ import { presets } from './presets'
 import { campaign } from './campaign'
 import { brief } from './brief'
 import { about } from './about'
+import { help } from './help'
 
 export const en: Messages = {
   common,
@@ -39,4 +40,5 @@ export const en: Messages = {
   campaign,
   brief,
   about,
+  help,
 }

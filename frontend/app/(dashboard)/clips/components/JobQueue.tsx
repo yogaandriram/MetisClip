@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Eye, FileVideo, Link as LinkIcon, ListChecks, Megaphone, RotateCcw, Trash2, XCircle } from 'lucide-react'
+import { Eye, FileVideo, Film, FolderOpen, Link as LinkIcon, ListChecks, Megaphone, RotateCcw, Search, Trash2, XCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
   Alert,
@@ -23,11 +23,12 @@ import { useEngineEvents } from '@/hooks/useEngineEvents'
 import { api, eventForCampaign, type Job, type JobStatus, type JobStep } from '@/lib/engine'
 import { ACTIVE_JOB_STATUSES, RESUMABLE_JOB_STATUSES, errorMessage, formatDateTime, jobSource, jobStepLabel } from '@/lib/format'
 import { tm, type Messages } from '@/lib/i18n'
+import { isDesktop } from '@/lib/media'
 import { useT } from '@/lib/i18n/I18nProvider'
 
 type PendingAction = { kind: 'cancel' | 'delete'; job: Job } | null
 
-/** Discovery → Analisis → Proses (DESIGN.md §8.9); short labels from the dictionary (jobs.stepShort). */
+/** Discovery → Analisis → Proses; short labels from the dictionary (jobs.stepShort). */
 const STEPS: JobStep[] = ['discovery', 'analysis', 'processing']
 
 const NEEDS_ATTENTION: JobStatus[] = ['failed', 'interrupted']
@@ -100,6 +101,9 @@ export function JobQueue({ campaignId }: { campaignId: string | undefined }) {
       )
     } else if (e.type === 'job.status') {
       if (!campaignId || eventForCampaign(e, campaignId)) load()
+    } else if ((e.type === 'render.status' && e.status === 'completed') || e.type === 'clip.deleted') {
+      // A job's output (its clips and exports) changed
+      load()
     }
   })
 
@@ -109,7 +113,21 @@ export function JobQueue({ campaignId }: { campaignId: string | undefined }) {
     setBusyId(job.id)
     try {
       replaceJob((await api.jobs.resume(job.id)).job)
-      toast.success(m.resumed)
+      toast.success(job.status === 'completed' ? m.retryStarted : m.resumed)
+    } catch (err) {
+      toast.error(errorMessage(err))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  /** "Cari klip lagi": a new job for the same video; it shows up in the running list through its events */
+  const again = async (job: Job) => {
+    setBusyId(job.id)
+    try {
+      const { job: created } = await api.jobs.again(job.id)
+      setJobs((prev) => (prev && !prev.some((j) => j.id === created.id) ? [created, ...prev] : prev))
+      toast.success(m.againStarted)
     } catch (err) {
       toast.error(errorMessage(err))
     } finally {
@@ -138,11 +156,36 @@ export function JobQueue({ campaignId }: { campaignId: string | undefined }) {
     }
   }
 
-  const openDetail = (job: Job) => router.push(`/discover/?job=${encodeURIComponent(job.id)}`)
+  /** The folder of the job's newest exported video, with that video selected */
+  const openOutput = async (job: Job) => {
+    const file = job.output?.export_file
+    if (!file || !window.metis) return
+    try {
+      await window.metis.showItemInFolder(file)
+    } catch (err) {
+      toast.error(errorMessage(err, m.openOutputFailed))
+    }
+  }
+
+  // A recut belongs to its clip: its editor shows the progress
+  const openDetail = (job: Job) =>
+    router.push(
+      job.kind === 'recut' && job.recut_clip_id
+        ? `/clips/detail/?id=${encodeURIComponent(job.recut_clip_id)}`
+        : `/discover/?job=${encodeURIComponent(job.id)}`,
+    )
+
+  /** What the job was asked to do: the Analyzer's settings, the user's moments, or a recut */
+  const settings = (job: Job) =>
+    job.kind === 'recut'
+      ? m.configRecut
+      : job.kind === 'manual'
+        ? m.configManual(job.config.manual_ranges?.length ?? 0)
+        : m.config(job.config.clip_duration, job.config.max_clips_per_video)
 
   const meta = (job: Job) => (
     <>
-      {m.config(job.config.clip_duration, job.config.max_clips_per_video)} · {m.createdAt(formatDateTime(job.created_at))}
+      {settings(job)} · {m.createdAt(formatDateTime(job.created_at))}
     </>
   )
 
@@ -237,7 +280,7 @@ export function JobQueue({ campaignId }: { campaignId: string | undefined }) {
                               {m.resume}
                             </Button>
                             <Button variant="secondary" size="sm" icon={<Eye size={16} />} onClick={() => openDetail(job)}>
-                              {m.detail}
+                              {job.kind === 'recut' ? m.openClip : m.detail}
                             </Button>
                             <Button variant="danger" size="sm" icon={<Trash2 size={16} />} onClick={() => setPending({ kind: 'delete', job })} disabled={busyId === job.id}>
                               {m.delete}
@@ -279,7 +322,7 @@ export function JobQueue({ campaignId }: { campaignId: string | undefined }) {
                         </div>
                         <div className="mc-row mc-row--wrap mc-gap-8">
                           <Button variant="secondary" size="sm" icon={<Eye size={16} />} onClick={() => openDetail(job)}>
-                            {m.detail}
+                            {job.kind === 'recut' ? m.openClip : m.detail}
                           </Button>
                           <Button variant="danger" size="sm" icon={<XCircle size={16} />} onClick={() => setPending({ kind: 'cancel', job })} disabled={busyId === job.id}>
                             {m.cancel}
@@ -332,7 +375,10 @@ export function JobQueue({ campaignId }: { campaignId: string | undefined }) {
                                 <div style={{ maxWidth: 360 }}>
                                   {sourceTitle(job)}
                                   {briefInfo(job)}
-                                  {lastError && (
+                                  {!!job.output?.clips && job.kind !== 'recut' && (
+                                    <div className="mc-caption mc-muted">{m.output(job.output.clips, job.output.exported)}</div>
+                                  )}
+                                  {lastError && (job.status !== 'completed' || job.failed_clips > 0) && (
                                     <div className="mc-caption mc-muted mc-truncate" title={lastError.message}>
                                       {lastError.message}
                                     </div>
@@ -340,7 +386,7 @@ export function JobQueue({ campaignId }: { campaignId: string | undefined }) {
                                 </div>
                               </td>
                               <td className="mc-muted" style={{ whiteSpace: 'nowrap' }}>
-                                {m.config(job.config.clip_duration, job.config.max_clips_per_video)}
+                                {settings(job)}
                               </td>
                               <td className="mc-muted" style={{ whiteSpace: 'nowrap' }}>
                                 {formatDateTime(job.created_at)}
@@ -351,6 +397,33 @@ export function JobQueue({ campaignId }: { campaignId: string | undefined }) {
                                     <Button variant="secondary" size="sm" icon={<RotateCcw size={16} />} onClick={() => resume(job)} loading={busyId === job.id}>
                                       {m.resume}
                                     </Button>
+                                  )}
+                                  {job.status === 'completed' && job.failed_clips > 0 && (
+                                    <Button variant="secondary" size="sm" icon={<RotateCcw size={16} />} onClick={() => resume(job)} loading={busyId === job.id}>
+                                      {m.retryFailed(job.failed_clips)}
+                                    </Button>
+                                  )}
+                                  {job.kind === 'ai' && job.status === 'completed' && (
+                                    <IconButton
+                                      label={m.again}
+                                      icon={<Search size={16} />}
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => again(job)}
+                                      disabled={busyId === job.id}
+                                    />
+                                  )}
+                                  {!!job.output?.clips && job.kind !== 'recut' && (
+                                    <IconButton
+                                      label={m.viewClips}
+                                      icon={<Film size={16} />}
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => router.push(`/clips/?job=${encodeURIComponent(job.id)}`)}
+                                    />
+                                  )}
+                                  {isDesktop() && job.output?.export_file && (
+                                    <IconButton label={m.openOutput} icon={<FolderOpen size={16} />} variant="ghost" size="sm" onClick={() => openOutput(job)} />
                                   )}
                                   <IconButton label={m.detailAria} icon={<Eye size={16} />} variant="ghost" size="sm" onClick={() => openDetail(job)} />
                                   <IconButton

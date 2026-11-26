@@ -42,6 +42,7 @@ export const shell: Messages['shell'] = {
     unreachableTitle: "Can't reach the MetisClip engine",
     unreachableFallback: 'Something went wrong while starting the local engine.',
     relaunch: 'Restart the app',
+    openLogs: 'Open log folder',
     bannerStopped: 'The engine stopped.',
     bannerRestarting: 'The engine is restarting…',
     notReady: 'The engine is not ready yet',
@@ -49,6 +50,12 @@ export const shell: Messages['shell'] = {
     requestFailed: (status: number) => `Request failed (HTTP ${status})`,
   },
   campaignsLoadFailed: "Couldn't load the campaign list",
+  unsaved: {
+    title: 'Unsaved changes',
+    body: 'Save the changes on this page before you go?',
+    saveAndLeave: 'Save & continue',
+    leaveWithoutSaving: 'Continue without saving',
+  },
   language: {
     label: 'Display language',
     hint: "Language of the menus, buttons and messages in the app. It doesn't change the language of videos or subtitles.",
@@ -74,5 +81,7 @@ export const shell: Messages['shell'] = {
     renderSavedIn: (folder: string) => `Saved in ${folder}`,
     renderNotCopied: "The video is done but wasn't copied to the export folder. Open the clip to try again.",
     renderFailed: 'Video export failed',
+    recutDone: 'Clip cut again',
+    recutFailed: 'Cutting the clip again failed',
   },
 }

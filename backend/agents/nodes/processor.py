@@ -16,6 +16,7 @@ import logging
 import os
 import shutil
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Optional
@@ -24,7 +25,8 @@ from backend.agents.context import JobContext, PipelineError
 from backend.agents.tools import brief_match, caption_ai, clip_edges, ffmpeg_ops, whisper, ytdlp
 from backend.agents.tools.smart_crop import process_auto_tracking_video
 from backend.agents.tools.transcript import cached as cached_transcript
-from backend.core import events, llm, resources
+from backend.core import disk, events, llm, resources
+from backend.core.config import config
 from backend.core.db import get_db, utcnow
 from backend.core.paths import get_paths
 from backend.core.procs import Cancelled
@@ -37,6 +39,16 @@ M = i18n.messages({
     "whisper_failed": {
         "id": "Whisper gagal untuk klip {start}s, memakai transkrip: {error}",
         "en": "Whisper failed for the clip at {start}s, using the transcript: {error}",
+    },
+    "recut_missing": {
+        "id": "Klip yang mau dipotong ulang sudah dihapus",
+        "en": "The clip to cut again was deleted",
+    },
+    "no_words": {
+        "id": "Klip {start}s tidak punya subtitle: Whisper gagal dan transkrip tidak berisi kata di bagian ini. "
+              "Tambahkan katanya di editor klip.",
+        "en": "The clip at {start}s has no subtitles: Whisper failed and the transcript has no words in this part. "
+              "Add the words in the clip editor.",
     },
     "ai_marks_skipped": {
         "id": "Sorot kata kunci/emoji AI dilewati: {error}",
@@ -86,6 +98,10 @@ M = i18n.messages({
 
 logger = logging.getLogger(__name__)
 
+TITLE_MAX_WORDS = 12
+TITLE_MAX_CHARS = 60
+REPLACE_TRIES = 40  # a file the editor streams is locked on Windows: retry the swap for up to 10 s
+
 
 def _source_label(seg: dict[str, Any]) -> str:
     return Path(seg["file_path"]).name if seg.get("file_path") else str(seg.get("youtube_id"))
@@ -126,7 +142,10 @@ Limits = tuple[Optional[float], Optional[float]]
 
 
 def length_limits(ctx: JobContext, segs: list[dict[str, Any]]) -> Limits:
-    """The clip length every campaign that chose this moment accepts (the strictest of their briefs)."""
+    """The clip length every campaign that chose this moment accepts (the strictest of their briefs).
+    A moment the user chose keeps its length: the briefs do not apply."""
+    if any(seg.get("manual") for seg in segs):
+        return (None, None)
     los, his = [], []
     for seg in segs:
         lo, hi = brief_match.length_range((_campaign(ctx, seg) or {}).get("brief"))
@@ -163,7 +182,9 @@ def _source(ctx: JobContext, seg: dict[str, Any], work: Path,
         raise
     except Exception as exc:
         ctx.error("processing", M("whisper_failed", start=f"{start:.0f}", error=exc))
-    a, b = clip_edges.snap(words, payload, t0, t1, total, limits, seg.get("edge_text")) or (t0, t1)
+    # A moment the user chose may keep its exact edges (`snap` off)
+    snapped = clip_edges.snap(words, payload, t0, t1, total, limits, seg.get("edge_text")) if seg.get("snap", True) else None
+    a, b = snapped or (t0, t1)
     ctx.check()
     if seg.get("file_path"):  # cut once more from the original file rather than re-encoding the padded cut
         src = ffmpeg_ops.cut_section(Path(seg["file_path"]), pad_start + a, pad_start + b, work / "src.mp4", ctx.cancel)
@@ -227,6 +248,8 @@ def _ai_marks(ctx: JobContext, words: list[dict[str, Any]], template_id: str | N
 
 
 def process_segment(ctx: JobContext, seg: dict[str, Any], limits: Limits = (None, None)) -> dict[str, Any]:
+    if seg.get("recut"):
+        return recut_segment(ctx, seg, limits)
     clip_id = seg["segment_id"]
     paths = get_paths()
     work = ctx.cache_dir / clip_id
@@ -244,9 +267,11 @@ def process_segment(ctx: JobContext, seg: dict[str, Any], limits: Limits = (None
         raise
 
 
-def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw: Path, thumb: Path,
-             limits: Limits = (None, None)) -> dict[str, Any]:
-    paths = get_paths()
+def _make_media(ctx: JobContext, seg: dict[str, Any], work: Path, raw: Path, thumb: Path,
+                limits: Limits = (None, None), fill_words: bool = True) -> dict[str, Any]:
+    """Cut, track and transcribe one moment into raw.mp4, thumb.jpg, source.mp4 and faces.json (the last two
+    next to raw.mp4). Returns {start, end, duration, words, source_info, faces}. With `fill_words`, a clip
+    Whisper gave no words gets the transcript's (and in dev, placeholder words)."""
     try:
         src, words, start, end = _source(ctx, seg, work, limits)
         ctx.check()
@@ -269,10 +294,42 @@ def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw
         if faces_tmp.is_file():
             shutil.move(str(faces_tmp), str(faces_file))
         if words is None:
-            words = (words_from_transcript(_transcript_key(seg), start, end)
-                     or mock_words(seg.get("hook_text") or "", end - start))
+            words = words_from_transcript(_transcript_key(seg), start, end)
+        if not words and fill_words:
+            if config.is_dev:
+                words = mock_words(seg.get("hook_text") or "", end - start)
+            else:
+                # Never invent captions: the clip is kept without words and the editor can add them
+                words = []
+                ctx.error("processing", M("no_words", start=f"{start:.0f}"))
     finally:
         shutil.rmtree(work, ignore_errors=True)
+    return {"start": start, "end": end, "duration": duration, "words": words or [], "source_info": source_info,
+            "faces": faces_file if faces_file.is_file() else None}
+
+
+def first_sentence(words: list[dict[str, Any]]) -> str:
+    """A title for a clip the user chose: its first sentence (at most 12 words, 60 characters)."""
+    out: list[str] = []
+    for w in words:
+        text = str(w.get("word") or "").strip()
+        if not text:
+            continue
+        out.append(text)
+        if text[-1:] in ".?!…" or len(out) >= TITLE_MAX_WORDS:
+            break
+    title = " ".join(out).strip().rstrip(",;:")
+    if len(title) > TITLE_MAX_CHARS:
+        title = title[:TITLE_MAX_CHARS].rsplit(" ", 1)[0].rstrip(",;:") + "…"
+    return title[:1].upper() + title[1:]
+
+
+def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw: Path, thumb: Path,
+             limits: Limits = (None, None)) -> dict[str, Any]:
+    paths = get_paths()
+    media = _make_media(ctx, seg, work, raw, thumb, limits)
+    start, end, duration, words = media["start"], media["end"], media["duration"], media["words"]
+    source_info, faces_file = media["source_info"], media["faces"]
     ctx.check()
     template_id = _template_id(ctx, seg)
     campaign = _campaign(ctx, seg)
@@ -288,15 +345,16 @@ def _process(ctx: JobContext, seg: dict[str, Any], clip_id: str, work: Path, raw
         end_time=end,
         duration_seconds=round(float(duration), 2),
         viral_score=seg.get("viral_score", 0),
-        hook_text=seg.get("hook_text", ""),
+        hook_text=seg.get("hook_text") or (first_sentence(words) if seg.get("origin") == "manual" else ""),
         tags=seg.get("tags", []),
         rationale=seg.get("rationale", ""),
+        origin=seg.get("origin") or "ai",
         files={
             "raw": paths.to_relative(raw),
             "final": None,
             "thumbnail": paths.to_relative(thumb) if thumb.exists() else None,
             "source": source_info["files.source"],
-            "faces": paths.to_relative(faces_file) if faces_file.is_file() else None,
+            "faces": paths.to_relative(faces_file) if faces_file else None,
         },
         source_width=source_info.get("source_width"),
         source_height=source_info.get("source_height"),
@@ -403,9 +461,10 @@ def derive_clip(ctx: JobContext, seg: dict[str, Any], base: dict[str, Any]) -> d
         end_time=base["end_time"],
         duration_seconds=base["duration_seconds"],
         viral_score=seg.get("viral_score", base.get("viral_score", 0)),
-        hook_text=seg.get("hook_text", base.get("hook_text", "")),
+        hook_text=seg.get("hook_text") or base.get("hook_text", ""),
         tags=seg.get("tags", base.get("tags", [])),
         rationale=seg.get("rationale", base.get("rationale", "")),
+        origin=seg.get("origin") or base.get("origin") or "ai",
         files=files,
         source_width=base.get("source_width"),
         source_height=base.get("source_height"),
@@ -419,6 +478,126 @@ def derive_clip(ctx: JobContext, seg: dict[str, Any], base: dict[str, Any]) -> d
         updated_at=now,
     ).to_mongo()
     return _save(ctx, doc, campaign)
+
+
+def merge_recut_words(old: list[dict[str, Any]], old_start: float, old_end: float,
+                      new: list[dict[str, Any]], new_start: float, new_end: float) -> tuple[list[dict[str, Any]], list[int]]:
+    """The words of a clip cut again at [new_start, new_end]: the old words (as the user edited them) where
+    the two cuts overlap, shifted to the new start, and the new Whisper words only outside the old cut.
+    Returns the words and the indexes of the added ones."""
+    shift = old_start - new_start
+    length = new_end - new_start
+    a, b = old_start - new_start, old_end - new_start  # the old cut on the new timeline
+    out: list[tuple[dict[str, Any], bool]] = []
+    for w in old:
+        s, e = float(w.get("start", 0)) + shift, float(w.get("end", 0)) + shift
+        if (s + e) / 2 < 0 or (s + e) / 2 > length:
+            continue  # trimmed away
+        out.append(({**w, "start": round(max(0.0, s), 3), "end": round(min(length, max(s, e)), 3)}, False))
+    for w in new:
+        mid = (float(w.get("start", 0)) + float(w.get("end", 0))) / 2
+        if old and a <= mid <= b:
+            continue  # the user's words cover this part
+        out.append((dict(w), True))
+    out.sort(key=lambda x: (float(x[0].get("start", 0)), float(x[0].get("end", 0))))
+    return [w for w, _ in out], [i for i, (_, added) in enumerate(out) if added]
+
+
+def _replace(src: Path, dst: Path) -> None:
+    """os.replace with retries: on Windows a file the editor is streaming cannot be replaced for a moment.
+    A hard link shared with another campaign's clip stays with that clip (the name gets a new file)."""
+    for attempt in range(REPLACE_TRIES):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt == REPLACE_TRIES - 1:
+                raise
+            time.sleep(0.25)
+
+
+def recut_segment(ctx: JobContext, seg: dict[str, Any], limits: Limits = (None, None)) -> dict[str, Any]:
+    """Cut an existing clip again at the segment's edges (agents/nodes/manual.py). The new media is made in
+    the cache first, then swapped into the clip's folder, so a failure leaves the clip as it was. The clip
+    keeps its id, job, style, template, title, post text and brief ticks; its last export (final.mp4) no
+    longer matches and is removed (the copy in the export folder stays)."""
+    db = get_db()
+    paths = get_paths()
+    clip_id = seg["segment_id"]
+    if not db.clips.find_one({"_id": clip_id}, {"_id": 1}):
+        raise PipelineError(M("recut_missing"))
+    work = ctx.cache_dir / clip_id
+    out = ctx.cache_dir / f"{clip_id}-new"
+    shutil.rmtree(out, ignore_errors=True)
+    work.mkdir(parents=True, exist_ok=True)
+    out.mkdir(parents=True, exist_ok=True)
+    try:
+        media = _make_media(ctx, seg, work, out / "raw.mp4", out / "thumb.jpg", limits, fill_words=False)
+        ctx.check()
+        clip = db.clips.find_one({"_id": clip_id})  # as it is now: the user may have saved words meanwhile
+        if not clip:
+            raise PipelineError(M("recut_missing"))
+        sub = clip.get("subtitle") or {}
+        old_words = sub.get("words") or []
+        words, added = merge_recut_words(old_words, float(clip.get("start_time", 0)), float(clip.get("end_time", 0)),
+                                         media["words"], media["start"], media["end"])
+        if added:
+            campaign = _campaign(ctx, seg) or ({"id": clip["campaign_id"]} if clip.get("campaign_id") else None)
+            marked = _brief_marks(_ai_marks(ctx, [words[i] for i in added], clip.get("brand_template_id")), campaign)
+            for i, w in zip(added, marked):
+                words[i] = w
+        # Translated subtitles: the spoken words are cut the same way; the added words are
+        # in the spoken language in both lists until the editor translates again
+        translation = sub.get("translation") if isinstance(sub.get("translation"), dict) else None
+        tr_sets: dict[str, Any] = {}
+        if translation:
+            spoken, spoken_added = merge_recut_words(translation.get("original_words") or [],
+                                                     float(clip.get("start_time", 0)), float(clip.get("end_time", 0)),
+                                                     media["words"], media["start"], media["end"])
+            for i, w in zip(spoken_added, (words[j] for j in added)):
+                spoken[i] = w
+            tr_sets = {"subtitle.translation.original_words": spoken}
+            if added:
+                tr_sets["subtitle.translation.partial"] = True
+        if not words:
+            ctx.error("processing", M("no_words", start=f"{media['start']:.0f}"))
+        files = clip.get("files") or {}
+        target = (paths.from_relative(files["raw"]).parent if files.get("raw")
+                  else paths.clip_dir(ctx.campaign_slug(clip.get("campaign_id")), clip_id))
+        target.mkdir(parents=True, exist_ok=True)
+        new_files: dict[str, Any] = {"final": None}
+        for kind, name in (("raw", "raw.mp4"), ("thumbnail", "thumb.jpg"), ("source", "source.mp4"), ("faces", "faces.json")):
+            src = out / name
+            dst = target / name
+            if src.is_file():
+                _replace(src, dst)
+                new_files[kind] = paths.to_relative(dst)
+            else:  # e.g. no face scan this time: the old one belongs to the old timeline
+                dst.unlink(missing_ok=True)
+                new_files[kind] = None
+        (target / "final.mp4").unlink(missing_ok=True)
+        (target / "cover.jpg").unlink(missing_ok=True)  # the chosen cover belongs to the old timeline
+        info = media["source_info"]
+        db.clips.update_one({"_id": clip_id}, {"$set": {
+            "start_time": media["start"],
+            "end_time": media["end"],
+            "duration_seconds": round(float(media["duration"]), 2),
+            "files": new_files,
+            "source_width": info.get("source_width"),
+            "source_height": info.get("source_height"),
+            "subtitle.words": words,
+            **tr_sets,
+            "cover_time": None,
+            "final_render": None,
+            "status": "ready",
+            "updated_at": utcnow(),
+        }})
+        logger.info("Clip %s cut again at %.2f-%.2f (%s word(s) kept, %s added)", clip_id, media["start"],
+                    media["end"], len(words) - len(added), len(added))
+        return db.clips.find_one({"_id": clip_id})
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+        shutil.rmtree(out, ignore_errors=True)
 
 
 def media_key(seg: dict[str, Any]) -> tuple[Any, ...]:
@@ -454,11 +633,13 @@ def run(ctx: JobContext, segments: list[dict[str, Any]]) -> list[dict[str, Any]]
     bases: dict[tuple[Any, ...], dict[str, Any]] = {}  # a finished clip per moment, for the other campaigns
     for seg in segments:
         if seg["segment_id"] in done:
+            # A segment is marked done only after its clip was written, so a missing clip was deleted by
+            # the user: resuming (or retrying a job's failed clips) must not bring it back
             clip = db.clips.find_one({"_id": seg["segment_id"]})
             if clip:
                 results.append(clip)
                 bases.setdefault(media_key(seg), clip)
-                continue
+            continue
         todo.append(seg)
     groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
     for seg in todo:
@@ -488,7 +669,10 @@ def run(ctx: JobContext, segments: list[dict[str, Any]]) -> list[dict[str, Any]]
             completed += 1
             pct = 40 + 55 * completed / max(1, total)
         ctx.progress(pct, inc_processed=1, message=M("clip_done", done=completed, total=total))
-        events.publish({"type": "clip.created", "id": clip["_id"], "job_id": ctx.id, "campaign_id": clip.get("campaign_id")})
+        if ctx.config.get("recut"):  # the same clip with new files
+            events.publish({"type": "clip.updated", "id": clip["_id"]})
+        else:
+            events.publish({"type": "clip.created", "id": clip["_id"], "job_id": ctx.id, "campaign_id": clip.get("campaign_id")})
 
     def failed(seg: dict[str, Any], exc: Exception) -> None:
         logger.exception("Clip %s failed", seg["segment_id"])
@@ -506,6 +690,8 @@ def run(ctx: JobContext, segments: list[dict[str, Any]]) -> list[dict[str, Any]]
             ctx.check()
             try:
                 if base is None:
+                    # Every new cut writes several files; below 2 GB free the job stops here (resumable)
+                    disk.check(warn=False)
                     start = f"{seg['start_time']:.0f}"
                     waited: list[bool] = []
 
@@ -523,6 +709,8 @@ def run(ctx: JobContext, segments: list[dict[str, Any]]) -> list[dict[str, Any]]
                     clip = derive_clip(ctx, seg, base)
             except Cancelled:
                 raise
+            except disk.DiskFull as exc:
+                raise PipelineError(str(exc)) from exc
             except Exception as exc:
                 failed(seg, exc)
                 continue

@@ -6,7 +6,9 @@ import logging
 import os
 import re
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
+from typing import Iterator
 from pathlib import Path
 
 from backend.core import procs
@@ -14,6 +16,10 @@ from backend.core.config import deno_path, ffmpeg_path, ytdlp_command
 from backend.core import i18n
 
 M = i18n.messages({
+    "in_use": {
+        "id": "yt-dlp sedang mengunduh video (job, ekspor, atau persiapan video sumber). Coba update lagi setelah unduhan selesai.",
+        "en": "yt-dlp is downloading a video (a job, an export or a source video being prepared). Try the update again once it is done.",
+    },
     "bot_check": {
         "id": "YouTube meminta verifikasi bot. Coba 'Update yt-dlp' di halaman Sistem, atau impor cookies.txt di Pengaturan.",
         "en": "YouTube is asking for a bot check. Try 'Update yt-dlp' on the System page, or import cookies.txt in Settings.",
@@ -82,7 +88,7 @@ M = i18n.messages({
 
 logger = logging.getLogger(__name__)
 
-# Daily update check (CLAUDE.md §10.4): YouTube breaks old builds within weeks
+# Daily update check: YouTube breaks old builds within weeks
 AUTO_EVERY_S = 24 * 3600
 AUTO_RETRY_S = 3 * 3600  # after a failed check (offline, GitHub unreachable)
 STATE_FILE = "yt-dlp-update.json"  # next to the updatable copy, in tools_dir
@@ -100,6 +106,57 @@ class YtDlpError(RuntimeError):
     pass
 
 
+class YtDlpBusy(RuntimeError):
+    """`yt-dlp -U` refused: yt-dlp is running (message in the UI language)."""
+
+
+class _ExeGate:
+    """
+    yt-dlp runs share the exe; `yt-dlp -U` replaces it and needs it to itself. An update starts only while no
+    yt-dlp runs (never waits), and a run that starts during an update waits for it, then uses the new exe.
+    """
+
+    def __init__(self) -> None:
+        self._cond = threading.Condition()
+        self._users = 0
+        self._updating = False
+
+    @contextmanager
+    def use(self, cancel: procs.CancelToken | None = None) -> Iterator[None]:
+        with self._cond:
+            while self._updating:
+                if cancel is not None:
+                    cancel.check()
+                self._cond.wait(0.5)
+            self._users += 1
+        try:
+            yield
+        finally:
+            with self._cond:
+                self._users -= 1
+                self._cond.notify_all()
+
+    def begin_update(self) -> bool:
+        with self._cond:
+            if self._users or self._updating:
+                return False
+            self._updating = True
+            return True
+
+    def end_update(self) -> None:
+        with self._cond:
+            self._updating = False
+            self._cond.notify_all()
+
+    @property
+    def in_use(self) -> bool:
+        with self._cond:
+            return self._users > 0
+
+
+_exe_gate = _ExeGate()
+
+
 def extract_video_id(url_or_id: str) -> str | None:
     s = (url_or_id or "").strip()
     if _ID_RE.match(s):
@@ -113,6 +170,50 @@ def extract_video_id(url_or_id: str) -> str | None:
 
 def watch_url(youtube_id: str) -> str:
     return f"https://www.youtube.com/watch?v={youtube_id}"
+
+
+_PLAYLIST_RE = re.compile(r"[?&]list=([0-9A-Za-z_-]{10,64})")
+PLAYLIST_MAX = 50
+# Entries a flat playlist lists without a video behind them
+_GONE_TITLES = {"[private video]", "[deleted video]", "[unavailable video]"}
+
+
+def extract_playlist_id(url: str) -> str | None:
+    """The `list=` id of a YouTube link (a playlist page, or a video opened inside a playlist)."""
+    s = (url or "").strip()
+    if "youtube.com" not in s and "youtu.be" not in s:
+        return None
+    m = _PLAYLIST_RE.search(s)
+    return m.group(1) if m else None
+
+
+def list_playlist(playlist_id: str, cancel: procs.CancelToken | None = None, limit: int = PLAYLIST_MAX) -> dict:
+    """The first `limit` videos of a playlist, without downloading anything (`--flat-playlist`):
+    {title, channel, entries: [{youtube_id, title, duration_seconds, channel}], more: bool}. Private and
+    deleted entries are left out."""
+    args = [a for a in _base_args() if a != "--no-playlist"]
+    url = f"https://www.youtube.com/playlist?list={playlist_id}"
+    out = _run(args + ["--flat-playlist", "-J", "--playlist-end", str(limit + 1), url], cancel, timeout=120)
+    data = json.loads(out)
+    entries = []
+    for e in data.get("entries") or []:
+        vid = e.get("id") if isinstance(e, dict) else None
+        title = str(e.get("title") or "").strip() if isinstance(e, dict) else ""
+        if not vid or not _ID_RE.match(vid) or title.lower() in _GONE_TITLES:
+            continue
+        duration = e.get("duration")
+        entries.append({
+            "youtube_id": vid,
+            "title": title,
+            "duration_seconds": float(duration) if isinstance(duration, (int, float)) else None,
+            "channel": e.get("channel") or e.get("uploader") or "",
+        })
+    return {
+        "title": data.get("title") or "",
+        "channel": data.get("channel") or data.get("uploader") or "",
+        "entries": entries[:limit],
+        "more": len(entries) > limit,
+    }
 
 
 def _base_args() -> list[str]:
@@ -163,7 +264,8 @@ def _friendly(stderr: str) -> str:
 
 def _run(args: list[str], cancel: procs.CancelToken | None, timeout: float) -> str:
     try:
-        res = procs.run(args, cancel=cancel, timeout=timeout)
+        with _exe_gate.use(cancel):
+            res = procs.run(args, cancel=cancel, timeout=timeout)
     except procs.ProcessError as exc:
         raise YtDlpError(_friendly(exc.stderr)) from exc
     except FileNotFoundError as exc:
@@ -179,7 +281,7 @@ def dump_metadata(youtube_id: str, cancel: procs.CancelToken | None = None) -> d
 def download_section(
     youtube_id: str, start: float, end: float, out_path: Path, cancel: procs.CancelToken | None = None
 ) -> Path:
-    """Download only [start, end] (≤1080p mp4). Never the full video (rule 1)."""
+    """Download only [start, end] (≤1080p mp4). Never the full video."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     # Prefer H.264 over plain HTTPS: ffmpeg seeks a range request in seconds, while HLS (m3u8)
     # sections crawl, and AV1/VP9 decode is slower (or missing) in OpenCV for face tracking.
@@ -225,14 +327,19 @@ def version() -> str | None:
 
 
 def self_update() -> dict:
-    """`yt-dlp -U` on the user-writable copy (YouTube breaks old builds; CLAUDE.md §10.4).
-    Waits for a daily check that is already running."""
+    """`yt-dlp -U` on the user-writable copy (YouTube breaks old builds).
+    Waits for a daily check that is already running; raises YtDlpBusy while yt-dlp downloads."""
     with _update_lock:
         return _update(auto=False)
 
 
 def _update(auto: bool) -> dict:
-    result = _run_self_update()
+    if not _exe_gate.begin_update():
+        raise YtDlpBusy(M("in_use"))
+    try:
+        result = _run_self_update()
+    finally:
+        _exe_gate.end_update()
     _save_state(result, auto)
     return result
 
@@ -335,6 +442,8 @@ def maybe_auto_update(now: datetime | None = None) -> dict | None:
         return None  # the Update button is running it now
     try:
         result = _update(auto=True)
+    except YtDlpBusy:
+        return None  # yt-dlp is downloading (e.g. an editor preparing a source video): next round
     finally:
         _update_lock.release()
     if result.get("updated"):

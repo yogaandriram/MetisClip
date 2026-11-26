@@ -1,5 +1,9 @@
 // Bahasa Indonesia: the source dictionary. Add every key in en/editor.ts too (tsc checks it).
 // Clip editor (app/(dashboard)/clips/detail).
+const secId = (n: number) => `${n.toLocaleString('id-ID', { maximumFractionDigits: 1 })} dtk`
+const edgeId = (name: string, d: number) =>
+  Math.abs(d) < 0.05 ? '' : `${name} ${d > 0 ? 'diperpanjang' : 'dipendekkan'} ${secId(Math.abs(d))}`
+
 export const editor = {
   title: 'Editor klip',
   back: 'Kembali ke Hasil Clip',
@@ -52,16 +56,54 @@ export const editor = {
   },
   ratioSource: 'Asli',
 
+  recut: {
+    button: 'Ubah potongan',
+    buttonTip: 'Atur ulang awal dan akhir klip di video sumber',
+    title: 'Ubah potongan klip',
+    intro:
+      'Atur awal dan akhir klip di video sumber. MetisClip mengambil bagian itu lagi dari video sumber, melacak wajah, dan mentranskripsi bagian yang berubah.',
+    startLabel: 'Mulai',
+    endLabel: 'Selesai',
+    badTime: 'Tulis waktu seperti 12:34.5 atau 754.5',
+    nudgeGroup: (label: string) => `Geser waktu ${label.toLowerCase()}`,
+    nudge: (d: number) => `${d > 0 ? '+' : '−'}${secId(Math.abs(d))}`,
+    newLength: (now: string, before: string) => `Durasi baru ${now} (sebelumnya ${before})`,
+    change: (dStart: number, dEnd: number) => [edgeId('Awal', dStart), edgeId('Akhir', dEnd)].filter(Boolean).join(' · '),
+    sourceLength: (d: string) => `Panjang video sumber ${d}`,
+    endBeforeStart: 'Waktu selesai harus setelah waktu mulai.',
+    lengthRange: (lo: number, hi: number) => `Panjang klip harus antara ${lo} dan ${hi} detik.`,
+    pastEnd: (d: string) => `Waktu mulai melewati akhir video (${d}).`,
+    snap: 'Rapikan ke batas kalimat',
+    snapHint: 'Awal dan akhir digeser paling jauh 1,75 detik ke batas kalimat terdekat, supaya tidak memotong kata.',
+    keeps:
+      'Gaya, template, judul, dan kata yang sudah kamu edit tetap dipakai. Kata di bagian yang baru diambil dari Whisper. Ekspor lama di folder klip dihapus; salinannya di folder ekspor tetap ada.',
+    start: 'Potong ulang',
+    saveAndStart: 'Simpan & potong ulang',
+    started: 'Potong ulang dimulai. Progresnya juga ada di Antrian.',
+    failed: 'Potong ulang tidak bisa dimulai',
+    running: 'Klip sedang dipotong ulang',
+    waiting: 'Menunggu giliran di antrian…',
+    locked: 'Ekspor dijeda sampai potong ulang selesai. Kata yang kamu simpan sekarang tetap dipakai di potongan baru.',
+    saveLocked: 'Muat ulang klip dulu: kata di editor masih mengikuti potongan lama.',
+    cancel: 'Batalkan',
+    cancelled: 'Potong ulang dibatalkan. Klip tetap seperti semula.',
+    done: 'Potongan baru siap',
+    readyDirty: 'Potongan baru siap. Muat ulang klip untuk melihatnya; perubahan yang belum disimpan akan hilang.',
+    reload: 'Muat ulang klip',
+    failedRun: 'Potong ulang gagal. Klip tetap seperti semula.',
+  },
+
   shortcuts: {
     title: 'Pintasan keyboard',
     spaceKey: 'Spasi',
     playPause: 'Putar / jeda',
-    step: 'Mundur / maju 0,1 detik',
+    step: 'Mundur / maju 1 frame',
     stepLong: 'Mundur / maju 1 detik',
     save: 'Simpan',
     undo: 'Undo',
     redo: 'Redo',
     export: 'Ekspor video',
+    find: 'Cari kata di subtitle',
   },
 
   // Loading and events
@@ -71,6 +113,7 @@ export const editor = {
   backToGallery: 'Kembali ke galeri',
   /** Toast before the folder path */
   renderDoneSavedIn: 'Render selesai, tersimpan di',
+  copiedAgainIn: 'Video final disalin lagi ke',
   renderDoneNotCopied: (error: string) => `Render selesai, tapi belum tersalin ke folder ekspor. ${error}`,
   renderDone: 'Render selesai',
   clipDeleted: 'Clip ini dihapus',
@@ -116,6 +159,58 @@ export const editor = {
   copyToExportFolder: 'Salin ke folder ekspor',
   exportTo: 'Ekspor ke…',
   retryRender: 'Coba render lagi',
+  /** Export without a render (nothing changed since the last one) */
+  reusedStatus: 'Video final disalin lagi',
+  /** The sound leveled after the render (values already formatted) */
+  loudness: (before: string, after: string) => `Volume suara disamakan: ${before} → ${after} LUFS.`,
+  /** Subtitle translation: the words and title as spoken are kept */
+  translate: {
+    title: 'Terjemahan',
+    to: 'Terjemahkan ke',
+    hint: 'AI menerjemahkan subtitle dan judul per frasa, dan waktunya mengikuti ucapan. Nama, merek, angka, dan hashtag tidak diubah. Hasilnya bisa dibatalkan dengan Ctrl+Z, dan baru tersimpan setelah Simpan.',
+    run: 'Terjemahkan',
+    again: 'Terjemahkan lagi',
+    current: (language: string) => `Subtitle dalam bahasa ${language}`,
+    kept: 'Teks aslinya tetap tersimpan, dan checklist brief memeriksa kata yang benar-benar diucapkan.',
+    partial: 'Ubah potongan menambah kata yang masih dalam bahasa aslinya. Terjemahkan lagi agar semuanya diterjemahkan.',
+    restore: 'Kembalikan teks asli',
+    restored: 'Subtitle kembali ke teks asli. Klik Simpan untuk menyimpannya.',
+    done: (language: string, kept: number) =>
+      `Subtitle diterjemahkan ke bahasa ${language}${kept ? `; ${kept} frasa dibiarkan seperti aslinya` : ''}. Klik Simpan untuk menyimpannya.`,
+    failed: 'Terjemahan gagal',
+    noWords: 'Clip ini belum punya kata subtitle untuk diterjemahkan',
+    languages: {
+      en: 'Inggris',
+      id: 'Indonesia',
+      ms: 'Melayu',
+      es: 'Spanyol',
+      pt: 'Portugis',
+      fr: 'Prancis',
+      de: 'Jerman',
+      it: 'Italia',
+      nl: 'Belanda',
+      tl: 'Filipino',
+    },
+  },
+  /** Output format (1:1 and 16:9 crop the source video per shot) and the export quality */
+  format: {
+    label: 'Format video',
+    names: { vertical: '9:16', square: '1:1', landscape: '16:9' },
+    hints: {
+      vertical: 'Untuk TikTok, Reels dan Shorts. Semua layout di bawah berlaku.',
+      square: 'Untuk feed Instagram dan Facebook. Video sumber dipotong persegi mengikuti wajah di tiap adegan; layout 9:16 tidak dipakai.',
+      landscape: 'Untuk YouTube dan layar lebar. Video sumber tampil 16:9, dipotong mengikuti wajah bila rasionya lain; layout 9:16 tidak dipakai.',
+    },
+    sourceMissing: 'Format ini memakai video sumber dengan rasio aslinya. Siapkan sekarang untuk melihat pratinjaunya; ekspor juga menyiapkannya sendiri.',
+    facesMissing: 'Tanpa analisis wajah, video dipotong di tengah. Analisis sekarang agar potongannya mengikuti wajah di tiap adegan; ekspor juga melakukannya sendiri.',
+    credit: 'Tampilkan kredit sumber',
+    creditHint: 'Teks kredit dari Brand Template, di pojok kiri atas. Tidak tampil untuk video upload tanpa nama kanal.',
+    positionNote: 'Di format ini posisi caption dipetakan ke tinggi videonya: caption di bawah tetap di bawah, caption di atas tetap di atas.',
+    qualities: { high: 'Tinggi', standard: 'Standar', small: 'Hemat (720p)' },
+    made: (format: string, quality: string) => `Format ${format}, kualitas ${quality}.`,
+  },
+  reusedNote: 'Tidak dirender ulang: tidak ada yang berubah sejak render terakhir, jadi video final yang ada disalin lagi.',
+  renderAgain: 'Render ulang',
 
   // Word list
   captionTitle: 'Caption',
@@ -139,6 +234,37 @@ export const editor = {
   emojiAria: (n: number) => `Emoji kata ${n}`,
   emojiTitle: 'Emoji di atas subtitle mulai kata ini (kosongkan untuk menghapus)',
   insertWord: 'Sisipkan kata',
+  /** The word list's tools (components/editor/WordPanel.tsx) */
+  words: {
+    find: 'Cari kata',
+    findPlaceholder: 'Cari di subtitle (Ctrl+F)',
+    clearFind: 'Hapus pencarian',
+    matches: (n: number) => (n ? `${n} kata cocok` : 'Tidak ada kata yang cocok'),
+    prevMatch: 'Kata cocok sebelumnya (Shift+Enter)',
+    nextMatch: 'Kata cocok berikutnya (Enter)',
+    replaceToggle: 'Ganti kata',
+    replaceWith: 'Ganti dengan',
+    replacePlaceholder: 'Ganti dengan… (kosong = hapus)',
+    replaceAll: (n: number) => `Ganti semua (${n})`,
+    replaced: (n: number) => `${n} kata diganti`,
+    follow: 'Daftar mengikuti video (klik untuk berhenti)',
+    followOff: 'Ikuti video: gulir ke kata yang sedang diucapkan',
+    more: (n: number) => `Aksi lain untuk kata ${n}`,
+    split: (parts: number) => `Pisah jadi ${parts} kata`,
+    splitHint: 'Pisah kata: ketik spasi di teksnya dulu',
+    merge: (next: string) => `Gabung dengan "${next}"`,
+    problems: (n: number) => `${n} kata punya waktu atau teks yang perlu dicek.`,
+    showProblem: 'Lihat',
+    fix: 'Rapikan waktu',
+    fixed: 'Waktu kata dirapikan',
+    problem: {
+      empty: 'Teks kosong (dihapus saat dirapikan)',
+      short: 'Terlalu singkat untuk tersorot',
+      order: 'Mulai sebelum kata sebelumnya',
+      overlap: 'Bertumpuk dengan kata sebelumnya',
+      outside: 'Di luar durasi clip',
+    },
+  },
 
   // Stage
   undo: 'Undo (Ctrl+Z)',
@@ -153,11 +279,51 @@ export const editor = {
   pause: 'Jeda (Spasi)',
   timeline: 'Posisi video',
   timeOf: (current: string, total: string) => `${current} dari ${total}`,
+  /** The legend of the marks on the timeline */
+  marks: {
+    keyword: 'Kata kunci',
+    match: 'Hasil pencarian',
+    problem: 'Perlu dicek',
+  },
 
   // Properties panel
   propsTitle: 'Properti',
   propsSubtitle: 'Perubahan di sini hanya berlaku untuk clip ini.',
   manageTemplates: 'Kelola template',
+  /** The video the clip was cut from (properties panel) */
+  source: {
+    title: 'Sumber video',
+    untitled: 'Video YouTube tanpa judul',
+    uploaded: 'Video unggahan',
+    /** total: the source's length, or null when unknown */
+    range: (start: string, end: string, total: string | null) =>
+      total ? `Clip ini bagian ${start}–${end} dari video ${total}.` : `Clip ini bagian ${start}–${end} dari videonya.`,
+    openYoutube: 'Buka di YouTube',
+    copyLink: 'Salin tautan',
+    copyCredit: 'Salin kredit',
+    /** The credit line copied for the post (who: the channel, else the title) */
+    credit: (who: string, url: string) => `Sumber: ${who}\n${url}`,
+    linkCopied: 'Tautan ke detik clip ini disalin',
+    creditCopied: 'Kredit sumber disalin',
+    copyFailed: 'Gagal menyalin ke clipboard',
+    openFailed: 'Tautan tidak bisa dibuka',
+    showFile: 'Tampilkan di Explorer',
+    fileMissing: 'File ini tidak ada lagi di lokasi tersebut.',
+  },
+  /** The clip's cover (properties panel) */
+  cover: {
+    title: 'Sampul',
+    imageAlt: 'Sampul clip saat ini',
+    auto: 'Otomatis: frame tengah clip',
+    chosen: (time: string) => `Frame ${time}`,
+    useFrame: (time: string) => `Pakai frame ${time}`,
+    show: 'Lihat',
+    reset: 'Otomatis lagi',
+    hint: 'Sampul tampil di galeri. Saat clip diekspor, frame yang sama (lengkap dengan subtitle dan layout) ikut disimpan sebagai .jpg di samping videonya, untuk diunggah sebagai sampul.',
+    saved: 'Sampul disimpan',
+    savedExportAgain: 'Sampul disimpan. Ekspor lagi agar file .jpg-nya ikut tersimpan di samping video.',
+    failed: 'Sampul gagal disimpan',
+  },
   templateSelect: 'Brand Template clip ini',
   templateHint: 'Mengganti template memakai gaya caption, logo, dan pengaturan AI dari template itu untuk clip ini.',
   builtInTemplate: 'Bawaan MetisClip',
@@ -287,10 +453,6 @@ export const editor = {
   resetConfirmBody: (template: string) =>
     `Gaya caption dan pengaturan AI khusus clip ini diganti dengan template "${template}". Teks & timing subtitle tidak berubah. Bisa di-undo; tersimpan setelah klik Simpan.`,
   resetConfirm: 'Reset gaya',
-  unsavedTitle: 'Perubahan belum disimpan',
-  unsavedBody: 'Simpan perubahan subtitle sebelum keluar dari editor?',
-  saveAndLeave: 'Simpan & keluar',
-  leaveWithoutSaving: 'Keluar tanpa menyimpan',
 
   // Scene strip
   scenes: 'Adegan',

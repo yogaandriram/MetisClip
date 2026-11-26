@@ -21,7 +21,7 @@ interface NumberStepperProps {
   className?: string
 }
 
-/** − value + in a pill (DESIGN.md §8.2). */
+/** − value + in a pill. */
 export function NumberStepper({ value, onChange, min = 0, max = 99, step = 1, label, hint, format, ariaLabel, className }: NumberStepperProps) {
   const t = useT()
   const id = useId()

@@ -44,6 +44,7 @@ export const shell = {
     unreachableTitle: 'Engine MetisClip tidak dapat dihubungi',
     unreachableFallback: 'Terjadi kesalahan saat menyalakan engine lokal.',
     relaunch: 'Mulai ulang aplikasi',
+    openLogs: 'Buka folder log',
     bannerStopped: 'Engine berhenti.',
     bannerRestarting: 'Engine sedang dimulai ulang…',
     notReady: 'Engine belum siap',
@@ -51,18 +52,25 @@ export const shell = {
     requestFailed: (status: number) => `Permintaan gagal (HTTP ${status})`,
   },
   campaignsLoadFailed: 'Gagal memuat daftar campaign',
+  /** Leaving a page with unsaved edits (components/shell/UnsavedGuard.tsx) */
+  unsaved: {
+    title: 'Perubahan belum disimpan',
+    body: 'Simpan perubahan di halaman ini sebelum pindah?',
+    saveAndLeave: 'Simpan & lanjutkan',
+    leaveWithoutSaving: 'Lanjutkan tanpa menyimpan',
+  },
   language: {
     label: 'Bahasa tampilan',
     hint: 'Bahasa menu, tombol dan pesan di aplikasi. Bahasa video dan subtitle tidak berubah.',
     changed: 'Bahasa tampilan diganti ke Bahasa Indonesia',
   },
-  /** Shown while the PC has no network (§9.3) */
+  /** Shown while the PC has no network */
   offline: {
     title: 'Kamu sedang offline.',
     body: 'Mengedit dan mengekspor clip tetap bisa. Mengunduh video YouTube dan fitur AI butuh internet.',
     dismiss: 'Tutup pemberitahuan offline',
   },
-  /** A downloaded update waits to be installed (UpdateBanner.tsx, §10.4) */
+  /** A downloaded update waits to be installed (UpdateBanner.tsx) */
   update: {
     title: (version: string) => `MetisClip ${version} siap dipasang.`,
     body: 'Dipasang otomatis saat MetisClip ditutup.',
@@ -70,7 +78,7 @@ export const shell = {
     dismiss: 'Tutup pemberitahuan pembaruan',
     failed: 'Pembaruan tidak dapat dipasang',
   },
-  /** Windows notifications while the window is in the background (§9.3, ShellContext.tsx) */
+  /** Windows notifications while the window is in the background (ShellContext.tsx) */
   notify: {
     jobDone: (n: number) => `Job selesai: ${n} klip siap`,
     jobDoneNone: 'Job selesai tanpa klip',
@@ -79,5 +87,7 @@ export const shell = {
     renderSavedIn: (folder: string) => `Tersimpan di ${folder}`,
     renderNotCopied: 'Videonya selesai, tapi belum tersalin ke folder ekspor. Buka clip-nya untuk mencoba lagi.',
     renderFailed: 'Ekspor video gagal',
+    recutDone: 'Potong ulang selesai',
+    recutFailed: 'Potong ulang gagal',
   },
 }

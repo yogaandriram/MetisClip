@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 from pathlib import Path
 
 import psutil
@@ -80,9 +81,9 @@ M = i18n.messages({
         "id": "{gb} GB kosong (disarankan ≥ 5 GB)",
         "en": "{gb} GB free (≥ 5 GB recommended)",
     },
-    "jobs_running": {
-        "id": "Tunggu job yang sedang berjalan selesai sebelum memperbarui yt-dlp",
-        "en": "Wait for the running jobs to finish before updating yt-dlp",
+    "windows_untested": {
+        "id": "MetisClip resmi untuk Windows 11. Di versi ini MetisClip bisa berjalan, tetapi belum diuji, dan MongoDB yang dibundel tidak lagi mendukungnya secara resmi.",
+        "en": "MetisClip officially supports Windows 11. It can run on this version, but it is not tested, and the bundled MongoDB no longer supports it officially.",
     },
     "backup_failed": {
         "id": "Backup gagal: {error}",
@@ -141,9 +142,36 @@ def _tool_version(cmd: list[str]) -> str | None:
         return None
 
 
+# Windows 11 starts at build 22000, Windows Server 2022 at 20348: what the bundled MongoDB 8.0 supports
+WIN11_BUILD = 22000
+SERVER_2022_BUILD = 20348
+
+
+def windows_item(info=None) -> dict | None:
+    """The Windows version, flagged when it is older than what MetisClip supports officially (Windows 11; Windows 10
+    may work but is not tested). None outside Windows."""
+    if info is None:
+        if not hasattr(sys, "getwindowsversion"):
+            return None
+        info = sys.getwindowsversion()
+    build = int(getattr(info, "build", 0) or 0)
+    server = getattr(info, "product_type", 1) != 1  # VER_NT_WORKSTATION = 1
+    if server:
+        name, ok = "Windows Server", build >= SERVER_2022_BUILD
+    elif info.major == 10 and build >= WIN11_BUILD:
+        name, ok = "Windows 11", True
+    else:
+        name, ok = ("Windows 10" if info.major == 10 else f"Windows {info.major}.{info.minor}"), False
+    return {"key": "windows", "label": "Windows", "ok": ok, "version": f"{name} (build {build})",
+            "detail": None if ok else M("windows_untested")}
+
+
 def _check() -> dict:
     paths = get_paths()
     items = []
+    win = windows_item()
+    if win:
+        items.append(win)
     ff = ffmpeg_ops.ffmpeg_version()
     items.append({"key": "ffmpeg", "label": "FFmpeg", "ok": bool(ff), "version": ff,
                   "detail": None if ff else M("ffmpeg_missing")})
@@ -236,11 +264,12 @@ def _storage() -> dict:
 
 @router.post("/update-ytdlp")
 async def update_ytdlp():
-    from backend.core.queue import runner
-
-    if runner.has_active_jobs():
-        raise http_error(409, M("jobs_running"))
-    return await run_in_threadpool(ytdlp.self_update)
+    """Refused (409) only while yt-dlp itself runs: a job in another step, or one that downloads a moment
+    later, waits for the update and then uses the new yt-dlp (agents/tools/ytdlp._ExeGate)."""
+    try:
+        return await run_in_threadpool(ytdlp.self_update)
+    except ytdlp.YtDlpBusy as exc:
+        raise http_error(409, str(exc))
 
 
 @router.get("/storage")

@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "MetisClip Desktop: agentic AI video clipping (Windows)",
   "author": "MetisClip",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "private": true,
   "main": "dist-main/main/index.js",
   "scripts": {

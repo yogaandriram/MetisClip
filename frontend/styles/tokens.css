@@ -1,5 +1,5 @@
 /*
- * MetisClip design tokens (DESIGN.md §2.6). The only place raw colors are written.
+ * MetisClip design tokens. The only place raw colors are written.
  * Every color is a green of hue ~101°, the hue of the owner's palette
  * (#ECFAE5, #DDF6D2, #CAE8BD, #B0DB9C). Light theme only.
  */
@@ -38,7 +38,7 @@
   --font-text: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', Consolas, monospace;
 
-  /* Spacing (4 px base, DESIGN.md §5.1) */
+  /* Spacing (4 px base) */
   --s-1: 4px;
   --s-2: 8px;
   --s-3: 12px;

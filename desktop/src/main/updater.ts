@@ -1,4 +1,4 @@
-// App updates (§10.4): electron-updater, fed by the GitHub Releases of the open-source repository
+// App updates: electron-updater, fed by the GitHub Releases of the open-source repository
 // (electron-builder.yml `publish`, which electron-builder writes into resources\app-update.yml).
 //
 // "Perbarui MetisClip otomatis" (Pengaturan → Aplikasi, preferences.json `auto_update`, on by default):

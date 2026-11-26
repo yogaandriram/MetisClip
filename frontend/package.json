@@ -2,6 +2,7 @@
   "name": "metisclip-frontend",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "next build"

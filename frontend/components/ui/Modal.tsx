@@ -21,7 +21,7 @@ interface ModalProps {
 
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
-/** Dialog with focus trap, Escape to close and focus return (DESIGN.md §8.12). */
+/** Dialog with focus trap, Escape to close and focus return. */
 export function Modal({ isOpen, onClose, title, size = 'sm', footer, busy = false, children }: ModalProps) {
   const t = useT()
   const [mounted, setMounted] = useState(false)

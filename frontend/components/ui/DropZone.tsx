@@ -18,7 +18,7 @@ interface DropZoneProps {
   className?: string
 }
 
-/** Dashed drop target; the whole zone is one button (DESIGN.md §8.15). */
+/** Dashed drop target; the whole zone is one button. */
 export function DropZone({ title, overTitle, hint, icon, onActivate, onFiles, disabled, invalid, className }: DropZoneProps) {
   const [over, setOver] = useState(false)
   return (

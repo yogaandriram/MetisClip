@@ -1,7 +1,7 @@
 'use client'
 
-import React from 'react'
-import { usePathname } from 'next/navigation'
+import React, { useEffect } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
 import { Clapperboard, Film, LayoutGrid, Palette, Settings } from 'lucide-react'
 import { Providers } from '@/components/Providers'
 import { CampaignProfile } from '@/components/shell/CampaignProfile'
@@ -9,6 +9,7 @@ import { NavRail, normalizePath, type RailItem } from '@/components/shell/NavRai
 import { OfflineBanner } from '@/components/shell/OfflineBanner'
 import { UpdateBanner } from '@/components/shell/UpdateBanner'
 import { ShellProvider, useShell } from '@/components/shell/ShellContext'
+import { UnsavedGuardProvider, useGuardedNavigation } from '@/components/shell/UnsavedGuard'
 import { useEngine } from '@/contexts/EngineContext'
 import { useT } from '@/lib/i18n/I18nProvider'
 import type { Messages } from '@/lib/i18n'
@@ -28,7 +29,20 @@ function Shell({ children }: { children: React.ReactNode }) {
   const { systemInfo } = useEngine()
   const shell = useShell()
   const t = useT()
+  const router = useRouter()
+  const guard = useGuardedNavigation()
   const activeJobs = shell?.activeJobs ?? 0
+
+  // F1 opens Bantuan from every page, after the unsaved-edits question when there is one
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'F1' || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return
+      e.preventDefault()
+      if (pathname !== '/help' && !document.querySelector('[role="dialog"]')) guard(() => router.push('/help/'))
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [pathname, guard, router])
 
   const version = typeof window !== 'undefined' && window.metis ? window.metis.appVersion : systemInfo?.version
   const dbProblem = systemInfo?.mongo.ok === false
@@ -69,7 +83,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <Providers>
       <ShellProvider>
-        <Shell>{children}</Shell>
+        <UnsavedGuardProvider>
+          <Shell>{children}</Shell>
+        </UnsavedGuardProvider>
       </ShellProvider>
     </Providers>
   )

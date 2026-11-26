@@ -1,4 +1,4 @@
-/* A clip's brief: campaign picker (Cari Video), gallery badge, editor checklist and post text. Tokens only (DESIGN.md). */
+/* A clip's brief: campaign picker (Cari Video), gallery badge, editor checklist and post text. Tokens only. */
 
 /* ---- Cari Video: campaign picker ------------------------------------------------------------- */
 
@@ -99,7 +99,7 @@
   color: var(--moss);
 }
 
-/* Not met: the strongest outline in the list (DESIGN.md §2.3: no red) */
+/* Not met: the strongest outline in the list (no red) */
 .mc-brief-item--fail {
   background: var(--surface);
   box-shadow: inset 0 0 0 1.5px var(--ink);

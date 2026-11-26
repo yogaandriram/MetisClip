@@ -24,12 +24,12 @@ export const settings: Messages['settings'] = {
     title: 'Video processing',
     subtitle: "Choose how much of the computer's resources are used.",
     workers: 'Parallel processing workers',
-    workersHint: 'How many clips are cut at the same time. Raise it if your CPU is strong.',
+    workersHint: 'How many clips are cut at the same time. Raise it if your CPU is strong. Applies to the next job.',
     renders: 'Parallel renders',
-    rendersHint: 'How many subtitle renders (Remotion) run at the same time.',
+    rendersHint: 'How many video exports run at the same time. Applies at once to exports still waiting. Each export needs 2.5 GB of RAM or more.',
     encoder: 'Video encoder',
     encoderDetected: (list: string) => `Detected: ${list}`,
-    encoderHint: 'A hardware encoder is used when available.',
+    encoderHint: 'Used when clips are cut and cropped. Exporting a video with subtitles always uses the CPU encoder.',
     encoders: {
       auto: 'Automatic (picks the fastest)',
       libx264: 'CPU (libx264)',
@@ -55,6 +55,9 @@ export const settings: Messages['settings'] = {
     notUsed: 'Not used',
     pickCookies: 'Choose the cookies.txt file',
     stopCookies: "Don't use a cookies file",
+    playerClient: 'YouTube player client (advanced)',
+    playerClientHint:
+      'Leave empty for the yt-dlp default. Fill it in when downloads cannot read the video formats, e.g. tv or tv,web_safari (separate several with commas).',
   },
   storage: {
     title: 'Local storage',
@@ -64,6 +67,13 @@ export const settings: Messages['settings'] = {
     exportFolderHint: 'Every render is copied here automatically. Also the default target when you export clips.',
     pickExport: 'Choose the export folder',
     postText: 'Save the post text for campaign clips',
+    loudness: 'Level the sound volume (−14 LUFS)',
+    loudnessHint:
+      'After the render, each video is brought to the volume TikTok, Reels and Shorts play at, so a quiet clip is not drowned out and a loud one does not distort. The picture is not changed. Changing this renders the next export again.',
+    quality: 'Export quality',
+    qualityHint:
+      'High: larger files, the sharpest detail. Standard: balanced. Small: 720p, faster renders and smaller files. Changing this renders the next export again.',
+    qualities: { high: 'High', standard: 'Standard', small: 'Small (720p)' },
     postTextHint: 'When a campaign clip is exported, a .txt file with its title, caption, mentions, hashtags and partnership label is saved next to the video.',
     cacheLimit: 'Cache limit (GB)',
     cacheLimitHint: 'Leftover temporary files are deleted each time MetisClip opens and when the cache grows past this limit. Files of running work stay.',
@@ -95,6 +105,7 @@ export const settings: Messages['settings'] = {
   },
   llm: {
     provider: 'LLM provider',
+    chooseProvider: 'Choose the LLM provider you use. The API key and model fields appear after that.',
     providerHintBefore: 'Used to analyze transcripts, pick viral moments and mark keywords/emojis. The',
     providerHintAfter: "mark means that provider's API key is already saved.",
     keyStored: ', API key saved',

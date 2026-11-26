@@ -1,4 +1,4 @@
-"""MongoDB access (CLAUDE.md §6, rule 18): client, auth bootstrap, migrations, helpers.
+"""MongoDB access: client, auth bootstrap, migrations, helpers.
 
 Packaged builds talk to the bundled mongod started by Electron main on
 127.0.0.1:<METISCLIP_MONGO_PORT> with --auth. The app user's password is kept in
@@ -302,7 +302,38 @@ def connect() -> Database:
     _client = client
     _db = client[DB_NAME]
     logger.info("Connected to MongoDB %s", server_version())
+    if not config.mongodb_uri:  # never change a server the user runs themselves
+        try:
+            ensure_feature_compatibility(client)
+        except Exception as exc:  # the database still works; the next start tries again
+            logger.warning("featureCompatibilityVersion not raised: %s", exc)
     return _db
+
+
+def _version_tuple(value: str) -> tuple[int, ...]:
+    return tuple(int(p) for p in str(value).split(".")[:2] if p.isdigit())
+
+
+def ensure_feature_compatibility(client: MongoClient) -> str | None:
+    """Raises the featureCompatibilityVersion to the running mongod's major.minor.
+
+    A data folder keeps the FCV of the mongod that first created it until it is raised, and a mongod only
+    starts on data whose FCV is its own or one major older. Without this step the first app update with a
+    newer mongod major still starts, but the next one does not. It finishes an upgrade that was interrupted
+    (the server then reports a targetVersion) and never lowers the FCV. Returns the version it set, or None."""
+    version = client.server_info().get("version") or ""
+    target = ".".join(version.split(".")[:2])
+    if len(_version_tuple(target)) != 2:
+        return None
+    fcv = client.admin.command({"getParameter": 1, "featureCompatibilityVersion": 1})["featureCompatibilityVersion"]
+    current = str(fcv.get("version") or "")
+    if current == target and not fcv.get("targetVersion"):
+        return None
+    if _version_tuple(current) > _version_tuple(target):
+        return None
+    client.admin.command({"setFeatureCompatibilityVersion": target, "confirm": True})
+    logger.info("featureCompatibilityVersion %s -> %s", current or "?", target)
+    return target
 
 
 def get_db() -> Database:

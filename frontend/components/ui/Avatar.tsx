@@ -25,7 +25,7 @@ function tone(seed: string): number {
   return h % 4
 }
 
-/** Initials on one of the palette greens, picked by a hash of the seed (DESIGN.md §8.20). */
+/** Initials on one of the palette greens, picked by a hash of the seed. */
 export function Avatar({ name, seed, size = 40, src, className }: AvatarProps) {
   return (
     <span

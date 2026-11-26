@@ -2,12 +2,19 @@
 from __future__ import annotations
 
 import copy
+import logging
 import os
+import re
 from typing import Any
 
-from backend.core.llm_providers import DEFAULT_COMPATIBLE_BASE_URL, DEFAULT_PROVIDER, PROVIDERS
+from backend.core.llm_providers import DEFAULT_PROVIDER, PROVIDERS
 from backend.core.paths import get_paths
 from backend.core import i18n
+
+logger = logging.getLogger(__name__)
+
+PLAYER_CLIENT_RE = re.compile(r"[a-z0-9_-]+(,[a-z0-9_-]+)*")
+PLAYER_CLIENT_MAX = 80
 
 M = i18n.messages({
     "unknown_provider": {
@@ -46,6 +53,10 @@ M = i18n.messages({
         "id": "Konkurensi render harus berupa angka",
         "en": "Render concurrency must be a number",
     },
+    "bad_quality": {
+        "id": "Kualitas ekspor harus Tinggi, Standar, atau Hemat",
+        "en": "The export quality must be High, Standard or Small",
+    },
     "auto_bool": {
         "id": "Hemat RAM otomatis harus aktif atau nonaktif",
         "en": "Automatic RAM saving must be on or off",
@@ -57,6 +68,10 @@ M = i18n.messages({
     "reserve_range": {
         "id": "Cadangan RAM harus antara 0 (otomatis) dan 16 GB",
         "en": "The RAM reserve must be between 0 (automatic) and 16 GB",
+    },
+    "player_client": {
+        "id": "Player client yt-dlp hanya boleh berisi huruf kecil, angka, garis bawah, tanda hubung, dan koma (contoh: tv,web_safari)",
+        "en": "The yt-dlp player client may only hold lowercase letters, digits, underscores, hyphens and commas (e.g. tv,web_safari)",
     },
     "ytdlp_auto_bool": {
         "id": "Update yt-dlp otomatis harus aktif atau nonaktif",
@@ -87,13 +102,15 @@ def defaults() -> dict[str, Any]:
     return {
         "export_dir": str(get_paths().exports_dir),
         # post_text: a campaign clip's export gets a .txt with its post text next to the video
-        "export": {"post_text": True},
+        # loudness: every exported video's audio is leveled to about -14 LUFS (services/render.py)
+        # quality: "high", "standard" or "small" (720p), see QUALITY in services/render.py
+        "export": {"post_text": True, "loudness": True, "quality": "standard"},
         "cache_limit_gb": 10,
-        # provider: one of llm_providers.PROVIDERS; models: the chosen model per provider;
-        # base_url: only used by the OpenAI-compatible provider
+        # provider: one of llm_providers.PROVIDERS, or "" until the user chooses one; models: the chosen
+        # model per provider; base_url: only used by the OpenAI-compatible provider
         "llm": {
             "provider": DEFAULT_PROVIDER,
-            "base_url": DEFAULT_COMPATIBLE_BASE_URL,
+            "base_url": "",
             "models": {pid: p.default_model for pid, p in PROVIDERS.items()},
         },
         # provider: "auto" (Groq while a key is set and Groq answers, else local), "local" or "groq";
@@ -142,11 +159,14 @@ class SettingsError(ValueError):
 
 def _validate(s: dict) -> None:
     llm = s["llm"]
-    if llm.get("provider") not in PROVIDERS:
+    # "" = not chosen yet: the other settings can still be saved
+    provider = llm.get("provider") or ""
+    if provider and provider not in PROVIDERS:
         raise SettingsError(M("unknown_provider"))
+    llm["provider"] = provider
     models = llm.get("models") if isinstance(llm.get("models"), dict) else {}
     llm["models"] = {pid: str(models.get(pid) or "").strip()[:200] for pid in PROVIDERS}
-    if not llm["models"][llm["provider"]]:
+    if provider and not llm["models"][provider]:
         raise SettingsError(M("model_required"))
     for pid, p in PROVIDERS.items():
         llm["models"][pid] = llm["models"][pid] or p.default_model
@@ -185,10 +205,17 @@ def _validate(s: dict) -> None:
     if not 0 <= reserve <= 16:
         raise SettingsError(M("reserve_range"))
     res["reserve_gb"] = round(reserve, 2)
-    if not isinstance(s["export"].get("post_text"), bool):
+    if not isinstance(s["export"].get("post_text"), bool) or not isinstance(s["export"].get("loudness"), bool):
         raise SettingsError(M("auto_bool"))
+    if s["export"].get("quality") not in ("high", "standard", "small"):
+        raise SettingsError(M("bad_quality"))
     if not isinstance(s["ytdlp"].get("auto_update"), bool):
         raise SettingsError(M("ytdlp_auto_bool"))
+    # Passed to yt-dlp as --extractor-args youtube:player_client=<value> (agents/tools/ytdlp.py)
+    client = re.sub(r"\s+", "", str(s["ytdlp"].get("player_client") or "")).lower().strip(",")
+    if client and (len(client) > PLAYER_CLIENT_MAX or not PLAYER_CLIENT_RE.fullmatch(client)):
+        raise SettingsError(M("player_client"))
+    s["ytdlp"]["player_client"] = client or "default"
     if not i18n.is_lang(s["app"].get("language")):
         raise SettingsError(M("unknown_language"))
     try:
@@ -237,4 +264,29 @@ def update_settings(patch: dict) -> dict[str, Any]:
     # other setting must not switch the engine's messages back to it.
     if "language" in (clean.get("app") or {}):
         i18n.set_language(merged["app"]["language"])
+    write_mongod_options(merged)
     return merged
+
+
+MONGOD_OPTIONS_FILE = "mongod.json"
+
+
+def write_mongod_options(settings: dict[str, Any] | None = None) -> None:
+    """Writes the mongod options Electron needs before mongod starts (it cannot read them from the
+    database) to <DATA_ROOT>\\.metisclip\\mongod.json. Called on every settings change and at engine start
+    (a restore or a copied data folder may hold other settings). Never fails the caller."""
+    import json
+
+    try:
+        s = settings or get_settings()
+        gb = min(4.0, max(0.25, float(s["db"]["wiredtiger_cache_gb"])))
+        target = get_paths().private_dir / MONGOD_OPTIONS_FILE
+        target.parent.mkdir(parents=True, exist_ok=True)
+        body = json.dumps({"wiredtiger_cache_gb": gb})
+        if target.is_file() and target.read_text(encoding="utf-8") == body:
+            return
+        tmp = target.with_suffix(".tmp")
+        tmp.write_text(body, encoding="utf-8")
+        tmp.replace(target)
+    except Exception:  # noqa: BLE001 - a missing options file only means mongod keeps its default
+        logger.warning("Could not write %s", MONGOD_OPTIONS_FILE, exc_info=True)

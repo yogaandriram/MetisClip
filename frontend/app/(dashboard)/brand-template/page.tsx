@@ -25,6 +25,7 @@ import { BrandSettingsPanel } from './components/BrandSettingsPanel'
 import { TemplatePreviewCanvas } from './components/TemplatePreviewCanvas'
 import { TemplateLibraryBar, campaignTemplateId } from './components/TemplateLibraryBar'
 import { TemplateDesignCard } from './components/TemplateDesignCard'
+import { useUnsavedGuard } from '@/components/shell/UnsavedGuard'
 
 type Section = 'layout_settings' | 'caption_settings' | 'ai_settings' | 'brand_settings'
 type PanelId = 'caption' | 'ai' | 'overlay' | 'layout'
@@ -198,15 +199,16 @@ export default function BrandTemplatePage() {
     [activeCampaign, applyTemplate],
   )
 
-  // Load once the campaigns are known, and again when another campaign becomes active (after asking
-  // to drop unsaved changes). Refreshes of the same campaign (e.g. its default changed) keep the editor.
+  // Load once the campaigns are known, and again when another campaign becomes active. The campaign
+  // switcher already asked about unsaved changes before switching (useUnsavedGuard's campaignSwitch
+  // below), so this never asks again. Refreshes of the same campaign (e.g. its default changed) keep the editor.
   const initRef = useRef(false)
   const activeId = activeCampaign?.id ?? null
   useEffect(() => {
     if (isCampaignLoading) return
     if (initRef.current && activeId === campaignId) return
     initRef.current = true
-    guard(() => loadAll(null))
+    loadAll(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCampaignLoading, activeId])
 
@@ -270,8 +272,8 @@ export default function BrandTemplatePage() {
     })
   }
 
-  const save = async () => {
-    if (!selected || isSaving) return
+  const save = async (): Promise<boolean> => {
+    if (!selected || isSaving) return false
     setIsSaving(true)
     try {
       const { brand_template } = await api.brandTemplates.update(selected.id, {
@@ -283,12 +285,17 @@ export default function BrandTemplatePage() {
       savedRef.current = JSON.stringify(config)
       setTemplates((list) => list.map((x) => (x.id === brand_template.id ? brand_template : x)))
       toast.success(t.brand.toasts.saved(brand_template.name))
+      return true
     } catch (err) {
       toast.error(errorMessage(err, t.brand.toasts.saveFailed))
+      return false
     } finally {
       setIsSaving(false)
     }
   }
+
+  // Leaving (or switching the campaign, which loads its templates) with edits asks first
+  useUnsavedGuard(hasChanges, save, { campaignSwitch: true })
 
   // Ctrl+S
   const saveRef = useRef(save)

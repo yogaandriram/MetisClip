@@ -35,7 +35,7 @@ export default function SetupPage() {
             {step === 'data' && <DataStep onNext={next} onBack={back} />}
             {step === 'keys' && <KeysStep onNext={next} onBack={back} />}
             {step === 'check' && <CheckStep onNext={next} onBack={back} />}
-            {step === 'campaign' && <CampaignStep onBack={back} onDone={() => router.replace('/dashboard/')} />}
+            {step === 'campaign' && <CampaignStep onBack={back} onDone={() => router.replace('/dashboard/?welcome=1')} />}
           </div>
         </div>
       </Card>

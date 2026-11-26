@@ -1,6 +1,6 @@
 """RAM guard ("Hemat RAM otomatis"): heavy work starts only when the PC has room for it.
 
-Each heavy step needs hundreds of MB to a few GB. Measured 2026-11-15 on the reference laptop (§1.5)
+Each heavy step needs hundreds of MB to a few GB. Measured 2026-11-15 on the reference laptop
 with a 60 s 1080p source:
   * one Processor clip: MediaPipe face scan plus the raw-frame pipe to x264, about 0.5 GB; the final
     1080x1920 encode, about 0.26 GB with QSV and 0.85 GB with libx264 (0.48 GB at 4 threads);

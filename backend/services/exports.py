@@ -72,10 +72,16 @@ def check_dest(dest: str | Path | None = None) -> Path:
     return folder
 
 
+# A 1:1 or 16:9 export gets its own name, so it never replaces the clip's 9:16 one
+FORMAT_SUFFIX = {"square": " 1x1", "landscape": " 16x9"}
+
+
 def file_name(clip: dict[str, Any]) -> str:
-    """`<hook text> - <id8>.mp4`: readable, and the same for every render of a clip (a re-render replaces it)."""
+    """`<hook text> - <id8>.mp4`: readable, and the same for every render of a clip (a re-render replaces it).
+    The format of its final.mp4 (`final_render.format`) adds " 1x1" or " 16x9"."""
     base = "".join(ch for ch in (clip.get("hook_text") or "")[:50] if ch.isalnum() or ch in " -_").strip()
-    return f"{base or 'metisclip'} - {clip['_id'][:8]}.mp4"
+    suffix = FORMAT_SUFFIX.get(str((clip.get("final_render") or {}).get("format")), "")
+    return f"{base or 'metisclip'} - {clip['_id'][:8]}{suffix}.mp4"
 
 
 def copy_final(clip: dict[str, Any], folder: Path) -> Path:
@@ -99,7 +105,26 @@ def copy_final(clip: dict[str, Any], folder: Path) -> Path:
             raise ExportError(M("locked", folder=folder)) from exc
         raise ExportError(M("copy_failed", folder=folder, error=exc.strerror or exc)) from exc
     write_post_text(clip, target)
+    write_cover(clip, target)
     return target
+
+
+def write_cover(clip: dict[str, Any], video: Path) -> Path | None:
+    """The cover the user chose (taken from final.mp4 by the render) as `<video name>.jpg` next to the
+    exported video, for platforms that take a cover image. Never fails the export."""
+    rel = (clip.get("files") or {}).get("cover")
+    if not rel:
+        return None
+    src = get_paths().from_relative(rel)
+    if not src.is_file():
+        return None
+    out = video.with_suffix(".jpg")
+    try:
+        shutil.copyfile(src, out)
+    except OSError as exc:
+        logger.warning("Cover next to %s not written: %s", video.name, exc)
+        return None
+    return out
 
 
 def post_text_enabled() -> bool:

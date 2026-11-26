@@ -24,7 +24,7 @@ interface TabsProps {
   className?: string
 }
 
-/** Segmented control: the active segment is an ink pill (DESIGN.md §8.3). */
+/** Segmented control: the active segment is an ink pill. */
 export function Tabs({ tabs, activeTab, onChange, ariaLabel, size = 'md', block, onCanvas, className }: TabsProps) {
   const refs = useRef<Array<HTMLButtonElement | null>>([])
   const enabled = tabs.filter((t) => !t.disabled)

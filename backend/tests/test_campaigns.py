@@ -280,10 +280,10 @@ def _bad_request(message: str):
     return openai.BadRequestError(message, response=resp, body={"error": {"message": message}})
 
 
-def test_images_go_as_openai_parts_and_refusals_are_remembered(db, secrets, monkeypatch):
+def test_images_go_as_openai_parts_and_refusals_are_remembered(db, secrets, monkeypatch, use_llm):
     from backend.core import llm
 
-    secrets.set_secret("llm_api_key", "k")
+    use_llm("k")
     llm._no_vision.clear()
     ok = _FakeCompletions()
     monkeypatch.setattr(llm, "_openai_client", lambda t, timeout: type("C", (), {"chat": type("Ch", (), {"completions": ok})})())
@@ -380,7 +380,7 @@ CAMPAIGNS = [
 ]
 
 
-def test_each_campaign_chooses_its_own_clips(monkeypatch):
+def test_each_campaign_chooses_its_own_clips(db, monkeypatch):
     prompts = []
 
     def chat(system, user, **kw):
@@ -425,6 +425,37 @@ def test_each_campaign_chooses_its_own_clips(monkeypatch):
     assert "Words that must not be said: anjing" in user and "Must not: Tanpa gosip" in user
     assert "fokus ke tips" in user and '"campaigns"' in system
 
+
+
+def test_a_campaign_skips_moments_it_already_clipped_from_the_video(db, monkeypatch):
+    """Running a video again for a campaign finds new moments: a candidate that is mostly an existing clip
+    of that campaign (from another job) is left out, and the job says so. Other campaigns still get it."""
+    from backend.models.documents import ClipDoc
+
+    def chat(system, user, **kw):
+        if "Transcript part 1/" in user:
+            return {"clips": [{"start_id": 30, "end_id": 39, **_s(9), "hook_text": "terbaik"},
+                              {"start_id": 60, "end_id": 69, **_s(7), "hook_text": "kedua"}]}
+        return {"clips": []}
+
+    monkeypatch.setattr(an.llm, "chat_json", chat)
+    video = {"_id": "sv1", "youtube_id": "AAAAAAAAAAA", "title": "Podcast", "duration_seconds": 2000}
+    plain = [{"id": "cP", "name": "Channel", "brief": clean_brief({})}, {"id": "cQ", "name": "Lain", "brief": clean_brief({})}]
+    first = an._analyze_video(FakeCtx(), video, 45, 60, 2, _transcript(), True, plain)
+    best = next(s for s in first if s["campaign_id"] == "cP" and s["hook_text"] == "terbaik")
+    # An earlier job made that clip for cP (the Processor moved its edges a little)
+    db.clips.insert_one(ClipDoc(_id="old-clip", campaign_id="cP", job_id="job-0", source_video_id="sv0",
+                                youtube_id="AAAAAAAAAAA", start_time=best["start_time"] + 1.2,
+                                end_time=best["end_time"] - 0.8, duration_seconds=40, status="ready").to_mongo())
+    ctx = FakeCtx()
+    again = an._analyze_video(ctx, video, 45, 60, 2, _transcript(), True, plain)
+    assert [s["hook_text"] for s in again if s["campaign_id"] == "cP"] == ["kedua"]
+    assert sorted(s["hook_text"] for s in again if s["campaign_id"] == "cQ") == ["kedua", "terbaik"]
+    assert any("sudah pernah diklip" in e and "Channel" in e for e in ctx.errors)
+    # The job that made the clip itself (a re-run of its analysis) is not held back by it
+    db.clips.update_one({"_id": "old-clip"}, {"$set": {"job_id": "job-1"}})
+    assert len([s for s in an._analyze_video(FakeCtx(), video, 45, 60, 2, _transcript(), True, plain)
+                if s["campaign_id"] == "cP"]) == 2
 
 def test_without_campaigns_ids_and_prompts_are_unchanged(monkeypatch):
     seen = []
@@ -660,7 +691,7 @@ def _wait_parse(client, cid, timeout=10.0):
     raise AssertionError("parse did not finish")
 
 
-def test_campaign_api_flow(client, secrets, monkeypatch, tmp_path, db):
+def test_campaign_api_flow(client, secrets, monkeypatch, tmp_path, db, use_llm):
     from backend.agents.tools import brief_ai
 
     r = client.post("/api/campaigns", json={"name": "  Tokopedia   Ramadan ", "client": "Tokopedia"})
@@ -690,7 +721,7 @@ def test_campaign_api_flow(client, secrets, monkeypatch, tmp_path, db):
 
     # Understanding the brief: needs an LLM key, runs in the background, lands in the draft
     assert client.post(f"/api/campaigns/{cid}/parse").status_code == 400
-    secrets.set_secret("llm_api_key", "k")
+    use_llm("k")
     monkeypatch.setattr(brief_ai, "read_brief", lambda sources, **kw: {
         "brief": clean_brief(BRIEF_JSON), "name": "Tokopedia Ramadan", "client": "Tokopedia",
         "unreadable": [], "used_ocr": False, "used_vision": False})
@@ -804,11 +835,11 @@ def test_campaign_api_flow(client, secrets, monkeypatch, tmp_path, db):
     assert db.clips.find_one({"_id": plain_clip})["campaign_id"] == plain["id"]
 
 
-def test_parse_failure_and_restart_recovery(client, secrets, monkeypatch, db):
+def test_parse_failure_and_restart_recovery(client, secrets, monkeypatch, db, use_llm):
     from backend.agents.tools import brief_ai
     from backend.services import campaigns as csvc
 
-    secrets.set_secret("llm_api_key", "k")
+    use_llm("k")
     cid = client.post("/api/campaigns", json={"name": "X"}).json()["campaign"]["id"]
 
     def boom(sources, **kw):

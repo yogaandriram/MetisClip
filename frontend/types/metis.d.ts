@@ -163,12 +163,20 @@ declare global {
     /** Opens a folder or a media file with the default app. Refuses executables. */
     openPath(absPath: string): Promise<{ ok: boolean; error?: string }>
     showItemInFolder(absPath: string): Promise<void>
+    /** Drags clips' final.mp4 out of the window under their export names; call it in dragstart after preventDefault */
+    startDrag(items: Array<{ path: string; name: string }>): void
     openExternal(url: string): Promise<void>
     /** Windows notification, shown only while the window is in the background; a click opens the app on opts.route */
     notify(title: string, body?: string, opts?: { route?: string }): void
     /** A notification click asks the UI to open a route; returns an unsubscribe function */
     onNavigate(cb: (route: string) => void): () => void
     relaunch(): void
+    /** Starts mongod and the engine again after they gave up (only acts in the error state) */
+    restartBackend(): Promise<{ ok: boolean; error?: string }>
+    /** The open page has unsaved edits: closing or quitting MetisClip asks first */
+    setUnsavedChanges(dirty: boolean): void
+    /** Opens the log folder, also while the engine is down */
+    openLogs(): Promise<{ ok: boolean; error?: string }>
   }
 
   interface Window {

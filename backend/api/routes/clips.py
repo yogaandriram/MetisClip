@@ -1,17 +1,19 @@
 """Clips: list/detail, subtitle editing, media streaming, render queue, export, delete."""
 from __future__ import annotations
 
+import os
 import shutil
+from pathlib import Path
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.api.dto import brand_template_dto, campaign_dto, clip_dto, http_error, render_dto
+from backend.api.dto import brand_template_dto, campaign_dto, clip_dto, http_error, job_dto, render_dto
 from backend.api.routes.files import serve_relative
-from backend.agents.tools import caption_ai, post_copy_ai, speaker_ai
+from backend.agents.tools import caption_ai, ffmpeg_ops, post_copy_ai, speaker_ai, translate_ai
 from backend.agents.tools.caption_ai import valid_emoji
-from backend.core import events, llm
+from backend.core import disk, events, llm
 from backend.core.db import get_db, new_id, utcnow
 from backend.core.paths import get_paths
 from backend.core.queue import runner
@@ -20,10 +22,47 @@ from backend.core.procs import Cancelled, CancelToken
 from backend.services import brand_templates, brief_check, exports
 from backend.services import campaigns as campaign_svc
 from backend.services import layout as layout_svc
+from backend.services import render as render_svc
 from backend.services.render import channel_name, clean_ai, effective_ai, effective_style
 from backend.core import i18n
 
 M = i18n.messages({
+    "recut_running": {
+        "id": "Klip ini sedang dipotong ulang. Tunggu sampai selesai.",
+        "en": "This clip is being cut again. Wait until it is done.",
+    },
+    "recut_while_render": {
+        "id": "Tunggu ekspor klip ini selesai (atau batalkan) sebelum memotong ulang.",
+        "en": "Wait for this clip's export to finish (or cancel it) before cutting it again.",
+    },
+    "cover_while_recut": {
+        "id": "Klip ini sedang dipotong ulang. Pilih sampul setelah selesai.",
+        "en": "This clip is being cut again. Choose the cover once that is done.",
+    },
+    "cover_outside": {
+        "id": "Waktu sampul harus di dalam clip (0 sampai {duration} detik).",
+        "en": "The cover time must be inside the clip (0 to {duration} seconds).",
+    },
+    "cover_failed": {
+        "id": "Frame sampul tidak bisa diambil: {error}",
+        "en": "The cover frame could not be taken: {error}",
+    },
+    "render_while_recut": {
+        "id": "Klip ini sedang dipotong ulang. Ekspor setelah selesai.",
+        "en": "This clip is being cut again. Export it once that is done.",
+    },
+    "recut_no_campaign": {
+        "id": "Klip ini tidak punya campaign. Pindahkan dulu ke sebuah campaign.",
+        "en": "This clip has no campaign. Move it to a campaign first.",
+    },
+    "recut_no_source": {
+        "id": "Video sumber klip ini tidak diketahui, jadi tidak bisa dipotong ulang.",
+        "en": "This clip's source video is unknown, so it cannot be cut again.",
+    },
+    "recut_needs_whisper": {
+        "id": "Video upload dipotong ulang dengan Whisper. {reason}",
+        "en": "Uploaded videos are cut again with Whisper. {reason}",
+    },
     "not_found": {
         "id": "Klip tidak ditemukan",
         "en": "Clip not found",
@@ -56,6 +95,18 @@ M = i18n.messages({
         "id": "Usulan nama gagal: {error}",
         "en": "Name suggestions failed: {error}",
     },
+    "bad_language": {
+        "id": "Bahasa terjemahan tidak dikenal",
+        "en": "Unknown translation language",
+    },
+    "translate_failed": {
+        "id": "Terjemahan subtitle gagal: {error}",
+        "en": "Subtitle translation failed: {error}",
+    },
+    "translate_empty": {
+        "id": "AI tidak mengembalikan terjemahan. Coba lagi, atau pilih model lain di Pengaturan.",
+        "en": "The AI returned no translation. Try again, or pick another model in Settings.",
+    },
     "file_not_ready": {
         "id": "File belum tersedia",
         "en": "The file is not available yet",
@@ -73,8 +124,8 @@ M = i18n.messages({
         "en": "Face analysis failed: {error}",
     },
     "no_raw": {
-        "id": "File raw klip tidak ada",
-        "en": "The clip's raw file is missing",
+        "id": "File video mentah klip ini tidak ada di folder data",
+        "en": "This clip's raw video file is not in the data folder",
     },
     "render_not_found": {
         "id": "Render job tidak ditemukan",
@@ -130,8 +181,15 @@ class _BriefContext:
         return brief_check.check(clip, campaign, self.templates[key], channel_name(clip))
 
 
+LIST_MAX = 5000
+
+
 @router.get("/api/clips")
-def list_clips(job_id: Optional[str] = None, status: Optional[str] = None, campaign_id: Optional[str] = None):
+def list_clips(job_id: Optional[str] = None, status: Optional[str] = None, campaign_id: Optional[str] = None,
+               limit: int = 0):
+    """Newest first (`limit` > 0: only that many). Without the subtitle words, which only the editor needs
+    (GET /api/clips/{id}); `word_count` says how many there are. `source_title` names the source video."""
+    db = get_db()
     q: dict = {}
     if job_id:
         q["job_id"] = job_id
@@ -139,11 +197,15 @@ def list_clips(job_id: Optional[str] = None, status: Optional[str] = None, campa
         q["status"] = status
     if campaign_id:
         q["campaign_id"] = campaign_id
-    docs = get_db().clips.find(q).sort("created_at", -1)
+    docs = list(db.clips.find(q).sort("created_at", -1).limit(max(1, min(LIST_MAX, limit)) if limit > 0 else LIST_MAX))
+    source_ids = list({d["source_video_id"] for d in docs if d.get("source_video_id")})
+    titles = {v["_id"]: v.get("title") or "" for v in db.source_videos.find({"_id": {"$in": source_ids}}, {"title": 1})}
     ctx = _BriefContext()
     out = []
     for d in docs:
         dto = clip_dto(d)
+        dto["word_count"] = len(dto.pop("subtitle_data", {}).get("words") or [])
+        dto["source_title"] = titles.get(d.get("source_video_id"), "")
         if d.get("campaign_id"):
             check = ctx.check(d)
             dto["brief_summary"] = check["summary"] if check else None
@@ -172,7 +234,33 @@ def get_clip(clip_id: str):
         "content": layout_svc.content_profile(clip, scenes),
         # The template in effect (the clip's own choice, else its campaign's, else the default template)
         "brand_template": brand_template_dto(tpl),
+        # A recut of this clip that is pending or running (the editor waits for it)
+        "recut_job": job_dto(recut) if (recut := active_recut(clip_id)) else None,
+        "source_video": _source_video(clip),
         **_campaign_info(clip, tpl),
+    }
+
+
+def _source_video(clip: dict) -> dict[str, Any] | None:
+    """The video the clip was cut from: title, channel, link or file, and length (for the editor)."""
+    from backend.agents.tools.ytdlp import watch_url
+
+    video = get_db().source_videos.find_one({"_id": clip.get("source_video_id")}) if clip.get("source_video_id") else None
+    if not video and not clip.get("youtube_id"):
+        return None
+    video = video or {}
+    youtube_id = clip.get("youtube_id") or video.get("youtube_id")
+    start = max(0, int(float(clip.get("start_time") or 0)))
+    file_path = video.get("file_path")
+    return {
+        "title": video.get("title") or "",
+        "channel": video.get("channel_name") or "",
+        "youtube_url": watch_url(youtube_id) if youtube_id else None,
+        # The same link at the clip's first second, for crediting the moment
+        "youtube_url_at": f"{watch_url(youtube_id)}&t={start}s" if youtube_id else None,
+        "file_path": file_path,
+        "file_exists": bool(file_path) and Path(file_path).is_file(),
+        "duration_seconds": video.get("duration_seconds"),
     }
 
 
@@ -187,6 +275,68 @@ def _campaign_info(clip: dict, tpl: dict | None) -> dict[str, Any]:
     dto.pop("draft", None)
     check = brief_check.check(clip, campaign, tpl, channel_name(clip)) if campaign_svc.has_brief(campaign.get("brief")) else None
     return {"campaign": dto, "brief_check": check}
+
+
+class RecutBody(BaseModel):
+    start: float
+    end: float
+    snap_edges: bool = True
+
+
+def active_recut(clip_id: str) -> dict | None:
+    """The pending or running job that cuts this clip again, if any."""
+    return get_db().discovery_jobs.find_one(
+        {"config.recut.clip_id": clip_id, "status": {"$in": ["pending", "running"]}}, sort=[("created_at", -1)])
+
+
+def _active_render(clip_id: str) -> dict | None:
+    return get_db().render_jobs.find_one({"clip_id": clip_id, "status": {"$in": ["queued", "rendering"]}})
+
+
+@router.post("/api/clips/{clip_id}/recut")
+def recut_clip(clip_id: str, body: RecutBody):
+    """Cut the clip again at new edges (seconds of its source video): a one-moment job that replaces the
+    clip's files and keeps its style, template, title and edited words (agents/nodes/manual.py)."""
+    from backend.agents.context import PipelineError
+    from backend.agents.nodes import manual
+    from backend.agents.nodes.discovery import check_local_video
+    from backend.agents.tools import whisper
+    from backend.agents.tools.ytdlp import watch_url
+    from backend.api.routes.jobs import _check_disk, insert_job
+    from backend.core.config import config
+    from backend.models.documents import JobConfig, JobSource
+
+    clip = _get(clip_id)
+    if active_recut(clip_id):
+        raise http_error(409, M("recut_running"))
+    if _active_render(clip_id):
+        raise http_error(409, M("recut_while_render"))
+    campaign = campaign_svc.get(clip.get("campaign_id")) if clip.get("campaign_id") else None
+    if not campaign:
+        raise http_error(400, M("recut_no_campaign"))
+    db = get_db()
+    video = db.source_videos.find_one({"_id": clip.get("source_video_id")}) if clip.get("source_video_id") else None
+    if clip.get("youtube_id"):
+        source = JobSource(type="url", youtube_url=watch_url(clip["youtube_id"]))
+    elif video and video.get("file_path"):
+        try:
+            path, _ = check_local_video(video["file_path"])
+        except PipelineError as exc:
+            raise http_error(400, str(exc)) from exc
+        if not whisper.available() and not config.is_dev:
+            raise http_error(400, M("recut_needs_whisper", reason=whisper.unavailable_reason()))
+        source = JobSource(type="local_file", local_file_path=str(path))
+    else:
+        raise http_error(400, M("recut_no_source"))
+    try:
+        [edges] = manual.clean_ranges([{"start": body.start, "end": body.end}], (video or {}).get("duration_seconds"))
+    except manual.RangeError as exc:
+        raise http_error(400, str(exc)) from exc
+    _check_disk()
+    cfg = JobConfig(recut={"clip_id": clip_id, **edges}, snap_edges=body.snap_edges,
+                    max_clips=1, max_clips_per_video=1)
+    doc = insert_job(source, cfg, [campaign_svc.snapshot(campaign)])
+    return {"job": job_dto(doc)}
 
 
 class PostCopy(BaseModel):
@@ -293,8 +443,19 @@ class Word(BaseModel):
     emoji: Optional[str] = Field(default=None, max_length=16)
 
 
+class Translation(BaseModel):
+    """The clip's subtitles are a translation: its language, the words and title as
+    spoken (the brief checklist reads those), and whether a recut added untranslated words."""
+    language: str
+    original_words: list[Word] = Field(default_factory=list)
+    original_title: str = Field(default="", max_length=300)
+    partial: bool = False
+
+
 class SubtitleUpdate(BaseModel):
     words: Optional[list[Word]] = None
+    # The translation record (null: the subtitles are in the spoken language again)
+    translation: Optional[Translation] = None
     style: Optional[dict[str, Any]] = None
     reset_style: bool = False
     # Per-clip layout override (patch of the template's layout_settings) and its reset
@@ -320,20 +481,17 @@ def update_subtitles(clip_id: str, body: SubtitleUpdate):
         else:
             raise http_error(400, M("template_not_found"))
     if body.words is not None:
-        words = []
-        for w in body.words:
-            item = {"word": w.word, "start": round(w.start, 3), "end": round(max(w.end, w.start), 3)}
-            if w.confidence is not None:
-                item["confidence"] = w.confidence
-            if w.keyword:
-                item["keyword"] = True
-            emoji = valid_emoji(w.emoji) if w.emoji else None
-            if emoji:
-                item["emoji"] = emoji
-            words.append(item)
-        if len(words) > 20000:
-            raise http_error(400, M("too_many_words"))
-        sets["subtitle.words"] = words
+        sets["subtitle.words"] = _clean_words(body.words)
+    if "translation" in body.model_fields_set:
+        tr = body.translation
+        if tr is None:
+            unsets["subtitle.translation"] = ""
+        elif tr.language not in translate_ai.LANGUAGES:
+            raise http_error(400, M("bad_language"))
+        else:
+            sets["subtitle.translation"] = {"language": tr.language, "original_words": _clean_words(tr.original_words),
+                                            "original_title": " ".join(tr.original_title.split()),
+                                            "partial": tr.partial, "at": utcnow()}
     if body.reset_style:
         sets["subtitle_style"] = {}
     elif body.style is not None:
@@ -355,6 +513,54 @@ def update_subtitles(clip_id: str, body: SubtitleUpdate):
     get_db().clips.update_one({"_id": clip_id}, {"$set": sets, **({"$unset": unsets} if unsets else {})})
     events.publish({"type": "clip.updated", "id": clip_id})
     return {"clip": clip_dto(_get(clip_id))}
+
+
+def _clean_words(items: list[Word]) -> list[dict[str, Any]]:
+    words = []
+    for w in items:
+        item: dict[str, Any] = {"word": w.word, "start": round(w.start, 3), "end": round(max(w.end, w.start), 3)}
+        if w.confidence is not None:
+            item["confidence"] = w.confidence
+        if w.keyword:
+            item["keyword"] = True
+        emoji = valid_emoji(w.emoji) if w.emoji else None
+        if emoji:
+            item["emoji"] = emoji
+        words.append(item)
+    if len(words) > 20000:
+        raise http_error(400, M("too_many_words"))
+    return words
+
+
+class TranslateBody(BaseModel):
+    language: str
+    # The words to translate (the editor's, as spoken); the saved ones when missing
+    words: Optional[list[Word]] = None
+    title: Optional[str] = Field(default=None, max_length=300)
+
+
+@router.post("/api/clips/{clip_id}/subtitles/translate")
+def translate_subtitles(clip_id: str, body: TranslateBody):
+    """The words (and the title) translated by the LLM, timed phrase by phrase (not saved: the editor applies
+    them as an edit, and keeps the spoken words in the clip's translation record when it saves)."""
+    clip = _get(clip_id)
+    if body.language not in translate_ai.LANGUAGES:
+        raise http_error(400, M("bad_language"))
+    sub = clip.get("subtitle") or {}
+    saved = (sub.get("translation") or {}).get("original_words") or sub.get("words") or []
+    words = _clean_words(body.words) if body.words is not None else saved
+    if not words:
+        raise http_error(400, M("no_subtitles"))
+    title = body.title if body.title is not None else (clip.get("hook_text") or "")
+    try:
+        res = translate_ai.translate_words(words, body.language, title)
+    except llm.LLMNotConfigured as exc:
+        raise http_error(400, str(exc))
+    except llm.LLMError as exc:
+        raise http_error(502, M("translate_failed", error=exc))
+    except translate_ai.TranslateError:
+        raise http_error(502, M("translate_empty"))
+    return {"language": body.language, **res}
 
 
 class EnrichBody(BaseModel):
@@ -410,6 +616,58 @@ def clip_media(clip_id: str, kind: Literal["raw", "final", "thumbnail", "thumb",
     return serve_relative(rel)
 
 
+class CoverBody(BaseModel):
+    # Seconds of raw.mp4; None goes back to the middle frame (and no cover is exported)
+    time: Optional[float] = None
+
+
+@router.put("/api/clips/{clip_id}/cover")
+def set_cover(clip_id: str, body: CoverBody):
+    """The clip's cover: its thumbnail becomes the frame of raw.mp4 at `time`, and the same moment of
+    final.mp4 becomes the exported cover (`<video name>.jpg`): at once when final.mp4 still matches the
+    clip (no render needed), else at the next render. A cover from an earlier choice is removed."""
+    clip = _get(clip_id)
+    files = clip.get("files") or {}
+    paths = get_paths()
+    raw = paths.from_relative(files["raw"]) if files.get("raw") else None
+    if not raw or not raw.is_file():
+        raise http_error(409, M("no_raw"))
+    if active_recut(clip_id):
+        raise http_error(409, M("cover_while_recut"))
+    duration = float(clip.get("duration_seconds") or 0)
+    at = body.time
+    if at is not None and (at < 0 or (duration > 0 and at > duration + 0.05)):
+        raise http_error(400, M("cover_outside", duration=f"{duration:.1f}"))
+    frame_at = duration / 2 if at is None else max(0.0, min(at, max(0.0, duration - 0.05)))
+    folder = raw.parent
+    thumb = folder / "thumb.jpg"
+    tmp = folder / "thumb.new.jpg"
+    try:
+        ffmpeg_ops.thumbnail(raw, tmp, frame_at, None)
+        if not tmp.is_file() or tmp.stat().st_size == 0:
+            raise RuntimeError("ffmpeg")
+        os.replace(tmp, thumb)  # a new file: another campaign's hard link keeps its own thumbnail
+    except Exception as exc:
+        tmp.unlink(missing_ok=True)
+        raise http_error(502, M("cover_failed", error=exc))
+    if files.get("cover"):
+        paths.from_relative(files["cover"]).unlink(missing_ok=True)
+    changes: dict[str, Any] = {
+        "cover_time": None if at is None else round(frame_at, 3),
+        "files.thumbnail": paths.to_relative(thumb),
+        "files.cover": None,
+        "updated_at": utcnow(),
+    }
+    if clip.get("final_render"):  # null before the first render: no field inside it can be set
+        changes["final_render.cover_time"] = None
+    get_db().clips.update_one({"_id": clip_id}, {"$set": changes})
+    clip = _get(clip_id)
+    if at is not None and render_svc.final_current(clip):
+        render_svc.cover_from_final(clip)
+    events.publish({"type": "clip.updated", "id": clip_id})
+    return {"clip": clip_dto(_get(clip_id))}
+
+
 @router.post("/api/clips/{clip_id}/source")
 def prepare_clip_source(clip_id: str):
     """The clip in its original ratio (podcast and card layouts): fetched again for clips made before it was kept."""
@@ -445,20 +703,77 @@ def prepare_clip_faces(clip_id: str):
     return {"clip": clip_dto(clip), "scenes": scenes, "content": layout_svc.content_profile(clip, scenes)}
 
 
+# final.mp4 plus its export copy and the render props: a 90 s 1080x1920 export is well under this
+RENDER_NEED_BYTES = 512 * 1024**2
+
+
+class RenderBody(BaseModel):
+    # Copy final.mp4 again instead of rendering when nothing changed since it was rendered
+    reuse: bool = False
+
+
 @router.post("/api/clips/{clip_id}/render")
-def render_clip(clip_id: str):
-    clip = _get(clip_id)
-    if not (clip.get("files") or {}).get("raw"):
+def render_clip(clip_id: str, body: Optional[RenderBody] = None):
+    return {"render_job": render_dto(_queue_render(_get(clip_id), reuse=bool(body and body.reuse)))}
+
+
+def _queue_render(clip: dict, reuse: bool = False) -> dict:
+    """The clip's render job: the queued or running one, else a new one (raises the HTTP refusals). With
+    `reuse`, a clip whose final.mp4 still matches gets a completed job at once: the file is copied to the
+    export folder again, not rendered."""
+    clip_id = clip["_id"]
+    raw = (clip.get("files") or {}).get("raw")
+    # Checked here, so a file deleted by hand fails at once instead of after Chrome started
+    if not raw or not get_paths().from_relative(raw).is_file():
         raise http_error(409, M("no_raw"))
     db = get_db()
     active = db.render_jobs.find_one({"clip_id": clip_id, "status": {"$in": ["queued", "rendering"]}})
     if active:
-        return {"render_job": render_dto(active)}
+        return active
+    if active_recut(clip_id):
+        raise http_error(409, M("render_while_recut"))
+    try:
+        disk.check(RENDER_NEED_BYTES)
+    except disk.DiskFull as exc:
+        raise http_error(507, str(exc))
+    if reuse and render_svc.final_current(clip):
+        return render_svc.reuse_final(clip)
     doc = RenderJobDoc(_id=new_id(), clip_id=clip_id).to_mongo()
     db.render_jobs.insert_one(doc)
     events.publish({"type": "render.status", "id": doc["_id"], "clip_id": clip_id, "status": "queued"})
     runner.submit_render(doc["_id"])
-    return {"render_job": render_dto(doc)}
+    return doc
+
+
+class ClipIdsBody(BaseModel):
+    clip_ids: list[str] = Field(min_length=1, max_length=LIST_MAX)
+
+
+class RenderClipsBody(ClipIdsBody):
+    reuse: bool = False
+
+
+@router.post("/api/clips/render")
+def render_clips(body: RenderClipsBody):
+    """Queue the renders of several clips (they run one after another, in this order). A clip that cannot
+    be rendered now is skipped with the reason; the others still go. With `reuse`, a clip whose final.mp4
+    still matches is copied to the export folder again instead (its job is `reused`)."""
+    db = get_db()
+    queued, skipped = [], []
+    for cid in dict.fromkeys(body.clip_ids):
+        clip = db.clips.find_one({"_id": cid})
+        if not clip:
+            skipped.append({"clip_id": cid, "reason": M("not_found")})
+            continue
+        try:
+            queued.append(render_dto(_queue_render(clip, reuse=body.reuse)))
+        except HTTPException as exc:
+            skipped.append({"clip_id": cid, "reason": str(exc.detail)})
+            if exc.status_code == 507:  # the disk is full: the rest would be refused the same way
+                skipped.extend({"clip_id": rest, "reason": str(exc.detail)}
+                               for rest in list(dict.fromkeys(body.clip_ids))[len(queued) + len(skipped):])
+                break
+    return {"render_jobs": queued, "skipped": skipped}
 
 
 class ExportBody(BaseModel):
@@ -488,10 +803,38 @@ def export_clips(body: ExportBody):
 
 @router.delete("/api/clips/{clip_id}")
 def delete_clip(clip_id: str, delete_files: bool = True):
-    clip = _get(clip_id)
+    _delete(_get(clip_id), delete_files)
+    return {"ok": True}
+
+
+class DeleteClipsBody(ClipIdsBody):
+    delete_files: bool = True
+
+
+@router.post("/api/clips/delete")
+def delete_clips(body: DeleteClipsBody):
+    """Delete several clips (and, by default, their folders). Missing ids are listed, not refused."""
+    db = get_db()
+    deleted, missing = [], []
+    for cid in dict.fromkeys(body.clip_ids):
+        clip = db.clips.find_one({"_id": cid})
+        if not clip:
+            missing.append(cid)
+            continue
+        _delete(clip, body.delete_files)
+        deleted.append(cid)
+    return {"deleted": deleted, "missing": missing}
+
+
+def _delete(clip: dict, delete_files: bool) -> None:
+    """Stop the clip's render and recut, then remove its record and (optionally) its own folder."""
+    clip_id = clip["_id"]
     db = get_db()
     for rj in db.render_jobs.find({"clip_id": clip_id, "status": {"$in": ["queued", "rendering"]}}, {"_id": 1}):
         runner.cancel_render(rj["_id"])
+    recut = active_recut(clip_id)
+    if recut:
+        runner.cancel_job(recut["_id"])
     db.render_jobs.delete_many({"clip_id": clip_id, "status": {"$nin": ["queued", "rendering"]}})
     db.clips.delete_one({"_id": clip_id})
     if delete_files:
@@ -502,7 +845,6 @@ def delete_clip(clip_id: str, delete_files: bool = True):
             if folder.name == clip_id and paths.library_dir.resolve() in folder.resolve().parents:
                 shutil.rmtree(folder, ignore_errors=True)
     events.publish({"type": "clip.deleted", "id": clip_id})
-    return {"ok": True}
 
 
 # -- render jobs --------------------------------------------------------------

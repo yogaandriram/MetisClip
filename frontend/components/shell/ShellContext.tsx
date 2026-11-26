@@ -62,7 +62,7 @@ function useSystemNotices(): void {
 }
 
 /**
- * Windows notifications when a job or an export finishes or fails (§9.3), wherever the user is in the app;
+ * Windows notifications when a job or an export finishes or fails, wherever the user is in the app;
  * main shows them only while the window is in the background. A click opens the result.
  */
 function useDesktopNotifications(): void {
@@ -75,12 +75,16 @@ function useDesktopNotifications(): void {
     if (!metis) return
     const m = tm().shell.notify
     const lines = (...parts: Array<string | null | undefined>) => parts.filter(Boolean).join('\n')
-    if (e.type === 'job.status') {
+    if (e.type === 'job.status' && e.kind === 'recut' && e.clip_id) {
+      const route = `/clips/detail/?id=${encodeURIComponent(e.clip_id)}`
+      if (e.status === 'completed') metis.notify(m.recutDone, e.title || undefined, { route })
+      else if (e.status === 'failed') metis.notify(m.recutFailed, lines(e.title, e.error), { route })
+    } else if (e.type === 'job.status') {
       if (e.status === 'completed') {
         const n = e.clips ?? 0
         const campaign = e.campaign_ids?.[0]
         metis.notify(n > 0 ? m.jobDone(n) : m.jobDoneNone, lines(e.title, e.error), {
-          route: n > 0 ? (campaign ? `/clips/?campaign=${campaign}` : '/clips/') : QUEUE_HREF,
+          route: n > 0 ? `/clips/?${campaign ? `campaign=${campaign}&` : ''}job=${encodeURIComponent(e.id)}` : QUEUE_HREF,
         })
       } else if (e.status === 'failed') {
         metis.notify(m.jobFailed, lines(e.title, e.error), { route: QUEUE_HREF })

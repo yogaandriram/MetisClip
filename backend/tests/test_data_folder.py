@@ -290,12 +290,12 @@ def test_the_first_start_after_a_move_points_stored_paths_at_the_new_folder(db):
 INHERITED = (
     "C:\\Users\\x\\scratchpad\\data\\.metisclip\\db-credentials.json NT AUTHORITY\\SYSTEM:(I)(F)\r\n"
     "                                   BUILTIN\\Administrators:(I)(F)\r\n"
-    "                                   DESKTOP-JLTPJUO\\ASUS VivoBook:(I)(F)\r\n"
+    "                                   DESKTOP-UJI01\\Pengguna Uji:(I)(F)\r\n"
     "\r\n"
     "Successfully processed 1 files; Failed processing 0 files\r\n"
 )
 PRIVATE = (
-    "C:\\Users\\ASUS VivoBook\\MetisClip\\.metisclip\\db-credentials.json DESKTOP-JLTPJUO\\ASUS VivoBook:(F)\r\n"
+    "C:\\Users\\Pengguna Uji\\MetisClip\\.metisclip\\db-credentials.json DESKTOP-UJI01\\Pengguna Uji:(F)\r\n"
     "\r\n"
     "Berhasil memproses 1 file; Gagal memproses 0 file\r\n"
 )
@@ -327,7 +327,7 @@ def test_a_copied_credentials_file_is_made_private_again(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# The data folder itself: only this Windows account (§6.1 Permissions)
+# The data folder itself: only this Windows account
 # ---------------------------------------------------------------------------
 
 ME = "S-1-5-21-522631399-1311164166-3349481265-1001"

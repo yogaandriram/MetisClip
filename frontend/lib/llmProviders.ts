@@ -26,6 +26,7 @@ export const LLM_PROVIDERS: LlmProviderInfo[] = [
 
 export const LLM_SECRET_NAMES: LlmSecretName[] = LLM_PROVIDERS.map((p) => p.secret)
 
-export function providerInfo(id: LlmProvider): LlmProviderInfo {
-  return LLM_PROVIDERS.find((p) => p.id === id) || LLM_PROVIDERS[LLM_PROVIDERS.length - 1]
+/** The provider's details, or null when none is chosen yet (there is no default provider) */
+export function providerInfo(id: LlmProvider | '' | null | undefined): LlmProviderInfo | null {
+  return LLM_PROVIDERS.find((p) => p.id === id) ?? null
 }

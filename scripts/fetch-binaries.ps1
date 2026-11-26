@@ -52,6 +52,11 @@ $Pins = @(
     Sha256  = 'f5389d3698ecde4ef06f4e6b1ce0294fe9ac1396228c8990b8d3416d6d177a7d'
     Kind    = 'exe'
     Target  = 'yt-dlp.exe'
+    Extra   = @(
+      @{ Url = 'https://raw.githubusercontent.com/yt-dlp/yt-dlp/2026.10.26/LICENSE'
+         Sha256 = '7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c'
+         Dest = 'yt-dlp-LICENSE' }
+    )
   },
   @{
     Name    = 'deno'
@@ -61,6 +66,11 @@ $Pins = @(
     Kind    = 'zip'
     Take    = @('deno.exe')
     Target  = 'deno.exe'
+    Extra   = @(
+      @{ Url = 'https://raw.githubusercontent.com/denoland/deno/v2.9.8/LICENSE.md'
+         Sha256 = 'f62497fffecc0852960c8d3e6934b9db86d16396e9b604072e923892cae3a588'
+         Dest = 'deno-LICENSE.md' }
+    )
   },
   @{
     # Release tag b5454 = whisper.cpp 1.9.5. CPU x64 build: ggml picks the best ggml-cpu-*.dll for the
@@ -89,6 +99,23 @@ function Get-Sha256([string]$Path) {
   (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
 }
 
+# A pin's extra files (its license texts): fetched when missing or changed, also when the binary is already present
+function Get-Extras($p) {
+  foreach ($x in @($p.Extra)) {
+    if (-not $x) { continue }
+    $dest = Join-Path $BinDir $x.Dest
+    if (-not $Force -and (Test-Path -LiteralPath $dest) -and (Get-Sha256 $dest) -eq $x.Sha256.ToLowerInvariant()) { continue }
+    $xFile = Join-Path $TmpDir ([guid]::NewGuid().ToString('N'))
+    Invoke-WebRequest -Uri $x.Url -OutFile $xFile -UseBasicParsing
+    $xHash = Get-Sha256 $xFile
+    if ($xHash -ne $x.Sha256.ToLowerInvariant()) {
+      throw ("SHA256 mismatch for {0}: expected {1}, got {2}" -f $x.Url, $x.Sha256, $xHash)
+    }
+    Copy-Item -LiteralPath $xFile -Destination $dest -Force
+    Write-Host ("[ ok ] {0} (sha256 verified)" -f $x.Dest)
+  }
+}
+
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
 New-Item -ItemType Directory -Force -Path $TmpDir | Out-Null
 
@@ -104,6 +131,7 @@ try {
     $current = $manifest[$p.Name]
     if (-not $Force -and (Test-Path $targetPath) -and $current -eq $p.Version) {
       Write-Host ("[skip] {0} {1} already present" -f $p.Name, $p.Version)
+      Get-Extras $p
       continue
     }
 
@@ -143,16 +171,7 @@ try {
       }
     }
 
-    foreach ($x in @($p.Extra)) {
-      if (-not $x) { continue }
-      $xFile = Join-Path $TmpDir ([guid]::NewGuid().ToString('N'))
-      Invoke-WebRequest -Uri $x.Url -OutFile $xFile -UseBasicParsing
-      $xHash = Get-Sha256 $xFile
-      if ($xHash -ne $x.Sha256.ToLowerInvariant()) {
-        throw ("SHA256 mismatch for {0}: expected {1}, got {2}" -f $x.Url, $x.Sha256, $xHash)
-      }
-      Copy-Item -LiteralPath $xFile -Destination (Join-Path $BinDir $x.Dest) -Force
-    }
+    Get-Extras $p
 
     $manifest[$p.Name] = $p.Version
     Write-Host ("[done] {0} -> {1}" -f $p.Name, $targetPath)

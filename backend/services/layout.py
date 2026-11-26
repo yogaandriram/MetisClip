@@ -123,6 +123,10 @@ logger = logging.getLogger(__name__)
 MODES = ("full", "podcast", "card", "split", "duo", "auto")
 SOURCE_MODES = ("podcast", "card", "duo", "auto")  # modes that show source.mp4
 SCENE_MODES = ("duo", "auto")  # modes that pick a view per shot of the face scan
+# Output format (OUTPUT_FORMATS in frontend/lib/presets/position.ts): 9:16 uses the mode,
+# 1:1 and 16:9 show source.mp4 cropped per shot of the face scan whatever the mode
+FORMATS = ("vertical", "square", "landscape")
+FORMAT_LABELS = {"vertical": "9:16", "square": "1:1", "landscape": "16:9"}
 SCENE_VIEWS = ("full", "duo", "framed")
 FULL_OR_FRAMED = ("full", "framed")
 RATIOS = ("source", "16:9", "4:3", "1:1", "4:5")
@@ -300,6 +304,11 @@ def clean_layout(raw: Any, *, keep_safe_zone: bool = False) -> dict[str, Any]:
         out["mode"] = raw["mode"]
     if keep_safe_zone and raw.get("safeZone") in SAFE_ZONES:
         out["safeZone"] = raw["safeZone"]
+    # The format is picked per clip: a template (keep_safe_zone) stays 9:16, its previews are 9:16
+    if "format" in raw and not keep_safe_zone:
+        if raw["format"] not in FORMATS:
+            raise LayoutError(M("unknown_value", where="format"))
+        out["format"] = raw["format"]
     for section, keys in SCHEMA.items():
         part = raw.get(section)
         if part is None:
@@ -318,8 +327,9 @@ def merge(*patches: Any) -> dict[str, Any]:
     for p in patches:
         if not isinstance(p, dict):
             continue
-        if "mode" in p:
-            out["mode"] = p["mode"]
+        for key in ("mode", "format"):
+            if key in p:
+                out[key] = p[key]
         for section in SCHEMA:
             if isinstance(p.get(section), dict):
                 out[section] = {**out.get(section, {}), **p[section]}
@@ -421,14 +431,22 @@ def render_layout(clip: dict[str, Any], bt: dict[str, Any] | None) -> dict[str, 
     return apply_smart(effective_layout(clip, bt), clip)
 
 
+def output_format(layout: dict[str, Any]) -> str:
+    """'vertical' (9:16), 'square' (1:1) or 'landscape' (16:9)."""
+    fmt = layout.get("format")
+    return fmt if fmt in FORMATS else "vertical"
+
+
 def needs_source(layout: dict[str, Any]) -> bool:
-    """Podcast, card, duo and auto layouts show the clip's original-ratio video (source.mp4)."""
-    return layout.get("mode") in SOURCE_MODES
+    """Podcast, card, duo and auto layouts, and the 1:1 and 16:9 formats, show the clip's original-ratio
+    video (source.mp4)."""
+    return layout.get("mode") in SOURCE_MODES or output_format(layout) != "vertical"
 
 
 def needs_faces(layout: dict[str, Any]) -> bool:
-    """The duo and auto layouts pick a view per shot of the clip's face scan."""
-    return layout.get("mode") in SCENE_MODES
+    """The duo and auto layouts pick a view per shot of the clip's face scan (9:16 only: 1:1 and 16:9
+    point their crop at the faces when the scan exists, the center otherwise)."""
+    return output_format(layout) == "vertical" and layout.get("mode") in SCENE_MODES
 
 
 def mode_name(mode: str) -> str:

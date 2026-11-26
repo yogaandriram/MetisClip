@@ -1,5 +1,5 @@
 """
-Who may open the data folder (§6.1 Permissions).
+Who may open the data folder.
 
 A folder inside the user profile inherits the profile's access list: the user, SYSTEM and Administrators.
 One outside it, e.g. D:\\MetisClip, inherits the drive's, where every account of the PC may read the clips
